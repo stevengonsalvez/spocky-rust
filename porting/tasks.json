@@ -19,7 +19,9 @@
       { "id": "inventory_cloud", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "thread absent and permanently retired", "reason": "permission profile predates full-access authorization", "reuseForbidden": true }
     ],
     "permissionPreflights": [
-      { "id": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "result": "passed before work", "inheritsLeadPermissions": true }
+      { "id": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "result": "passed before work", "inheritsLeadPermissions": true },
+      { "id": "p2_browser_full", "canonicalThread": "/root/p2_browser_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "result": "passed before work", "inheritsLeadPermissions": true },
+      { "id": "p2_audio_delivery_full", "canonicalThread": "/root/p2_audio_delivery_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "result": "passed before work", "inheritsLeadPermissions": true }
     ]
   },
   "tasks": [
@@ -128,7 +130,9 @@
         { "task": "p2_state_lifecycle", "workerContext": "inventory_daemon", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed artifacts integrated; worker permanently retired", "branch": "phase2/state-lifecycle", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-state-lifecycle", "permittedPaths": ["crates/paseo-store/", "crates/paseo-domain/"] },
         { "task": "p2_platform_ui", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed and integrated", "branch": "phase2/platform-ui", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-platform-ui", "permittedPaths": ["crates/paseo-platform-bridge/", "crates/paseo-ui-pilot/"] },
         { "task": "p2_relay", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed and integrated", "branch": "phase2/relay", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-relay", "permittedPaths": ["crates/paseo-relay-pilot/"] },
-        { "task": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "active replacement after verified preflight", "branch": "phase2/cloud-plugin-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot", "permittedPaths": ["crates/paseo-hub-pilot/", "crates/paseo-plugin-pilot/"] }
+        { "task": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "active replacement after verified preflight", "branch": "phase2/cloud-plugin-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot", "permittedPaths": ["crates/paseo-hub-pilot/", "crates/paseo-plugin-pilot/"] },
+        { "task": "p2_browser_full", "canonicalThread": "/root/p2_browser_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "preflight passed; ready", "branch": "phase2/browser-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-browser-pilot", "permittedPaths": ["crates/paseo-browser-pilot/"] },
+        { "task": "p2_audio_delivery_full", "canonicalThread": "/root/p2_audio_delivery_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "preflight passed; ready", "branch": "phase2/audio-delivery-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-audio-delivery-pilot", "permittedPaths": ["crates/paseo-audio-delivery-pilot/"] }
       ],
       "blockedBy": null
     },
