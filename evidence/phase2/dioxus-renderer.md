@@ -7,7 +7,7 @@ Integrated checks passed on 2026-09-29:
 | Surface | Evidence | Result |
 |---|---|---|
 | Host semantic shell | two targeted tests | pass |
-| Browser | compile, WebAssembly launch, touch, accessibility | pass with debug overlay and bundle-size defects |
+| Browser | frozen release bundle, WebAssembly launch, touch, accessibility | partial: baseline comparison and offline matrix open |
 | macOS desktop | `x86_64-apple-darwin` compile | pass |
 | Android mobile | compile, unsigned APK, AVD launch, touch, accessibility | pass with cold-start performance defect |
 | iOS mobile | `aarch64-apple-ios` compile | blocked: iphoneos SDK absent |
@@ -26,7 +26,7 @@ Raw macOS launch output is retained at
 `evidence/raw/phase2/dioxus-desktop-launch.log`. It is 7,735 bytes with SHA-256
 `0e7f6a76e12fe18aedd3d18c3e9ededdd1847a34f40c1ae20fe4eaa691da8a48`.
 
-No pinned-baseline visual comparison, production browser bundle, iOS compile,
+No pinned-baseline visual comparison, iOS compile,
 Windows or Linux launch, IPA, desktop bundle, signed artifact, native adapter,
 upgrade, rollback, or uninstall evidence exists. Current runtime evidence cannot
 select the renderer.

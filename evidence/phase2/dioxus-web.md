@@ -33,6 +33,15 @@ production bundle proves it absent. The debug WASM response transferred
 requested Inter CSS from Google Fonts. Bundle size, offline behavior, and external
 font ownership remain open.
 
+## Frozen release bundle
+
+A `--release --frozen` build removed the rebuild overlay and external font
+request. The WebAssembly file fell to 528,846 bytes, with a 529,146-byte browser
+transfer. Navigation completed in 256.5 ms at the same 1049 by 914 CSS-pixel
+viewport. Runtime semantics and the Reviewer state transition passed with no
+console messages. This closes the debug-overlay, external-font, and debug-size
+defects. Offline behavior and parity thresholds remain open.
+
 ## Retained raw evidence
 
 Raw files remain ignored under `evidence/raw/phase2/`; build outputs remain under
@@ -45,7 +54,12 @@ ignored `target/`.
 | `index.html` | 7,365 | `c7774eb5daca637585476dc7296588839900f04b295feca4da6eeca973132771` |
 | `paseo-ui-web.js` | 66,984 | `bbd902fb46e0f6e993e574639682a7004242f15f72d1096c0a5983ba192577c9` |
 | `paseo-ui-web_bg.wasm` | 17,445,306 | `3d8833b6b9569f6ad570d579d291a69ab2423b06f75735f6d40efeadad7191a4` |
+| `dioxus-web-release/reviewer.png` | 73,175 | `8d47af4dfed33778a5ccb671a997265980c2cf8cdc35c10d390ab67df33e8a39` |
+| `dioxus-web-release-server.log` | 531 | `baddb79793331d8c7a3688979a91cb9055b411aab689efc9d22cf187c01ea474` |
+| release `index.html` | 525 | `bfba25ed3e0b6b9aa15fef03671b70f5e907331c097696c5f47362d00fe4caf4` |
+| release JavaScript | 62,992 | `4f1cea41295acc8878f922f83db40674cc95fbe12f119dd7888ec389322f5415` |
+| release WebAssembly | 528,846 | `4bd9f8aa5949bb305eda5e4eaaba7b71999b1953fdc382c9abca4854c743a087` |
 
 No pinned-baseline screenshot comparison, keyboard path, reduced-motion path,
-offline path, responsive viewport matrix, production bundle, browser packaging,
-upgrade, rollback, or uninstall evidence exists.
+offline path, responsive viewport matrix, baseline browser packaging, upgrade,
+rollback, or uninstall evidence exists.

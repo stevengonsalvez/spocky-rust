@@ -24,8 +24,8 @@
     },
     "webCompile": {
       "state": "passed",
-      "detail": "Dioxus web binary compiled for wasm32-unknown-unknown.",
-      "command": "cargo check --locked --target wasm32-unknown-unknown --no-default-features --features web --bin paseo-ui-web"
+      "detail": "Dioxus web binary compiled and produced a frozen release bundle for wasm32-unknown-unknown.",
+      "command": ".tools/bin/dx build --web -p paseo-ui-renderer-pilot --bin paseo-ui-web --no-default-features --features web --bundle web --release --frozen"
     },
     "desktopCompile": {
       "state": "passed",
@@ -43,24 +43,24 @@
       "command": "cargo check --locked --target aarch64-linux-android --no-default-features --features mobile --bin paseo-ui-mobile"
     },
     "launch": {
-      "state": "unproven",
-      "detail": "No browser, desktop WebView, simulator, or device renderer was launched."
+      "state": "partial",
+      "detail": "Release browser and Android AVD runtimes launched with touch-state transitions. A macOS process launched without capturable window evidence; other hosts remain unproven."
     },
     "visual": {
-      "state": "unproven",
-      "detail": "Deterministic SSR HTML passed, but no screenshot or pixel comparison was captured."
+      "state": "partial",
+      "detail": "Android and browser candidate screenshots were captured, but no pinned-baseline pixel comparison exists."
     },
     "accessibility": {
-      "state": "passed",
-      "detail": "SSR contract verifies semantic main, nav, buttons, pressed state, status role, live region, names, and stable focusable order; screen-reader behavior remains unproven."
+      "state": "partial",
+      "detail": "SSR, browser, and Android runtime trees expose semantic navigation, buttons, status, names, and order; screen-reader behavior remains unproven."
     },
     "native": {
       "state": "unsupported",
       "detail": "Pilot web, desktop, and mobile surfaces use HTML/CSS DOM or WebView renderers; platform-native widgets and experimental Dioxus Native were not implemented."
     },
     "packaging": {
-      "state": "unproven",
-      "detail": "Cargo checks produced no web deployment, macOS bundle, IPA, APK, signing, or store artifact."
+      "state": "partial",
+      "detail": "A frozen browser release bundle and unsigned Android debug APK exist. macOS bundle, IPA, signed artifacts, installers, updates, and rollback remain unproven."
     }
   },
   "sources": [
@@ -71,6 +71,6 @@
   ],
   "decision": {
     "sufficientToSelect": false,
-    "reason": "Cross-target compile and semantic DOM evidence are promising, but launch, visual behavior, assistive-technology behavior, iOS compilation, native integration, and packaging remain unsupported or unproven."
+    "reason": "Browser and Android runtime evidence is partial. Pinned-baseline visuals, assistive-technology behavior, iOS, Windows, Linux, native integration, and delivery remain unsupported or unproven."
   }
 }
