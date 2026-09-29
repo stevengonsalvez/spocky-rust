@@ -44,6 +44,11 @@ pub enum BaselineError {
         expected: String,
         actual: String,
     },
+    TrackedChanges {
+        name: String,
+        path: PathBuf,
+        changes: String,
+    },
 }
 
 impl Display for BaselineError {
@@ -63,6 +68,15 @@ impl Display for BaselineError {
             } => write!(
                 formatter,
                 "{name} baseline at {} is {actual}, expected {expected}",
+                path.display()
+            ),
+            Self::TrackedChanges {
+                name,
+                path,
+                changes,
+            } => write!(
+                formatter,
+                "{name} baseline at {} has tracked changes: {changes}",
                 path.display()
             ),
         }
@@ -91,6 +105,14 @@ fn verify_baseline(baseline: &Baseline) -> Result<VerifiedBaseline, BaselineErro
             actual,
         });
     }
+    let changes = git_tracked_changes(&baseline.name, &baseline.path)?;
+    if !changes.is_empty() {
+        return Err(BaselineError::TrackedChanges {
+            name: baseline.name.clone(),
+            path: baseline.path.clone(),
+            changes,
+        });
+    }
 
     Ok(VerifiedBaseline {
         name: baseline.name.clone(),
@@ -98,6 +120,25 @@ fn verify_baseline(baseline: &Baseline) -> Result<VerifiedBaseline, BaselineErro
         expected: baseline.expected.clone(),
         actual,
     })
+}
+
+fn git_tracked_changes(name: &str, path: &Path) -> Result<String, BaselineError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["status", "--porcelain=v1", "--untracked-files=no"])
+        .output()
+        .map_err(|error| BaselineError::GitUnavailable(error.to_string()))?;
+
+    if !output.status.success() {
+        return Err(BaselineError::GitCommandFailed {
+            name: name.to_owned(),
+            path: path.to_path_buf(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 fn git_head(name: &str, path: &Path) -> Result<String, BaselineError> {
