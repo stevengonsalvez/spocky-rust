@@ -221,11 +221,69 @@ impl AgentStore {
 }
 
 fn cwd_key(cwd: &str) -> String {
-    let trimmed = cwd.trim_start_matches(['/', '\\']);
-    if trimmed.is_empty() {
-        return "root".to_owned();
+    let root_end = win32_root_end(cwd);
+    let (root, remainder) = cwd.split_at(root_end);
+    let remainder = remainder.trim_end_matches(['/', '\\']);
+    let sanitized_root = collapse_path_delimiters(root, true)
+        .trim_matches('-')
+        .to_owned();
+    let sanitized_remainder = collapse_path_delimiters(remainder, false);
+
+    match (sanitized_root.is_empty(), sanitized_remainder.is_empty()) {
+        (true, true) => "root".to_owned(),
+        (true, false) => sanitized_remainder,
+        (false, true) => sanitized_root,
+        (false, false) => format!("{sanitized_root}-{sanitized_remainder}"),
     }
-    trimmed.replace(['/', '\\'], "-")
+}
+
+fn win32_root_end(path: &str) -> usize {
+    let bytes = path.as_bytes();
+    let is_separator = |byte: u8| matches!(byte, b'/' | b'\\');
+
+    if bytes.len() >= 2 && is_separator(bytes[0]) && is_separator(bytes[1]) {
+        let Some(server_end) = bytes[2..]
+            .iter()
+            .position(|byte| is_separator(*byte))
+            .map(|offset| offset + 2)
+        else {
+            return path.len();
+        };
+        let share_start = server_end + 1;
+        return bytes[share_start..]
+            .iter()
+            .position(|byte| is_separator(*byte))
+            .map_or(path.len(), |offset| share_start + offset + 1);
+    }
+
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return if bytes.get(2).is_some_and(|byte| is_separator(*byte)) {
+            3
+        } else {
+            2
+        };
+    }
+
+    usize::from(bytes.first().is_some_and(|byte| is_separator(*byte)))
+}
+
+fn collapse_path_delimiters(value: &str, include_colon: bool) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut previous_was_delimiter = false;
+
+    for character in value.chars() {
+        let is_delimiter = matches!(character, '/' | '\\') || (include_colon && character == ':');
+        if is_delimiter {
+            if !previous_was_delimiter {
+                result.push('-');
+            }
+        } else {
+            result.push(character);
+        }
+        previous_was_delimiter = is_delimiter;
+    }
+
+    result
 }
 
 #[must_use]

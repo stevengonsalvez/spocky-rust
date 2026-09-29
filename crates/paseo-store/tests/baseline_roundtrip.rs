@@ -92,3 +92,36 @@ fn invalid_required_field_is_rejected() {
         "missing required string field 'updatedAt'"
     );
 }
+
+#[test]
+fn project_directory_names_match_baseline_path_rules() {
+    let fixture_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/baseline-agent.json");
+    let fixture_text = fs::read_to_string(fixture_path).expect("read frozen baseline fixture");
+    let fixture_json: Value = serde_json::from_str(&fixture_text).expect("fixture is JSON");
+
+    for (cwd, expected) in [
+        ("/tmp/project/", "tmp-project"),
+        ("/", "root"),
+        (r"D:\Users\dev\MyProject", "D-Users-dev-MyProject"),
+        (r"D:\", "D"),
+        (r"\\server\share\folder\", "server-share-folder"),
+    ] {
+        let mut value = fixture_json.clone();
+        value["cwd"] = Value::String(cwd.to_owned());
+        let record = StoredAgentRecord::from_json(&value.to_string()).expect("record is valid");
+        let disposable = TestDir::new();
+        let written = AgentStore::new(disposable.path())
+            .write(&record)
+            .expect("record writes");
+
+        assert_eq!(
+            written
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str()),
+            Some(expected),
+            "cwd {cwd}"
+        );
+    }
+}
