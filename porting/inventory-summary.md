@@ -41,7 +41,7 @@ These counts are inventory observations, not parity proof. Fixture generation re
 
 ## Review status
 
-Two independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac`. Fresh review pairs rejected repaired candidates `018c58144fe1457e15521fd9feabab3db7e44569` and `f7fc96ca51ee1d54c13327874de1bb0c9eb9636c`. Candidate `89893dd5349472f120ab7d3ed65a67423babab8f` received one acceptance and one rejection. Repair remains Phase 1 work until two fresh reviews accept the same frozen commit.
+Two independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac`. Fresh review pairs rejected repaired candidates `018c58144fe1457e15521fd9feabab3db7e44569` and `f7fc96ca51ee1d54c13327874de1bb0c9eb9636c`. Candidate `89893dd5349472f120ab7d3ed65a67423babab8f` received one acceptance and one rejection. Two fresh reviewers accepted signed candidate `2fa22be761a0fbec42fd759df69bff37e248824c`; Phase 1 is complete.
 
 ## Preserved baseline defects
 

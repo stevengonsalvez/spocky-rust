@@ -82,4 +82,4 @@ Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrati
 
 ## Current boundary
 
-Phase 1 repair is awaiting repeat adversarial review. No parity milestone is complete. No runtime compatibility exception is accepted.
+Phase 1 inventory and architecture freeze passed paired adversarial review at signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2 differential harness and pilots are next. No runtime parity milestone is complete. No runtime compatibility exception is accepted.
