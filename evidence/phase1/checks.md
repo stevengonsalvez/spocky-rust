@@ -39,4 +39,4 @@ $ git diff --check
 exit 0
 ```
 
-Checked on 2026-09-29 against signed baseline-verifier repair `419848354b6299b74282aee9db99688284e7486f`, signed inventory repair `57234f4a5a2ed4822f174f61a5dbc2031af844dd`, signed contract repair `bac2d0ce08be9538233dbb808416ec9ae5887d65`, and signed second contract repair `614f055afd079639ba26da7127561527590c0712`. The three mounted secondary baselines had no changes. The Paseo reference had only the pre-existing untracked `.agents/goals/` and `logs/` paths.
+Checked on 2026-09-29 against signed baseline-verifier repair `419848354b6299b74282aee9db99688284e7486f`, signed inventory repair `57234f4a5a2ed4822f174f61a5dbc2031af844dd`, signed contract repair `bac2d0ce08be9538233dbb808416ec9ae5887d65`, signed second contract repair `614f055afd079639ba26da7127561527590c0712`, and signed client workflow repair `3ab2fd525804c1f776bd72b2d0538fd96c4b8bf7`. The three mounted secondary baselines had no changes. The Paseo reference had only the pre-existing untracked `.agents/goals/` and `logs/` paths.
