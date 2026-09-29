@@ -1,0 +1,73 @@
+{
+  "id": "agent-baseline-roundtrip",
+  "provider": "codex",
+  "cwd": "/tmp/paseo contract project",
+  "workspaceId": "workspace-contract",
+  "createdAt": "2026-09-20T09:00:00.000Z",
+  "updatedAt": "2026-09-20T09:05:00.000Z",
+  "lastActivityAt": "2026-09-20T09:04:59.000Z",
+  "lastUserMessageAt": null,
+  "title": "Frozen baseline agent",
+  "labels": {
+    "paseo.parentAgentId": "parent-contract",
+    "lane": "state-lifecycle"
+  },
+  "lastStatus": "closed",
+  "lastModeId": "full-access",
+  "config": {
+    "modeId": "full-access",
+    "model": "gpt-5.6-codex",
+    "thinkingOptionId": null,
+    "featureValues": {
+      "fast_mode": true,
+      "future_feature": {
+        "enabled": true
+      }
+    },
+    "providerOptions": {
+      "futureProviderOption": ["alpha", 7, false]
+    },
+    "mcpServers": {
+      "custom": {
+        "type": "http",
+        "url": "https://example.invalid/mcp",
+        "futureTransportField": {
+          "retry": 3
+        }
+      }
+    }
+  },
+  "runtimeInfo": {
+    "provider": "codex",
+    "sessionId": "session-contract",
+    "model": "gpt-5.6-codex",
+    "modeId": "full-access",
+    "extra": {
+      "futureRuntimeField": {
+        "nested": "preserved"
+      }
+    }
+  },
+  "features": ["session_persistence"],
+  "persistence": {
+    "provider": "codex",
+    "sessionId": "session-contract",
+    "nativeHandle": {
+      "threadId": "thread-contract",
+      "futureNativeField": 42
+    },
+    "metadata": {
+      "marker": "ROUNDTRIP_MARKER",
+      "futureMetadataField": [1, 2, 3]
+    }
+  },
+  "lastError": null,
+  "requiresAttention": false,
+  "attentionReason": null,
+  "attentionTimestamp": null,
+  "internal": false,
+  "archivedAt": null,
+  "owner": {
+    "kind": "user"
+  }
+}
