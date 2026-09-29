@@ -120,7 +120,7 @@
       "revisions": ["Phase 1 paired acceptance unblocked Phase 2", "Original restricted cloud/plugin worker interrupted after EPERM; files and checkpoint preserved", "Fresh Sol-medium full-access replacement passed permission preflight before continuing"],
       "reviews": [],
       "repairs": [],
-      "evidence": ["evidence/phase2/baseline-captures.md", "porting/pilots/tool-selection.md"],
+      "evidence": ["evidence/phase2/baseline-captures.md", "evidence/phase2/platform-target-checks.md", "porting/pilots/tool-selection.md"],
       "resources": ["isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "repository-local Rust target toolchains", "port 6767 untouched"],
       "workers": [
         { "task": "p2_harness", "model": "gpt-5.6-sol", "effort": "medium", "branch": "phase2/harness", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-harness", "permittedPaths": ["crates/paseo-differential/"] },

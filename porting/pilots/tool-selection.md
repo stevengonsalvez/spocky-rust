@@ -9,7 +9,9 @@ Captured on 2026-09-29:
 ```text
 rustc 1.94.0 (4a4ef493e 2026-03-02)
 cargo 1.94.0 (85eff7c80 2026-01-15)
-installed Rust target: x86_64-apple-darwin
+repository-local Rust targets: aarch64-apple-ios, aarch64-linux-android,
+wasm32-unknown-unknown, x86_64-apple-darwin, x86_64-pc-windows-msvc,
+x86_64-unknown-linux-gnu
 Xcode: unavailable
 Java: unavailable
 adb: unavailable
@@ -21,6 +23,10 @@ npm: 11.19.0
 ```
 
 These absences are test-environment facts, not compatibility exceptions or evidence that a candidate cannot work.
+
+The platform bridge and UI pilot compile for every repository-local target above.
+This proves target compilation only. It does not satisfy launch, visual,
+accessibility, native adapter, packaging, or update cases.
 
 ## Executable cases
 
