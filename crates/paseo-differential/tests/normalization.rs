@@ -280,6 +280,81 @@ fn executable_runner_terminates_timed_out_processes() {
 }
 
 #[test]
+fn executable_runner_rejects_identical_malformed_json() {
+    let process = ProcessSpec {
+        program: "/bin/sh".into(),
+        arguments: vec![
+            "-c".into(),
+            "printf 'not-json' > structured.json; printf '{\"fixtures\":0,\"assertions\":0}' > counts.json"
+                .into(),
+        ],
+        environment: BTreeMap::new(),
+        timeout_ms: 1_000,
+    };
+    let plan = minimal_plan(
+        "malformed-json",
+        process,
+        CapturePlan {
+            structured_output: Some("structured.json".into()),
+            counts: Some("counts.json".into()),
+            ..CapturePlan::default()
+        },
+    );
+
+    let report = run_differential(&plan).expect("malformed captures produce a report");
+
+    assert!(!report.equivalent);
+    assert_eq!(
+        report.differences,
+        vec![Comparison::different("structured_output")]
+    );
+}
+
+#[test]
+fn executable_runner_rejects_identical_spawn_failures() {
+    let process = ProcessSpec {
+        program: "/definitely/missing/paseo-program".into(),
+        arguments: Vec::new(),
+        environment: BTreeMap::new(),
+        timeout_ms: 1_000,
+    };
+    let plan = minimal_plan("spawn-failure", process, CapturePlan::default());
+
+    let report = run_differential(&plan).expect("spawn failures produce a report");
+
+    assert!(!report.equivalent);
+    assert_eq!(
+        report.differences,
+        vec![
+            Comparison::different("stdout"),
+            Comparison::different("stderr"),
+            Comparison::different("exit_code"),
+            Comparison::different("counts:expected"),
+        ]
+    );
+}
+
+fn minimal_plan(id: &str, process: ProcessSpec, captures: CapturePlan) -> RunPlan {
+    RunPlan {
+        scenario: Scenario {
+            id: id.into(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            initial_files: Vec::new(),
+            expected_counts: ExecutionCounts {
+                fixtures: 0,
+                assertions: 0,
+            },
+        },
+        original: process.clone(),
+        rust: process,
+        state_environment_variable: "PASEO_DIFFERENTIAL_STATE".into(),
+        captures,
+        normalization_rules: Vec::new(),
+    }
+}
+
+#[test]
 fn binary_writes_the_deterministic_manifest() {
     let directory = TestDirectory::new();
     let plan_path = directory.path.join("plan.json");
