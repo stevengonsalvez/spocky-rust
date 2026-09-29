@@ -33,7 +33,7 @@ Exact generated indexes under `porting/details/` retain these records:
 | Delivery inputs | 64 |
 | Total retained records | 9,248 |
 
-The capability matrix has 90 source-backed rows. Rejected reviews drove explicit mappings for skills, workspace-label recovery, push, speech and model downloads, Hub MCP behavior, importer WAL rejection, relay protocol limits, workspaces, scripts, daemon configuration, hosted web UI, usage, message receipts, daemon MCP, Hub setup and configuration, Hub daemon and session authority, attachments, plugin lifecycle, client preferences and profiles, command search, and settings restart recovery.
+The capability matrix has 94 source-backed rows. Rejected reviews drove explicit mappings for skills, workspace-label recovery, push, speech and model downloads, Hub MCP behavior, importer WAL rejection, relay protocol limits, workspaces, scripts, daemon configuration, hosted web UI, usage, message receipts, daemon MCP, Hub setup and configuration, Hub daemon and session authority, attachments, plugin lifecycle, client preferences and profiles, command search, settings restart recovery, creation, schedule editing, History, and client usage presentation.
 
 Native audio currently has no automated native tests. Hub exposes PostgreSQL and embedded PGlite migrations. Relay exposes distributed ownership, reroute, bounded flow control, readiness, and load-shedding contracts. Importer supports Conductor with macOS discovery and explicit cross-platform database selection.
 
@@ -41,7 +41,7 @@ These counts are inventory observations, not parity proof. Fixture generation re
 
 ## Review status
 
-Two independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac`. Fresh review pairs rejected repaired candidates `018c58144fe1457e15521fd9feabab3db7e44569` and `f7fc96ca51ee1d54c13327874de1bb0c9eb9636c`. Repair remains Phase 1 work until two fresh reviews accept the same frozen commit.
+Two independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac`. Fresh review pairs rejected repaired candidates `018c58144fe1457e15521fd9feabab3db7e44569` and `f7fc96ca51ee1d54c13327874de1bb0c9eb9636c`. Candidate `89893dd5349472f120ab7d3ed65a67423babab8f` received one acceptance and one rejection. Repair remains Phase 1 work until two fresh reviews accept the same frozen commit.
 
 ## Preserved baseline defects
 

@@ -17,11 +17,11 @@
     {
       "id": "P1-INVENTORY",
       "capabilities": [
-        "DPRO-001", "DPRO-002", "DPRO-003", "DPRO-004", "DSEC-001", "DSEC-002", "DSEC-003", "DSTA-001", "DLIF-001", "DLIF-002", "DLIF-003", "DPRV-001", "DPRV-002", "DPRV-003", "DTRM-001", "DTRM-002", "DTRM-003", "DSCH-001", "DSCH-002", "DGIT-001", "DGIT-002", "DGIT-003", "DFIL-001", "DFIL-002", "DBRW-001", "DSVC-001", "DSDK-001", "DCLI-001", "DOPS-001", "CLIENT-001", "CLIENT-002", "CLIENT-003", "CLIENT-004", "CLIENT-005", "CLIENT-006", "CLIENT-007", "CLIENT-008", "CLIENT-009", "CLIENT-010", "CLIENT-011", "CLIENT-012", "CLIENT-013", "CLIENT-014", "CLOUD-HUB-REL-001", "CLOUD-HUB-EXEC-002", "CLOUD-HUB-CLI-003", "CLOUD-HUB-AUTH-004", "CLOUD-HUB-INTEGRATIONS-005", "CLOUD-HUB-BILLING-006", "CLOUD-RELAY-E2EE-007", "CLOUD-RELAY-DAEMON-008", "CLOUD-RELAY-LEGACY-009", "CLOUD-RELAY-PROD-010", "CLOUD-IMPORT-LOCAL-011", "CLOUD-IMPORT-EXT-012", "CLOUD-WEB-013", "CLOUD-DELIVERY-014", "CLOUD-HUB-DATA-015", "CLOUD-HUB-TRIGGERS-016", "CLOUD-HUB-DASH-017", "CLOUD-HUB-DEPLOY-018", "CLOUD-HUB-API-019", "CLOUD-RELAY-REROUTE-020", "CLOUD-RELAY-FLOW-021", "CLOUD-RELAY-E2EE-022", "CLOUD-RELAY-OPS-023", "CLOUD-IMPORT-PLATFORM-024", "DSKL-001", "DWLABEL-001", "DPUSH-001", "DSPH-001", "CLOUD-HUB-MCP-025", "CLOUD-IMPORT-WAL-026", "CLOUD-RELAY-PROTOCOL-027", "DWORK-001", "DSCRIPT-001", "DCFG-001", "DWEB-001", "DUSAGE-001", "DRECEIPT-001", "DMCP-001", "CLOUD-HUB-SETUP-028", "CLOUD-HUB-CONFIG-029", "CLOUD-HUB-DAEMON-030", "CLOUD-HUB-SESSIONS-031", "CLOUD-HUB-ATTACH-032", "DPLUGIN-001", "CLIENT-015", "CLIENT-016", "CLIENT-017"
+        "DPRO-001", "DPRO-002", "DPRO-003", "DPRO-004", "DSEC-001", "DSEC-002", "DSEC-003", "DSTA-001", "DLIF-001", "DLIF-002", "DLIF-003", "DPRV-001", "DPRV-002", "DPRV-003", "DTRM-001", "DTRM-002", "DTRM-003", "DSCH-001", "DSCH-002", "DGIT-001", "DGIT-002", "DGIT-003", "DFIL-001", "DFIL-002", "DBRW-001", "DSVC-001", "DSDK-001", "DCLI-001", "DOPS-001", "CLIENT-001", "CLIENT-002", "CLIENT-003", "CLIENT-004", "CLIENT-005", "CLIENT-006", "CLIENT-007", "CLIENT-008", "CLIENT-009", "CLIENT-010", "CLIENT-011", "CLIENT-012", "CLIENT-013", "CLIENT-014", "CLOUD-HUB-REL-001", "CLOUD-HUB-EXEC-002", "CLOUD-HUB-CLI-003", "CLOUD-HUB-AUTH-004", "CLOUD-HUB-INTEGRATIONS-005", "CLOUD-HUB-BILLING-006", "CLOUD-RELAY-E2EE-007", "CLOUD-RELAY-DAEMON-008", "CLOUD-RELAY-LEGACY-009", "CLOUD-RELAY-PROD-010", "CLOUD-IMPORT-LOCAL-011", "CLOUD-IMPORT-EXT-012", "CLOUD-WEB-013", "CLOUD-DELIVERY-014", "CLOUD-HUB-DATA-015", "CLOUD-HUB-TRIGGERS-016", "CLOUD-HUB-DASH-017", "CLOUD-HUB-DEPLOY-018", "CLOUD-HUB-API-019", "CLOUD-RELAY-REROUTE-020", "CLOUD-RELAY-FLOW-021", "CLOUD-RELAY-E2EE-022", "CLOUD-RELAY-OPS-023", "CLOUD-IMPORT-PLATFORM-024", "DSKL-001", "DWLABEL-001", "DPUSH-001", "DSPH-001", "CLOUD-HUB-MCP-025", "CLOUD-IMPORT-WAL-026", "CLOUD-RELAY-PROTOCOL-027", "DWORK-001", "DSCRIPT-001", "DCFG-001", "DWEB-001", "DUSAGE-001", "DRECEIPT-001", "DMCP-001", "CLOUD-HUB-SETUP-028", "CLOUD-HUB-CONFIG-029", "CLOUD-HUB-DAEMON-030", "CLOUD-HUB-SESSIONS-031", "CLOUD-HUB-ATTACH-032", "DPLUGIN-001", "CLIENT-015", "CLIENT-016", "CLIENT-017", "CLIENT-018", "CLIENT-019", "CLIENT-020", "CLIENT-021"
       ],
       "dependencies": [],
       "priority": 1,
-      "state": "reviewing",
+      "state": "verifying",
       "owner": "Sol lead",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
       "branch": "main",
@@ -56,7 +56,9 @@
         "First repeat candidate rejected by both fresh Astra-xhigh reviews",
         "Sol repair adds nine explicit daemon and Hub behavioral contract families",
         "Second repeat candidate rejected by both fresh Astra-xhigh reviews",
-        "Sol repair adds seven Hub, plugin, and client behavioral contract families"
+        "Sol repair adds seven Hub, plugin, and client behavioral contract families",
+        "Third repeat candidate received one acceptance and one rejection",
+        "Sol repair adds four client workflow contract families"
       ],
       "reviews": [
         { "reviewer": "phase1_review_a", "model": "gpt-6-astra", "effort": "xhigh", "commit": "5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-a.md" },
@@ -64,7 +66,9 @@
         { "reviewer": "phase1_rereview_a", "model": "gpt-6-astra", "effort": "xhigh", "commit": "018c58144fe1457e15521fd9feabab3db7e44569", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-c.md" },
         { "reviewer": "phase1_rereview_b", "model": "gpt-6-astra", "effort": "xhigh", "commit": "018c58144fe1457e15521fd9feabab3db7e44569", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-d.md" },
         { "reviewer": "phase1_rereview_c", "model": "gpt-6-astra", "effort": "xhigh", "commit": "f7fc96ca51ee1d54c13327874de1bb0c9eb9636c", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-e.md" },
-        { "reviewer": "phase1_rereview_d", "model": "gpt-6-astra", "effort": "xhigh", "commit": "f7fc96ca51ee1d54c13327874de1bb0c9eb9636c", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-f.md" }
+        { "reviewer": "phase1_rereview_d", "model": "gpt-6-astra", "effort": "xhigh", "commit": "f7fc96ca51ee1d54c13327874de1bb0c9eb9636c", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-f.md" },
+        { "reviewer": "phase1_rereview_e", "model": "gpt-6-astra", "effort": "xhigh", "commit": "89893dd5349472f120ab7d3ed65a67423babab8f", "mode": "read-only", "result": "accepted", "artifact": "evidence/phase1/review-g.md" },
+        { "reviewer": "phase1_rereview_f", "model": "gpt-6-astra", "effort": "xhigh", "commit": "89893dd5349472f120ab7d3ed65a67423babab8f", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-h.md" }
       ],
       "repairs": [
         "419848354b6299b74282aee9db99688284e7486f rejects tracked baseline modifications and removes the machine-specific Paseo source path",
@@ -112,7 +116,7 @@
     },
     {
       "id": "P4-ECOSYSTEM",
-      "capabilities": ["all 90 inventory families and future child contracts"],
+      "capabilities": ["all 94 inventory families and future child contracts"],
       "dependencies": ["P3-VERTICAL-SLICE"],
       "priority": 4,
       "state": "blocked",
