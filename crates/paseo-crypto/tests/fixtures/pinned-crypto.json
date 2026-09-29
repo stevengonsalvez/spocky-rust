@@ -1,0 +1,11 @@
+{
+  "baseline": "5de45e208690b0efc51c59a585ae9729325a9204",
+  "tweetnacl": "1.0.3",
+  "alicePublic": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f",
+  "bobPublic": "358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254",
+  "alicePublicBase64": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+  "bobPublicBase64": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ=",
+  "shared": "429b61f5d96e37268dfc5114849d599c9ceabffdb68c1f52cd0499af30f5b377",
+  "bundle": "0102030405060708090a0b0c0d0e0f101112131415161718b362ac0cbbf5414d4f168693392368f2583583ac75d93e84efe66a",
+  "opened": "0001027f80ff506173656f"
+}

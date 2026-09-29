@@ -62,6 +62,31 @@ fn xsalsa20_poly1305_bundle_matches_tweetnacl_1_0_3() {
 }
 
 #[test]
+fn rust_matches_the_pinned_original_runtime_capture() {
+    let capture: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/pinned-crypto.json"))
+            .expect("pinned capture is JSON");
+    assert_eq!(
+        capture["baseline"],
+        "5de45e208690b0efc51c59a585ae9729325a9204"
+    );
+    assert_eq!(capture["tweetnacl"], "1.0.3");
+
+    let shared: [u8; 32] = decode_hex(capture["shared"].as_str().expect("shared is a string"))
+        .try_into()
+        .expect("shared key is 32 bytes");
+    let bundle = decode_hex(capture["bundle"].as_str().expect("bundle is a string"));
+    let plaintext = decode_hex(capture["opened"].as_str().expect("opened is a string"));
+    let nonce = &bundle[..24];
+
+    assert_eq!(
+        encrypt_with_nonce(&shared, nonce, &plaintext).unwrap(),
+        bundle
+    );
+    assert_eq!(decrypt(&shared, &bundle).unwrap(), plaintext);
+}
+
+#[test]
 fn generated_keys_and_random_nonce_frames_round_trip() {
     let alice = generate_key_pair();
     let bob = generate_key_pair();
@@ -151,4 +176,13 @@ const fn nibble(byte: u8) -> u8 {
         b'a'..=b'f' => byte - b'a' + 10,
         _ => panic!("invalid hex fixture"),
     }
+}
+
+fn decode_hex(input: &str) -> Vec<u8> {
+    assert!(input.len().is_multiple_of(2), "hex fixture has even length");
+    input
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| (nibble(pair[0]) << 4) | nibble(pair[1]))
+        .collect()
 }
