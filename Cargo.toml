@@ -5,6 +5,7 @@ members = [
   "crates/paseo-differential",
   "crates/paseo-domain",
   "crates/paseo-platform-bridge",
+  "crates/paseo-relay-pilot",
   "crates/paseo-store",
   "crates/paseo-ui-pilot",
   "crates/paseo-wire",

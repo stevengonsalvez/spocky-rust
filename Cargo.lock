@@ -235,6 +235,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paseo-relay-pilot"
+version = "0.1.0"
+dependencies = [
+ "paseo-crypto",
+]
+
+[[package]]
 name = "paseo-store"
 version = "0.1.0"
 dependencies = [
