@@ -28,7 +28,7 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 exit 0
 
 $ ruby scripts/validate_inventory.rb
-capabilities=74 unique_ids=74 dependency_dag=valid
+capabilities=83 unique_ids=83 dependency_dag=valid
 source_and_test_paths=valid detail_records=9248
 exit 0
 

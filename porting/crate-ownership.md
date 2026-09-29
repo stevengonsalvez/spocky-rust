@@ -37,12 +37,12 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 | Boundary | Capability families |
 |---|---|
 | `paseo-store` | `DSTA`, `DWLABEL`, old state, migrations, atomic writes, journal recovery |
-| `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH` |
+| `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH`, `DWORK`, `DSCRIPT`, `DCFG`, `DWEB`, `DUSAGE`, `DRECEIPT`, `DMCP` |
 | `paseo-provider-api` and provider crates | `DPRV` and external provider process adapters |
 | `paseo-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC` |
 | `paseo-daemon-relay` | `CLOUD-RELAY-DAEMON` |
 | `paseo-relay` | Distributed ownership, reroute, flow control, operations |
-| `paseo-hub` | Auth, API, store, workflows, integrations, billing, deployment |
+| `paseo-hub` | Auth, first-run setup, configuration compiler, API, store, workflows, integrations, billing, deployment |
 | `paseo-client` | `DSDK`, `CLIENT-002` through `CLIENT-007` shared behavior |
 | `paseo-cli` | `DCLI`, Hub CLI, exact process output and exit behavior |
 | `paseo-plugin` | Plugin manifest, server/client host, compatibility boundary |
