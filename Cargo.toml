@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/paseo-baseline"]
+members = ["crates/paseo-baseline", "crates/paseo-differential"]
 resolver = "3"
 
 [workspace.package]
@@ -13,4 +13,3 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "deny"
-
