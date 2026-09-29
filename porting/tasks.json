@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "goal": "Entire Paseo ecosystem runs from a Rust rebuild with exact baseline parity before new features",
+  "routing": {
+    "lead": { "model": "gpt-5.6-sol", "effort": "medium" },
+    "writerDefault": { "model": "gpt-5.6-sol", "effort": "medium" },
+    "reviewOnly": { "model": "gpt-6-astra", "effort": "xhigh" },
+    "runnerEvidence": "Native goal active. Worker spawn metadata exposes requested model and effort. Orca runtime unavailable after approved launch attempt."
+  },
+  "tasks": [
+    {
+      "id": "P1-INVENTORY",
+      "capabilities": ["daemon", "protocol", "state", "providers", "cli", "clients", "plugins", "ui", "native", "hub", "relay", "delivery", "importer", "site"],
+      "dependencies": [],
+      "priority": 1,
+      "state": "verifying",
+      "owner": "lead with three read-only Sol workers",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rewrite and pinned .baselines",
+      "branch": "read-only baselines",
+      "permittedPaths": [],
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "acceptance": "Every baseline surface has a stable capability ID, source and test references, dependencies, Rust owner, evidence method, platform scope, and known-defect status",
+      "evidence": [
+        "inventory_daemon completed read-only with gpt-5.6-sol medium and integrated into porting/capability-matrix.csv",
+        "inventory_clients completed read-only with gpt-5.6-sol medium and integrated into porting/capability-matrix.csv",
+        "inventory_cloud completed read-only with gpt-5.6-sol medium across Hub, relay, importer, and local delivery sources",
+        "all four pinned HEADs verified by cargo test -p paseo-baseline --test pinned_sources"
+      ],
+      "blockedBy": null
+    },
+    {
+      "id": "P2-HARNESS-PILOTS",
+      "capabilities": ["differential-harness", "codec", "crypto", "state-roundtrip", "lifecycle", "tool-selection"],
+      "dependencies": ["P1-INVENTORY"],
+      "priority": 2,
+      "state": "ready",
+      "owner": "lead",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
+      "branch": "main",
+      "permittedPaths": ["Cargo.toml", "crates/", "fixtures/", "harness/", "evidence/", "porting/"],
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "acceptance": "Raw and normalized differential evidence plus all required pilots, with no undocumented normalization",
+      "evidence": [],
+      "blockedBy": "P1-INVENTORY"
+    },
+    {
+      "id": "P3-VERTICAL-SLICE",
+      "capabilities": ["unchanged-client", "workspace", "codex", "stream", "permission", "cancel", "restart", "resume"],
+      "dependencies": ["P2-HARNESS-PILOTS"],
+      "priority": 3,
+      "state": "ready",
+      "owner": "unassigned",
+      "worktree": "assigned when dependency-ready",
+      "branch": "assigned when dependency-ready",
+      "permittedPaths": [],
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "acceptance": "Unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon",
+      "evidence": [],
+      "blockedBy": "P2-HARNESS-PILOTS"
+    },
+    {
+      "id": "P4-ECOSYSTEM",
+      "capabilities": ["host", "client", "cloud", "relay", "hub", "ui", "delivery"],
+      "dependencies": ["P3-VERTICAL-SLICE"],
+      "priority": 4,
+      "state": "ready",
+      "owner": "unassigned",
+      "worktree": "assigned by capability slice",
+      "branch": "assigned by capability slice",
+      "permittedPaths": [],
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "acceptance": "Every inventoried capability has integrated original-versus-Rust evidence and no unexplained omission",
+      "evidence": [],
+      "blockedBy": "P3-VERTICAL-SLICE"
+    },
+    {
+      "id": "P5-QUALIFICATION",
+      "capabilities": ["platform-matrix", "mixed-version", "old-state", "crypto", "distributed-failure", "performance", "visual", "accessibility", "install", "update", "rollback", "resilience"],
+      "dependencies": ["P4-ECOSYSTEM"],
+      "priority": 5,
+      "state": "ready",
+      "owner": "unassigned",
+      "worktree": "CI and isolated qualification environments",
+      "branch": "integration candidate",
+      "permittedPaths": ["evidence/", "porting/"],
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "acceptance": "All hard gates pass on iOS, Android, macOS, Windows, Linux, and browser with required adversarial reviews",
+      "evidence": [],
+      "blockedBy": "P4-ECOSYSTEM"
+    }
+  ]
+}
