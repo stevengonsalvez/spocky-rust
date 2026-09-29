@@ -32,9 +32,15 @@ accessibility, native adapter, packaging, or update cases.
 
 Dioxus Android candidate evidence now includes an unsigned debug APK, AVD
 launch, touch state transition, screenshots, and accessibility trees. Cold-start
-performance is outside an acceptable selection state. Browser runtime, baseline
-visual comparison, remaining desktop systems, iOS, native adapters, and delivery
-cases remain open, so Dioxus is not selected.
+performance is outside an acceptable selection state. Baseline visual comparison,
+remaining desktop systems, iOS, native adapters, and delivery cases remain open,
+so Dioxus is not selected.
+
+Dioxus browser candidate evidence now includes WebAssembly launch, a semantic
+tree, and a touch state transition. Its debug bundle exposes a persistent rebuild
+overlay, transfers 17.4 MB of WASM, and loads external font CSS. Production-bundle,
+offline, responsive, keyboard, reduced-motion, and pinned-baseline cases remain
+open.
 
 ## Executable cases
 

@@ -7,7 +7,7 @@ Integrated checks passed on 2026-09-29:
 | Surface | Evidence | Result |
 |---|---|---|
 | Host semantic shell | two targeted tests | pass |
-| Browser | `wasm32-unknown-unknown` compile | pass |
+| Browser | compile, WebAssembly launch, touch, accessibility | pass with debug overlay and bundle-size defects |
 | macOS desktop | `x86_64-apple-darwin` compile | pass |
 | Android mobile | compile, unsigned APK, AVD launch, touch, accessibility | pass with cold-start performance defect |
 | iOS mobile | `aarch64-apple-ios` compile | blocked: iphoneos SDK absent |
@@ -19,14 +19,14 @@ capture were unavailable because Orca Computer Use lacks macOS Accessibility and
 Screen Recording permission. The exact tmux session was stopped and PID 61790 exited.
 
 Android runtime evidence, artifact hashes, screenshots, accessibility trees,
-and performance observations are recorded in
-`evidence/phase2/dioxus-android.md`.
+and performance observations are recorded in `evidence/phase2/dioxus-android.md`.
+Browser runtime evidence is recorded in `evidence/phase2/dioxus-web.md`.
 
 Raw macOS launch output is retained at
 `evidence/raw/phase2/dioxus-desktop-launch.log`. It is 7,735 bytes with SHA-256
 `0e7f6a76e12fe18aedd3d18c3e9ededdd1847a34f40c1ae20fe4eaa691da8a48`.
 
-No pinned-baseline visual comparison, browser runtime capture, iOS compile,
+No pinned-baseline visual comparison, production browser bundle, iOS compile,
 Windows or Linux launch, IPA, desktop bundle, signed artifact, native adapter,
-upgrade, rollback, or uninstall evidence exists. Android runtime evidence alone
-cannot select the renderer.
+upgrade, rollback, or uninstall evidence exists. Current runtime evidence cannot
+select the renderer.
