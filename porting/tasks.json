@@ -118,17 +118,21 @@
         "cargo test -p paseo-relay-pilot --test distributed_failure",
         "cargo test -p paseo-hub-pilot --test hub_contract",
         "cargo test -p paseo-plugin-pilot --test plugin_lifecycle",
+        "cargo test -p paseo-audio-delivery-pilot --test audio_contract",
+        "cargo test -p paseo-audio-delivery-pilot --test native_contract",
+        "cargo test -p paseo-audio-delivery-pilot --test delivery_contract",
+        "cargo test -p paseo-audio-delivery-pilot --test report_contract",
         "cargo fmt --check",
         "cargo clippy --workspace --all-targets -- -D warnings"
       ],
       "acceptanceCases": ["raw and normalized differential evidence", "binary codec and crypto", "stored state roundtrip", "lifecycle", "all required tool-selection pilots"],
       "platforms": ["pilot-specific platforms from capability matrix"],
-      "implementationCommits": ["dafc711", "2f66289", "ac533e2", "d0a2622", "deac253", "dee5823", "0498d40", "55b7a9b", "c68a24bccb9c1e164fc2bb213ac13e403cc415c5", "1525028036737a34f39b8b26eb511b291cf00c07"],
-      "integrationCommits": ["521e06c", "7ea3ef1", "9fc7298", "c4b2d1e", "987a1ef"],
+      "implementationCommits": ["dafc711", "2f66289", "ac533e2", "d0a2622", "deac253", "dee5823", "0498d40", "55b7a9b", "c68a24bccb9c1e164fc2bb213ac13e403cc415c5", "1525028036737a34f39b8b26eb511b291cf00c07", "69246c6bd538a00695ecd3be554e57758de78183"],
+      "integrationCommits": ["521e06c", "7ea3ef1", "9fc7298", "c4b2d1e", "987a1ef", "9adf2a9"],
       "revisions": ["Phase 1 paired acceptance unblocked Phase 2", "Original restricted cloud/plugin worker interrupted after EPERM; files and checkpoint preserved", "Fresh Sol-medium full-access replacement passed permission preflight before continuing"],
       "reviews": [],
       "repairs": [],
-      "evidence": ["evidence/phase2/baseline-captures.md", "evidence/phase2/platform-target-checks.md", "porting/pilots/tool-selection.md"],
+      "evidence": ["evidence/phase2/baseline-captures.md", "evidence/phase2/platform-target-checks.md", "evidence/phase2/audio-native-delivery.md", "porting/pilots/tool-selection.md"],
       "resources": ["isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "repository-local Rust target toolchains", "port 6767 untouched"],
       "workers": [
         { "task": "p2_harness", "model": "gpt-5.6-sol", "effort": "medium", "branch": "phase2/harness", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-harness", "permittedPaths": ["crates/paseo-differential/"] },
@@ -138,7 +142,7 @@
         { "task": "p2_relay", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed and integrated", "branch": "phase2/relay", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-relay", "permittedPaths": ["crates/paseo-relay-pilot/"] },
         { "task": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "completed; signed commits integrated", "branch": "phase2/cloud-plugin-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot", "permittedPaths": ["crates/paseo-hub-pilot/", "crates/paseo-plugin-pilot/"] },
         { "task": "p2_browser_full", "canonicalThread": "/root/p2_browser_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "preflight passed; active", "branch": "phase2/browser-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-browser-pilot", "permittedPaths": ["crates/paseo-browser-pilot/"] },
-        { "task": "p2_audio_delivery_full", "canonicalThread": "/root/p2_audio_delivery_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "preflight passed; active", "branch": "phase2/audio-delivery-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-audio-delivery-pilot", "permittedPaths": ["crates/paseo-audio-delivery-pilot/"] },
+        { "task": "p2_audio_delivery_full", "canonicalThread": "/root/p2_audio_delivery_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "completed; signed commit integrated", "branch": "phase2/audio-delivery-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-audio-delivery-pilot", "permittedPaths": ["crates/paseo-audio-delivery-pilot/"] },
         { "task": "p2_ui_renderer_full", "canonicalThread": "/root/p2_ui_renderer_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "preflight passed; ready", "branch": "phase2/ui-renderer-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-ui-renderer-pilot", "permittedPaths": ["crates/paseo-ui-renderer-pilot/"] }
       ],
       "blockedBy": null
