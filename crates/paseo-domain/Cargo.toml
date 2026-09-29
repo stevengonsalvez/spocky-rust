@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "paseo-domain"
 version = "0.1.0"
