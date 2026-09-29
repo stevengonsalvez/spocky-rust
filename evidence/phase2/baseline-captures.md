@@ -8,7 +8,11 @@ Captured on 2026-09-29 from Paseo commit `5de45e208690b0efc51c59a585ae9729325a92
 scripts/phase2/capture-baselines.sh
 ```
 
-The script copies pinned protocol and crypto sources, installs the exact locked runtime dependencies into a temporary directory, executes those sources with `tsx`, writes raw JSON under ignored `evidence/raw/phase2/`, and removes only its validated temporary directory.
+The script rejects any reference checkout whose HEAD differs from the pinned commit
+or whose tracked tree is dirty. It copies pinned protocol and crypto sources, runs
+`npm ci` from the tracked lockfile in a temporary directory, passes the verified
+commit identity into both capture programs, writes raw JSON under ignored
+`evidence/raw/phase2/`, and removes only its validated temporary directory.
 
 ## Raw artifacts
 

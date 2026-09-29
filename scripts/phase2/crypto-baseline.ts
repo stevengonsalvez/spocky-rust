@@ -10,6 +10,8 @@ import {
 
 const outputPath = process.argv[2];
 if (!outputPath) throw new Error("output path is required");
+const baseline = process.env.PASEO_CAPTURE_BASELINE;
+if (!baseline) throw new Error("PASEO_CAPTURE_BASELINE is required");
 
 const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex, "hex"));
 const hex = (value: Uint8Array | ArrayBuffer) =>
@@ -33,7 +35,7 @@ const plaintext = bytes("0001027f80ff506173656f");
 const bundle = encrypt(shared, plaintext.buffer);
 const opened = decrypt(shared, bundle);
 const result = {
-  baseline: "5de45e208690b0efc51c59a585ae9729325a9204",
+  baseline,
   tweetnacl: "1.0.3",
   alicePublic: hex(alice.publicKey),
   bobPublic: hex(bob.publicKey),

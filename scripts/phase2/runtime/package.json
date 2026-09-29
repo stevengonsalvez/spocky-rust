@@ -1,0 +1,12 @@
+{
+  "name": "paseo-phase2-baseline-capture",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "base64-js": "1.5.1",
+    "semver": "7.7.4",
+    "tsx": "4.21.0",
+    "tweetnacl": "1.0.3",
+    "zod": "4.4.3"
+  }
+}

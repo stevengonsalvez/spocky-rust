@@ -14,6 +14,8 @@ import {
 
 const outputPath = process.argv[2];
 if (!outputPath) throw new Error("output path is required");
+const baseline = process.env.PASEO_CAPTURE_BASELINE;
+if (!baseline) throw new Error("PASEO_CAPTURE_BASELINE is required");
 
 const terminal = encodeTerminalStreamFrame({
   opcode: TerminalStreamOpcode.Output,
@@ -42,7 +44,7 @@ const end = encodeFileTransferFrame({
 });
 
 const result = {
-  baseline: "5de45e208690b0efc51c59a585ae9729325a9204",
+  baseline,
   terminal: Array.from(terminal),
   terminalDecoded: decodeTerminalStreamFrame(terminal),
   resize: Array.from(resize),
