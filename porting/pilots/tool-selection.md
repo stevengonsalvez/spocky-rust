@@ -30,6 +30,12 @@ The platform bridge and UI pilot compile for every repository-local target above
 This proves target compilation only. It does not satisfy launch, visual,
 accessibility, native adapter, packaging, or update cases.
 
+Dioxus Android candidate evidence now includes an unsigned debug APK, AVD
+launch, touch state transition, screenshots, and accessibility trees. Cold-start
+performance is outside an acceptable selection state. Browser runtime, baseline
+visual comparison, remaining desktop systems, iOS, native adapters, and delivery
+cases remain open, so Dioxus is not selected.
+
 ## Executable cases
 
 | ID | Boundary | Required scenario | Evidence required before selection |

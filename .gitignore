@@ -1,6 +1,7 @@
 .baselines/
 .cargo-home/
 .rustup/
+.tools/
 target/
 .DS_Store
 evidence/raw/
