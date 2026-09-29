@@ -1,5 +1,6 @@
 .baselines/
+.cargo-home/
+.rustup/
 target/
 .DS_Store
 evidence/raw/
-

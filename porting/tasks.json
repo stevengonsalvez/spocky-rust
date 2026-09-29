@@ -11,7 +11,16 @@
     "lead": { "model": "gpt-5.6-sol", "effort": "medium" },
     "writerDefault": { "model": "gpt-5.6-sol", "effort": "medium" },
     "reviewOnly": { "model": "gpt-6-astra", "effort": "xhigh" },
-    "runnerEvidence": "Native goal active. Worker spawn receipts expose requested model and effort but no independent model attestation. Orca runtime exited after an approved launch attempt and returned runtime_unavailable, so runner-native task metadata is the available routing evidence."
+    "runnerEvidence": "Native goal active. Worker spawn receipts expose requested model and effort. Permission preflight is recorded before replacement work begins.",
+    "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
+    "retiredWorkers": [
+      { "id": "inventory_daemon", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "interrupted and permanently retired", "reason": "EPERM during Phase 2 cloud/plugin pilot", "reuseForbidden": true, "preservedWorktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot" },
+      { "id": "inventory_clients", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "thread absent and permanently retired", "reason": "permission profile predates full-access authorization", "reuseForbidden": true },
+      { "id": "inventory_cloud", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "thread absent and permanently retired", "reason": "permission profile predates full-access authorization", "reuseForbidden": true }
+    ],
+    "permissionPreflights": [
+      { "id": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "result": "passed before work", "inheritsLeadPermissions": true }
+    ]
   },
   "tasks": [
     {
@@ -92,7 +101,7 @@
       "owner": "Sol lead",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
       "branch": "main",
-      "permittedPaths": ["Cargo.toml", "Cargo.lock", "PORTING.md", "porting/", "evidence/phase2/", "crates/paseo-differential/", "crates/paseo-wire/", "crates/paseo-crypto/", "crates/paseo-store/", "crates/paseo-domain/"],
+      "permittedPaths": ["Cargo.toml", "Cargo.lock", "PORTING.md", "porting/", "evidence/phase2/", "crates/paseo-differential/", "crates/paseo-wire/", "crates/paseo-crypto/", "crates/paseo-store/", "crates/paseo-domain/", "crates/paseo-platform-bridge/", "crates/paseo-ui-pilot/", "crates/paseo-relay-pilot/", "crates/paseo-hub-pilot/", "crates/paseo-plugin-pilot/"],
       "model": "gpt-5.6-sol",
       "effort": "medium",
       "acceptanceCommands": [
@@ -106,17 +115,20 @@
       ],
       "acceptanceCases": ["raw and normalized differential evidence", "binary codec and crypto", "stored state roundtrip", "lifecycle", "all required tool-selection pilots"],
       "platforms": ["pilot-specific platforms from capability matrix"],
-      "implementationCommits": [],
-      "integrationCommits": [],
-      "revisions": ["Phase 1 paired acceptance unblocked Phase 2"],
+      "implementationCommits": ["dafc711", "2f66289", "ac533e2", "d0a2622", "deac253", "dee5823", "0498d40", "55b7a9b"],
+      "integrationCommits": ["521e06c", "7ea3ef1", "9fc7298", "c4b2d1e", "987a1ef"],
+      "revisions": ["Phase 1 paired acceptance unblocked Phase 2", "Original restricted cloud/plugin worker interrupted after EPERM; files and checkpoint preserved", "Fresh Sol-medium full-access replacement passed permission preflight before continuing"],
       "reviews": [],
       "repairs": [],
-      "evidence": [],
-      "resources": ["three isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "port 6767 untouched"],
+      "evidence": ["evidence/phase2/baseline-captures.md", "porting/pilots/tool-selection.md"],
+      "resources": ["isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "repository-local Rust target toolchains", "port 6767 untouched"],
       "workers": [
         { "task": "p2_harness", "model": "gpt-5.6-sol", "effort": "medium", "branch": "phase2/harness", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-harness", "permittedPaths": ["crates/paseo-differential/"] },
         { "task": "p2_codec_crypto", "model": "gpt-5.6-sol", "effort": "medium", "branch": "phase2/codec-crypto", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-codec-crypto", "permittedPaths": ["crates/paseo-wire/", "crates/paseo-crypto/"] },
-        { "task": "p2_state_lifecycle", "model": "gpt-5.6-sol", "effort": "medium", "branch": "phase2/state-lifecycle", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-state-lifecycle", "permittedPaths": ["crates/paseo-store/", "crates/paseo-domain/"] }
+        { "task": "p2_state_lifecycle", "workerContext": "inventory_daemon", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed artifacts integrated; worker permanently retired", "branch": "phase2/state-lifecycle", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-state-lifecycle", "permittedPaths": ["crates/paseo-store/", "crates/paseo-domain/"] },
+        { "task": "p2_platform_ui", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed and integrated", "branch": "phase2/platform-ui", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-platform-ui", "permittedPaths": ["crates/paseo-platform-bridge/", "crates/paseo-ui-pilot/"] },
+        { "task": "p2_relay", "model": "gpt-5.6-sol", "effort": "medium", "status": "completed and integrated", "branch": "phase2/relay", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-relay", "permittedPaths": ["crates/paseo-relay-pilot/"] },
+        { "task": "p2_cloud_plugin_full", "canonicalThread": "/root/p2_cloud_plugin_full", "model": "gpt-5.6-sol", "effort": "medium", "approvalPolicy": "never", "sandbox": "danger-full-access", "status": "active replacement after verified preflight", "branch": "phase2/cloud-plugin-pilot", "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot", "permittedPaths": ["crates/paseo-hub-pilot/", "crates/paseo-plugin-pilot/"] }
       ],
       "blockedBy": null
     },
