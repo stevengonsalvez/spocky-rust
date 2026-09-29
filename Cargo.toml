@@ -4,7 +4,9 @@ members = [
   "crates/paseo-crypto",
   "crates/paseo-differential",
   "crates/paseo-domain",
+  "crates/paseo-platform-bridge",
   "crates/paseo-store",
+  "crates/paseo-ui-pilot",
   "crates/paseo-wire",
 ]
 resolver = "3"

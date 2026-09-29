@@ -227,9 +227,26 @@ name = "paseo-domain"
 version = "0.1.0"
 
 [[package]]
+name = "paseo-platform-bridge"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "paseo-store"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "paseo-ui-pilot"
+version = "0.1.0"
+dependencies = [
+ "paseo-platform-bridge",
+ "serde",
  "serde_json",
 ]
 
