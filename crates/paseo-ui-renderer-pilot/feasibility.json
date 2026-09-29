@@ -29,8 +29,8 @@
     },
     "desktopCompile": {
       "state": "passed",
-      "detail": "Dioxus desktop binary compiled for x86_64-apple-darwin.",
-      "command": "cargo check --locked --target x86_64-apple-darwin --no-default-features --features desktop --bin paseo-ui-desktop"
+      "detail": "Dioxus produced a frozen unsigned macOS release bundle and registered a running process with Launch Services.",
+      "command": ".tools/bin/dx build --macos -p paseo-ui-renderer-pilot --bin paseo-ui-desktop --no-default-features --features desktop --bundle macos --release --codesign false --frozen"
     },
     "iosCompile": {
       "state": "blocked",
@@ -44,7 +44,7 @@
     },
     "launch": {
       "state": "partial",
-      "detail": "Release browser and Android AVD runtimes launched with touch-state transitions. A macOS process launched without capturable window evidence; other hosts remain unproven."
+      "detail": "Release browser and Android AVD runtimes launched with touch-state transitions. A frozen macOS release process registered and remained alive without capturable window evidence; other hosts remain unproven."
     },
     "visual": {
       "state": "partial",
@@ -60,7 +60,7 @@
     },
     "packaging": {
       "state": "partial",
-      "detail": "A frozen browser release bundle and unsigned Android debug APK exist. macOS bundle, IPA, signed artifacts, installers, updates, and rollback remain unproven."
+      "detail": "A frozen browser release bundle, unsigned Android debug APK, and unsigned macOS release app exist. IPA, signed artifacts, installers, updates, and rollback remain unproven."
     }
   },
   "sources": [
