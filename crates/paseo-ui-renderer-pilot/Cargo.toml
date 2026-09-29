@@ -1,0 +1,44 @@
+[workspace]
+
+[package]
+name = "paseo-ui-renderer-pilot"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[features]
+default = ["host"]
+host = ["dep:dioxus-ssr"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+
+[dependencies]
+dioxus = { version = "=0.7.0", default-features = false, features = ["minimal"] }
+dioxus-ssr = { version = "=0.7.0", optional = true }
+
+[dev-dependencies]
+serde_json = "=1.0.145"
+
+[[bin]]
+name = "paseo-ui-web"
+path = "src/bin/web.rs"
+required-features = ["web"]
+
+[[bin]]
+name = "paseo-ui-desktop"
+path = "src/bin/desktop.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "paseo-ui-mobile"
+path = "src/bin/mobile.rs"
+required-features = ["mobile"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
