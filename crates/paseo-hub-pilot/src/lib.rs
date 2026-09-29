@@ -1,0 +1,527 @@
+//! Contract pilot for Hub authority, daemon registration, and durable restart behavior.
+//!
+//! This crate intentionally does not implement `PGlite` or `PostgreSQL` semantics.
+
+#![allow(clippy::missing_errors_doc)]
+
+use std::collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher};
+use std::fmt;
+use std::fs::{self, OpenOptions};
+use std::hash::{Hash, Hasher};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+macro_rules! identifier {
+    ($name:ident) => {
+        #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+        pub struct $name(String);
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self {
+                Self(value.to_owned())
+            }
+        }
+
+        impl $name {
+            #[must_use]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+    };
+}
+
+identifier!(AccountId);
+identifier!(OrganizationId);
+identifier!(DaemonId);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Role {
+    Owner,
+    Admin,
+    Member,
+}
+
+impl Role {
+    const fn can_manage_resources(self) -> bool {
+        matches!(self, Self::Owner | Self::Admin)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum DaemonPermission {
+    HubExecute,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bootstrap {
+    pub instance_secret: String,
+    pub owner: AccountId,
+    pub organization: OrganizationId,
+    pub temporary_password: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootstrapResult {
+    pub created: bool,
+    pub password_change_required: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PasswordChange {
+    pub account: AccountId,
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegistrationRequest {
+    organization: OrganizationId,
+    daemon: DaemonId,
+    idempotency_key: String,
+    permissions: BTreeSet<DaemonPermission>,
+}
+
+impl RegistrationRequest {
+    pub fn new(
+        organization: OrganizationId,
+        daemon: DaemonId,
+        idempotency_key: impl Into<String>,
+        permissions: impl IntoIterator<Item = DaemonPermission>,
+    ) -> Self {
+        Self {
+            organization,
+            daemon,
+            idempotency_key: idempotency_key.into(),
+            permissions: permissions.into_iter().collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DaemonRegistration {
+    pub daemon: DaemonId,
+    pub organization: OrganizationId,
+    pub registration_generation: u64,
+    pub permissions: BTreeSet<DaemonPermission>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DaemonSession {
+    pub daemon: DaemonId,
+    pub generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreSemantics {
+    SingleProcessFileSnapshot,
+}
+
+pub trait DurableHubStore {
+    fn load(&self) -> Result<Option<Vec<u8>>, StoreError>;
+    fn save(&self, bytes: &[u8]) -> Result<(), StoreError>;
+}
+
+#[derive(Clone, Debug)]
+pub struct EmbeddedFileStore {
+    path: PathBuf,
+}
+
+impl EmbeddedFileStore {
+    pub const SEMANTICS: StoreSemantics = StoreSemantics::SingleProcessFileSnapshot;
+    pub const LIMITATIONS: &str =
+        "not PGlite; not PostgreSQL; no cross-process transactions; no SQL or advisory-lock parity";
+
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, StoreError> {
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        Ok(Self { path })
+    }
+}
+
+impl DurableHubStore for EmbeddedFileStore {
+    fn load(&self) -> Result<Option<Vec<u8>>, StoreError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn save(&self, bytes: &[u8]) -> Result<(), StoreError> {
+        atomic_write(&self.path, bytes)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Account {
+    password_fingerprint: u64,
+    must_change_password: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct StoredRegistration {
+    result: DaemonRegistration,
+    idempotency_key: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct HubState {
+    instance_secret_fingerprint: Option<u64>,
+    accounts: BTreeMap<AccountId, Account>,
+    memberships: BTreeMap<OrganizationId, BTreeMap<AccountId, Role>>,
+    registrations: BTreeMap<DaemonId, StoredRegistration>,
+    registration_keys: BTreeMap<String, DaemonId>,
+    session_generations: BTreeMap<DaemonId, u64>,
+    continuations: BTreeMap<DaemonId, BTreeMap<String, DaemonSession>>,
+}
+
+pub struct HubPilot<S: DurableHubStore> {
+    store: S,
+    state: HubState,
+}
+
+impl<S: DurableHubStore> HubPilot<S> {
+    pub fn open(store: S) -> Result<Self, HubError> {
+        let state = match store.load()? {
+            Some(bytes) => serde_json::from_slice(&bytes)?,
+            None => HubState::default(),
+        };
+        Ok(Self { store, state })
+    }
+
+    pub fn bootstrap(&mut self, input: Bootstrap) -> Result<BootstrapResult, HubError> {
+        if let Some(account) = self.state.accounts.get(&input.owner) {
+            return Ok(BootstrapResult {
+                created: false,
+                password_change_required: account.must_change_password,
+            });
+        }
+        if !self.state.accounts.is_empty() || input.instance_secret.len() < 32 {
+            return Err(HubError::BootstrapUnavailable);
+        }
+        self.state.instance_secret_fingerprint = Some(fingerprint(&input.instance_secret));
+        self.state.accounts.insert(
+            input.owner.clone(),
+            Account {
+                password_fingerprint: fingerprint(&input.temporary_password),
+                must_change_password: true,
+            },
+        );
+        self.state
+            .memberships
+            .entry(input.organization)
+            .or_default()
+            .insert(input.owner, Role::Owner);
+        self.persist()?;
+        Ok(BootstrapResult {
+            created: true,
+            password_change_required: true,
+        })
+    }
+
+    pub fn replace_password(&mut self, change: &PasswordChange) -> Result<(), HubError> {
+        let account = self
+            .state
+            .accounts
+            .get_mut(&change.account)
+            .ok_or(AuthorityError::AccountUnavailable)?;
+        if account.password_fingerprint != fingerprint(&change.current_password) {
+            return Err(HubError::InvalidCurrentPassword);
+        }
+        account.password_fingerprint = fingerprint(&change.new_password);
+        account.must_change_password = false;
+        self.persist()
+    }
+
+    pub fn authorize(
+        &self,
+        account: &AccountId,
+        organization: &OrganizationId,
+    ) -> Result<Role, AuthorityError> {
+        let state = self
+            .state
+            .accounts
+            .get(account)
+            .ok_or(AuthorityError::AccountUnavailable)?;
+        if state.must_change_password {
+            return Err(AuthorityError::PasswordChangeRequired);
+        }
+        self.state
+            .memberships
+            .get(organization)
+            .and_then(|members| members.get(account))
+            .copied()
+            .ok_or(AuthorityError::OrganizationUnavailable)
+    }
+
+    pub fn add_member(
+        &mut self,
+        actor: &AccountId,
+        account: AccountId,
+        organization: OrganizationId,
+        role: Role,
+    ) -> Result<(), HubError> {
+        if !self.authorize(actor, &organization)?.can_manage_resources() {
+            return Err(AuthorityError::ManageResourcesRequired.into());
+        }
+        self.state
+            .accounts
+            .entry(account.clone())
+            .or_insert(Account {
+                password_fingerprint: 0,
+                must_change_password: false,
+            });
+        self.state
+            .memberships
+            .entry(organization)
+            .or_default()
+            .insert(account, role);
+        self.persist()
+    }
+
+    pub fn register_daemon(
+        &mut self,
+        actor: &AccountId,
+        request: RegistrationRequest,
+    ) -> Result<DaemonRegistration, HubError> {
+        if !self
+            .authorize(actor, &request.organization)?
+            .can_manage_resources()
+        {
+            return Err(AuthorityError::ManageResourcesRequired.into());
+        }
+        if let Some(existing_id) = self.state.registration_keys.get(&request.idempotency_key) {
+            let existing = &self.state.registrations[existing_id];
+            if existing.result.daemon == request.daemon
+                && existing.result.organization == request.organization
+                && existing.result.permissions == request.permissions
+            {
+                return Ok(existing.result.clone());
+            }
+            return Err(HubError::IdempotencyConflict);
+        }
+        let generation = self
+            .state
+            .registrations
+            .get(&request.daemon)
+            .map_or(1, |existing| existing.result.registration_generation + 1);
+        let result = DaemonRegistration {
+            daemon: request.daemon.clone(),
+            organization: request.organization,
+            registration_generation: generation,
+            permissions: request.permissions,
+        };
+        self.state
+            .registration_keys
+            .insert(request.idempotency_key.clone(), request.daemon.clone());
+        self.state.registrations.insert(
+            request.daemon,
+            StoredRegistration {
+                result: result.clone(),
+                idempotency_key: request.idempotency_key,
+            },
+        );
+        self.persist()?;
+        Ok(result)
+    }
+
+    pub fn connect_daemon(
+        &mut self,
+        daemon: &DaemonId,
+        advertised: impl IntoIterator<Item = DaemonPermission>,
+    ) -> Result<DaemonSession, SessionError> {
+        let registration = self
+            .state
+            .registrations
+            .get(daemon)
+            .ok_or(SessionError::DaemonUnavailable)?;
+        if advertised.into_iter().collect::<BTreeSet<_>>() != registration.result.permissions {
+            return Err(SessionError::PermissionAgreementMismatch);
+        }
+        let generation = self
+            .state
+            .session_generations
+            .entry(daemon.clone())
+            .or_default();
+        *generation += 1;
+        let session = DaemonSession {
+            daemon: daemon.clone(),
+            generation: *generation,
+        };
+        self.persist()
+            .map_err(|_| SessionError::PersistenceFailed)?;
+        Ok(session)
+    }
+
+    pub fn continue_session(
+        &mut self,
+        daemon: &DaemonId,
+        previous_generation: u64,
+        idempotency_key: impl Into<String>,
+    ) -> Result<DaemonSession, SessionError> {
+        let idempotency_key = idempotency_key.into();
+        if let Some(existing) = self
+            .state
+            .continuations
+            .get(daemon)
+            .and_then(|continuations| continuations.get(&idempotency_key))
+        {
+            return Ok(existing.clone());
+        }
+        let current = self
+            .state
+            .session_generations
+            .get_mut(daemon)
+            .ok_or(SessionError::DaemonUnavailable)?;
+        if *current != previous_generation {
+            return Err(SessionError::SupersededGeneration);
+        }
+        *current += 1;
+        let session = DaemonSession {
+            daemon: daemon.clone(),
+            generation: *current,
+        };
+        self.state
+            .continuations
+            .entry(daemon.clone())
+            .or_default()
+            .insert(idempotency_key, session.clone());
+        self.persist()
+            .map_err(|_| SessionError::PersistenceFailed)?;
+        Ok(session)
+    }
+
+    #[must_use]
+    pub fn state_contains_secret(&self, secret: &str) -> bool {
+        serde_json::to_string(&self.state).is_ok_and(|state| state.contains(secret))
+    }
+
+    fn persist(&self) -> Result<(), HubError> {
+        self.store.save(&serde_json::to_vec_pretty(&self.state)?)?;
+        Ok(())
+    }
+}
+
+fn fingerprint(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let temp = parent.join(format!(
+        ".{}.tmp",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthorityError {
+    AccountUnavailable,
+    OrganizationUnavailable,
+    PasswordChangeRequired,
+    ManageResourcesRequired,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionError {
+    DaemonUnavailable,
+    PermissionAgreementMismatch,
+    SupersededGeneration,
+    PersistenceFailed,
+}
+
+#[derive(Debug)]
+pub enum HubError {
+    Authority(AuthorityError),
+    Session(SessionError),
+    BootstrapUnavailable,
+    InvalidCurrentPassword,
+    IdempotencyConflict,
+    Store(StoreError),
+    Json(serde_json::Error),
+}
+
+impl PartialEq for HubError {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+            && match (self, other) {
+                (Self::Authority(left), Self::Authority(right)) => left == right,
+                (Self::Session(left), Self::Session(right)) => left == right,
+                _ => true,
+            }
+    }
+}
+
+impl Eq for HubError {}
+
+impl From<AuthorityError> for HubError {
+    fn from(error: AuthorityError) -> Self {
+        Self::Authority(error)
+    }
+}
+
+impl From<SessionError> for HubError {
+    fn from(error: SessionError) -> Self {
+        Self::Session(error)
+    }
+}
+
+impl From<StoreError> for HubError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl From<serde_json::Error> for HubError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+impl fmt::Display for HubError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for HubError {}
+
+#[derive(Debug)]
+pub struct StoreError(std::io::Error);
+
+impl From<std::io::Error> for StoreError {
+    fn from(error: std::io::Error) -> Self {
+        Self(error)
+    }
+}
+
+impl fmt::Display for StoreError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl std::error::Error for StoreError {}
