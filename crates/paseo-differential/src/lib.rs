@@ -606,7 +606,10 @@ fn compare_slot<T: PartialEq>(
     original: &ObservationSlot<T>,
     rust: &ObservationSlot<T>,
 ) {
-    if original != rust {
+    if matches!(original, ObservationSlot::Error(_))
+        || matches!(rust, ObservationSlot::Error(_))
+        || original != rust
+    {
         differences.push(Comparison::different(path));
     }
 }

@@ -210,6 +210,28 @@ fn executable_runner_uses_identical_inputs_and_isolated_state() {
 }
 
 #[test]
+fn executable_runner_rejects_identical_capture_failures() {
+    let mut plan = runner_plan();
+    plan.captures.screenshots = vec!["screens/missing.png".into()];
+
+    let report = run_differential(&plan).expect("capture failures produce a report");
+
+    assert!(!report.equivalent);
+    assert_eq!(
+        report.differences,
+        vec![Comparison::different("screenshots")]
+    );
+    assert!(matches!(
+        report.original.raw.screenshots,
+        ObservationSlot::Error(_)
+    ));
+    assert!(matches!(
+        report.rust.raw.screenshots,
+        ObservationSlot::Error(_)
+    ));
+}
+
+#[test]
 fn binary_writes_the_deterministic_manifest() {
     let directory = TestDirectory::new();
     let plan_path = directory.path.join("plan.json");
