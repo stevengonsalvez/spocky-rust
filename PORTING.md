@@ -6,12 +6,34 @@ This repository rebuilds Paseo-owned implementation surfaces in Rust against fou
 
 | System | Commit | Local source |
 |---|---|---|
-| Paseo | `5de45e208690b0efc51c59a585ae9729325a9204` | `/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rewrite` |
+| Paseo | `5de45e208690b0efc51c59a585ae9729325a9204` | `PASEO_REFERENCE_ROOT` or sibling `../paseo-rewrite` |
 | Hub | `28f6c78833065fd282f9064f92a9aa61875dd359` | `.baselines/hub` |
 | Distributed relay | `3fc41c96c8c63f3a7109e832899cc57d473c4531` | `.baselines/relay` |
 | Importer | `8b3eb738fa737010da86e8ac01d3a34cc9a7a3c5` | `.baselines/import` |
 
 Never compare against a moving branch. Baseline directories are read-only inputs and are excluded from Git.
+
+## Provision the baselines
+
+Set `PASEO_REFERENCE_ROOT` only when the Paseo reference is not the sibling `paseo-rewrite` checkout. Verify its commit before any comparison:
+
+```sh
+git -C "${PASEO_REFERENCE_ROOT:-../paseo-rewrite}" rev-parse HEAD
+```
+
+Provision the other pinned sources inside this repository, then detach each checkout at its immutable commit:
+
+```sh
+git clone https://github.com/getpaseo/hub.git .baselines/hub
+git -C .baselines/hub checkout --detach 28f6c78833065fd282f9064f92a9aa61875dd359
+git clone https://github.com/getpaseo/paseo-relay.git .baselines/relay
+git -C .baselines/relay checkout --detach 3fc41c96c8c63f3a7109e832899cc57d473c4531
+git clone https://github.com/getpaseo/import.git .baselines/import
+git -C .baselines/import checkout --detach 8b3eb738fa737010da86e8ac01d3a34cc9a7a3c5
+cargo test -p paseo-baseline --test pinned_sources
+```
+
+If a repository URL changes, copy an existing checkout into the matching `.baselines/` path and detach it at the recorded commit. Never substitute a newer commit.
 
 ## Execution order
 
@@ -39,6 +61,15 @@ Tracked evidence manifests live under `evidence/`. Large raw captures live under
 - Run targeted local tests. Full matrices belong in CI.
 - Preserve all four baseline checkouts without edits.
 
+## Build, test, run, and rollback
+
+- Build with `cargo build --workspace`. Phase 1 contains only the baseline verifier, so no Paseo service binary exists yet.
+- Run the Phase 1 target with `cargo test -p paseo-baseline --test pinned_sources`. Record exact package and target names in each later task before running its tests. Run full platform matrices in CI after their jobs exist.
+- Run future services with a disposable home, random non-6767 port, and named tmux session. Record the exact home, port, session, commit, and log path in evidence before launch.
+- Stop only the recorded tmux session. Delete only its exact disposable home after evidence capture.
+- Roll back by checking out the last signed verified checkpoint and restoring the scenario's disposable state snapshot. Never roll back a production instance during parity work.
+- Cloudflare relay, Hub, delivery, installers, and update paths remain owned implementation scope. Production deployment is outside this execution session.
+
 ## Routing and ownership
 
 The lead owns shared contracts, the root Cargo workspace, cross-cutting schemas, the task ledger, integration, and shared evidence. Writers use isolated worktrees, branches, and exclusive paths. Every writer is explicitly assigned `gpt-5.6-sol` at medium effort unless a recorded blocker requires Sol high or xhigh. Astra is read-only and limited to adversarial review of frozen completed commits.
@@ -51,5 +82,4 @@ Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrati
 
 ## Current boundary
 
-Phase 1 inventories are in progress. No parity milestone is complete. No runtime compatibility exception is accepted.
-
+Phase 1 repair is awaiting repeat adversarial review. No parity milestone is complete. No runtime compatibility exception is accepted.

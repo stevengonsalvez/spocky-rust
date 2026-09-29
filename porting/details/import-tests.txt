@@ -1,0 +1,5 @@
+src/cli.test.ts
+src/import.test.ts
+src/sources/conductor/database.test.ts
+src/sources/conductor/inspect.test.ts
+src/sources/conductor/project-config.test.ts

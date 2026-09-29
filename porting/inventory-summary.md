@@ -12,16 +12,36 @@ Runner spawn metadata records requested model and effort. The runner does not ex
 
 ## Measured reference surface
 
-- Daemon inventory observed 475 message type literals, 79 server feature flags, and 342 compatibility tags.
-- Daemon inventory counted 546 server, 63 protocol, 8 client, 88 CLI, and 7 relay test files.
-- Client inventory counted 621 app unit or browser tests, 211 Playwright specifications, 53 mobile evidence artifacts, 71 desktop tests, and 22 plugin or example tests.
-- Client inventory found 98 compatibility sites across app, desktop, plugin, and audio code.
-- Native audio currently has no automated native tests.
-- Hub source exposes 49 Drizzle migrations across PostgreSQL and embedded PGlite runtimes.
-- Relay source exposes distributed ownership, reroute, bounded flow control, readiness, and load-shedding contracts.
-- Importer source supports Conductor with macOS discovery and explicit cross-platform database selection.
+Exact generated indexes under `porting/details/` retain these records:
+
+| Index | Records |
+|---|---:|
+| Paseo tracked tree | 5,069 |
+| Hub tracked tree | 823 |
+| Relay tracked tree | 60 |
+| Importer tracked tree | 32 |
+| Paseo tests | 1,659 |
+| Hub tests | 213 |
+| Relay tests | 14 |
+| Importer tests | 5 |
+| Protocol literals | 628 |
+| Server features | 78 |
+| CLI command declarations | 90 |
+| App routes | 25 |
+| Hub routes | 48 |
+| Compatibility sites | 440 |
+| Delivery inputs | 64 |
+| Total retained records | 9,248 |
+
+The capability matrix has 74 source-backed rows. The rejected first review identified seven missing families, now added: skills, workspace-label recovery, push, speech and model downloads, Hub MCP method behavior, importer WAL rejection, and relay protocol limits.
+
+Native audio currently has no automated native tests. Hub exposes PostgreSQL and embedded PGlite migrations. Relay exposes distributed ownership, reroute, bounded flow control, readiness, and load-shedding contracts. Importer supports Conductor with macOS discovery and explicit cross-platform database selection.
 
 These counts are inventory observations, not parity proof. Fixture generation records exact executed counts separately.
+
+## Review status
+
+Both independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac`. Repair remains Phase 1 work until two fresh reviews accept the same frozen commit.
 
 ## Preserved baseline defects
 

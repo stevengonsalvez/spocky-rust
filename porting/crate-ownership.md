@@ -36,8 +36,8 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 
 | Boundary | Capability families |
 |---|---|
-| `paseo-store` | `DSTA`, old state, migrations, atomic writes, state recovery |
-| `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS` |
+| `paseo-store` | `DSTA`, `DWLABEL`, old state, migrations, atomic writes, journal recovery |
+| `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH` |
 | `paseo-provider-api` and provider crates | `DPRV` and external provider process adapters |
 | `paseo-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC` |
 | `paseo-daemon-relay` | `CLOUD-RELAY-DAEMON` |
@@ -46,9 +46,11 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 | `paseo-client` | `DSDK`, `CLIENT-002` through `CLIENT-007` shared behavior |
 | `paseo-cli` | `DCLI`, Hub CLI, exact process output and exit behavior |
 | `paseo-plugin` | Plugin manifest, server/client host, compatibility boundary |
+| `paseo-skills` | Bundled and discovered skill indexing, compatibility, invocation inputs |
 | `paseo-import` | Local session and Conductor import contracts |
 | `paseo-ui-core` | Route, workspace, presentation, visual, accessibility, localization contracts |
 | platform UI shells | iOS, Android, browser, desktop, Hub dashboard, site and docs renderers selected by pilots |
+| `paseo-relay-cloudflare` | Cloudflare fallback, cutover, routing, protocol limits, deployment inputs |
 | `paseo-delivery` | Packages, containers, installers, signing inputs, updates, rollout, rollback |
 
 ## Architecture freeze rule
@@ -56,4 +58,3 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 Names describe ownership boundaries, not a commitment to one crate per row. Contract and tool-selection pilots may split crates or revise dependency direction. They may not merge direct Hub transport into relay, terminate endpoint encryption in relay, or move compatibility logic into presentation code.
 
 UI, plugin, native, browser, and delivery runtime choices remain unselected until measured pilots cover every required platform. No compatibility exception exists merely because the baseline uses JavaScript, Swift, Kotlin, Elixir, or browser APIs.
-

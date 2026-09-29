@@ -1,32 +1,66 @@
 {
   "schemaVersion": 1,
   "goal": "Entire Paseo ecosystem runs from a Rust rebuild with exact baseline parity before new features",
+  "baselines": {
+    "paseo": "5de45e208690b0efc51c59a585ae9729325a9204",
+    "hub": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "relay": "3fc41c96c8c63f3a7109e832899cc57d473c4531",
+    "import": "8b3eb738fa737010da86e8ac01d3a34cc9a7a3c5"
+  },
   "routing": {
     "lead": { "model": "gpt-5.6-sol", "effort": "medium" },
     "writerDefault": { "model": "gpt-5.6-sol", "effort": "medium" },
     "reviewOnly": { "model": "gpt-6-astra", "effort": "xhigh" },
-    "runnerEvidence": "Native goal active. Worker spawn metadata exposes requested model and effort. Orca runtime unavailable after approved launch attempt."
+    "runnerEvidence": "Native goal active. Worker spawn receipts expose requested model and effort but no independent model attestation. Orca runtime exited after an approved launch attempt and returned runtime_unavailable, so runner-native task metadata is the available routing evidence."
   },
   "tasks": [
     {
       "id": "P1-INVENTORY",
-      "capabilities": ["daemon", "protocol", "state", "providers", "cli", "clients", "plugins", "ui", "native", "hub", "relay", "delivery", "importer", "site"],
+      "capabilities": [
+        "DPRO-001", "DPRO-002", "DPRO-003", "DPRO-004", "DSEC-001", "DSEC-002", "DSEC-003", "DSTA-001", "DLIF-001", "DLIF-002", "DLIF-003", "DPRV-001", "DPRV-002", "DPRV-003", "DTRM-001", "DTRM-002", "DTRM-003", "DSCH-001", "DSCH-002", "DGIT-001", "DGIT-002", "DGIT-003", "DFIL-001", "DFIL-002", "DBRW-001", "DSVC-001", "DSDK-001", "DCLI-001", "DOPS-001", "CLIENT-001", "CLIENT-002", "CLIENT-003", "CLIENT-004", "CLIENT-005", "CLIENT-006", "CLIENT-007", "CLIENT-008", "CLIENT-009", "CLIENT-010", "CLIENT-011", "CLIENT-012", "CLIENT-013", "CLIENT-014", "CLOUD-HUB-REL-001", "CLOUD-HUB-EXEC-002", "CLOUD-HUB-CLI-003", "CLOUD-HUB-AUTH-004", "CLOUD-HUB-INTEGRATIONS-005", "CLOUD-HUB-BILLING-006", "CLOUD-RELAY-E2EE-007", "CLOUD-RELAY-DAEMON-008", "CLOUD-RELAY-LEGACY-009", "CLOUD-RELAY-PROD-010", "CLOUD-IMPORT-LOCAL-011", "CLOUD-IMPORT-EXT-012", "CLOUD-WEB-013", "CLOUD-DELIVERY-014", "CLOUD-HUB-DATA-015", "CLOUD-HUB-TRIGGERS-016", "CLOUD-HUB-DASH-017", "CLOUD-HUB-DEPLOY-018", "CLOUD-HUB-API-019", "CLOUD-RELAY-REROUTE-020", "CLOUD-RELAY-FLOW-021", "CLOUD-RELAY-E2EE-022", "CLOUD-RELAY-OPS-023", "CLOUD-IMPORT-PLATFORM-024", "DSKL-001", "DWLABEL-001", "DPUSH-001", "DSPH-001", "CLOUD-HUB-MCP-025", "CLOUD-IMPORT-WAL-026", "CLOUD-RELAY-PROTOCOL-027"
+      ],
       "dependencies": [],
       "priority": 1,
       "state": "verifying",
-      "owner": "lead with three read-only Sol workers",
-      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rewrite and pinned .baselines",
-      "branch": "read-only baselines",
-      "permittedPaths": [],
+      "owner": "Sol lead",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
+      "branch": "main",
+      "permittedPaths": ["PORTING.md", "crates/paseo-baseline/", "evidence/phase1/", "porting/"],
       "model": "gpt-5.6-sol",
       "effort": "medium",
-      "acceptance": "Every baseline surface has a stable capability ID, source and test references, dependencies, Rust owner, evidence method, platform scope, and known-defect status",
-      "evidence": [
-        "inventory_daemon completed read-only with gpt-5.6-sol medium and integrated into porting/capability-matrix.csv",
-        "inventory_clients completed read-only with gpt-5.6-sol medium and integrated into porting/capability-matrix.csv",
-        "inventory_cloud completed read-only with gpt-5.6-sol medium across Hub, relay, importer, and local delivery sources",
-        "all four pinned HEADs verified by cargo test -p paseo-baseline --test pinned_sources"
+      "acceptanceCommands": [
+        "cargo fmt --check",
+        "cargo clippy -p paseo-baseline --tests -- -D warnings",
+        "cargo test -p paseo-baseline --test pinned_sources",
+        "ruby scripts/validate_inventory.rb",
+        "git diff --check"
       ],
+      "acceptanceCases": [
+        "all four HEADs match immutable commits",
+        "staged or unstaged tracked baseline changes are rejected",
+        "permitted untracked reference logs and goal artifacts do not fail verification",
+        "every capability source path and test path resolves in its owning baseline",
+        "every dependency names another capability and the graph is acyclic",
+        "every capability has Rust ownership, evidence method, platform scope, and defect status",
+        "detailed route, command, protocol, compatibility, test, delivery, and tree indexes are retained"
+      ],
+      "platforms": ["macOS inventory host", "all product platforms mapped in capability rows"],
+      "implementationCommits": ["b38c974b9b6c990a0d24f44d13e411519ba51dbb", "419848354b6299b74282aee9db99688284e7486f"],
+      "candidateCommits": ["5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac"],
+      "integrationCommits": [],
+      "revisions": [
+        "initial three read-only Sol-medium inventories",
+        "cloud inventory expanded after exact pinned repositories were mounted",
+        "Phase 1 candidate rejected by both Astra-xhigh reviews",
+        "Sol repair adds omitted surfaces, exact paths, dependency fixes, dirty-tree protection, operations, and evidence"
+      ],
+      "reviews": [
+        { "reviewer": "phase1_review_a", "model": "gpt-6-astra", "effort": "xhigh", "commit": "5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-a.md" },
+        { "reviewer": "phase1_review_b", "model": "gpt-6-astra", "effort": "xhigh", "commit": "5e0ad27f8381e83ecbec83ea5a8f5c2dd67429ac", "mode": "read-only", "result": "rejected", "artifact": "evidence/phase1/review-b.md" }
+      ],
+      "repairs": ["419848354b6299b74282aee9db99688284e7486f rejects tracked baseline modifications and removes the machine-specific Paseo source path"],
+      "evidence": ["porting/capability-matrix.csv", "porting/details/", "porting/inventory-summary.md", "evidence/phase1/checks.md"],
+      "resources": ["read-only four pinned checkouts", "no services", "port 6767 untouched"],
       "blockedBy": null
     },
     {
@@ -34,64 +68,66 @@
       "capabilities": ["differential-harness", "codec", "crypto", "state-roundtrip", "lifecycle", "tool-selection"],
       "dependencies": ["P1-INVENTORY"],
       "priority": 2,
-      "state": "ready",
-      "owner": "lead",
-      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
-      "branch": "main",
-      "permittedPaths": ["Cargo.toml", "crates/", "fixtures/", "harness/", "evidence/", "porting/"],
+      "state": "blocked",
+      "owner": "unassigned until dependency-ready",
+      "worktree": "assigned when dependency-ready",
+      "branch": "assigned when dependency-ready",
+      "permittedPaths": [],
       "model": "gpt-5.6-sol",
       "effort": "medium",
-      "acceptance": "Raw and normalized differential evidence plus all required pilots, with no undocumented normalization",
-      "evidence": [],
-      "blockedBy": "P1-INVENTORY"
+      "acceptanceCommands": [],
+      "acceptanceCases": ["raw and normalized differential evidence", "binary codec and crypto", "stored state roundtrip", "lifecycle", "all required tool-selection pilots"],
+      "platforms": ["pilot-specific platforms from capability matrix"],
+      "implementationCommits": [], "integrationCommits": [], "revisions": [], "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "blockedBy": "P1-INVENTORY has not passed repeat adversarial review"
     },
     {
       "id": "P3-VERTICAL-SLICE",
       "capabilities": ["unchanged-client", "workspace", "codex", "stream", "permission", "cancel", "restart", "resume"],
       "dependencies": ["P2-HARNESS-PILOTS"],
       "priority": 3,
-      "state": "ready",
-      "owner": "unassigned",
+      "state": "blocked",
+      "owner": "unassigned until dependency-ready",
       "worktree": "assigned when dependency-ready",
       "branch": "assigned when dependency-ready",
       "permittedPaths": [],
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
-      "acceptance": "Unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon",
-      "evidence": [],
-      "blockedBy": "P2-HARNESS-PILOTS"
+      "model": "gpt-5.6-sol", "effort": "medium", "acceptanceCommands": [],
+      "acceptanceCases": ["unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon"],
+      "platforms": ["macOS first slice", "cross-platform follow-up before completion"],
+      "implementationCommits": [], "integrationCommits": [], "revisions": [], "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "blockedBy": "P2-HARNESS-PILOTS is not done"
     },
     {
       "id": "P4-ECOSYSTEM",
-      "capabilities": ["host", "client", "cloud", "relay", "hub", "ui", "delivery"],
+      "capabilities": ["all 74 inventory families and future child contracts"],
       "dependencies": ["P3-VERTICAL-SLICE"],
       "priority": 4,
-      "state": "ready",
-      "owner": "unassigned",
+      "state": "blocked",
+      "owner": "unassigned until dependency-ready",
       "worktree": "assigned by capability slice",
       "branch": "assigned by capability slice",
       "permittedPaths": [],
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
-      "acceptance": "Every inventoried capability has integrated original-versus-Rust evidence and no unexplained omission",
-      "evidence": [],
-      "blockedBy": "P3-VERTICAL-SLICE"
+      "model": "gpt-5.6-sol", "effort": "medium", "acceptanceCommands": [],
+      "acceptanceCases": ["every inventoried capability has integrated original-versus-Rust evidence and no unexplained omission"],
+      "platforms": ["iOS", "Android", "macOS", "Windows", "Linux", "browser"],
+      "implementationCommits": [], "integrationCommits": [], "revisions": [], "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "blockedBy": "P3-VERTICAL-SLICE is not done"
     },
     {
       "id": "P5-QUALIFICATION",
       "capabilities": ["platform-matrix", "mixed-version", "old-state", "crypto", "distributed-failure", "performance", "visual", "accessibility", "install", "update", "rollback", "resilience"],
       "dependencies": ["P4-ECOSYSTEM"],
       "priority": 5,
-      "state": "ready",
-      "owner": "unassigned",
+      "state": "blocked",
+      "owner": "unassigned until dependency-ready",
       "worktree": "CI and isolated qualification environments",
       "branch": "integration candidate",
       "permittedPaths": ["evidence/", "porting/"],
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
-      "acceptance": "All hard gates pass on iOS, Android, macOS, Windows, Linux, and browser with required adversarial reviews",
-      "evidence": [],
-      "blockedBy": "P4-ECOSYSTEM"
+      "model": "gpt-5.6-sol", "effort": "medium", "acceptanceCommands": [],
+      "acceptanceCases": ["all three hard gates pass with required adversarial reviews and no unresolved blockers"],
+      "platforms": ["iOS", "Android", "macOS", "Windows", "Linux", "browser"],
+      "implementationCommits": [], "integrationCommits": [], "revisions": [], "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "blockedBy": "P4-ECOSYSTEM is not done"
     }
   ]
 }

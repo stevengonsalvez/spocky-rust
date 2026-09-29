@@ -1,0 +1,90 @@
+packages/cli/src/cli.ts:101:  addJsonAndDaemonHostOptions(addSendOptions(program.command("send"))).action(
+packages/cli/src/cli.ts:105:  addJsonAndDaemonHostOptions(addInspectOptions(program.command("inspect"))).action(
+packages/cli/src/cli.ts:109:  addJsonAndDaemonHostOptions(addWaitOptions(program.command("wait"))).action(
+packages/cli/src/cli.ts:113:  addJsonAndDaemonHostOptions(addArchiveOptions(program.command("archive"))).action(
+packages/cli/src/cli.ts:61:  addJsonAndDaemonHostOptions(addLsOptions(program.command("ls"))).action(withOutput(runLsCommand));
+packages/cli/src/cli.ts:63:  addJsonAndDaemonHostOptions(addRunOptions(program.command("run"))).action(
+packages/cli/src/cli.ts:67:  addJsonAndDaemonHostOptions(addImportOptions(program.command("import"))).action(
+packages/cli/src/cli.ts:73:      .command("clone")
+packages/cli/src/cli.ts:85:  addDaemonHostOption(addAttachOptions(program.command("attach"))).action(
+packages/cli/src/cli.ts:89:  addDaemonHostOption(addLogsOptions(program.command("logs"))).action(
+packages/cli/src/cli.ts:93:  addJsonAndDaemonHostOptions(addStopOptions(program.command("stop"))).action(
+packages/cli/src/cli.ts:97:  addJsonAndDaemonHostOptions(addDeleteOptions(program.command("delete"))).action(
+packages/cli/src/commands/agent/index.ts:30:  addJsonAndDaemonHostOptions(addLsOptions(agent.command("ls"))).action(withOutput(runLsCommand));
+packages/cli/src/commands/agent/index.ts:32:  addJsonAndDaemonHostOptions(addRunOptions(agent.command("run"))).action(
+packages/cli/src/commands/agent/index.ts:36:  addJsonAndDaemonHostOptions(addImportOptions(agent.command("import"))).action(
+packages/cli/src/commands/agent/index.ts:40:  addDaemonHostOption(addAttachOptions(agent.command("attach"))).action(
+packages/cli/src/commands/agent/index.ts:44:  addDaemonHostOption(addLogsOptions(agent.command("logs"))).action(
+packages/cli/src/commands/agent/index.ts:48:  addJsonAndDaemonHostOptions(addOpenOptions(agent.command("open"))).action(
+packages/cli/src/commands/agent/index.ts:52:  addJsonAndDaemonHostOptions(addStopOptions(agent.command("stop"))).action(
+packages/cli/src/commands/agent/index.ts:56:  addJsonAndDaemonHostOptions(addDeleteOptions(agent.command("delete"))).action(
+packages/cli/src/commands/agent/index.ts:60:  addJsonAndDaemonHostOptions(addSendOptions(agent.command("send"))).action(
+packages/cli/src/commands/agent/index.ts:64:  addJsonAndDaemonHostOptions(addInspectOptions(agent.command("inspect"))).action(
+packages/cli/src/commands/agent/index.ts:68:  addJsonAndDaemonHostOptions(addWaitOptions(agent.command("wait"))).action(
+packages/cli/src/commands/agent/index.ts:75:      .command("mode")
+packages/cli/src/commands/agent/index.ts:82:  addJsonAndDaemonHostOptions(addArchiveOptions(agent.command("archive"))).action(
+packages/cli/src/commands/agent/index.ts:86:  addJsonAndDaemonHostOptions(addReloadOptions(agent.command("reload"))).action(
+packages/cli/src/commands/agent/index.ts:92:      .command("detach")
+packages/cli/src/commands/agent/index.ts:99:      .command("update")
+packages/cli/src/commands/daemon/config.ts:109:  addLocalDaemonOptions(config.command("unset <path>")).action(
+packages/cli/src/commands/daemon/config.ts:78:  addLocalDaemonOptions(config.command("get [path]")).action(
+packages/cli/src/commands/daemon/config.ts:93:  addLocalDaemonOptions(config.command("set <path> <value>"))
+packages/cli/src/commands/daemon/index.ts:28:      daemon.command("set-password").description("Save a hashed daemon password (local operation)"),
+packages/cli/src/commands/heartbeat/index.ts:159:      .command("create")
+packages/cli/src/commands/heartbeat/index.ts:170:      .command("update")
+packages/cli/src/commands/heartbeat/index.ts:177:    heartbeat.command("delete").description("Delete a heartbeat").argument("<id>", "Heartbeat ID"),
+packages/cli/src/commands/hub/connect.ts:64:        .command("connect")
+packages/cli/src/commands/hub/deploy.ts:252:        .command("deploy")
+packages/cli/src/commands/hub/disconnect.ts:45:      .command("disconnect")
+packages/cli/src/commands/hub/export.ts:104:        .command("export")
+packages/cli/src/commands/hub/index.ts:73:  addJsonAndDaemonHostOptions(hub.command("status")).action(
+packages/cli/src/commands/hub/init.ts:92:    .command("init")
+packages/cli/src/commands/hub/login.ts:62:        .command("login")
+packages/cli/src/commands/hub/logout.ts:95:      .command("logout")
+packages/cli/src/commands/hub/permissions.ts:79:    .command("permissions")
+packages/cli/src/commands/hub/permissions.ts:82:  addJsonAndDaemonHostOptions(permissions.command("list")).action(
+packages/cli/src/commands/hub/permissions.ts:91:      permissions.command(operation).argument("<permission>", "Daemon permission"),
+packages/cli/src/commands/hub/projects.ts:80:        .command("projects")
+packages/cli/src/commands/permit/index.ts:12:    permit.command("ls").description("List all pending permissions"),
+packages/cli/src/commands/permit/index.ts:17:      .command("allow")
+packages/cli/src/commands/permit/index.ts:27:      .command("deny")
+packages/cli/src/commands/plugin/index.ts:200:      .command("init")
+packages/cli/src/commands/plugin/index.ts:206:    plugin.command("ls").description("List configured plugins").argument("[id]"),
+packages/cli/src/commands/plugin/index.ts:208:  addJsonAndDaemonHostOptions(plugin.command("status", { hidden: true }).argument("[id]")).action(
+packages/cli/src/commands/plugin/index.ts:212:    plugin.command("logs").description("Show recent plugin output").argument("<id>"),
+packages/cli/src/commands/plugin/index.ts:216:      .command("install")
+packages/cli/src/commands/plugin/index.ts:229:      .command("update")
+packages/cli/src/commands/plugin/index.ts:240:      plugin.command(action).description(`${action} a plugin`).argument("<id>"),
+packages/cli/src/commands/plugin/index.ts:248:    plugin.command("remove").description("Remove plugin configuration").argument("<id>"),
+packages/cli/src/commands/project/index.ts:14:      .command("create")
+packages/cli/src/commands/project/index.ts:19:  addJsonAndDaemonHostOptions(project.command("ls").description("List projects")).action(
+packages/cli/src/commands/project/index.ts:25:      .command("rename")
+packages/cli/src/commands/project/index.ts:35:      .command("delete")
+packages/cli/src/commands/provider/index.ts:12:    provider.command("ls").description("List available providers and status"),
+packages/cli/src/commands/provider/index.ts:17:      .command("models")
+packages/cli/src/commands/provider/index.ts:25:      .command("diagnostic")
+packages/cli/src/commands/schedule/index.ts:19:      .command("create")
+packages/cli/src/commands/schedule/index.ts:42:  addJsonAndDaemonHostOptions(schedule.command("ls").description("List schedules")).action(
+packages/cli/src/commands/schedule/index.ts:47:    schedule.command("inspect").description("Inspect a schedule").argument("<id>", "Schedule ID"),
+packages/cli/src/commands/schedule/index.ts:52:      .command("logs")
+packages/cli/src/commands/schedule/index.ts:58:    schedule.command("pause").description("Pause a schedule").argument("<id>", "Schedule ID"),
+packages/cli/src/commands/schedule/index.ts:63:      .command("resume")
+packages/cli/src/commands/schedule/index.ts:69:    schedule.command("delete").description("Delete a schedule").argument("<id>", "Schedule ID"),
+packages/cli/src/commands/schedule/index.ts:74:      .command("run-once")
+packages/cli/src/commands/schedule/index.ts:81:      .command("update")
+packages/cli/src/commands/script/index.ts:22:      script.command("ls").description("List configured workspace scripts"),
+packages/cli/src/commands/script/index.ts:28:      script.command("start").description("Start a configured workspace script").argument("<name>"),
+packages/cli/src/commands/script/index.ts:34:      script.command("stop").description("Stop a running workspace script").argument("<name>"),
+packages/cli/src/commands/terminal/index.ts:19:      .command("ls")
+packages/cli/src/commands/terminal/index.ts:30:      .command("create")
+packages/cli/src/commands/terminal/index.ts:39:      .command("kill")
+packages/cli/src/commands/terminal/index.ts:46:      .command("capture")
+packages/cli/src/commands/terminal/index.ts:58:      .command("send-keys")
+packages/cli/src/commands/workspace/index.ts:15:      .command("setup")
+packages/cli/src/commands/workspace/index.ts:22:      .command("create")
+packages/cli/src/commands/workspace/index.ts:40:  addJsonAndDaemonHostOptions(workspace.command("ls").description("List active workspaces")).action(
+packages/cli/src/commands/workspace/index.ts:46:      .command("rename")
+packages/cli/src/commands/workspace/index.ts:58:      .command("archive")
+packages/cli/src/commands/worktree/index.ts:12:    worktree.command("ls").description("List Paseo-managed git worktrees"),
+packages/cli/src/commands/worktree/index.ts:17:      .command("create")
+packages/cli/src/commands/worktree/index.ts:32:      .command("archive")
