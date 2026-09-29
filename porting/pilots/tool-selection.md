@@ -12,9 +12,11 @@ cargo 1.94.0 (85eff7c80 2026-01-15)
 repository-local Rust targets: aarch64-apple-ios, aarch64-linux-android,
 wasm32-unknown-unknown, x86_64-apple-darwin, x86_64-pc-windows-msvc,
 x86_64-unknown-linux-gnu
-Xcode: unavailable
-Java: unavailable
-adb: unavailable
+Xcode iOS SDK: unavailable
+Java 17: available through repository-command-local JAVA_HOME
+Android SDK: platforms 35 and 36, NDK 27.1.12297006
+Android AVD: ainb-api35, shutdown at capture time
+adb and emulator: available through explicit SDK paths
 cargo-xwin: unavailable
 cross: unavailable
 wasm-pack: unavailable

@@ -2,6 +2,7 @@
 members = [
   "crates/paseo-audio-delivery-pilot",
   "crates/paseo-baseline",
+  "crates/paseo-browser-pilot",
   "crates/paseo-crypto",
   "crates/paseo-differential",
   "crates/paseo-domain",
