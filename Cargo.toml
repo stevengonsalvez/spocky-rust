@@ -12,6 +12,7 @@ members = [
   "crates/paseo-relay-pilot",
   "crates/paseo-store",
   "crates/paseo-ui-pilot",
+  "crates/paseo-ui-renderer-pilot",
   "crates/paseo-wire",
 ]
 resolver = "3"
