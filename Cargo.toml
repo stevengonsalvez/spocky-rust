@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/paseo-baseline", "crates/paseo-differential"]
+members = [
+  "crates/paseo-baseline",
+  "crates/paseo-crypto",
+  "crates/paseo-differential",
+  "crates/paseo-wire",
+]
 resolver = "3"
 
 [workspace.package]
