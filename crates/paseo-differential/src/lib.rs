@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,6 +49,12 @@ pub struct ProcessSpec {
     pub program: PathBuf,
     pub arguments: Vec<String>,
     pub environment: BTreeMap<String, String>,
+    #[serde(default = "default_process_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+const fn default_process_timeout_ms() -> u64 {
+    30_000
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -731,24 +737,66 @@ fn execute(
     state_variable: &str,
     state_root: &Path,
 ) -> Observation {
-    let output = Command::new(&process.program)
-        .args(&process.arguments)
-        .args(&scenario.arguments)
-        .envs(&process.environment)
-        .envs(&scenario.environment)
-        .env(state_variable, state_root)
-        .current_dir(state_root)
-        .output();
+    let stdout_path = state_root.join(".paseo-differential-stdout");
+    let stderr_path = state_root.join(".paseo-differential-stderr");
+    let stdout_file = fs::File::create(&stdout_path);
+    let stderr_file = fs::File::create(&stderr_path);
+    let process_result = stdout_file
+        .and_then(|stdout_file| stderr_file.map(|stderr_file| (stdout_file, stderr_file)));
 
-    let (stdout, stderr, exit_code) = match output {
-        Ok(output) => (
-            ObservationSlot::Value(output.stdout),
-            ObservationSlot::Value(output.stderr),
-            output.status.code().map_or_else(
-                || ObservationSlot::Error("process terminated without exit code".into()),
-                ObservationSlot::Value,
-            ),
-        ),
+    let process_result = process_result.and_then(|(stdout_file, stderr_file)| {
+        Command::new(&process.program)
+            .args(&process.arguments)
+            .args(&scenario.arguments)
+            .envs(&process.environment)
+            .envs(&scenario.environment)
+            .env(state_variable, state_root)
+            .current_dir(state_root)
+            .stdout(stdout_file)
+            .stderr(stderr_file)
+            .spawn()
+    });
+
+    let (stdout, stderr, exit_code) = match process_result {
+        Ok(mut child) => {
+            let timeout = Duration::from_millis(process.timeout_ms.max(1));
+            let deadline = Instant::now() + timeout;
+            let exit_code = loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        break status.code().map_or_else(
+                            || {
+                                ObservationSlot::Error(
+                                    "process terminated without exit code".into(),
+                                )
+                            },
+                            ObservationSlot::Value,
+                        );
+                    }
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Ok(None) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break ObservationSlot::Error(format!(
+                            "process timed out after {} ms",
+                            process.timeout_ms.max(1)
+                        ));
+                    }
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break ObservationSlot::Error(format!("wait for process: {error}"));
+                    }
+                }
+            };
+            (
+                read_process_output(&stdout_path, "stdout"),
+                read_process_output(&stderr_path, "stderr"),
+                exit_code,
+            )
+        }
         Err(error) => {
             let message = format!("cannot execute {}: {error}", process.program.display());
             (
@@ -772,6 +820,13 @@ fn execute(
         recovery: capture_json(state_root, captures.recovery.as_deref()),
         counts: capture_counts(state_root, captures.counts.as_deref()),
     }
+}
+
+fn read_process_output(path: &Path, name: &str) -> ObservationSlot<Vec<u8>> {
+    fs::read(path).map_or_else(
+        |error| ObservationSlot::Error(format!("read process {name}: {error}")),
+        ObservationSlot::Value,
+    )
 }
 
 fn capture_json(root: &Path, relative: Option<&Path>) -> ObservationSlot<Value> {

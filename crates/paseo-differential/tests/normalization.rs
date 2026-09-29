@@ -232,6 +232,54 @@ fn executable_runner_rejects_identical_capture_failures() {
 }
 
 #[test]
+fn executable_runner_terminates_timed_out_processes() {
+    let process = ProcessSpec {
+        program: "/bin/sh".into(),
+        arguments: vec![
+            "-c".into(),
+            "printf '{\"fixtures\":0,\"assertions\":0}' > counts.json; sleep 2".into(),
+        ],
+        environment: BTreeMap::new(),
+        timeout_ms: 50,
+    };
+    let plan = RunPlan {
+        scenario: Scenario {
+            id: "timeout".into(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            initial_files: Vec::new(),
+            expected_counts: ExecutionCounts {
+                fixtures: 0,
+                assertions: 0,
+            },
+        },
+        original: process.clone(),
+        rust: process,
+        state_environment_variable: "PASEO_DIFFERENTIAL_STATE".into(),
+        captures: CapturePlan {
+            counts: Some("counts.json".into()),
+            ..CapturePlan::default()
+        },
+        normalization_rules: Vec::new(),
+    };
+    let started = std::time::Instant::now();
+
+    let report = run_differential(&plan).expect("timeouts produce a report");
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(!report.equivalent);
+    assert_eq!(report.differences, vec![Comparison::different("exit_code")]);
+    assert!(matches!(
+        report.original.raw.exit_code,
+        ObservationSlot::Error(ref message) if message == "process timed out after 50 ms"
+    ));
+    assert!(matches!(
+        report.rust.raw.exit_code,
+        ObservationSlot::Error(ref message) if message == "process timed out after 50 ms"
+    ));
+}
+
+#[test]
 fn binary_writes_the_deterministic_manifest() {
     let directory = TestDirectory::new();
     let plan_path = directory.path.join("plan.json");
@@ -278,6 +326,7 @@ printf 'created %s-id at %s\n' "$SIDE" "$root"
         program: "/bin/sh".into(),
         arguments: vec!["-c".into(), script.into()],
         environment: BTreeMap::from([("SIDE".into(), side.into())]),
+        timeout_ms: 30_000,
     };
     RunPlan {
         scenario: scenario(),
