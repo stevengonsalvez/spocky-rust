@@ -39,13 +39,13 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 | `paseo-store` | `DSTA`, `DWLABEL`, old state, migrations, atomic writes, journal recovery |
 | `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH`, `DWORK`, `DSCRIPT`, `DCFG`, `DWEB`, `DUSAGE`, `DRECEIPT`, `DMCP` |
 | `paseo-provider-api` and provider crates | `DPRV` and external provider process adapters |
-| `paseo-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC` |
+| `paseo-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC`, `CLOUD-HUB-DAEMON`, `CLOUD-HUB-SESSIONS`, `CLOUD-HUB-ATTACH` |
 | `paseo-daemon-relay` | `CLOUD-RELAY-DAEMON` |
 | `paseo-relay` | Distributed ownership, reroute, flow control, operations |
 | `paseo-hub` | Auth, first-run setup, configuration compiler, API, store, workflows, integrations, billing, deployment |
 | `paseo-client` | `DSDK`, `CLIENT-002` through `CLIENT-007` shared behavior |
 | `paseo-cli` | `DCLI`, Hub CLI, exact process output and exit behavior |
-| `paseo-plugin` | Plugin manifest, server/client host, compatibility boundary |
+| `paseo-plugin` | Plugin manifest, acquisition, review, staging, server/client host, update recovery, compatibility boundary |
 | `paseo-skills` | Bundled and discovered skill indexing, compatibility, invocation inputs |
 | `paseo-import` | Local session and Conductor import contracts |
 | `paseo-ui-core` | Route, workspace, presentation, visual, accessibility, localization contracts |

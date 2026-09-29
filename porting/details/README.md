@@ -20,6 +20,6 @@ These indexes make the family-level capability matrix auditable against exact so
 | `compat-sites.txt` | 440 | Package compatibility tags with source locations |
 | `delivery-inputs.txt` | 64 | Workflow, Fastlane, Nix, and Docker inputs |
 
-Tree indexes come from `git ls-tree -r --full-tree HEAD` in each pinned checkout. Path indexes come from `git ls-files`. Literal, feature, command, and compatibility indexes come from line-numbered `rg` extraction against the pinned Paseo checkout. All output is byte-sorted with `LC_ALL=C`.
+Tree indexes preserve exact `git ls-tree -r --full-tree HEAD` order in each pinned checkout. Path indexes come from byte-sorted `git ls-files`. Literal, feature, command, and compatibility indexes come from line-numbered `rg` extraction against the pinned Paseo checkout and are byte-sorted with `LC_ALL=C`.
 
 Counts are inventory coverage, not executed-test counts or parity proof. Differential manifests record executed tests and fixtures separately.
