@@ -1,0 +1,23 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "paseo-browser-pilot"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[dependencies]
+percent-encoding = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+url = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
