@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "paseo-hub-pilot"
 version = "0.1.0"
