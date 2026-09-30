@@ -9,30 +9,25 @@ body { margin: 0; background: #fff; color: #1a1a1e; }
 button, a { font: inherit; }
 .shell { min-height: 100vh; display: grid; grid-template-columns: 320px 1fr; background: #fff; }
 .sidebar { min-height: 100vh; display: flex; flex-direction: column; border-right: 1px solid #e4e4e7; background: #f4f4f5; color: #71717a; font-size: 14px; }
-.nav-list { display: grid; gap: 2px; padding: 6px 10px 7px; border-bottom: 1px solid #e4e4e7; }
-.nav-button { min-height: 28px; display: flex; align-items: center; gap: 10px; padding: 4px 7px; border: 0; border-radius: 7px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.nav-list { display: grid; gap: 2px; padding: 8px 0 6px; border-bottom: 1px solid #e4e4e7; }
+.nav-button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .nav-button:hover, .nav-button:focus-visible { background: #ececf0; color: #28292f; outline: 2px solid #8ba9d8; outline-offset: -2px; }
-.nav-icon { width: 12px; text-align: center; color: #72747c; }
-.icon-add::before { content: "+"; }
-.icon-history::before { content: "◴"; }
-.icon-search::before { content: "⌕"; }
-.icon-schedule::before { content: "◫"; }
-.icon-project::before { content: "⊞"; }
-.icon-hosts::before { content: "▤"; }
-.icon-import::before { content: "⇩"; }
-.icon-activity::before { content: "◜"; }
-.icon-help::before { content: "?"; }
-.icon-settings::before { content: "⚙"; }
+.nav-list > .nav-button { margin: 0 8px; }
+.nav-icon { display: block; width: 14px; height: 14px; flex: none; color: #71717a; }
+.nav-icon svg, .footer-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .sidebar-empty { margin: 15px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
 .sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: 16px; }
 .sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: 16px; }
 .sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }
-.sidebar-empty-actions button { min-height: 28px; padding: 4px 17px; border: 1px solid transparent; border-radius: 14px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
-.sidebar-empty-actions button:last-child { padding-right: 14px; padding-left: 14px; border-color: #e4e4e7; background: transparent; }
+.sidebar-empty-actions button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
+.sidebar-empty-actions button:last-child { border-color: #ececf1; background: transparent; }
+.sidebar-empty-actions .nav-icon { width: 12px; height: 12px; color: currentColor; }
 .sidebar-spacer { flex: 1; }
-.sidebar-footer { min-height: 57px; display: flex; align-items: center; gap: 14px; padding: 10px 15px; border-top: 1px solid #e4e4e7; }
-.sidebar-footer .nav-button:first-child { flex: 1; }
-.icon-button { min-width: 18px; padding: 4px 2px; }
+.sidebar-footer { min-height: 57px; display: flex; align-items: center; gap: 8px; padding: 12px 8px; border-top: 1px solid #e4e4e7; }
+.sidebar-footer .nav-button:first-child { min-width: 0; min-height: 32px; flex: 1; padding: 6px 8px; }
+.footer-icon { display: block; width: 16px; height: 16px; flex: none; color: #71717a; }
+.sidebar-footer .nav-button:first-child .footer-icon, .sidebar-footer .nav-button:nth-child(2) .footer-icon { width: 14px; height: 14px; }
+.icon-button { width: 28px; min-width: 28px; height: 28px; min-height: 0; justify-content: center; padding: 4px; }
 .mobile-menu { display: none; position: absolute; z-index: 2; top: 24px; left: 16px; width: 28px; height: 28px; border: 0; background: transparent; color: #666873; font-size: 20px; cursor: pointer; }
 .mobile-menu::before { content: "☰"; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
@@ -85,6 +80,20 @@ enum ProjectIcon {
     Plug,
 }
 
+#[derive(Clone, Copy)]
+enum SidebarIcon {
+    Plus,
+    History,
+    Search,
+    CalendarClock,
+    FolderPlus,
+    Server,
+    Import,
+    Gauge,
+    CircleHelp,
+    Settings,
+}
+
 const PROJECT_ACTIONS: [ProjectAction; 3] = [
     ProjectAction {
         icon: ProjectIcon::FolderOpen,
@@ -133,6 +142,81 @@ fn project_icon(icon: ProjectIcon) -> Element {
     }
 }
 
+fn sidebar_icon(icon: SidebarIcon) -> Element {
+    match icon {
+        SidebarIcon::Plus => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M5 12h14" }
+                path { d: "M12 5v14" }
+            }
+        },
+        SidebarIcon::History => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }
+                path { d: "M3 3v5h5" }
+                path { d: "M12 7v5l4 2" }
+            }
+        },
+        SidebarIcon::Search => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "m21 21-4.34-4.34" }
+                circle { cx: "11", cy: "11", r: "8" }
+            }
+        },
+        SidebarIcon::CalendarClock => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M16 14v2.2l1.6 1" }
+                path { d: "M16 2v4" }
+                path { d: "M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5" }
+                path { d: "M3 10h5" }
+                path { d: "M8 2v4" }
+                circle { cx: "16", cy: "16", r: "6" }
+            }
+        },
+        SidebarIcon::FolderPlus => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M12 10v6" }
+                path { d: "M9 13h6" }
+                path { d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" }
+            }
+        },
+        SidebarIcon::Server => rsx! {
+            svg { view_box: "0 0 24 24",
+                rect { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2" }
+                rect { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2" }
+                line { x1: "6", x2: "6.01", y1: "6", y2: "6" }
+                line { x1: "6", x2: "6.01", y1: "18", y2: "18" }
+            }
+        },
+        SidebarIcon::Import => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M12 3v12" }
+                path { d: "m8 11 4 4 4-4" }
+                path { d: "M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" }
+            }
+        },
+        SidebarIcon::Gauge => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "m12 14 4-4" }
+                path { d: "M3.34 19a10 10 0 1 1 17.32 0" }
+            }
+        },
+        SidebarIcon::CircleHelp => rsx! {
+            svg { view_box: "0 0 24 24",
+                circle { cx: "12", cy: "12", r: "10" }
+                path { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }
+                path { d: "M12 17h.01" }
+            }
+        },
+        SidebarIcon::Settings => rsx! {
+            svg { view_box: "0 0 24 24",
+                path { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }
+                circle { cx: "12", cy: "12", r: "3" }
+            }
+        },
+    }
+}
+
 /// Interactive open-project shell shared by web, desktop, and mobile renderers.
 ///
 /// # Errors
@@ -151,27 +235,27 @@ pub fn PaseoShell() -> Element {
         main { class: "shell",
             nav { class: "sidebar", aria_label: "Primary navigation",
                 div { class: "nav-list",
-                    button { class: "nav-button", aria_label: "New workspace", span { class: "nav-icon icon-add" } "New workspace" }
-                    button { class: "nav-button", aria_label: "History", span { class: "nav-icon icon-history" } "History" }
-                    button { class: "nav-button", aria_label: "Search", span { class: "nav-icon icon-search" } "Search" }
-                    button { class: "nav-button", aria_label: "Schedules", span { class: "nav-icon icon-schedule" } "Schedules" }
+                    button { class: "nav-button", aria_label: "New workspace", span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } "New workspace" }
+                    button { class: "nav-button", aria_label: "History", span { class: "nav-icon", {sidebar_icon(SidebarIcon::History)} } "History" }
+                    button { class: "nav-button", aria_label: "Search", span { class: "nav-icon", {sidebar_icon(SidebarIcon::Search)} } "Search" }
+                    button { class: "nav-button", aria_label: "Schedules", span { class: "nav-icon", {sidebar_icon(SidebarIcon::CalendarClock)} } "Schedules" }
                 }
                 div { class: "sidebar-empty",
                     p { class: "sidebar-empty-title", "No projects yet" }
                     p { class: "sidebar-empty-detail", "Add a project to get started" }
                     div { class: "sidebar-empty-actions",
-                        button { "+  Add project" }
-                        button { "⇩  Import session" }
+                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } "Add project" }
+                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Import)} } "Import session" }
                     }
                 }
                 div { class: "sidebar-spacer" }
                 div { class: "sidebar-footer",
-                    button { class: "nav-button", span { class: "nav-icon icon-project" } "Add project" }
-                    button { class: "nav-button icon-button", aria_label: "Hosts", span { class: "nav-icon icon-hosts" } }
-                    button { class: "nav-button icon-button", aria_label: "Import", span { class: "nav-icon icon-import" } }
-                    button { class: "nav-button icon-button", aria_label: "Activity", span { class: "nav-icon icon-activity" } }
-                    button { class: "nav-button icon-button", aria_label: "Help", span { class: "nav-icon icon-help" } }
-                    button { class: "nav-button icon-button", aria_label: "Settings", span { class: "nav-icon icon-settings" } }
+                    button { class: "nav-button", span { class: "footer-icon", {sidebar_icon(SidebarIcon::FolderPlus)} } "Add project" }
+                    button { class: "nav-button icon-button", aria_label: "Hosts", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Server)} } }
+                    button { class: "nav-button icon-button", aria_label: "Import", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Import)} } }
+                    button { class: "nav-button icon-button", aria_label: "Activity", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Gauge)} } }
+                    button { class: "nav-button icon-button", aria_label: "Help", span { class: "footer-icon", {sidebar_icon(SidebarIcon::CircleHelp)} } }
+                    button { class: "nav-button icon-button", aria_label: "Settings", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Settings)} } }
                 }
             }
             button { class: "mobile-menu", aria_label: "Open menu" }

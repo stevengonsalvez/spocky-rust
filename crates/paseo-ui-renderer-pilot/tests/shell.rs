@@ -39,6 +39,13 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("icon-star::before"));
     assert!(!first.contains("icon-sponsor::before"));
     assert!(!first.contains("icon-community::before"));
+    assert!(first.contains("M3 12a9 9 0 1 0"));
+    assert!(first.contains("M16 14v2.2l1.6 1"));
+    assert!(first.contains("M20 20a2 2 0 0 0 2-2V8"));
+    assert!(first.contains("M9.09 9a3 3 0 0 1 5.83 1"));
+    assert!(!first.contains("icon-history::before"));
+    assert!(!first.contains("icon-project::before"));
+    assert!(!first.contains("icon-settings::before"));
 }
 
 #[test]
