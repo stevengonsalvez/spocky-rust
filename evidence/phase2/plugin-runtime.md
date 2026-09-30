@@ -57,6 +57,9 @@ nine real local acquisition/runtime cases, and five settings lifecycle cases:
     initialize, ready, invoke, result, and shutdown over its IPC channel, then
     force a hung invocation timeout and prove the exact plugin child is reaped.
     The bridge removes its temporary executable on both paths.
+11. Put each external Git and npm command in an isolated Unix process group.
+    Force a timeout and prove both the shell and its descendant are reaped while
+    preserving concurrent stdout and stderr drainage.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -84,6 +87,7 @@ sources live in disposable temporary directories.
 - Rust acquisition/runtime: 9 passed, 0 failed, repeated twice
 - Rust process envelope: 2 passed, 0 failed
 - Rust provider payload protocol: 4 passed, 0 failed
+- Rust bounded-command unit cases: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
 - Failed reviewed update: prior revision, `rpc:review.v1`, and `tone=terse` survived restart
@@ -112,7 +116,8 @@ sources live in disposable temporary directories.
   reporting, and daemon RPC integration remain open.
 - Windows acquisition, path, process, failure, and restart runs are absent.
 - Stale partial staging recovery is exercised against real Git and npm sources.
-  Forced termination during an active external command remains open.
+  Active-command timeout reaps Unix descendants. Windows descendant cleanup
+  remains open.
 - Two parallel-test fixture collisions were confirmed and repaired with atomic
   directory sequences. Lifecycle passed three consecutive runs and settings
   passed three consecutive runs after repair.
