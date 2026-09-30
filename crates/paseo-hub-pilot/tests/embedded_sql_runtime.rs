@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Barrier;
@@ -10,6 +12,7 @@ use paseo_hub_pilot::{
     AccountId, Bootstrap, DurableHubStore, EmbeddedSqlStore, HubPilot, OrganizationId,
     PasswordChange, StoreError, StoreSemantics,
 };
+use rusqlite::Connection;
 
 struct TestDir(PathBuf);
 
@@ -186,4 +189,141 @@ fn embedded_sql_serializes_callers_holding_the_same_key() {
         *events.lock().expect("events"),
         ["first:start", "first:end", "second:start", "second:end"]
     );
+}
+
+#[test]
+fn embedded_sql_installs_relational_hub_tables_and_constraints() {
+    let root = TestDir::new();
+    let store = EmbeddedSqlStore::open(&root.0).expect("open embedded SQL");
+
+    assert_eq!(
+        store.relational_tables().expect("relational tables"),
+        [
+            "account",
+            "hub_state",
+            "instance_bootstrap",
+            "invitation",
+            "member",
+            "organization",
+            "organization_api_keys",
+            "runtime_configuration",
+            "session",
+            "user",
+        ]
+    );
+    let schema = store.schema_observation().expect("schema observation");
+    assert!(schema.contains("members_role_check"));
+    assert!(schema.contains("invitations_role_check"));
+    assert!(schema.contains("invitations_status_check"));
+    assert!(schema.contains("invitations_pending_organization_email_unique"));
+    assert!(schema.contains("organization_api_keys_prefix_unique"));
+    assert!(schema.contains("runtime_configuration_singleton_check"));
+    assert_eq!(
+        store.schema_constraints().expect("schema constraints"),
+        [
+            "instance_bootstrap_completion_check",
+            "invitations_pending_organization_email_unique",
+            "invitations_role_check",
+            "invitations_status_check",
+            "members_organization_user_unique",
+            "members_role_check",
+            "organization_api_keys_prefix_unique",
+            "organization_api_keys_scopes_check",
+            "runtime_configuration_singleton_check",
+        ]
+    );
+}
+
+#[test]
+fn embedded_sql_migrates_old_database_once_and_reopens_at_latest_version() {
+    let root = TestDir::new();
+    let database = root.0.join("hub.sqlite3");
+    let connection = Connection::open(&database).expect("open old database");
+    connection
+        .execute_batch(
+            "CREATE TABLE hub_state (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                state_bytes BLOB NOT NULL,
+                revision INTEGER NOT NULL CHECK (revision > 0)
+            );
+            INSERT INTO hub_state (singleton, state_bytes, revision)
+            VALUES (1, X'6f6c642d7374617465', 7);",
+        )
+        .expect("create old database");
+    drop(connection);
+
+    let store = EmbeddedSqlStore::open(&root.0).expect("upgrade old database");
+    assert_eq!(
+        store.load().expect("load old state"),
+        Some(b"old-state".to_vec())
+    );
+    let first_journal = store.migration_journal().expect("migration journal");
+    assert_eq!(first_journal.len(), 2);
+    assert_eq!(first_journal[0].0, 1);
+    assert_eq!(first_journal[1].0, 2);
+    drop(store);
+
+    let reopened = EmbeddedSqlStore::open(&root.0).expect("reopen upgraded database");
+    assert_eq!(
+        reopened.migration_journal().expect("reopened journal"),
+        first_journal
+    );
+    assert_eq!(reopened.revision().expect("old revision"), Some(7));
+}
+
+#[test]
+fn embedded_sql_recovers_stale_and_incomplete_owner_records() {
+    for owner in [
+        r#"{"pid":2147483647,"token":"dead-owner"}"#,
+        r#"{"pid":123"#,
+    ] {
+        let root = TestDir::new();
+        let lock_path = root.0.join(".paseo-hub.lock");
+        let mut lock = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&lock_path)
+            .expect("create stale lock");
+        lock.write_all(owner.as_bytes()).expect("write stale owner");
+        drop(lock);
+
+        let store = EmbeddedSqlStore::open(&root.0).expect("recover stale lock");
+        let current = fs::read_to_string(&lock_path).expect("current owner record");
+        assert!(current.contains(&format!(r#""pid":{}"#, std::process::id())));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            assert_eq!(
+                fs::metadata(&lock_path)
+                    .expect("lock metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        drop(store);
+        assert!(!lock_path.exists());
+    }
+}
+
+#[test]
+fn embedded_sql_rejects_live_owner_record_before_opening_database() {
+    let root = TestDir::new();
+    let lock_path = root.0.join(".paseo-hub.lock");
+    fs::write(
+        &lock_path,
+        format!(
+            r#"{{"pid":{},"token":"other-live-owner"}}"#,
+            std::process::id()
+        ),
+    )
+    .expect("write live lock");
+
+    assert!(matches!(
+        EmbeddedSqlStore::open(&root.0),
+        Err(StoreError::EmbeddedDirectoryInUse(path)) if path == root.0
+    ));
+    assert!(!root.0.join("hub.sqlite3").exists());
 }
