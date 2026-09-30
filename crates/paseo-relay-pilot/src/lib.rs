@@ -21,6 +21,13 @@ macro_rules! string_id {
                 Self(value)
             }
         }
+
+        impl $name {
+            #[must_use]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
     };
 }
 
