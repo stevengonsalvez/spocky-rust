@@ -98,7 +98,7 @@ fi
 valid_fixture="$fixture_dir/valid.json"
 printf '%s\n' '{
   "captures": [
-    {"name":"original-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
+    {"name":"original-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false},"instrumentation":{"timeline":[{"event":"navigation:start","monotonicMs":0}],"requests":{"completed":[],"failed":[]}}},
     {"name":"original-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
     {"name":"candidate-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
     {"name":"candidate-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}}
@@ -130,6 +130,14 @@ node -e '
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/pixel-desktop.json"
 expect_rejected 'desktop pixel' "$fixture_dir/pixel-desktop.json"
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const instrumentation = result.captures.find(
+    (capture) => capture.name === "original-desktop",
+  ).instrumentation;
+  if (instrumentation.timeline[0].event !== "navigation:start") process.exit(1);
+' "$fixture_dir/pixel-desktop.json"
 
 node -e '
   const fs = require("node:fs");
@@ -167,5 +175,20 @@ grep -F 'fontWeight: style.fontWeight' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'sidebarEmptyDetail' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+for checkpoint in \
+  'navigation:start' \
+  'meaningful-text:ready' \
+  'fonts:ready' \
+  'animation-frames:settled' \
+  'keyboard-focus-scan:complete' \
+  'activation:dispatch' \
+  'activation:result' \
+  'screenshot:complete' \
+  'request:finished' \
+  'request:failed' \
+  'captureFailure'; do
+  grep -F "$checkpoint" \
+    "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+done
 grep -F 'PASEO_DX_EXECUTABLE' \
   "$repository_root/scripts/phase2/browser-runtime-capture.sh" >/dev/null

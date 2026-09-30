@@ -23,6 +23,14 @@ Canonical comparison JSON and PNGs update only after every acceptance gate
 passes. An accepted attempt retains the previously published artifacts beside
 its attempt evidence.
 
+Each capture also records non-compared instrumentation with monotonic offsets.
+Checkpoints cover navigation, meaningful text, font readiness, two animation
+frames, focus scanning, activation, and screenshots. DOM probes report pending
+stylesheets, fonts, images, and relevant requests. Request completion and
+failure events are retained. Capture failures write the completed captures and
+the failing capture instrumentation into the attempt comparison JSON before
+exiting. Instrumentation adds no retry or acceptance condition.
+
 ## Checks
 
 ```text
