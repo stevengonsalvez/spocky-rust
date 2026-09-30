@@ -46,6 +46,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ("POST", "/api/auth/paseo/change-password") => self.change_password(request),
             ("POST", "/api/auth/paseo/complete-app-setup") => self.complete_setup(request),
             ("POST", "/api/auth/paseo/create-invitation") => self.create_invitation(request),
+            ("POST", "/api/auth/paseo/cancel-invitation") => self.cancel_invitation(request),
             ("POST", "/api/auth/paseo/select-organization") => self.select_organization(request),
             _ => json_response(404, &ErrorBody { error: "not_found" }),
         }
@@ -298,6 +299,62 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ),
         }
     }
+
+    fn cancel_invitation(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Some(token) = session_token(request) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Some(account) = self.hub.account_for_session(&token) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Some(organization) = self.hub.active_organization_for_session(&token) else {
+            return json_response(
+                404,
+                &ErrorBody {
+                    error: "organization_unavailable",
+                },
+            );
+        };
+        let Ok(input) = serde_json::from_slice::<CancelInvitationBody>(&request.body) else {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        };
+        match self
+            .hub
+            .cancel_invitation(&account, &organization, &input.invitation_id)
+        {
+            Ok(()) => json_response(200, &CanceledBody { canceled: true }),
+            Err(HubError::Authority(_) | HubError::InvitationManagementRequired) => {
+                json_response(403, &ErrorBody { error: "forbidden" })
+            }
+            Err(HubError::InvitationUnavailable) => json_response(
+                404,
+                &ErrorBody {
+                    error: "invitation_unavailable",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -324,6 +381,17 @@ struct SelectOrganizationBody {
 struct CreateInvitationBody {
     email: String,
     role: InvitationRole,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CancelInvitationBody {
+    invitation_id: String,
+}
+
+#[derive(Serialize)]
+struct CanceledBody {
+    canceled: bool,
 }
 
 #[derive(Serialize)]

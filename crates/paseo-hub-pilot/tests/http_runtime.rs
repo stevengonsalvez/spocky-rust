@@ -231,7 +231,7 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let address = listener.local_addr().expect("listener address");
     let server = thread::spawn(move || {
         let mut service = HubHttpService::new(hub);
-        for _ in 0..9 {
+        for _ in 0..11 {
             let (mut stream, _) = listener.accept().expect("accept request");
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
@@ -304,6 +304,23 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     assert!(invitation.ends_with(
         r#"{"id":"invitation-1","email":"member@example.test","role":"member","expiresAt":"2023-11-16T22:13:20.000Z","link":"https://hub.example.test/?invitation=invitation-1"}"#
     ));
+    let canceled_invitation = request(
+        address,
+        "POST",
+        "/api/auth/paseo/create-invitation",
+        Some(cookie),
+        Some(r#"{"email":"cancel@example.test","role":"admin"}"#),
+    );
+    assert!(canceled_invitation.starts_with("HTTP/1.1 201 Created\r\n"));
+    let canceled = request(
+        address,
+        "POST",
+        "/api/auth/paseo/cancel-invitation",
+        Some(cookie),
+        Some(r#"{"invitationId":"invitation-2"}"#),
+    );
+    assert!(canceled.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(canceled.ends_with(r#"{"canceled":true}"#));
 
     let completed = request(
         address,
