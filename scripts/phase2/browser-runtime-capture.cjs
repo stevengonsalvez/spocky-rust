@@ -9,6 +9,10 @@ function valuesMatch(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function activationSelector(candidate) {
+  return candidate ? ".action:nth-child(1)" : '[data-testid="open-project-submit"]';
+}
+
 function comparisonState(captures, visual = null) {
   const readiness = captures.map((capture) => ({
     name: capture.name,
@@ -101,6 +105,16 @@ if (process.argv[2] === "--validate-result") {
   process.exit(comparison.accepted ? 0 : 2);
 }
 
+if (process.argv[2] === "--activation-selector") {
+  const runtime = process.argv[3];
+  if (!runtime || !["original", "candidate"].includes(runtime) || process.argv.length !== 4) {
+    process.stderr.write("usage: browser-runtime-capture.cjs --activation-selector original|candidate\n");
+    process.exit(2);
+  }
+  process.stdout.write(`${activationSelector(runtime === "candidate")}\n`);
+  process.exit(0);
+}
+
 const [baselineUrl, candidateUrl, outputPath, screenshotDir, daemonPort] = process.argv.slice(2);
 if (!baselineUrl || !candidateUrl || !outputPath || !screenshotDir || !daemonPort) {
   throw new Error(
@@ -165,7 +179,9 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     );
   }
 
-  const action = page.getByRole("button", { name: /^Add a project/ });
+  const actionSelector = activationSelector(candidate);
+  const action = page.locator(actionSelector);
+  await action.waitFor({ state: "visible", timeout: 30_000 });
   await action.focus();
   const beforeActivation = await captureInteractionState(page);
   const fileChooser = page
@@ -178,6 +194,7 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
   const keyboardActivation = {
     attempted: true,
     changed: fileChooserOpened || !valuesMatch(beforeActivation, afterActivation),
+    control: actionSelector,
     fileChooserOpened,
     before: beforeActivation,
     after: afterActivation,

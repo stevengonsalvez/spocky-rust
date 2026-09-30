@@ -44,6 +44,38 @@ if SPOCKY_BROWSER_EVIDENCE_STEM='../invalid' \
   exit 1
 fi
 
+original_activation_selector=$(node \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --activation-selector original)
+if [ "$original_activation_selector" != '[data-testid="open-project-submit"]' ]; then
+  printf 'original activation selector unexpectedly depends on label: %s\n' \
+    "$original_activation_selector" >&2
+  exit 1
+fi
+candidate_activation_selector=$(node \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --activation-selector candidate)
+if [ "$candidate_activation_selector" != '.action:nth-child(1)' ]; then
+  printf 'candidate activation selector is not first semantic project action: %s\n' \
+    "$candidate_activation_selector" >&2
+  exit 1
+fi
+
+evidence_paths=$(
+  SPOCKY_BROWSER_EVIDENCE_STEM=spocky-brand-runtime \
+    "$capture" --evidence-paths contract-attempt
+)
+printf '%s\n' "$evidence_paths" | grep -F \
+  'attempt-result=evidence/raw/phase2/spocky-brand-runtime-attempts/contract-attempt/comparison.json'
+printf '%s\n' "$evidence_paths" | grep -F \
+  'published-result=evidence/raw/phase2/spocky-brand-runtime-comparison.json'
+printf '%s\n' "$evidence_paths" | grep -F \
+  'publish-policy=accepted-attempt-only'
+if "$capture" --evidence-paths '../invalid' >/dev/null 2>&1; then
+  printf 'invalid browser attempt id unexpectedly passed\n' >&2
+  exit 1
+fi
+
 fixture_dir=$(mktemp -d /private/tmp/spocky-browser-validation.XXXXXX)
 cleanup() {
   case "$fixture_dir" in

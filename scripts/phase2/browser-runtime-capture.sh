@@ -17,6 +17,21 @@ result_file="$raw_dir/$evidence_stem-comparison.json"
 screenshot_dir="$raw_dir/$evidence_stem-comparison"
 dx_executable=${PASEO_DX_EXECUTABLE:-"$repository_root/.tools/bin/dx"}
 
+print_evidence_paths() {
+  attempt_id=$1
+  case "$attempt_id" in
+    *[!A-Za-z0-9-]*|'')
+      printf 'browser attempt id must contain letters, digits, or hyphens: %s\n' \
+        "$attempt_id" >&2
+      return 2
+      ;;
+  esac
+  printf '%s\n' \
+    "attempt-result=evidence/raw/phase2/$evidence_stem-attempts/$attempt_id/comparison.json" \
+    "published-result=evidence/raw/phase2/$evidence_stem-comparison.json" \
+    'publish-policy=accepted-attempt-only'
+}
+
 parse_normalized_rmse() {
   metric=$1
   value=$(printf '%s\n' "$metric" | sed -n 's/.*(\([-+0-9.eE][^)]*\)).*/\1/p')
@@ -43,6 +58,15 @@ if [ "${1:-}" = "--enforce-result" ]; then
   fi
   exec node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
     --validate-result "$2"
+fi
+
+if [ "${1:-}" = "--evidence-paths" ]; then
+  if [ "$#" -ne 2 ]; then
+    printf 'usage: %s --evidence-paths ATTEMPT_ID\n' "$0" >&2
+    exit 2
+  fi
+  print_evidence_paths "$2"
+  exit $?
 fi
 
 actual_baseline=$(git -C "$reference_root" rev-parse HEAD)
@@ -78,11 +102,12 @@ if [ "${1:-}" = "--print-plan" ]; then
     'guest startup and browser runtime boundary' \
     'isolated pinned daemon on a random non-6767 port' \
     'exact named tmux sessions with bounded waits' \
+    'attempt-scoped evidence promoted only after acceptance' \
     "evidence/raw/phase2/$evidence_stem-comparison.json"
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
 
@@ -98,10 +123,19 @@ if [ ! -x "$dx_executable" ]; then
 fi
 
 capture_dir=$(mktemp -d /private/tmp/spocky-browser-runtime.XXXXXX)
+attempt_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
+attempt_dir="$raw_dir/$evidence_stem-attempts/$attempt_id"
+attempt_result_file="$attempt_dir/comparison.json"
+attempt_screenshot_dir="$attempt_dir/comparison"
+publish_result_temp="$raw_dir/.$evidence_stem-comparison.$$.json"
+publish_screenshot_temp="$raw_dir/.$evidence_stem-comparison.$$"
+attempt_status=failed
 baseline_session="spocky-p2-browser-baseline-$$"
 candidate_session="spocky-p2-browser-candidate-$$"
 daemon_session="spocky-p2-browser-daemon-$$"
+mkdir -p "$raw_dir" "$attempt_screenshot_dir"
 cleanup() {
+  cleanup_status=$?
   if tmux has-session -t "$baseline_session" 2>/dev/null; then
     tmux kill-session -t "$baseline_session"
   fi
@@ -115,6 +149,18 @@ cleanup() {
     /private/tmp/spocky-browser-runtime.*) rm -rf "$capture_dir" ;;
     *) printf 'refusing to remove unexpected capture directory: %s\n' "$capture_dir" >&2 ;;
   esac
+  case "$publish_result_temp" in
+    "$raw_dir"/.*-comparison.*.json) rm -f "$publish_result_temp" ;;
+    *) printf 'refusing to remove unexpected result staging path: %s\n' "$publish_result_temp" >&2 ;;
+  esac
+  case "$publish_screenshot_temp" in
+    "$raw_dir"/.*-comparison.*) rm -rf "$publish_screenshot_temp" ;;
+    *) printf 'refusing to remove unexpected screenshot staging path: %s\n' "$publish_screenshot_temp" >&2 ;;
+  esac
+  printf '{"attemptId":"%s","evidenceStem":"%s","status":"%s","exitStatus":%s}\n' \
+    "$attempt_id" "$evidence_stem" "$attempt_status" "$cleanup_status" \
+    >"$attempt_dir/attempt.json.tmp"
+  mv "$attempt_dir/attempt.json.tmp" "$attempt_dir/attempt.json"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -126,16 +172,17 @@ if [ "$baseline_port" = 6767 ] || [ "$candidate_port" = 6767 ] || [ "$daemon_por
   exit 1
 fi
 
-mkdir -p "$raw_dir" "$screenshot_dir" "$capture_dir/reference"
+mkdir -p "$capture_dir/reference"
+printf 'Browser runtime attempt evidence: %s\n' "$attempt_dir"
 git -C "$reference_root" archive "$actual_baseline" | tar -x -C "$capture_dir/reference"
 cp "$repository_root/scripts/phase2/browser-runtime-capture.cjs" "$capture_dir/reference/browser-runtime-capture.cjs"
 
 gtimeout 900 npm ci --prefix "$capture_dir/reference" --ignore-scripts --no-audit --no-fund \
-  >"$raw_dir/$evidence_stem-npm-ci.log" 2>&1
+  >"$attempt_dir/npm-ci.log" 2>&1
 chromium_executable=${PASEO_CHROMIUM_EXECUTABLE:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 if [ ! -x "$chromium_executable" ]; then
   gtimeout 300 "$capture_dir/reference/node_modules/.bin/playwright" install chromium \
-    >"$raw_dir/$evidence_stem-playwright-install.log" 2>&1
+    >"$attempt_dir/playwright-install.log" 2>&1
   chromium_executable=
 fi
 (
@@ -143,7 +190,7 @@ fi
   PATH="$capture_dir/reference/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
   gtimeout 900 npm run build:server
   gtimeout 900 npm run build:app-deps
-) >"$raw_dir/$evidence_stem-build.log" 2>&1
+) >"$attempt_dir/baseline-build.log" 2>&1
 
 (
   cd "$repository_root"
@@ -151,11 +198,11 @@ fi
   gtimeout 900 "$dx_executable" build --web -p spocky-ui-renderer-pilot \
     --bin spocky-ui-web --no-default-features --features web \
     --bundle web --release --frozen
-) >"$raw_dir/$evidence_stem-candidate-build.log" 2>&1
+) >"$attempt_dir/candidate-build.log" 2>&1
 
-baseline_log="$raw_dir/$evidence_stem-baseline-server.log"
-candidate_log="$raw_dir/$evidence_stem-candidate-server.log"
-daemon_log="$raw_dir/$evidence_stem-daemon.log"
+baseline_log="$attempt_dir/baseline-server.log"
+candidate_log="$attempt_dir/candidate-server.log"
+daemon_log="$attempt_dir/daemon.log"
 mkdir -p "$capture_dir/daemon-home"
 tmux new-session -d -s "$daemon_session" -n server
 tmux send-keys -t "$daemon_session:server" \
@@ -190,10 +237,10 @@ gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
   PASEO_CHROMIUM_EXECUTABLE="$chromium_executable" gtimeout 300 node browser-runtime-capture.cjs \
     "http://127.0.0.1:$baseline_port/" \
     "http://127.0.0.1:$candidate_port/" \
-    "$result_file" \
-    "$screenshot_dir" \
+    "$attempt_result_file" \
+    "$attempt_screenshot_dir" \
     "$daemon_port"
-) >"$raw_dir/$evidence_stem-capture.log" 2>&1
+) >"$attempt_dir/capture.log" 2>&1
 
 normalized_rmse() {
   original=$1
@@ -210,18 +257,18 @@ normalized_rmse() {
 }
 
 desktop_rmse=$(normalized_rmse \
-  "$screenshot_dir/original-desktop.png" \
-  "$screenshot_dir/candidate-desktop.png")
+  "$attempt_screenshot_dir/original-desktop.png" \
+  "$attempt_screenshot_dir/candidate-desktop.png")
 mobile_rmse=$(normalized_rmse \
-  "$screenshot_dir/original-mobile.png" \
-  "$screenshot_dir/candidate-mobile.png")
+  "$attempt_screenshot_dir/original-mobile.png" \
+  "$attempt_screenshot_dir/candidate-mobile.png")
 original_desktop_rmse=$(normalized_rmse \
-  "$screenshot_dir/original-desktop.png" \
-  "$screenshot_dir/original-repeat-desktop.png")
+  "$attempt_screenshot_dir/original-desktop.png" \
+  "$attempt_screenshot_dir/original-repeat-desktop.png")
 original_mobile_rmse=$(normalized_rmse \
-  "$screenshot_dir/original-mobile.png" \
-  "$screenshot_dir/original-repeat-mobile.png")
-result_temp="$result_file.tmp"
+  "$attempt_screenshot_dir/original-mobile.png" \
+  "$attempt_screenshot_dir/original-repeat-mobile.png")
+result_temp="$attempt_result_file.tmp"
 jq \
   --arg desktop "$desktop_rmse" \
   --arg mobile "$mobile_rmse" \
@@ -235,22 +282,33 @@ jq \
       desktop: { rmse: ($originalDesktop | tonumber), passes: (($originalDesktop | tonumber) == 0) },
       mobile: { rmse: ($originalMobile | tonumber), passes: (($originalMobile | tonumber) == 0) }
     }
-  }' "$result_file" >"$result_temp"
-mv "$result_temp" "$result_file"
+  }' "$attempt_result_file" >"$result_temp"
+mv "$result_temp" "$attempt_result_file"
 
 set +e
 comparison=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
-  --validate-result "$result_file")
+  --validate-result "$attempt_result_file")
 acceptance_status=$?
 set -e
 jq --argjson comparison "$comparison" '.comparison = $comparison' \
-  "$result_file" >"$result_temp"
-mv "$result_temp" "$result_file"
+  "$attempt_result_file" >"$result_temp"
+mv "$result_temp" "$attempt_result_file"
 if [ "$acceptance_status" -ne 0 ]; then
   printf 'Browser runtime comparison rejected by acceptance contract: %s\n' \
-    "$result_file" >&2
+    "$attempt_result_file" >&2
   exit "$acceptance_status"
 fi
 
+cp -R "$attempt_screenshot_dir" "$publish_screenshot_temp"
+cp "$attempt_result_file" "$publish_result_temp"
+if [ -d "$screenshot_dir" ]; then
+  mv "$screenshot_dir" "$attempt_dir/previous-published-comparison"
+fi
+if [ -f "$result_file" ]; then
+  cp "$result_file" "$attempt_dir/previous-published-comparison.json"
+fi
+mv "$publish_screenshot_temp" "$screenshot_dir"
+mv "$publish_result_temp" "$result_file"
+attempt_status=accepted
 printf 'Browser runtime comparison captured: %s\n' "$result_file"
 shasum -a 256 "$result_file" "$screenshot_dir"/*.png

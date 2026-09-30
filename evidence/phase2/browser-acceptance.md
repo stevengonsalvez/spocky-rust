@@ -3,6 +3,8 @@
 The browser runtime capture now exits nonzero unless desktop and mobile both
 pass exact-pixel, keyboard activation, and accessibility comparison gates.
 Original and candidate captures both activate the Add a project control.
+The original resolves `open-project-submit`; the candidate resolves its first
+semantic project action. Accessible-name changes do not prevent activation.
 
 The contract test injects and rejects these regressions:
 
@@ -14,6 +16,12 @@ The contract test injects and rejects these regressions:
 The validation result retains `shared-pinned-failure` when both runtimes fail
 offline reload. That pinned behavior does not become a candidate regression.
 Default and branded evidence stems remain separate.
+
+Each full run writes into a timestamped `<stem>-attempts` directory. Failed
+attempts retain their logs, partial captures, and `attempt.json` failure status.
+Canonical comparison JSON and PNGs update only after every acceptance gate
+passes. An accepted attempt retains the previously published artifacts beside
+its attempt evidence.
 
 ## Checks
 
