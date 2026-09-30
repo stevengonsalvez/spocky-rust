@@ -4,9 +4,18 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 capture="$repository_root/scripts/phase2/browser-runtime-capture.sh"
 
-parsed_different_pixels=$($capture --parse-different-pixels '872')
-if [ "$parsed_different_pixels" != "872" ]; then
-  printf 'absolute pixel difference parsed as %s\n' "$parsed_different_pixels" >&2
+parsed_zero_pixels=$($capture --parse-different-pixels '0 (0)')
+if [ "$parsed_zero_pixels" != "0" ]; then
+  printf 'zero absolute pixel difference parsed as %s\n' "$parsed_zero_pixels" >&2
+  exit 1
+fi
+parsed_different_pixels=$($capture --parse-different-pixels '19 (1.75781e-05)')
+if [ "$parsed_different_pixels" != "19" ]; then
+  printf 'nonzero absolute pixel difference parsed as %s\n' "$parsed_different_pixels" >&2
+  exit 1
+fi
+if $capture --parse-different-pixels '19 (invalid)' >/dev/null 2>&1; then
+  printf 'malformed absolute pixel difference unexpectedly parsed\n' >&2
   exit 1
 fi
 

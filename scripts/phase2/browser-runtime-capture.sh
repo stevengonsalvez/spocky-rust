@@ -35,12 +35,19 @@ print_evidence_paths() {
 parse_different_pixels() {
   metric=$1
   case "$metric" in
-    ''|*[!0-9]*)
-      printf 'could not parse absolute pixel difference: %s\n' "$metric" >&2
-      return 1
+    ''|*[!0-9]*) ;;
+    *)
+      printf '%s\n' "$metric"
+      return 0
       ;;
-    *) printf '%s\n' "$metric" ;;
   esac
+  if printf '%s\n' "$metric" \
+    | grep -Eq '^[0-9]+ \(([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?\)$'; then
+    printf '%s\n' "${metric%% *}"
+    return 0
+  fi
+  printf 'could not parse absolute pixel difference: %s\n' "$metric" >&2
+  return 1
 }
 
 if [ "${1:-}" = "--parse-different-pixels" ]; then
