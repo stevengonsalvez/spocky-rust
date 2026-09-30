@@ -165,3 +165,83 @@ fn api_key_secret_scope_last_use_revocation_and_restart_match_boundary() {
     );
     assert!(restarted.list_api_keys(&owner, &organization).unwrap()[0].revoked);
 }
+
+#[test]
+fn api_key_timestamps_are_monotonic_and_revocation_is_idempotent() {
+    let root = TestDir::new();
+    let path = root.0.join("hub.json");
+    let owner = AccountId::from("owner@example.test");
+    let organization = OrganizationId::from("organization-a");
+    let mut hub = HubPilot::open_at(EmbeddedFileStore::open(&path).expect("open store"), 100)
+        .expect("open fixed-time hub");
+    hub.bootstrap(Bootstrap {
+        instance_secret: "api-key-runtime-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: organization.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .expect("bootstrap");
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .expect("replace password");
+    let created = hub
+        .create_api_key(
+            &owner,
+            &organization,
+            "timed key",
+            [ApiKeyScope::RunsDispatch],
+        )
+        .expect("create timed key");
+    assert_eq!(created.summary.created_at_epoch_seconds, 100);
+    assert_eq!(created.summary.last_used_at_epoch_seconds, None);
+    assert_eq!(created.summary.revoked_at_epoch_seconds, None);
+    hub.authorize_api_key(
+        &format!("Bearer {}", created.secret),
+        ApiKeyScope::RunsDispatch,
+    )
+    .expect("authorize at creation time");
+    assert_eq!(
+        hub.list_api_keys(&owner, &organization).unwrap()[0].last_used_at_epoch_seconds,
+        Some(100)
+    );
+    drop(hub);
+
+    let mut later = HubPilot::open_at(EmbeddedFileStore::open(&path).expect("reopen store"), 200)
+        .expect("open later hub");
+    later
+        .authorize_api_key(
+            &format!("Bearer {}", created.secret),
+            ApiKeyScope::RunsDispatch,
+        )
+        .expect("authorize later");
+    assert_eq!(
+        later.list_api_keys(&owner, &organization).unwrap()[0].last_used_at_epoch_seconds,
+        Some(200)
+    );
+    later
+        .revoke_api_key(&owner, &organization, &created.summary.id)
+        .expect("revoke key");
+    assert_eq!(
+        later.list_api_keys(&owner, &organization).unwrap()[0].revoked_at_epoch_seconds,
+        Some(200)
+    );
+    drop(later);
+
+    let mut latest = HubPilot::open_at(
+        EmbeddedFileStore::open(path).expect("reopen at latest time"),
+        300,
+    )
+    .expect("open latest hub");
+    assert!(
+        latest
+            .revoke_api_key(&owner, &organization, &created.summary.id)
+            .expect("repeat revoke")
+    );
+    assert_eq!(
+        latest.list_api_keys(&owner, &organization).unwrap()[0].revoked_at_epoch_seconds,
+        Some(200)
+    );
+}

@@ -274,7 +274,7 @@ pub enum BrowserAccountStatus {
 pub struct HubPilot<S: DurableHubStore> {
     store: S,
     state: HubState,
-    invitation_now_override: Option<u64>,
+    now_epoch_seconds_override: Option<u64>,
 }
 
 impl<S: DurableHubStore> HubPilot<S> {
@@ -286,7 +286,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         Self::open_inner(store, Some(invitation_now_epoch_seconds))
     }
 
-    fn open_inner(store: S, invitation_now_override: Option<u64>) -> Result<Self, HubError> {
+    fn open_inner(store: S, now_epoch_seconds_override: Option<u64>) -> Result<Self, HubError> {
         let state = match store.load()? {
             Some(bytes) => serde_json::from_slice(&bytes)?,
             None => HubState::default(),
@@ -294,7 +294,15 @@ impl<S: DurableHubStore> HubPilot<S> {
         Ok(Self {
             store,
             state,
-            invitation_now_override,
+            now_epoch_seconds_override,
+        })
+    }
+
+    pub(crate) fn now_epoch_seconds(&self) -> u64 {
+        self.now_epoch_seconds_override.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_secs())
         })
     }
 

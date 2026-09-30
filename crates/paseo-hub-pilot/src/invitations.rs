@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -150,7 +148,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         {
             return Err(HubError::AlreadyMember);
         }
-        let now = self.invitation_now();
+        let now = self.now_epoch_seconds();
         if let Some(existing) = self.state.invitations.values().find(|invitation| {
             invitation.organization == *organization
                 && invitation.email == email
@@ -217,7 +215,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         if !self.authorize(actor, organization)?.can_manage_resources() {
             return Err(HubError::InvitationManagementRequired);
         }
-        let now = self.invitation_now();
+        let now = self.now_epoch_seconds();
         let mut invitations = self
             .state
             .invitations
@@ -261,7 +259,7 @@ impl<S: DurableHubStore> HubPilot<S> {
     ) -> Result<OrganizationId, HubError> {
         let normalized_account =
             normalize_email(account.as_str()).ok_or(HubError::InvitationUnavailable)?;
-        let now = self.invitation_now();
+        let now = self.now_epoch_seconds();
         let invitation = self
             .state
             .invitations
@@ -294,11 +292,6 @@ impl<S: DurableHubStore> HubPilot<S> {
         self.persist()?;
         Ok(invitation.organization)
     }
-
-    fn invitation_now(&self) -> u64 {
-        self.invitation_now_override
-            .unwrap_or_else(now_epoch_seconds)
-    }
 }
 
 fn summary(invitation: &StoredInvitation) -> InvitationSummary {
@@ -324,10 +317,4 @@ fn escape_html(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-fn now_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }

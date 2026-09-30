@@ -37,6 +37,9 @@ pub struct ApiKeySummary {
     pub name: String,
     pub prefix: String,
     pub scopes: BTreeSet<ApiKeyScope>,
+    pub created_at_epoch_seconds: u64,
+    pub last_used_at_epoch_seconds: Option<u64>,
+    pub revoked_at_epoch_seconds: Option<u64>,
     pub last_used: bool,
     pub revoked: bool,
 }
@@ -69,8 +72,12 @@ pub(crate) struct StoredApiKey {
     verifier: [u8; 32],
     scopes: BTreeSet<ApiKeyScope>,
     sequence: u64,
-    last_used: bool,
-    revoked: bool,
+    #[serde(default)]
+    created_at_epoch_seconds: u64,
+    #[serde(default)]
+    last_used_at_epoch_seconds: Option<u64>,
+    #[serde(default)]
+    revoked_at_epoch_seconds: Option<u64>,
 }
 
 impl<S: DurableHubStore> HubPilot<S> {
@@ -97,6 +104,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         let prefix = format!("{PREFIX_START}{}", URL_SAFE_NO_PAD.encode(prefix_bytes));
         let secret = format!("{prefix}_{}", URL_SAFE_NO_PAD.encode(secret_bytes));
         let id = Uuid::new_v4().to_string();
+        let now = self.now_epoch_seconds();
         self.state.next_api_key_sequence += 1;
         let stored = StoredApiKey {
             organization: organization.clone(),
@@ -105,8 +113,9 @@ impl<S: DurableHubStore> HubPilot<S> {
             verifier: Sha256::digest(secret.as_bytes()).into(),
             scopes,
             sequence: self.state.next_api_key_sequence,
-            last_used: false,
-            revoked: false,
+            created_at_epoch_seconds: now,
+            last_used_at_epoch_seconds: None,
+            revoked_at_epoch_seconds: None,
         };
         let summary = summary(&id, &stored);
         self.state.api_keys.insert(id.clone(), stored);
@@ -142,6 +151,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         authorization: &str,
         required_scope: ApiKeyScope,
     ) -> Result<ApiKeyAuthorization, HubError> {
+        let now = self.now_epoch_seconds();
         let Some(token) = bearer_token(authorization) else {
             return Ok(ApiKeyAuthorization::Unauthorized);
         };
@@ -157,7 +167,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         else {
             return Ok(ApiKeyAuthorization::Unauthorized);
         };
-        if key.revoked || !bool::from(actual.ct_eq(&key.verifier)) {
+        if key.revoked_at_epoch_seconds.is_some() || !bool::from(actual.ct_eq(&key.verifier)) {
             return Ok(ApiKeyAuthorization::Unauthorized);
         }
         if !key.scopes.contains(&required_scope) {
@@ -168,11 +178,11 @@ impl<S: DurableHubStore> HubPilot<S> {
             organization: key.organization.clone(),
             scopes: key.scopes.clone(),
         };
-        let was_used = key.last_used;
-        key.last_used = true;
+        let previous_last_used = key.last_used_at_epoch_seconds;
+        key.last_used_at_epoch_seconds = Some(previous_last_used.map_or(now, |used| used.max(now)));
         if let Err(error) = self.persist() {
             if let Some(key) = self.state.api_keys.get_mut(&access.credential_id) {
-                key.last_used = was_used;
+                key.last_used_at_epoch_seconds = previous_last_used;
             }
             return Err(error);
         }
@@ -185,6 +195,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         organization: &OrganizationId,
         id: &str,
     ) -> Result<bool, HubError> {
+        let now = self.now_epoch_seconds();
         if !self.authorize(actor, organization)?.can_manage_resources() {
             return Err(crate::AuthorityError::ManageResourcesRequired.into());
         }
@@ -194,11 +205,11 @@ impl<S: DurableHubStore> HubPilot<S> {
         if &key.organization != organization {
             return Ok(false);
         }
-        let was_revoked = key.revoked;
-        key.revoked = true;
+        let previous_revoked_at = key.revoked_at_epoch_seconds;
+        key.revoked_at_epoch_seconds.get_or_insert(now);
         if let Err(error) = self.persist() {
             if let Some(key) = self.state.api_keys.get_mut(id) {
-                key.revoked = was_revoked;
+                key.revoked_at_epoch_seconds = previous_revoked_at;
             }
             return Err(error);
         }
@@ -212,8 +223,11 @@ fn summary(id: &str, key: &StoredApiKey) -> ApiKeySummary {
         name: key.name.clone(),
         prefix: key.prefix.clone(),
         scopes: key.scopes.clone(),
-        last_used: key.last_used,
-        revoked: key.revoked,
+        created_at_epoch_seconds: key.created_at_epoch_seconds,
+        last_used_at_epoch_seconds: key.last_used_at_epoch_seconds,
+        revoked_at_epoch_seconds: key.revoked_at_epoch_seconds,
+        last_used: key.last_used_at_epoch_seconds.is_some(),
+        revoked: key.revoked_at_epoch_seconds.is_some(),
     }
 }
 
