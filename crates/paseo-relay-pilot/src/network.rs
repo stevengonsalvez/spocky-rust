@@ -13,6 +13,7 @@ use crate::NodeId;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SOCKET_TIMEOUT: Duration = Duration::from_millis(100);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const FAILURE_THRESHOLD: u8 = 3;
 
 #[derive(Clone, Debug)]
@@ -303,7 +304,8 @@ fn spawn_websocket_listener(shared: Arc<Shared>, listener: TcpListener) -> JoinH
 
 #[allow(clippy::result_large_err)]
 fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(POLL_INTERVAL));
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
     let accepted_session = Arc::new(Mutex::new(None));
     let callback_session = Arc::clone(&accepted_session);
@@ -314,6 +316,7 @@ fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
     let Ok(mut socket) = accepted else {
         return;
     };
+    let _ = socket.get_mut().set_read_timeout(Some(POLL_INTERVAL));
     let Some(session) = accepted_session.lock().unwrap().clone() else {
         return;
     };

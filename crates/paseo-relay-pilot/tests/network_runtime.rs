@@ -1,3 +1,4 @@
+use std::io::{Read, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -6,6 +7,33 @@ use tungstenite::client;
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
 
 const DEADLINE: Duration = Duration::from_secs(3);
+
+#[test]
+fn websocket_handshake_tolerates_fragmented_headers() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    stream.set_read_timeout(Some(DEADLINE)).unwrap();
+    write!(
+        stream,
+        "GET /ws?session=fragmented HTTP/1.1\r\nHost: {address}\r\n"
+    )
+    .unwrap();
+    stream.flush().unwrap();
+    thread::sleep(Duration::from_millis(75));
+    stream
+        .write_all(
+            b"Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+        )
+        .unwrap();
+    let mut response = [0_u8; 512];
+    let received = stream.read(&mut response).unwrap();
+    assert!(
+        response[..received].starts_with(b"HTTP/1.1 101"),
+        "unexpected handshake response: {:?}",
+        String::from_utf8_lossy(&response[..received])
+    );
+}
 
 #[test]
 fn peers_detect_owner_failure_and_accept_takeover() {
