@@ -15,8 +15,14 @@ use std::time::{Duration, Instant};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+mod protocol;
 mod settings;
 
+pub use protocol::{
+    HookKind, PluginProcessMessage, PluginProcessRequest, ProcessHooks, ProcessProviderMetadata,
+    ProcessUsageSourceMetadata, ProviderCatalogOptions, ProviderConnectRequest,
+    decode_process_message, decode_process_request,
+};
 pub use settings::{
     PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsState,
     SettingsWriteState,
