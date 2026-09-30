@@ -1,33 +1,46 @@
-# Lifecycle cancellation differential
+# Full lifecycle runtime differential
 
-Status: passing pilot evidence. This does not close Phase 2 or establish full lifecycle parity.
+Status: passing pilot evidence. This does not close Phase 2 or establish daemon lifecycle parity.
 
 ## Baseline
 
 - Paseo commit: `5de45e208690b0efc51c59a585ae9729325a9204`
-- Source: disposable clean clone at `.baselines/paseo-runtime`
-- Original implementation: `packages/server/src/server/agent/lifecycle-command.ts`
-- Rust implementation: `crates/paseo-domain/src/lib.rs`
+- Source: read-only pinned checkout at `.baselines/paseo-runtime`
+- Original runtime: `AgentManager`, `AgentStorage`, lifecycle commands, and persistence loading
+- Provider: original deterministic fake Codex client from the pinned test utilities
+- Rust runtime: `AgentLifecycleMachine` and the lifecycle driver
 
 ## Scenario
 
-`cancel-lifecycle-cases` executes four cancellation states through the original `cancelAgentRunCommand` and the Rust `AgentLifecycleMachine`:
+`full-lifecycle-runtime` drives eight ordered phases through both runtimes:
 
-1. no in-flight run
-2. acknowledged cancellation
-3. run settled during cancellation
-4. provider refusal
+1. create a live idle agent
+2. stream an assistant response to completion
+3. request and allow a tool permission, then verify its side effect
+4. cancel an in-flight tool turn
+5. close and persist the runtime for restart
+6. resume the same provider session
+7. archive the live agent
+8. recover archived history without clearing the archive marker
 
-Each side emits acceptance, cancellation, resulting lifecycle, and semantic error fields. The comparison also covers stdout, stderr, exit code, and assertion counts. It uses no normalization rules.
+The original side executes the pinned runtime manager and file-backed storage. Both sides emit phase observations, stream event order, process output, exit status, and measured counts. No normalization rules are applied.
 
 ## Result
 
 - Original exit: `0`
 - Rust exit: `0`
-- Expected counts: four fixtures, sixteen assertions
+- Measured counts: eight fixtures, twenty-six assertions per side
 - Differences: none
-- Raw manifest SHA-256: `3dfb3b3928fcd23aa67f37a39ac66e64515d76bd91023d35a9c2fdee32b3f616`
+- Original structured-output SHA-256: `0bda70a954f974163e53ed0b208ad0986a87c3e8e0d15034a9ee5c2298ce8b40`
+- Rust structured-output SHA-256: `0bda70a954f974163e53ed0b208ad0986a87c3e8e0d15034a9ee5c2298ce8b40`
+- Raw manifest SHA-256: `b31fd353246e2b1b8930dada2418c0ac631ff497983aa86b738d124c8810ef94`
 - Raw manifest: ignored local artifact at `evidence/raw/phase2/lifecycle-differential.json`
+
+## Limits
+
+- Provider behavior comes from Paseo's deterministic fake Codex session, not a production provider process.
+- The Rust side remains a lifecycle domain pilot, not a daemon, WebSocket, or provider runtime.
+- Crash recovery, concurrent lifecycle mutations, and production provider failures remain uncovered.
 
 ## Reproduction
 
@@ -36,5 +49,4 @@ cargo build -p paseo-domain --bin paseo-lifecycle-driver
 cargo run -p paseo-domain --example lifecycle_differential
 ```
 
-The example rejects the run unless the disposable baseline clone is clean and exactly at the pinned Paseo commit.
-The provider-refusal error is compared verbatim. Both drivers derive assertion counts from emitted cases.
+The example rejects a reference checkout whose tracked tree is dirty or whose HEAD differs from the pinned commit.
