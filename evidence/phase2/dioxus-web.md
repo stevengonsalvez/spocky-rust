@@ -97,23 +97,28 @@ also match; the captured candidate menu still exposed its glyph as text, fixed i
 the next signed source checkpoint. Candidate Enter handling changes its live
 status. Original action behavior is not yet driven by the Rust pilot.
 
-Visual RMSE remains `0.0464723` on desktop and `0.0776069` on mobile. Icon paths,
-logo shape, font metrics, spacing, and colors still differ. Both runtimes fail
-offline reload. The original emitted two known `uniProps` React DOM warnings;
-the candidate emitted no console errors. No visual acceptance threshold passes.
+The candidate now uses the pinned logo path, vector action icons, light tokens,
+desktop empty-project card, and matched action-card surfaces. A signed recapture
+at `5d4e35d` still rejects the exact normalized-RMSE threshold of zero: desktop
+is `0.0516104`, mobile is `0.0703698`. Mobile improved from the first capture;
+desktop did not. The original desktop PNG also changed hash across identical
+pinned runs, so baseline rendering stability must be isolated before small
+metric changes can be accepted. Both runtimes fail offline reload. No visual
+acceptance threshold passes.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 8,707 | `5072c6faee42599a3140fb20fb62b0a77c5af8b5665bd61f8ff7d555b1876546` |
-| original desktop screenshot | 49,262 | `fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f` |
+| `browser-runtime-comparison.json` | 9,045 | `f836109168a647ce66a2c5ad0eeb3de36b376ee0e0d9c3cd9bf7f2e06eb64df3` |
+| original desktop screenshot | 41,625 | `bc32e9486bffedf84c135198130bb57ee273b59eac23af1edb00ebf4d544c8e1` |
 | original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
-| candidate desktop screenshot | 41,241 | `e3e3040ddb47a67c2d4cff0b9d19a48a6661c864f5b4183e6acfc4b494c2e884` |
-| candidate mobile screenshot | 28,450 | `3147605b8ab060aa1d4e6b75d01643d10d9c9f40bd4e8050229df3e2218b78e1` |
-| isolated daemon log | 43,922 | `2fa5c60b3197bf3e416f450174b619d1ab414e43237ed487bb2673608c3d52ba` |
+| candidate desktop screenshot | 49,199 | `53519099af309237f4bce6506a263e344857b02d9426438114aeeca28f25cda6` |
+| candidate mobile screenshot | 28,557 | `24a2ce01ca915914e435e3d3b5e9cea745c320507ab55c793258db6bf5d7c868` |
+| isolated daemon log | 35,901 | `64ad96510f09e4821b2d0be23919834e9dc18f445069118d3efd1907f6029776` |
 
 This capture's disposable daemon started default local speech-model downloads;
 cleanup removed them with the daemon home. The harness now disables unrelated
-speech paths before launch. The next comparison needs baseline icon assets,
-font and token matching, real candidate actions, and explicit visual thresholds.
+speech paths before launch. The next comparison needs deterministic baseline
+rendering, remaining font and icon matching, and real candidate actions. The
+exact threshold is executable.
 Electron guest APIs, accessibility tree diffs, packaging, update, rollback, and
 uninstall remain open.

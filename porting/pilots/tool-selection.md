@@ -39,8 +39,9 @@ so Dioxus is not selected.
 Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, semantic trees, and input transitions. A pinned original
 capture runs against an isolated daemon in the same open-project state. Desktop
-focus semantics match, but desktop RMSE is 0.0464723 and mobile RMSE is
-0.0776069. Offline reload fails. Packaging cases remain open.
+focus semantics match, but the latest exact-threshold capture reports desktop
+RMSE 0.0516104 and mobile RMSE 0.0703698. The pinned original desktop image also
+changed hash between runs. Offline reload fails. Packaging cases remain open.
 
 The Hub candidate now covers offline billing catalog and conservative
 provisioning rules plus organization-scoped API-key generation, concealment,

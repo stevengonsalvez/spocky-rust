@@ -7,7 +7,8 @@ plugin runtime, close `P2-PLUGIN-01`, or establish complete `DPLUGIN-001` parity
 
 - Paseo baseline: `5de45e208690b0efc51c59a585ae9729325a9204`
 - Import baseline: `8b3eb738fa737010da86e8ac01d3a34cc9a7a3c5`
-- Rust candidate base: `ca190e4111ff7df6976629c5923d06fe05509068`
+- Rust runtime-capture base: `ca190e4111ff7df6976629c5923d06fe05509068`
+- Rust settings checkpoint: `057d7a9`
 - Host: macOS, `rustc 1.94.0`, Cargo `1.94.0`, Node `v26.7.0`, npm `11.19.0`, Git `2.52.0`
 - Both pinned checkouts were clean before and after capture. The source alias in
   `plugin-vitest.config.mts` avoids generating build output in the baseline.
@@ -21,7 +22,7 @@ revisions, nested source identity, and updates. Six exercise settings validation
 atomic writes, revision conflicts, migration failure, reset, and persistence.
 
 The Rust pilot runs three lifecycle cases, two manifest/client-protocol cases,
-and five real local acquisition/runtime cases:
+five real local acquisition/runtime cases, and five settings lifecycle cases:
 
 1. Clone a nested Git plugin at an exact 40-character reviewed commit. Launch its
    Node process, exchange source-shaped initialize/ready/invoke/result/shutdown
@@ -35,6 +36,10 @@ and five real local acquisition/runtime cases:
 4. Normalize a Windows-style nested plugin path on macOS, reject a missing nested
    path, and remove the failed Git staging checkout.
 5. Reject a mismatched npm package identity and remove the failed npm staging tree.
+6. Default and validate typed settings, hash exact raw revisions, reject stale
+   writes, migrate once, reject newer schemas, preserve corrupt data until reset,
+   isolate notification values, persist atomically with mode `0600`, and keep
+   installation directories separate from definition IDs.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -52,6 +57,7 @@ sources live in disposable temporary directories.
 - Rust lifecycle: 3 passed, 0 failed
 - Rust manifest/client protocol: 2 passed, 0 failed
 - Rust acquisition/runtime: 5 passed, 0 failed
+- Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
 - Failed reviewed update: prior revision, `rpc:review.v1`, and `tone=terse` survived restart
 - Pinned protocol fixture SHA-256: `14f39a3541bc79a13e82354b5d91619f6bc4dcada91dfd095bbf0a191faef252`
@@ -67,9 +73,9 @@ sources live in disposable temporary directories.
   hooks, daemon-session frames, cancellation, fatal messages, and reconnect.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
-- Rust settings persist installation-scoped string maps. Schema defaults,
-  validation, revisions, migration, reset, notifications, and corrupt-data
-  recovery are proven only by pinned Paseo tests.
+- The Rust settings pilot covers the pinned boolean and integer schema used by
+  baseline tests. Arbitrary JSON schemas, async refinements, callback error
+  reporting, and daemon RPC integration remain open.
 - Windows and Linux acquisition, path, process, failure, and restart runs are absent.
 - Managed checkout deletion and recovery after host termination during staging are
   not exercised against real acquired sources.
@@ -80,6 +86,7 @@ sources live in disposable temporary directories.
 
 ```sh
 scripts/phase2/plugin-runtime-capture.sh
+cargo test -p paseo-plugin-pilot --test settings_lifecycle
 cargo fmt --package paseo-plugin-pilot -- --check
 cargo clippy -p paseo-plugin-pilot --all-targets -- -D warnings
 ```
