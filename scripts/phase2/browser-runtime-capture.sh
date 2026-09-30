@@ -31,6 +31,7 @@ if [ "${1:-}" = "--print-plan" ]; then
     'original mobile 390x844' \
     'candidate desktop 1280x800' \
     'candidate mobile 390x844' \
+    'exact-pixel threshold: normalized RMSE 0' \
     'keyboard focus order and activation' \
     'prefers-reduced-motion: reduce' \
     'online reload and offline reload' \
@@ -45,7 +46,7 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-for command in gtimeout tmux python3 npm curl; do
+for command in gtimeout tmux python3 npm curl jq magick; do
   if ! command -v "$command" >/dev/null 2>&1; then
     printf '%s is required for bounded browser runtime capture\n' "$command" >&2
     exit 1
@@ -149,6 +150,42 @@ gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
     "$screenshot_dir" \
     "$daemon_port"
 ) >"$raw_dir/browser-runtime-capture.log" 2>&1
+
+normalized_rmse() {
+  original=$1
+  candidate=$2
+  set +e
+  metric=$(magick compare -metric RMSE "$original" "$candidate" null: 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -gt 1 ]; then
+    printf 'ImageMagick comparison failed with status %s: %s\n' "$status" "$metric" >&2
+    return "$status"
+  fi
+  value=$(printf '%s\n' "$metric" | sed -n 's/.*(\([0-9.][0-9.]*\)).*/\1/p')
+  if [ -z "$value" ]; then
+    printf 'could not parse normalized RMSE: %s\n' "$metric" >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+
+desktop_rmse=$(normalized_rmse \
+  "$screenshot_dir/original-desktop.png" \
+  "$screenshot_dir/candidate-desktop.png")
+mobile_rmse=$(normalized_rmse \
+  "$screenshot_dir/original-mobile.png" \
+  "$screenshot_dir/candidate-mobile.png")
+result_temp="$result_file.tmp"
+jq \
+  --arg desktop "$desktop_rmse" \
+  --arg mobile "$mobile_rmse" \
+  '.comparison.visual = {
+    threshold: { metric: "normalized RMSE", maximum: 0 },
+    desktop: { rmse: ($desktop | tonumber), passes: (($desktop | tonumber) == 0) },
+    mobile: { rmse: ($mobile | tonumber), passes: (($mobile | tonumber) == 0) }
+  }' "$result_file" >"$result_temp"
+mv "$result_temp" "$result_file"
 
 printf 'Browser runtime comparison captured: %s\n' "$result_file"
 shasum -a 256 "$result_file" "$screenshot_dir"/*.png
