@@ -252,9 +252,10 @@ tokens. Correct credentials remain sessionless before verification. Reset
 requests for missing accounts produce no dispatch value, reset consumes its
 token, revokes every browser session for the account, replaces the password,
 rejects replay, survives restart, and never stores the plaintext replacement.
-One targeted test passes with the existing contract, HTTP, invitation, and
+Fixed-clock verification and reset tokens expire after one hour across restart.
+Two targeted tests pass with the existing contract, HTTP, invitation, and
 session regressions clean. Packet-level recovery routes, exact email payloads,
-expiry, and original-versus-Rust recovery traces remain open.
+and original-versus-Rust recovery traces remain open.
 
 ## Remaining evidence blockers
 

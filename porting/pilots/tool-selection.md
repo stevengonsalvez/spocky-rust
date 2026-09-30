@@ -64,7 +64,8 @@ Active organization selection is membership-bound, packet-tested, restart-safe,
 and compatible with old single-membership snapshots.
 Verified account recovery now covers verification gating, enumeration-resistant
 dispatch, session revocation, password replacement, replay rejection, and restart
-in the candidate contract. Packet and email differentials remain open.
+in the candidate contract. Fixed-clock tokens expire across restart. Packet and
+email differentials remain open.
 Pinned Hub baseline
 capture passes 31 of 31 tests across embedded persistence, setup, account recovery, pricing,
 catalog, and provisioning. API-key, invitation, and active-session relational
