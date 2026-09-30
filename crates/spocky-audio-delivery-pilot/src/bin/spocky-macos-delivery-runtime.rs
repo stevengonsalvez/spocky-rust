@@ -1,10 +1,17 @@
-#![cfg(target_os = "macos")]
-
+#[cfg(target_os = "macos")]
 use std::fs;
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
 use spocky_audio_delivery_pilot::run_macos_delivery_feasibility;
 
+#[cfg(not(target_os = "macos"))]
+fn main() -> Result<(), &'static str> {
+    Err("macOS host required for app bundle execution")
+}
+
+#[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_root = parse_output_root()?;
     fs::create_dir_all(&output_root)?;
@@ -16,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn parse_output_root() -> Result<PathBuf, &'static str> {
     let mut arguments = std::env::args_os();
     let _program = arguments.next();

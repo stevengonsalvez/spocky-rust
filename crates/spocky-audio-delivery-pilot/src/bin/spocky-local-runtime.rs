@@ -2,10 +2,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::Serialize;
+#[cfg(target_os = "macos")]
+use spocky_audio_delivery_pilot::MacOsAudioAdapter;
 use spocky_audio_delivery_pilot::{
-    AndroidDeviceAdapter, LocalDeliveryRuntime, MacOsAudioAdapter, MacOsAudioEvidence,
-    NativeCapability, NativeRuntimeEvidence, ProcessCommand, create_pcm16_wav,
-    create_unsigned_package,
+    AndroidDeviceAdapter, LocalDeliveryRuntime, MacOsAudioEvidence, NativeCapability,
+    NativeRuntimeEvidence, ProcessCommand, create_pcm16_wav, create_unsigned_package,
 };
 
 #[derive(Debug, Serialize)]
