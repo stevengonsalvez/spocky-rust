@@ -52,8 +52,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
 
     fn state(&self, request: &HttpRequest) -> HttpResponse {
         let token = session_token(request);
-        let status = self.hub.browser_account_status(token.as_ref());
-        json_response(200, &StateBody { status })
+        json_response(200, &self.hub.browser_account_state(token.as_ref()))
     }
 
     fn sign_in(&mut self, request: &HttpRequest) -> HttpResponse {

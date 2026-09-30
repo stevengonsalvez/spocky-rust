@@ -253,6 +253,7 @@ struct StoredRegistration {
 #[serde(default)]
 struct HubState {
     instance_secret_fingerprint: Option<u64>,
+    instance_operator: Option<AccountId>,
     accounts: BTreeMap<AccountId, Account>,
     memberships: BTreeMap<OrganizationId, BTreeMap<AccountId, Role>>,
     registrations: BTreeMap<DaemonId, StoredRegistration>,
@@ -279,6 +280,98 @@ pub enum BrowserAccountStatus {
     AppSetupRequired,
     OrganizationRequired,
     Active,
+}
+
+#[derive(Serialize)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub(crate) enum BrowserAccountState {
+    InstanceSetupRequired,
+    SignedOut {
+        registration: &'static str,
+    },
+    PasswordChangeRequired {
+        account: BrowserAccountSummary,
+    },
+    AppSetupRequired {
+        account: BrowserAccountSummary,
+        organization: BrowserOrganizationSummary,
+        memberships: Vec<BrowserMembershipSummary>,
+        capabilities: BrowserOrganizationCapabilities,
+    },
+    OrganizationRequired {
+        account: BrowserAccountSummary,
+        memberships: Vec<BrowserMembershipSummary>,
+        can_create_organization: bool,
+    },
+    Active {
+        account: BrowserAccountSummary,
+        memberships: Vec<BrowserMembershipSummary>,
+        organization: BrowserOrganizationSummary,
+        membership: BrowserMembershipAccess,
+        capabilities: BrowserOrganizationCapabilities,
+        is_instance_operator: bool,
+        can_create_organization: bool,
+        team: BrowserTeamSummary,
+    },
+}
+
+#[derive(Serialize)]
+pub(crate) struct BrowserAccountSummary {
+    id: String,
+    name: String,
+    email: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct BrowserOrganizationSummary {
+    id: String,
+    name: String,
+    slug: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrowserMembershipSummary {
+    id: String,
+    name: String,
+    slug: String,
+    membership_id: String,
+    role: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
+pub(crate) struct BrowserOrganizationCapabilities {
+    view: bool,
+    manage_members: bool,
+    manage_owners: bool,
+    manage_resources: bool,
+}
+
+#[derive(Serialize)]
+pub(crate) struct BrowserMembershipAccess {
+    id: String,
+    role: &'static str,
+}
+
+#[derive(Serialize)]
+pub(crate) struct BrowserTeamSummary {
+    members: Vec<BrowserTeamMemberSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrowserTeamMemberSummary {
+    id: String,
+    user_id: String,
+    name: String,
+    email: String,
+    role: &'static str,
 }
 
 pub struct HubPilot<S: DurableHubStore> {
@@ -327,6 +420,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             return Err(HubError::BootstrapUnavailable);
         }
         self.state.instance_secret_fingerprint = Some(fingerprint(&input.instance_secret));
+        self.state.instance_operator = Some(input.owner.clone());
         self.state.accounts.insert(
             input.owner.clone(),
             Account {
@@ -421,6 +515,82 @@ impl<S: DurableHubStore> HubPilot<S> {
             BrowserAccountStatus::Active
         } else {
             BrowserAccountStatus::OrganizationRequired
+        }
+    }
+
+    pub(crate) fn browser_account_state(
+        &self,
+        token: Option<&SessionToken>,
+    ) -> BrowserAccountState {
+        let status = self.browser_account_status(token);
+        let account = token.and_then(|token| self.state.browser_sessions.get(token));
+        if status == BrowserAccountStatus::PasswordChangeRequired
+            && let Some(account) = account
+        {
+            return BrowserAccountState::PasswordChangeRequired {
+                account: browser_account_summary(account),
+            };
+        }
+        if status == BrowserAccountStatus::AppSetupRequired
+            && let Some((token, account)) = token.zip(account)
+            && let Some(organization) = self.active_organization_for_session(token)
+            && let Some(role) = self
+                .state
+                .memberships
+                .get(&organization)
+                .and_then(|members| members.get(account))
+        {
+            return BrowserAccountState::AppSetupRequired {
+                account: browser_account_summary(account),
+                organization: browser_organization_summary(&organization),
+                memberships: browser_memberships(&self.state, account),
+                capabilities: browser_capabilities(*role),
+            };
+        }
+        if status == BrowserAccountStatus::Active
+            && let Some((token, account)) = token.zip(account)
+            && let Some(organization) = self.active_organization_for_session(token)
+            && let Some(role) = self
+                .state
+                .memberships
+                .get(&organization)
+                .and_then(|members| members.get(account))
+        {
+            let membership_id = browser_membership_id(&organization, account);
+            return BrowserAccountState::Active {
+                account: browser_account_summary(account),
+                memberships: browser_memberships(&self.state, account),
+                organization: browser_organization_summary(&organization),
+                membership: BrowserMembershipAccess {
+                    id: membership_id,
+                    role: browser_role(*role),
+                },
+                capabilities: browser_capabilities(*role),
+                is_instance_operator: browser_is_instance_operator(&self.state, account),
+                can_create_organization: false,
+                team: browser_team(&self.state, &organization),
+            };
+        }
+        if status == BrowserAccountStatus::OrganizationRequired
+            && let Some(account) = account
+        {
+            return BrowserAccountState::OrganizationRequired {
+                account: browser_account_summary(account),
+                memberships: browser_memberships(&self.state, account),
+                can_create_organization: false,
+            };
+        }
+        match status {
+            BrowserAccountStatus::InstanceSetupRequired => {
+                BrowserAccountState::InstanceSetupRequired
+            }
+            BrowserAccountStatus::SignedOut
+            | BrowserAccountStatus::PasswordChangeRequired
+            | BrowserAccountStatus::AppSetupRequired
+            | BrowserAccountStatus::OrganizationRequired
+            | BrowserAccountStatus::Active => BrowserAccountState::SignedOut {
+                registration: "invite_only",
+            },
         }
     }
 
@@ -697,6 +867,90 @@ impl<S: DurableHubStore> HubPilot<S> {
     fn persist(&self) -> Result<(), HubError> {
         self.store.save(&serde_json::to_vec_pretty(&self.state)?)?;
         Ok(())
+    }
+}
+
+fn browser_account_summary(account: &AccountId) -> BrowserAccountSummary {
+    let email = account.as_str().to_owned();
+    BrowserAccountSummary {
+        id: email.clone(),
+        name: email.split('@').next().unwrap_or(&email).to_owned(),
+        email,
+    }
+}
+
+fn browser_organization_summary(organization: &OrganizationId) -> BrowserOrganizationSummary {
+    let id = organization.as_str().to_owned();
+    BrowserOrganizationSummary {
+        id: id.clone(),
+        name: id.clone(),
+        slug: id,
+    }
+}
+
+fn browser_memberships(state: &HubState, account: &AccountId) -> Vec<BrowserMembershipSummary> {
+    state
+        .memberships
+        .iter()
+        .filter_map(|(organization, members)| {
+            let role = members.get(account)?;
+            let id = organization.as_str().to_owned();
+            Some(BrowserMembershipSummary {
+                id: id.clone(),
+                name: id.clone(),
+                slug: id.clone(),
+                membership_id: browser_membership_id(organization, account),
+                role: browser_role(*role),
+            })
+        })
+        .collect()
+}
+
+fn browser_membership_id(organization: &OrganizationId, account: &AccountId) -> String {
+    format!("membership:{}:{}", organization.as_str(), account.as_str())
+}
+
+fn browser_is_instance_operator(state: &HubState, account: &AccountId) -> bool {
+    state.instance_operator.as_ref().map_or_else(
+        || state.accounts.len() == 1 && state.accounts.contains_key(account),
+        |operator| operator == account,
+    )
+}
+
+fn browser_team(state: &HubState, organization: &OrganizationId) -> BrowserTeamSummary {
+    let members = state
+        .memberships
+        .get(organization)
+        .into_iter()
+        .flat_map(BTreeMap::iter)
+        .map(|(account, role)| {
+            let summary = browser_account_summary(account);
+            BrowserTeamMemberSummary {
+                id: browser_membership_id(organization, account),
+                user_id: summary.id,
+                name: summary.name,
+                email: summary.email,
+                role: browser_role(*role),
+            }
+        })
+        .collect();
+    BrowserTeamSummary { members }
+}
+
+const fn browser_role(role: Role) -> &'static str {
+    match role {
+        Role::Owner => "owner",
+        Role::Admin => "admin",
+        Role::Member => "member",
+    }
+}
+
+const fn browser_capabilities(role: Role) -> BrowserOrganizationCapabilities {
+    BrowserOrganizationCapabilities {
+        view: true,
+        manage_members: matches!(role, Role::Owner | Role::Admin),
+        manage_owners: matches!(role, Role::Owner),
+        manage_resources: matches!(role, Role::Owner | Role::Admin),
     }
 }
 

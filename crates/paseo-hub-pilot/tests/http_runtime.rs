@@ -99,6 +99,61 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn packet_level_state_requires_organization_when_multi_membership_session_has_no_selection() {
+    let root = TestDir::new();
+    let path = root.0.join("organization-required.json");
+    let owner = AccountId::from("owner@example.test");
+    let mut hub = HubPilot::open(EmbeddedFileStore::open(&path).unwrap()).unwrap();
+    hub.bootstrap(Bootstrap {
+        instance_secret: "organization-required-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: OrganizationId::from("organization-1"),
+        temporary_password: "temporary-password".into(),
+    })
+    .unwrap();
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .unwrap();
+    let session = hub.sign_in(&owner, "replacement-password").unwrap();
+    hub.complete_app_setup(&session).unwrap();
+    hub.create_organization_for_session(&session, OrganizationId::from("organization-2"))
+        .unwrap();
+    drop(hub);
+
+    let mut state: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    state["active_browser_organizations"] = serde_json::json!({});
+    fs::write(&path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+    let hub = HubPilot::open(EmbeddedFileStore::open(path).unwrap()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let mut service = HubHttpService::new(hub);
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        serve_one(&mut stream, &mut service).unwrap();
+    });
+    let response = request(
+        address,
+        "GET",
+        "/api/auth/paseo/state",
+        Some(&format!("paseo_session={}", session.as_str())),
+        None,
+    );
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.ends_with(
+        r#"{"status":"organizationRequired","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"},{"id":"organization-2","name":"organization-2","slug":"organization-2","membershipId":"membership:organization-2:owner@example.test","role":"owner"}],"canCreateOrganization":false}"#
+    ));
+    server.join().unwrap();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let root = TestDir::new();
     let path = root.0.join("hub.json");
@@ -116,7 +171,7 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let address = listener.local_addr().expect("listener address");
     let server = thread::spawn(move || {
         let mut service = HubHttpService::new(hub);
-        for _ in 0..5 {
+        for _ in 0..8 {
             let (mut stream, _) = listener.accept().expect("accept request");
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
@@ -127,7 +182,7 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
 
     let signed_out = request(address, "GET", "/api/auth/paseo/state", None, None);
     assert!(signed_out.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(signed_out.ends_with(r#"{"status":"signedOut"}"#));
+    assert!(signed_out.ends_with(r#"{"status":"signedOut","registration":"invite_only"}"#));
 
     let signed_in = request(
         address,
@@ -144,6 +199,13 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     );
     assert!(signed_in.ends_with(r#"{"status":"passwordChangeRequired"}"#));
     let cookie = "paseo_session=hub-session-1";
+
+    let password_change_state =
+        request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
+    assert!(password_change_state.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(password_change_state.ends_with(
+        r#"{"status":"passwordChangeRequired","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"}}"#
+    ));
 
     let gated = request(
         address,
@@ -165,6 +227,12 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     assert!(changed.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(changed.ends_with(r#"{"status":"appSetupRequired"}"#));
 
+    let app_setup_state = request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
+    assert!(app_setup_state.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(app_setup_state.ends_with(
+        r#"{"status":"appSetupRequired","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"organization":{"id":"organization-1","name":"organization-1","slug":"organization-1"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"}],"capabilities":{"view":true,"manageMembers":true,"manageOwners":true,"manageResources":true}}"#
+    ));
+
     let completed = request(
         address,
         "POST",
@@ -174,15 +242,42 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     );
     assert!(completed.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(completed.ends_with(r#"{"status":"active"}"#));
+
+    let active_state = request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
+    assert!(active_state.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(active_state.ends_with(
+        r#"{"status":"active","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"}],"organization":{"id":"organization-1","name":"organization-1","slug":"organization-1"},"membership":{"id":"membership:organization-1:owner@example.test","role":"owner"},"capabilities":{"view":true,"manageMembers":true,"manageOwners":true,"manageResources":true},"isInstanceOperator":true,"canCreateOrganization":false,"team":{"members":[{"id":"membership:organization-1:owner@example.test","userId":"owner@example.test","name":"owner","email":"owner@example.test","role":"owner"}]}}"#
+    ));
     server.join().expect("server thread");
 
+    let mut old_state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    old_state
+        .as_object_mut()
+        .unwrap()
+        .remove("instance_operator");
+    fs::write(&path, serde_json::to_vec_pretty(&old_state).unwrap()).unwrap();
+
     let restarted =
-        HubPilot::open(EmbeddedFileStore::open(path).expect("reopen store")).expect("restart hub");
+        HubPilot::open(EmbeddedFileStore::open(&path).expect("reopen store")).expect("restart hub");
     assert_eq!(
         restarted
             .browser_account_status(Some(&paseo_hub_pilot::SessionToken::from("hub-session-1"))),
         BrowserAccountStatus::Active
     );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let mut service = HubHttpService::new(restarted);
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        serve_one(&mut stream, &mut service).unwrap();
+    });
+    let old_state_response = request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
+    assert!(old_state_response.contains(r#""isInstanceOperator":true"#));
+    server.join().unwrap();
 }
 
 fn request(
