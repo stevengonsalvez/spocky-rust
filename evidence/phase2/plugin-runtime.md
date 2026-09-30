@@ -25,7 +25,7 @@ revisions, nested source identity, and updates. Six exercise settings validation
 atomic writes, revision conflicts, migration failure, reset, and persistence.
 
 The Rust pilot runs three lifecycle cases, two manifest/client-protocol cases,
-seven real local acquisition/runtime cases, and five settings lifecycle cases:
+nine real local acquisition/runtime cases, and five settings lifecycle cases:
 
 1. Clone a nested Git plugin at an exact 40-character reviewed commit. Launch its
    Node process, exchange source-shaped initialize/ready/invoke/result/shutdown
@@ -52,6 +52,10 @@ seven real local acquisition/runtime cases, and five settings lifecycle cases:
 9. Recover fixed sibling staging directories left by interrupted Git and npm
    acquisition, validate inside staging, atomically promote, and remove failed
    staging without exposing a partial final installation.
+10. Fork a real Node child with `serialization: "advanced"`, exchange
+    initialize, ready, invoke, result, and shutdown over its IPC channel, then
+    force a hung invocation timeout and prove the exact plugin child is reaped.
+    The bridge removes its temporary executable on both paths.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -74,7 +78,7 @@ sources live in disposable temporary directories.
 - Pinned Paseo: 11 passed, 0 failed
 - Rust lifecycle: 3 passed, 0 failed
 - Rust manifest/client protocol: 2 passed, 0 failed
-- Rust acquisition/runtime: 7 passed, 0 failed
+- Rust acquisition/runtime: 9 passed, 0 failed, repeated twice
 - Rust process envelope: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
@@ -90,11 +94,12 @@ sources live in disposable temporary directories.
 
 ## Remaining blockers
 
-- The Rust exchange uses newline stdio instead of Node fork IPC. Major outer
-  request and message families now have bounded process sequences, including fatal
-  restart, hook cancellation, provider reconnect, and daemon-session frames.
-  Provider connection-failure and rejection messages have shape coverage but no
-  process sequence.
+- The Rust pilot now exercises Node fork IPC with advanced serialization through
+  a bounded bridge. The selected production plugin worker wrapper remains open.
+  Major outer request and message families have bounded process sequences,
+  including fatal restart, hook cancellation, provider reconnect, and
+  daemon-session frames. Provider connection-failure and rejection messages have
+  shape coverage but no process sequence.
 - Provider input and event payload schemas remain opaque JSON values.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
