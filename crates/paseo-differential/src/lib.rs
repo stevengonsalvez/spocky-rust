@@ -4,6 +4,8 @@ use std::fmt::Write as _;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -100,6 +102,8 @@ pub struct Observation {
     pub performance: ObservationSlot<Value>,
     pub recovery: ObservationSlot<Value>,
     pub counts: ObservationSlot<ExecutionCounts>,
+    #[serde(default)]
+    pub raw_failures: Vec<Artifact>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -721,6 +725,12 @@ fn digest_observation(observation: &Observation) -> BTreeMap<String, String> {
     digest_serialized(&mut digests, "performance", &observation.performance);
     digest_serialized(&mut digests, "recovery", &observation.recovery);
     digest_serialized(&mut digests, "counts", &observation.counts);
+    for artifact in &observation.raw_failures {
+        digests.insert(
+            format!("raw_failure:{}", artifact.name),
+            sha256(&artifact.bytes),
+        );
+    }
     digests
 }
 
@@ -822,7 +832,8 @@ fn execute(
         .and_then(|stdout_file| stderr_file.map(|stderr_file| (stdout_file, stderr_file)));
 
     let process_result = process_result.and_then(|(stdout_file, stderr_file)| {
-        Command::new(&process.program)
+        let mut command = Command::new(&process.program);
+        command
             .args(&process.arguments)
             .args(&scenario.arguments)
             .envs(&process.environment)
@@ -830,8 +841,10 @@ fn execute(
             .env(state_variable, state_root)
             .current_dir(state_root)
             .stdout(stdout_file)
-            .stderr(stderr_file)
-            .spawn()
+            .stderr(stderr_file);
+        #[cfg(unix)]
+        command.process_group(0);
+        command.spawn()
     });
 
     let (stdout, stderr, exit_code) = match process_result {
@@ -854,16 +867,14 @@ fn execute(
                         std::thread::sleep(Duration::from_millis(10));
                     }
                     Ok(None) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        terminate_process_tree(&mut child);
                         break ObservationSlot::Error(format!(
                             "process timed out after {} ms",
                             process.timeout_ms.max(1)
                         ));
                     }
                     Err(error) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        terminate_process_tree(&mut child);
                         break ObservationSlot::Error(format!("wait for process: {error}"));
                     }
                 }
@@ -884,19 +895,85 @@ fn execute(
         }
     };
 
+    let file_observations = capture_files(state_root, captures);
+
     Observation {
-        structured_output: capture_json(state_root, captures.structured_output.as_deref()),
+        structured_output: file_observations.structured_output,
         stdout,
         stderr,
         exit_code,
-        artifacts: capture_artifacts(state_root, &captures.artifacts),
-        state: capture_artifacts(state_root, &captures.state),
-        screenshots: capture_artifacts(state_root, &captures.screenshots),
-        accessibility: capture_json(state_root, captures.accessibility.as_deref()),
-        performance: capture_json(state_root, captures.performance.as_deref()),
-        recovery: capture_json(state_root, captures.recovery.as_deref()),
-        counts: capture_counts(state_root, captures.counts.as_deref()),
+        artifacts: file_observations.artifacts,
+        state: file_observations.state,
+        screenshots: file_observations.screenshots,
+        accessibility: file_observations.accessibility,
+        performance: file_observations.performance,
+        recovery: file_observations.recovery,
+        counts: file_observations.counts,
+        raw_failures: file_observations.raw_failures,
     }
+}
+
+struct CapturedFiles {
+    structured_output: ObservationSlot<Value>,
+    artifacts: ObservationSlot<Vec<Artifact>>,
+    state: ObservationSlot<Vec<Artifact>>,
+    screenshots: ObservationSlot<Vec<Artifact>>,
+    accessibility: ObservationSlot<Value>,
+    performance: ObservationSlot<Value>,
+    recovery: ObservationSlot<Value>,
+    counts: ObservationSlot<ExecutionCounts>,
+    raw_failures: Vec<Artifact>,
+}
+
+fn capture_files(state_root: &Path, captures: &CapturePlan) -> CapturedFiles {
+    let (structured_output, mut raw_failures) = capture_json(
+        state_root,
+        captures.structured_output.as_deref(),
+        "structured_output",
+    );
+    let (artifacts, raw) = capture_artifacts(state_root, &captures.artifacts, "artifacts");
+    raw_failures.extend(raw);
+    let (state, raw) = capture_artifacts(state_root, &captures.state, "state");
+    raw_failures.extend(raw);
+    let (screenshots, raw) = capture_artifacts(state_root, &captures.screenshots, "screenshots");
+    raw_failures.extend(raw);
+    let (accessibility, raw) = capture_json(
+        state_root,
+        captures.accessibility.as_deref(),
+        "accessibility",
+    );
+    raw_failures.extend(raw);
+    let (performance, raw) =
+        capture_json(state_root, captures.performance.as_deref(), "performance");
+    raw_failures.extend(raw);
+    let (recovery, raw) = capture_json(state_root, captures.recovery.as_deref(), "recovery");
+    raw_failures.extend(raw);
+    let (counts, raw) = capture_counts(state_root, captures.counts.as_deref());
+    raw_failures.extend(raw);
+
+    CapturedFiles {
+        structured_output,
+        artifacts,
+        state,
+        screenshots,
+        accessibility,
+        performance,
+        recovery,
+        counts,
+        raw_failures,
+    }
+}
+
+fn terminate_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let process_group = format!("-{}", child.id());
+        let _ = Command::new("kill")
+            .args(["-KILL", process_group.as_str()])
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn read_process_output(path: &Path, name: &str) -> ObservationSlot<Vec<u8>> {
@@ -906,43 +983,78 @@ fn read_process_output(path: &Path, name: &str) -> ObservationSlot<Vec<u8>> {
     )
 }
 
-fn capture_json(root: &Path, relative: Option<&Path>) -> ObservationSlot<Value> {
+fn capture_json(
+    root: &Path,
+    relative: Option<&Path>,
+    kind: &str,
+) -> (ObservationSlot<Value>, Vec<Artifact>) {
     let Some(relative) = relative else {
-        return ObservationSlot::Missing;
+        return (ObservationSlot::Missing, Vec::new());
     };
-    read_capture(root, relative)
-        .and_then(|bytes| {
-            serde_json::from_slice(&bytes)
-                .map_err(|error| format!("parse {} as JSON: {error}", relative.display()))
-        })
-        .map_or_else(ObservationSlot::Error, ObservationSlot::Value)
-}
-
-fn capture_counts(root: &Path, relative: Option<&Path>) -> ObservationSlot<ExecutionCounts> {
-    let Some(relative) = relative else {
-        return ObservationSlot::Missing;
-    };
-    read_capture(root, relative)
-        .and_then(|bytes| {
-            serde_json::from_slice(&bytes).map_err(|error| {
-                format!("parse {} as execution counts: {error}", relative.display())
-            })
-        })
-        .map_or_else(ObservationSlot::Error, ObservationSlot::Value)
-}
-
-fn capture_artifacts(root: &Path, paths: &[PathBuf]) -> ObservationSlot<Vec<Artifact>> {
-    if paths.is_empty() {
-        return ObservationSlot::Missing;
+    match read_capture(root, relative) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(value) => (ObservationSlot::Value(value), Vec::new()),
+            Err(error) => (
+                ObservationSlot::Error(format!("parse {} as JSON: {error}", relative.display())),
+                vec![Artifact::new(
+                    format!("{kind}:{}", relative.display()),
+                    bytes,
+                )],
+            ),
+        },
+        Err(error) => (ObservationSlot::Error(error), Vec::new()),
     }
-    paths
-        .iter()
-        .map(|relative| {
-            read_capture(root, relative)
-                .map(|bytes| Artifact::new(relative.display().to_string(), bytes))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_or_else(ObservationSlot::Error, ObservationSlot::Value)
+}
+
+fn capture_counts(
+    root: &Path,
+    relative: Option<&Path>,
+) -> (ObservationSlot<ExecutionCounts>, Vec<Artifact>) {
+    let Some(relative) = relative else {
+        return (ObservationSlot::Missing, Vec::new());
+    };
+    match read_capture(root, relative) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(value) => (ObservationSlot::Value(value), Vec::new()),
+            Err(error) => (
+                ObservationSlot::Error(format!(
+                    "parse {} as execution counts: {error}",
+                    relative.display()
+                )),
+                vec![Artifact::new(
+                    format!("counts:{}", relative.display()),
+                    bytes,
+                )],
+            ),
+        },
+        Err(error) => (ObservationSlot::Error(error), Vec::new()),
+    }
+}
+
+fn capture_artifacts(
+    root: &Path,
+    paths: &[PathBuf],
+    kind: &str,
+) -> (ObservationSlot<Vec<Artifact>>, Vec<Artifact>) {
+    if paths.is_empty() {
+        return (ObservationSlot::Missing, Vec::new());
+    }
+    let mut captured = Vec::new();
+    for relative in paths {
+        match read_capture(root, relative) {
+            Ok(bytes) => captured.push(Artifact::new(relative.display().to_string(), bytes)),
+            Err(error) => {
+                let partial = captured
+                    .into_iter()
+                    .map(|artifact| {
+                        Artifact::new(format!("{kind}:{}", artifact.name), artifact.bytes)
+                    })
+                    .collect();
+                return (ObservationSlot::Error(error), partial);
+            }
+        }
+    }
+    (ObservationSlot::Value(captured), Vec::new())
 }
 
 fn read_capture(root: &Path, relative: &Path) -> Result<Vec<u8>, String> {

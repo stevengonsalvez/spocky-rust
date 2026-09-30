@@ -48,6 +48,7 @@ fn observation(id: &str, timestamp: &str, temp: &str) -> Observation {
             fixtures: 1,
             assertions: 7,
         }),
+        raw_failures: Vec::new(),
     }
 }
 
@@ -279,6 +280,30 @@ fn executable_runner_terminates_timed_out_processes() {
     ));
 }
 
+#[cfg(unix)]
+#[test]
+fn executable_runner_terminates_descendants_on_timeout() {
+    let directory = TestDirectory::new();
+    let marker = directory.path.join("descendant-leaked");
+    let script = r#"(sleep 0.2; printf leaked > "$MARKER") & sleep 2"#;
+    let process = ProcessSpec {
+        program: "/bin/sh".into(),
+        arguments: vec!["-c".into(), script.into()],
+        environment: BTreeMap::from([("MARKER".into(), marker.display().to_string())]),
+        timeout_ms: 50,
+    };
+    let plan = minimal_plan("process-tree-timeout", process, CapturePlan::default());
+
+    let report = run_differential(&plan).expect("timeouts produce a report");
+    std::thread::sleep(std::time::Duration::from_millis(400));
+
+    assert!(!report.equivalent);
+    assert!(
+        !marker.exists(),
+        "timed-out descendant survived its process group"
+    );
+}
+
 #[test]
 fn executable_runner_rejects_identical_malformed_json() {
     let process = ProcessSpec {
@@ -307,6 +332,49 @@ fn executable_runner_rejects_identical_malformed_json() {
     assert_eq!(
         report.differences,
         vec![Comparison::different("structured_output")]
+    );
+    assert_eq!(
+        report.original.raw.raw_failures,
+        vec![Artifact::new(
+            "structured_output:structured.json",
+            b"not-json".to_vec()
+        )]
+    );
+    assert_eq!(
+        report.original.raw_digests["raw_failure:structured_output:structured.json"].len(),
+        64
+    );
+}
+
+#[test]
+fn executable_runner_retains_successful_artifacts_when_a_later_capture_fails() {
+    let process = ProcessSpec {
+        program: "/bin/sh".into(),
+        arguments: vec![
+            "-c".into(),
+            "printf 'retained' > first.bin; printf '{\"fixtures\":0,\"assertions\":0}' > counts.json"
+                .into(),
+        ],
+        environment: BTreeMap::new(),
+        timeout_ms: 1_000,
+    };
+    let plan = minimal_plan(
+        "partial-artifact-capture",
+        process,
+        CapturePlan {
+            artifacts: vec!["first.bin".into(), "missing.bin".into()],
+            counts: Some("counts.json".into()),
+            ..CapturePlan::default()
+        },
+    );
+
+    let report = run_differential(&plan).expect("partial capture failures produce a report");
+
+    assert!(!report.equivalent);
+    assert_eq!(report.differences, vec![Comparison::different("artifacts")]);
+    assert_eq!(
+        report.original.raw.raw_failures,
+        vec![Artifact::new("artifacts:first.bin", b"retained".to_vec())]
     );
 }
 
