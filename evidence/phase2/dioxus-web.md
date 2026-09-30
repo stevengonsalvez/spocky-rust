@@ -95,27 +95,30 @@ element types, labels, and text match. Candidate Enter handling changes its live
 status. Original action behavior is not yet driven by the Rust pilot.
 
 The candidate uses the pinned logo and vector icons, matched light tokens,
-system font stack, antialiasing, layout geometry, desktop sidebar shell, and
-baseline text wrappers. The latest capture still rejects the normalized-RMSE
-threshold of zero: desktop is `0.0000862789` with 854 differing pixels, and
-mobile is `0.00000882431` with 5 differing pixels. The desktop difference is
-confined to the 303 by 112 sidebar empty-state card. Main content, footer, and
-the remaining desktop surface compare exactly. Both runtimes fail offline
-reload. No visual acceptance threshold passes.
+system font stack, antialiasing, layout geometry, desktop sidebar shell,
+baseline text wrappers, RNW flex-wrap tiles, and scroll-content ancestry. The
+latest capture still rejects the normalized-RMSE threshold of zero: desktop is
+`0.000120966` with 872 differing pixels, and mobile is `0.00000882431` with 5
+differing pixels. The candidate screenshots did not change after the ancestor
+alignment. The pinned original desktop changed from SHA-256 `597095...` to
+`fad844...` across identical captures, adding 18 observed differing pixels,
+then remained stable for two captures. This is observed baseline
+nondeterminism, not a confirmed cause for the candidate difference. Both
+runtimes fail offline reload. No visual acceptance threshold passes.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 128,066 | `d9bf01a18661704073acfe31a9154a2420b68599df945095dc377cd4ab3842e3` |
-| original desktop screenshot | 49,270 | `597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d` |
+| `browser-runtime-comparison.json` | 127,930 | `c372fb3a9958b335c7db0befb601d4277b175a72a74637f2ddde43548ac1d726` |
+| original desktop screenshot | 49,262 | `fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f` |
 | original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
 | candidate desktop screenshot | 49,205 | `f272044d75f33de4ca9372f0e09932905af8216024aeacc72a862865ca35c8f2` |
 | candidate mobile screenshot | 27,132 | `29c5696a5db7239640eba627a05f47a6c010bfb1ecdcf182a28876b537d8765c` |
-| isolated daemon log | 35,901 | `1fdf3d841ae7e74f7080ae34ed8336a6202f6bb7bf0d5205982de2395efd0759` |
+| isolated daemon log | 38,304 | `7a16e9620e5d0f10cc824d679df02b504fd805d47d7d76d4c31b37631ebd2da7` |
 
 This capture's disposable daemon started default local speech-model downloads;
 cleanup removed them with the daemon home. The harness now disables unrelated
-speech paths before launch. The next comparison needs the remaining sidebar
-text rasterization difference explained and real candidate actions. The exact
-threshold is executable.
+speech paths before launch. The next comparison needs a repeated-original
+stability assertion, the remaining sidebar rasterization difference explained,
+and real candidate actions. The exact threshold is executable.
 Electron guest APIs, accessibility tree diffs, packaging, update, rollback, and
 uninstall remain open.
