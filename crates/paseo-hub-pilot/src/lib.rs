@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub mod http;
+
 macro_rules! identifier {
     ($name:ident) => {
         #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -36,6 +38,7 @@ macro_rules! identifier {
 identifier!(AccountId);
 identifier!(OrganizationId);
 identifier!(DaemonId);
+identifier!(SessionToken);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Role {
@@ -170,6 +173,7 @@ struct StoredRegistration {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
 struct HubState {
     instance_secret_fingerprint: Option<u64>,
     accounts: BTreeMap<AccountId, Account>,
@@ -178,6 +182,19 @@ struct HubState {
     registration_keys: BTreeMap<String, DaemonId>,
     session_generations: BTreeMap<DaemonId, u64>,
     continuations: BTreeMap<DaemonId, BTreeMap<String, DaemonSession>>,
+    browser_sessions: BTreeMap<SessionToken, AccountId>,
+    next_browser_session: u64,
+    app_setup_complete: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserAccountStatus {
+    InstanceSetupRequired,
+    SignedOut,
+    PasswordChangeRequired,
+    AppSetupRequired,
+    Active,
 }
 
 pub struct HubPilot<S: DurableHubStore> {
@@ -236,6 +253,68 @@ impl<S: DurableHubStore> HubPilot<S> {
         account.password_fingerprint = fingerprint(&change.new_password);
         account.must_change_password = false;
         self.persist()
+    }
+
+    pub fn sign_in(
+        &mut self,
+        account: &AccountId,
+        password: &str,
+    ) -> Result<SessionToken, HubError> {
+        let stored = self
+            .state
+            .accounts
+            .get(account)
+            .ok_or(HubError::InvalidCredentials)?;
+        if stored.password_fingerprint != fingerprint(password) {
+            return Err(HubError::InvalidCredentials);
+        }
+        self.state.next_browser_session += 1;
+        let token = SessionToken(format!("hub-session-{}", self.state.next_browser_session));
+        self.state
+            .browser_sessions
+            .insert(token.clone(), account.clone());
+        self.persist()?;
+        Ok(token)
+    }
+
+    #[must_use]
+    pub fn browser_account_status(&self, token: Option<&SessionToken>) -> BrowserAccountStatus {
+        if self.state.accounts.is_empty() {
+            return BrowserAccountStatus::InstanceSetupRequired;
+        }
+        let Some(account) = token.and_then(|token| self.state.browser_sessions.get(token)) else {
+            return BrowserAccountStatus::SignedOut;
+        };
+        let Some(account) = self.state.accounts.get(account) else {
+            return BrowserAccountStatus::SignedOut;
+        };
+        if account.must_change_password {
+            BrowserAccountStatus::PasswordChangeRequired
+        } else if self.state.app_setup_complete {
+            BrowserAccountStatus::Active
+        } else {
+            BrowserAccountStatus::AppSetupRequired
+        }
+    }
+
+    pub fn complete_app_setup(&mut self, token: &SessionToken) -> Result<(), HubError> {
+        match self.browser_account_status(Some(token)) {
+            BrowserAccountStatus::AppSetupRequired | BrowserAccountStatus::Active => {
+                self.state.app_setup_complete = true;
+                self.persist()
+            }
+            BrowserAccountStatus::PasswordChangeRequired => {
+                Err(AuthorityError::PasswordChangeRequired.into())
+            }
+            BrowserAccountStatus::InstanceSetupRequired | BrowserAccountStatus::SignedOut => {
+                Err(HubError::InvalidSession)
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn account_for_session(&self, token: &SessionToken) -> Option<AccountId> {
+        self.state.browser_sessions.get(token).cloned()
     }
 
     pub fn authorize(
@@ -459,6 +538,8 @@ pub enum HubError {
     Session(SessionError),
     BootstrapUnavailable,
     InvalidCurrentPassword,
+    InvalidCredentials,
+    InvalidSession,
     IdempotencyConflict,
     Store(StoreError),
     Json(serde_json::Error),

@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use paseo_hub_pilot::{
-    AccountId, AuthorityError, Bootstrap, DaemonId, DaemonPermission, EmbeddedFileStore, HubPilot,
-    OrganizationId, PasswordChange, RegistrationRequest, Role, SessionError, StoreSemantics,
+    AccountId, AuthorityError, Bootstrap, BrowserAccountStatus, DaemonId, DaemonPermission,
+    EmbeddedFileStore, HubError, HubPilot, OrganizationId, PasswordChange, RegistrationRequest,
+    Role, SessionError, StoreSemantics,
 };
 
 struct TestDir(PathBuf);
@@ -178,4 +179,76 @@ fn embedded_store_contract_names_unproven_database_semantics() {
     assert!(EmbeddedFileStore::LIMITATIONS.contains("not PGlite"));
     assert!(EmbeddedFileStore::LIMITATIONS.contains("not PostgreSQL"));
     assert!(EmbeddedFileStore::LIMITATIONS.contains("no cross-process transactions"));
+}
+
+#[test]
+fn browser_account_gate_and_session_survive_restart() {
+    let root = TestDir::new();
+    let path = root.path().join("hub.json");
+    let mut hub =
+        HubPilot::open(EmbeddedFileStore::open(&path).expect("open store")).expect("open hub");
+    assert_eq!(
+        hub.browser_account_status(None),
+        BrowserAccountStatus::InstanceSetupRequired
+    );
+    hub.bootstrap(bootstrap()).expect("bootstrap");
+    assert_eq!(
+        hub.sign_in(&AccountId::from("owner@example.test"), "wrong-password"),
+        Err(HubError::InvalidCredentials)
+    );
+    let token = hub
+        .sign_in(&AccountId::from("owner@example.test"), "temporary-password")
+        .expect("temporary password signs in");
+    assert_eq!(
+        hub.browser_account_status(Some(&token)),
+        BrowserAccountStatus::PasswordChangeRequired
+    );
+    assert_eq!(
+        hub.complete_app_setup(&token),
+        Err(AuthorityError::PasswordChangeRequired.into())
+    );
+    hub.replace_password(&PasswordChange {
+        account: AccountId::from("owner@example.test"),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .expect("replace password");
+    assert_eq!(
+        hub.browser_account_status(Some(&token)),
+        BrowserAccountStatus::AppSetupRequired
+    );
+    hub.complete_app_setup(&token).expect("complete setup");
+    drop(hub);
+
+    let restarted =
+        HubPilot::open(EmbeddedFileStore::open(path).expect("reopen store")).expect("restart hub");
+    assert_eq!(
+        restarted.browser_account_status(Some(&token)),
+        BrowserAccountStatus::Active
+    );
+}
+
+#[test]
+fn browser_session_fields_default_when_old_snapshot_is_opened() {
+    let root = TestDir::new();
+    let path = root.path().join("hub.json");
+    fs::write(
+        &path,
+        r#"{
+          "instance_secret_fingerprint": null,
+          "accounts": {},
+          "memberships": {},
+          "registrations": {},
+          "registration_keys": {},
+          "session_generations": {},
+          "continuations": {}
+        }"#,
+    )
+    .expect("write old snapshot");
+    let hub = HubPilot::open(EmbeddedFileStore::open(path).expect("open old store"))
+        .expect("old snapshot remains readable");
+    assert_eq!(
+        hub.browser_account_status(None),
+        BrowserAccountStatus::InstanceSetupRequired
+    );
 }
