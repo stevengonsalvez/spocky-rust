@@ -22,7 +22,7 @@ revisions, nested source identity, and updates. Six exercise settings validation
 atomic writes, revision conflicts, migration failure, reset, and persistence.
 
 The Rust pilot runs three lifecycle cases, two manifest/client-protocol cases,
-six real local acquisition/runtime cases, and five settings lifecycle cases:
+seven real local acquisition/runtime cases, and five settings lifecycle cases:
 
 1. Clone a nested Git plugin at an exact 40-character reviewed commit. Launch its
    Node process, exchange source-shaped initialize/ready/invoke/result/shutdown
@@ -43,6 +43,9 @@ six real local acquisition/runtime cases, and five settings lifecycle cases:
    writes, migrate once, reject newer schemas, preserve corrupt data until reset,
    isolate notification values, persist atomically with mode `0600`, and keep
    installation directories separate from definition IDs.
+8. Execute settings and hooks notifications, hook cancellation, usage identify,
+   fetch, and discovery, provider connect, send, event, close, and reconnect,
+   plus daemon-session frame and close messages in one bounded process.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -65,7 +68,7 @@ sources live in disposable temporary directories.
 - Pinned Paseo: 11 passed, 0 failed
 - Rust lifecycle: 3 passed, 0 failed
 - Rust manifest/client protocol: 2 passed, 0 failed
-- Rust acquisition/runtime: 6 passed, 0 failed
+- Rust acquisition/runtime: 7 passed, 0 failed
 - Rust process envelope: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
@@ -78,10 +81,11 @@ sources live in disposable temporary directories.
 
 ## Remaining blockers
 
-- The Rust exchange executes initialize, ready, invoke, result, and shutdown over
-  newline stdio instead of Node fork IPC. The full outer envelope is modeled but
-  provider, usage, hook, daemon-session, cancellation, and reconnect sequences
-  are not executed. Fatal invocation and fresh-process restart now pass.
+- The Rust exchange uses newline stdio instead of Node fork IPC. Major outer
+  request and message families now have bounded process sequences, including fatal
+  restart, hook cancellation, provider reconnect, and daemon-session frames.
+  Provider connection-failure and rejection messages have shape coverage but no
+  process sequence.
 - Provider input and event payload schemas remain opaque JSON values.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
@@ -91,6 +95,9 @@ sources live in disposable temporary directories.
 - Windows and Linux acquisition, path, process, failure, and restart runs are absent.
 - Managed checkout deletion and recovery after host termination during staging are
   not exercised against real acquired sources.
+- Two parallel-test fixture collisions were confirmed and repaired with atomic
+  directory sequences. Lifecycle passed three consecutive runs and settings
+  passed three consecutive runs after repair.
 - No production daemon, port `6767`, deploy, publish, paid service, or remote source
   was used.
 
