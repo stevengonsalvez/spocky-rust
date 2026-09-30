@@ -35,15 +35,31 @@ It records these observed outcomes:
 - Explicitly unsigned packages exercised install, checksum-rejected update, valid
   update, rollback, uninstall, and retained-state bytes on the real filesystem.
 
+A second retained report adds the macOS system speech and playback path without
+overwriting the Android capture:
+
+```text
+cargo run --quiet -p paseo-audio-delivery-pilot --bin paseo-local-runtime -- \
+  --root evidence/raw/phase2/audio-native-delivery-runtime-12327d4 \
+  --afinfo /usr/bin/afinfo
+```
+
+Its 2,415-byte `runtime-report.json` has SHA-256
+`2e7ffcfea0b137c890df3bf32140565a749403b1aece642bca2b8d14cdda862e`.
+macOS `say` produced a 67,356-byte mono 22,050 Hz LPCM AIFF. `afinfo` parsed the
+artifact and `afplay -v 0` consumed it through the system playback engine. All
+three processes exited zero. Playback was muted, so this proves engine execution
+and artifact compatibility, not audible output.
+
 `ProcessCommand` now defaults to a 30-second deadline, drains stdout and stderr
 concurrently, and returns a deterministic timed-out error. Its Unix path creates
 and kills an isolated process group. A real shell regression proves a timed-out
 child is reaped, and a 256 KiB dual-stream regression proves pipe buffers cannot
 deadlock the adapter. Windows descendant cleanup remains unproven.
 
-Thirteen default integration tests and the isolated AVD integration test pass.
+Fifteen default integration tests and the isolated AVD integration test pass.
 Formatting and clippy pass. The local evidence strengthens `P2-AUDIO-01`,
 `P2-NATIVE-01`, and `P2-DELIVERY-01`, but does not complete them. Real microphone
-capture, audible playback assertion, speech services, app-level native adapter
+capture, audible playback assertion, speech-to-text, app-level native adapter
 behavior, iOS runtime evidence, signed artifacts, and production updates remain
 unproven. The host has no `simctl`, so iOS runtime work is environment-blocked.
