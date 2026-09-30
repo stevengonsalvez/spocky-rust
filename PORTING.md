@@ -18,6 +18,11 @@ writers pause there. The lead then serially renames owned crates, modules,
 packages, binaries, scripts, current commands, UI strings, and help text from
 `paseo-*` or `paseo_*` to `spocky-*` or `spocky_*`.
 
+That boundary closed at commit `4cce774259c974fb44ae78520488938a793ed5f8`.
+All 14 current Cargo packages, Rust imports, owned binaries, commands, and new
+product-facing text now use Spocky. Compatibility identifiers remain unchanged
+and are enumerated in `porting/spocky-branding-inventory.md`.
+
 Every remaining Paseo name is classified before change:
 
 | Class | Treatment |
@@ -62,7 +67,7 @@ git clone https://github.com/getpaseo/paseo-relay.git .baselines/relay
 git -C .baselines/relay checkout --detach 3fc41c96c8c63f3a7109e832899cc57d473c4531
 git clone https://github.com/getpaseo/import.git .baselines/import
 git -C .baselines/import checkout --detach 8b3eb738fa737010da86e8ac01d3a34cc9a7a3c5
-cargo test -p paseo-baseline --test pinned_sources
+cargo test -p spocky-baseline --test pinned_sources
 ```
 
 If a repository URL changes, copy an existing checkout into the matching `.baselines/` path and detach it at the recorded commit. Never substitute a newer commit.

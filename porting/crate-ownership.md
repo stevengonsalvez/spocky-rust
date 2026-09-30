@@ -1,21 +1,21 @@
 # Crate and Ownership Graph
 
 ```text
-                         paseo-contracts
+                         spocky-contracts
                        /        |        \
-              paseo-domain  paseo-wire  paseo-crypto
+              spocky-domain  spocky-wire  spocky-crypto
                  /     |         |           |
-        paseo-store  paseo-auth  |     paseo-relay-protocol
+        spocky-store  spocky-auth  |     spocky-relay-protocol
               |        |         |          /       \
-              +----- paseo-daemon ---------+     paseo-relay
+              +----- spocky-daemon ---------+     spocky-relay
                        /   |   \                    |
               providers  hub  relay          relay deployment
                     \      |      /                 |
-                     paseo-client             relay operations
+                     spocky-client             relay operations
                       /    |    \
-              paseo-cli  plugins  importer
+              spocky-cli  plugins  importer
                          |
-                    paseo-ui-core
+                    spocky-ui-core
                    /      |       \
              app shells  Hub UI  site/docs
 ```
@@ -24,11 +24,11 @@
 
 | Boundary | Responsibilities |
 |---|---|
-| `paseo-contracts` | Wire schemas, capability descriptors, persisted representations, public cross-process types |
-| `paseo-wire` | JSON envelopes, binary terminal and file frames, framing limits, codec errors |
-| `paseo-crypto` | Endpoint key formats, vectors, pairing, encrypted frames, replay boundary behavior |
-| `paseo-domain` | Lifecycle, identity, permissions, schedules, receipts, recovery, invariants |
-| `paseo-differential` | Scenario definition, original and Rust drivers, raw artifacts, normalization, comparisons, executed-count protection |
+| `spocky-contracts` | Wire schemas, capability descriptors, persisted representations, public cross-process types |
+| `spocky-wire` | JSON envelopes, binary terminal and file frames, framing limits, codec errors |
+| `spocky-crypto` | Endpoint key formats, vectors, pairing, encrypted frames, replay boundary behavior |
+| `spocky-domain` | Lifecycle, identity, permissions, schedules, receipts, recovery, invariants |
+| `spocky-differential` | Scenario definition, original and Rust drivers, raw artifacts, normalization, comparisons, executed-count protection |
 
 The lead alone changes these interfaces, the workspace manifest, the task ledger, and integration wiring.
 
@@ -36,22 +36,22 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 
 | Boundary | Capability families |
 |---|---|
-| `paseo-store` | `DSTA`, `DWLABEL`, old state, migrations, atomic writes, journal recovery |
-| `paseo-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH`, `DWORK`, `DSCRIPT`, `DCFG`, `DWEB`, `DUSAGE`, `DRECEIPT`, `DMCP` |
-| `paseo-provider-api` and provider crates | `DPRV` and external provider process adapters |
-| `paseo-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC`, `CLOUD-HUB-DAEMON`, `CLOUD-HUB-SESSIONS`, `CLOUD-HUB-ATTACH` |
-| `paseo-daemon-relay` | `CLOUD-RELAY-DAEMON` |
-| `paseo-relay` | Distributed ownership, reroute, flow control, operations |
-| `paseo-hub` | Auth, first-run setup, configuration compiler, API, store, workflows, integrations, billing, deployment |
-| `paseo-client` | `DSDK`, `CLIENT-002` through `CLIENT-007` shared behavior |
-| `paseo-cli` | `DCLI`, Hub CLI, exact process output and exit behavior |
-| `paseo-plugin` | Plugin manifest, acquisition, review, staging, server/client host, update recovery, compatibility boundary |
-| `paseo-skills` | Bundled and discovered skill indexing, compatibility, invocation inputs |
-| `paseo-import` | Local session and Conductor import contracts |
-| `paseo-ui-core` | Route, workspace, presentation, visual, accessibility, localization contracts |
+| `spocky-store` | `DSTA`, `DWLABEL`, old state, migrations, atomic writes, journal recovery |
+| `spocky-daemon` | `DLIF`, `DSEC`, `DTRM`, `DSCH`, `DGIT`, `DFIL`, `DBRW`, `DSVC`, `DOPS`, `DPUSH`, `DSPH`, `DWORK`, `DSCRIPT`, `DCFG`, `DWEB`, `DUSAGE`, `DRECEIPT`, `DMCP` |
+| `spocky-provider-api` and provider crates | `DPRV` and external provider process adapters |
+| `spocky-daemon-hub` | `CLOUD-HUB-REL`, `CLOUD-HUB-EXEC`, `CLOUD-HUB-DAEMON`, `CLOUD-HUB-SESSIONS`, `CLOUD-HUB-ATTACH` |
+| `spocky-daemon-relay` | `CLOUD-RELAY-DAEMON` |
+| `spocky-relay` | Distributed ownership, reroute, flow control, operations |
+| `spocky-hub` | Auth, first-run setup, configuration compiler, API, store, workflows, integrations, billing, deployment |
+| `spocky-client` | `DSDK`, `CLIENT-002` through `CLIENT-007` shared behavior |
+| `spocky-cli` | `DCLI`, Hub CLI, exact process output and exit behavior |
+| `spocky-plugin` | Plugin manifest, acquisition, review, staging, server/client host, update recovery, compatibility boundary |
+| `spocky-skills` | Bundled and discovered skill indexing, compatibility, invocation inputs |
+| `spocky-import` | Local session and Conductor import contracts |
+| `spocky-ui-core` | Route, workspace, presentation, visual, accessibility, localization contracts |
 | platform UI shells | iOS, Android, browser, desktop, Hub dashboard, site and docs renderers selected by pilots |
-| `paseo-relay-cloudflare` | Cloudflare fallback, cutover, routing, protocol limits, deployment inputs |
-| `paseo-delivery` | Packages, containers, installers, signing inputs, updates, rollout, rollback |
+| `spocky-relay-cloudflare` | Cloudflare fallback, cutover, routing, protocol limits, deployment inputs |
+| `spocky-delivery` | Packages, containers, installers, signing inputs, updates, rollout, rollback |
 
 ## Architecture freeze rule
 
