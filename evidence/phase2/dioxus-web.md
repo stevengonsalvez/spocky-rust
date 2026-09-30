@@ -99,21 +99,22 @@ status. Original action behavior is not yet driven by the Rust pilot.
 
 The candidate now uses the pinned logo path, vector action icons, light tokens,
 desktop empty-project card, and matched action-card surfaces. A signed recapture
-at `5d4e35d` still rejects the exact normalized-RMSE threshold of zero: desktop
-is `0.0516104`, mobile is `0.0703698`. Mobile improved from the first capture;
-desktop did not. The original desktop PNG also changed hash across identical
-pinned runs, so baseline rendering stability must be isolated before small
-metric changes can be accepted. Both runtimes fail offline reload. No visual
-acceptance threshold passes.
+after `13ed574` waits for the original sidebar empty state, the candidate main
+action, and stable document bodies before screenshots. The original desktop
+capture now contains the loaded sidebar state, but its PNG still changes by a
+few pixels between otherwise identical pinned runs. Commit `fc464c1` aligns the
+mobile logo geometry exactly. The latest capture still rejects the normalized-
+RMSE threshold of zero: desktop is `0.0504629`, mobile is `0.0548481`. Both
+runtimes fail offline reload. No visual acceptance threshold passes.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 9,045 | `f836109168a647ce66a2c5ad0eeb3de36b376ee0e0d9c3cd9bf7f2e06eb64df3` |
-| original desktop screenshot | 41,625 | `bc32e9486bffedf84c135198130bb57ee273b59eac23af1edb00ebf4d544c8e1` |
+| `browser-runtime-comparison.json` | 9,045 | `8843cccad7aa8cb9834075ed04672ff9cce56c3ca859eaa7beee8c132e6a0b19` |
+| original desktop screenshot | 49,270 | `597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d` |
 | original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
 | candidate desktop screenshot | 49,199 | `53519099af309237f4bce6506a263e344857b02d9426438114aeeca28f25cda6` |
-| candidate mobile screenshot | 28,557 | `24a2ce01ca915914e435e3d3b5e9cea745c320507ab55c793258db6bf5d7c868` |
-| isolated daemon log | 35,901 | `64ad96510f09e4821b2d0be23919834e9dc18f445069118d3efd1907f6029776` |
+| candidate mobile screenshot | 28,557 | `44fb38b66792ab8e734364114fef7ca7bf7584d10101d656370df437c8327064` |
+| isolated daemon log | 35,901 | `1fdf3d841ae7e74f7080ae34ed8336a6202f6bb7bf0d5205982de2395efd0759` |
 
 This capture's disposable daemon started default local speech-model downloads;
 cleanup removed them with the daemon home. The harness now disables unrelated

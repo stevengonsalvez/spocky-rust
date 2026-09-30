@@ -73,10 +73,11 @@ adds an organization-scoped API-key pilot. It generates the baseline
 `paseo_pk_` shape from OS randomness, returns the secret once, stores only a
 SHA-256 verifier, compares verifiers in constant time, serializes the five exact
 colon-delimited scopes, distinguishes unauthorized from forbidden, updates
-last-use state only after successful scope authorization, revokes within an
-organization, and survives snapshot restart. Owner and member behavior, secret
+last-use state only after successful scope authorization, records monotonic
+fixed-clock use timestamps, revokes within an organization while preserving the
+first revocation timestamp, and survives snapshot restart. Owner and member behavior, secret
 concealment, malformed credentials, wrong secrets, missing scopes, last-use,
-revocation, and restart pass one targeted integration test.
+revocation, timestamps, and restart pass two targeted integration tests.
 
 The invitation pilot passes six targeted tests covering owner/member authority,
 email normalization, one live credential per organization and email, manager-only
@@ -92,8 +93,8 @@ The billing pilot passes four targeted tests covering active public plans, Free
 and paid presentation values, inactive-plan filtering, exact price lookup keys,
 ambiguity rejection, and conservative Free entitlement fallback. It makes no
 Stripe request and does not claim webhook, checkout, subscription, seat-report,
-or portal parity. API-key timestamps and transaction serialization remain
-database-layer gaps; the snapshot pilot records used and revoked state only.
+or portal parity. API-key relational transaction serialization and revocation
+races remain database-layer gaps.
 
 ## Rust PostgreSQL pilot
 
@@ -196,7 +197,7 @@ times by construction.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation PostgreSQL races, external mail delivery, HTTP traces, API-key
-  relational timestamps and revocation races, and complete organization state
+  relational serialization and revocation races, and complete organization state
   remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.

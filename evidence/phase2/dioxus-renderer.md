@@ -28,7 +28,8 @@ Raw macOS launch output is retained at
 `0e7f6a76e12fe18aedd3d18c3e9ededdd1847a34f40c1ae20fe4eaa691da8a48`.
 
 A pinned open-project comparison exists, but its latest desktop and mobile RMSE
-are `0.0516104` and `0.0703698`. The pinned original desktop hash also changed
+are `0.0504629` and `0.0548481`. Product-state readiness reliably includes the
+loaded sidebar, but the pinned original desktop PNG still changes by a few pixels
 between identical captures. No visual threshold passes. iOS compile, Windows or Linux launch,
 IPA, signed artifact, native adapter, upgrade, rollback, and uninstall evidence
 does not exist. Current runtime evidence cannot select the renderer.

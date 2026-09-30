@@ -40,16 +40,19 @@ Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, semantic trees, and input transitions. A pinned original
 capture runs against an isolated daemon in the same open-project state. Desktop
 focus semantics match, but the latest exact-threshold capture reports desktop
-RMSE 0.0516104 and mobile RMSE 0.0703698. The pinned original desktop image also
-changed hash between runs. Offline reload fails. Packaging cases remain open.
+RMSE 0.0504629 and mobile RMSE 0.0548481. Product-state readiness includes the
+loaded sidebar, but the pinned original desktop image still changes by a few
+pixels between runs. Offline reload fails. Packaging cases remain open.
 
 The Hub candidate now covers offline billing catalog and conservative
 provisioning rules, invitation authority, lifecycle, expiry, and email rendering,
 plus organization-scoped API-key generation, concealment, scope authorization,
-last-use, revocation, and restart. Pinned Hub baseline
+monotonic last-use timestamps, idempotent revocation timestamps, and restart.
+Pinned Hub baseline
 capture passes 29 of 29 tests across embedded persistence, setup, pricing,
 catalog, and provisioning. PGlite, baseline relational schema, invitation SQL
-races and delivery, API-key transaction races, Stripe operations, and full HTTP differentials remain
+races and delivery, API-key relational serialization and revocation races,
+Stripe operations, and full HTTP differentials remain
 open, so no Hub implementation tool is selected.
 
 ## Executable cases
