@@ -40,7 +40,7 @@ Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, semantic trees, and input transitions. A pinned original
 capture runs against an isolated daemon in the same open-project state. Desktop
 focus semantics match, but the latest exact-threshold capture reports desktop
-RMSE 0.000120966 and mobile RMSE 0.00000882431. The remaining 872 desktop
+RMSE 0.0000862789 and mobile RMSE 0.00000882431. The remaining 854 desktop
 pixels and 5 mobile pixels keep the zero threshold rejected.
 Offline reload fails. Packaging cases remain open.
 
@@ -64,15 +64,16 @@ Active organization selection is membership-bound, packet-tested, restart-safe,
 and compatible with old single-membership snapshots.
 Verified account recovery now covers verification gating, enumeration-resistant
 dispatch, session revocation, password replacement, replay rejection, and restart
-in the candidate contract. Fixed-clock tokens expire across restart. Packet and
-email differentials remain open.
-Pinned Hub baseline
-capture passes 31 of 31 tests across embedded persistence, setup, account recovery, pricing,
-catalog, and provisioning. API-key, invitation, and active-session relational
-paths pass against disposable PostgreSQL. PGlite, complete baseline relational schema, invitation
-entitlement races and live provider acceptance, remaining relational tables, Stripe operations, and full
-HTTP differentials remain
-open, so no Hub implementation tool is selected.
+in the candidate contract. Fixed-clock tokens expire across restart. Pinned and
+Rust packet traces match after normalizing only generated verification, reset,
+and session-cookie values. Recovery email subjects, text, escaped HTML, and
+idempotency keys match the pinned payloads.
+Pinned Hub baseline capture passes 31 of 31 tests across embedded persistence,
+setup, account recovery, pricing, catalog, and provisioning. API-key, invitation,
+and active-session relational paths pass against disposable PostgreSQL. PGlite,
+complete baseline relational schema, invitation entitlement races, live provider
+acceptance, remaining relational tables, Stripe operations, and broader HTTP
+differentials remain open, so no Hub implementation tool is selected.
 
 ## Executable cases
 
