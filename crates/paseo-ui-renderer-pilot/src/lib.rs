@@ -8,7 +8,7 @@ const SHELL_CSS: &str = r#"
 body { margin: 0; background: #fff; color: #222329; }
 button, a { font: inherit; }
 .shell { min-height: 100vh; display: grid; grid-template-columns: 320px 1fr; background: #fff; }
-.sidebar { min-height: 100vh; display: flex; flex-direction: column; border-right: 1px solid #e3e3e8; background: #f8f8fa; color: #6e7079; }
+.sidebar { min-height: 100vh; display: flex; flex-direction: column; border-right: 1px solid #e3e3e8; background: #f8f8fa; color: #6e7079; font-size: 14px; }
 .nav-list { display: grid; gap: 2px; padding: 10px 10px 12px; border-bottom: 1px solid #e3e3e8; }
 .nav-button { min-height: 28px; display: flex; align-items: center; gap: 10px; padding: 4px 7px; border: 0; border-radius: 7px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .nav-button:hover, .nav-button:focus-visible { background: #ececf0; color: #28292f; outline: 2px solid #8ba9d8; outline-offset: -2px; }
@@ -25,9 +25,9 @@ button, a { font: inherit; }
 .mark span:nth-child(2) { left: 9px; top: 17px; height: 28px; transform: rotate(28deg); }
 .mark span:nth-child(3) { left: 25px; top: 20px; width: 13px; height: 25px; border-color: #55565d; transform: rotate(43deg); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.action { min-height: 141px; padding: 17px 16px; border: 1px solid #dedee4; border-radius: 12px; background: #fff; color: #24252a; text-align: left; cursor: pointer; }
+.action { min-height: 141px; padding: 14px 16px; border: 1px solid #dedee4; border-radius: 12px; background: #fbfbfc; color: #24252a; text-align: left; cursor: pointer; }
 .action:hover, .action:focus-visible { border-color: #aeb0b9; box-shadow: 0 1px 4px rgb(28 29 34 / 10%); outline: 2px solid #8ba9d8; outline-offset: 2px; }
-.action-icon { display: block; margin-bottom: 18px; color: #767881; font-size: 19px; line-height: 1; }
+.action-icon { display: block; margin-bottom: 12px; color: #767881; font-size: 19px; line-height: 1; }
 .action:first-child .action-icon { color: #24895a; }
 .action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: 20px; }
 .action-detail { display: block; color: #777983; font-size: 14px; line-height: 18px; }
@@ -43,8 +43,8 @@ button, a { font: inherit; }
   .content { width: 100%; }
   .mark { margin-bottom: 76px; }
   .actions { grid-template-columns: 1fr; gap: 12px; }
-  .action { min-height: 105px; padding: 18px 16px; }
-  .action-icon { margin-bottom: 15px; }
+  .action { min-height: 105px; padding: 14px 16px; }
+  .action-icon { margin-bottom: 10px; }
   .community { bottom: 78px; gap: 23px; }
 }
 "#;
