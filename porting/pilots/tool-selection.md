@@ -44,6 +44,12 @@ RMSE 0.0000862789 and mobile RMSE 0.00000882431. The remaining 854 desktop
 pixels are confined to the sidebar empty-state card; mobile differs by 5 pixels.
 Offline reload fails. Packaging cases remain open.
 
+Dioxus Linux candidate evidence now includes a locked x86_64 build and a
+10-second headless desktop launch under disposable Xvfb from a pinned Rust 1.94
+container. No runtime output or process failure occurred. Linux visual,
+accessibility, interaction, packaging, update, rollback, and pinned-original
+comparison remain open.
+
 The Hub candidate now covers offline billing catalog and conservative
 provisioning rules, invitation authority, lifecycle, expiry, email rendering,
 and bounded Resend packet delivery,
