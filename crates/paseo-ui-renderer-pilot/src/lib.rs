@@ -16,9 +16,9 @@ button, a { font: inherit; }
 .nav-icon { display: block; width: 14px; height: 14px; flex: none; color: #71717a; }
 .nav-icon svg, .footer-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .sidebar-empty { margin: 14px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
-.sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: 16px; }
-.sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: 16px; transform: translateY(-1px); }
-.sidebar-empty-actions { display: flex; gap: 8px; margin-top: 14px; }
+.sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: normal; }
+.sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: normal; }
+.sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }
 .sidebar-empty-actions button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
 .sidebar-empty-actions button:last-child { border-color: #ececf1; background: transparent; }
 .sidebar-empty-actions .nav-icon { width: 12px; height: 12px; color: currentColor; }
