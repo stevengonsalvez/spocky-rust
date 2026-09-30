@@ -57,9 +57,28 @@ and kills an isolated process group. A real shell regression proves a timed-out
 child is reaped, and a 256 KiB dual-stream regression proves pipe buffers cannot
 deadlock the adapter. Windows descendant cleanup remains unproven.
 
+The macOS delivery runtime uses real disposable `.app` bundles and executable
+launches:
+
+```text
+scripts/phase2/delivery-macos-runtime.sh --output \
+  /tmp/paseo-delivery-runtime-b08899c
+```
+
+The retained report at
+`evidence/raw/phase2/delivery-macos-runtime-b08899c/delivery-runtime-report.json`
+has SHA-256
+`1d027efe978b14b1e0bf4192f790d95a94b16fba4fc98c35f38d3beeaba7b1a2`.
+The log has SHA-256
+`81bc88ec68ce89f817db3632e2bf98dd9616a100e2b6767d659926d3bba7cd51`.
+It proves install and executable launch, corrupt-update rejection without active
+bundle or state mutation, valid upgrade, rollback and launch, uninstall, and
+retained external state. Every path remains under the disposable root.
+
 Fifteen default integration tests and the isolated AVD integration test pass.
 Formatting and clippy pass. The local evidence strengthens `P2-AUDIO-01`,
 `P2-NATIVE-01`, and `P2-DELIVERY-01`, but does not complete them. Real microphone
 capture, audible playback assertion, speech-to-text, app-level native adapter
-behavior, iOS runtime evidence, signed artifacts, and production updates remain
-unproven. The host has no `simctl`, so iOS runtime work is environment-blocked.
+behavior, iOS runtime evidence, signing, notarization, Gatekeeper, updater
+network behavior, `quitAndInstall`, and production installation remain unproven.
+The host has no `simctl`, so iOS runtime work is environment-blocked.
