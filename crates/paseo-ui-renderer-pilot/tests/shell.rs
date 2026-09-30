@@ -53,6 +53,9 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("mobile-menu-line short"));
     assert!(first.contains("width: 16px; height: 12px;"));
     assert!(!first.contains("content: \"☰\""));
+    assert!(first.contains(".action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }"));
+    assert!(first.contains(".mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }"));
+    assert!(first.contains(".community { bottom: 72px; }"));
 }
 
 #[test]

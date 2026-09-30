@@ -34,7 +34,7 @@ button, a { font: inherit; }
 .mobile-menu-line.short { width: 8px; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
 .content { width: min(452px, 100%); margin: 0 auto; }
-.mark { width: 52px; height: 52px; margin: 0 auto 76px; }
+.mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }
 .mark svg { display: block; width: 52px; height: 52px; fill: #1a1a1e; transform: translateY(-6px); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .action { min-height: 132px; padding: 16px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fafafa; color: #1a1a1e; text-align: left; cursor: pointer; }
@@ -42,9 +42,9 @@ button, a { font: inherit; }
 .action-icon { display: block; width: 20px; height: 20px; margin-bottom: 12px; color: #71717a; }
 .action:first-child .action-icon { color: #20744a; }
 .action-icon svg { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: 20px; }
+.action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }
 .action-detail { display: block; color: #71717a; font-size: 14px; line-height: 18px; }
-.community { position: absolute; right: 0; bottom: 50px; left: 0; display: flex; justify-content: center; gap: 0; color: #71717a; font-size: 14px; }
+.community { position: absolute; right: 0; bottom: 44px; left: 0; display: flex; justify-content: center; gap: 0; color: #71717a; font-size: 14px; }
 .community a { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; color: inherit; text-decoration: none; }
 .community-icon, .community-icon svg { display: block; width: 14px; height: 14px; flex: none; }
 .community-icon-fill svg { fill: currentColor; }
@@ -55,7 +55,7 @@ button, a { font: inherit; }
   .shell { display: block; }
   .sidebar { display: none; }
   .sidebar-empty { display: none; }
-  .mobile-menu { display: block; }
+  .mobile-menu { display: flex; }
   .workspace { min-height: 100vh; padding: 114px 24px 92px; }
   .content { width: 100%; }
   .mark { margin-bottom: 58px; }
@@ -63,8 +63,7 @@ button, a { font: inherit; }
   .mark svg { transform: translateY(-2px); }
   .actions { transform: translateY(-4px); }
   .action { min-height: 0; padding: 16px; }
-  .action-icon { margin-bottom: 10px; }
-  .community { bottom: 78px; }
+  .community { bottom: 72px; }
 }
 "#;
 
