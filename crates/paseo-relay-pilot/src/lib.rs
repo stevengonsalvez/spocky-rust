@@ -5,6 +5,10 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+mod network;
+
+pub use network::NetworkNode;
+
 macro_rules! string_id {
     ($name:ident) => {
         #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

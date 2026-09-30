@@ -1,37 +1,44 @@
-# Relay local runtime pilot
+# Relay runtime comparison
 
-Status: passing local runtime evidence. This does not select the relay implementation or close `P2-RELAY-01`.
+Status: passing local baseline and Rust runtime evidence. This does not select
+the relay implementation or close `P2-RELAY-01`.
 
-## Baseline
+## Baseline runtime
 
 - Relay commit: `3fc41c96c8c63f3a7109e832899cc57d473c4531`
-- Source: clean read-only checkout at `.baselines/relay`
-- Referenced contracts: ownership convergence, opaque reroute target, owner-loss close `1012`, pressure close `1013`, ordered opaque forwarding
-- Baseline runtime execution: unavailable because Elixir and Mix are not installed on this host
+- Elixir: `1.20.2`; OTP: `29.0.3`
+- Container image: `elixir@sha256:c915d900894e1d664cd8ed72fd2c38fce72b612cc1757d57f86a0cc62e62dd79`
+- Source: `.baselines/relay`, mounted read-only and copied inside the disposable container
+- Command: `PASEO_OWNERSHIP_SURGE_COUNT=30 mix test test/paseo_relay_test.exs --seed 1`
+- Result: 10 passed, 0 failed in 8.0 seconds
 
-## Scenario
+The focused baseline run uses real BEAM peers and Cowboy WebSockets. It covers
+concurrent ownership, opaque reroute targets, owner death and takeover, ordered
+bidirectional frames, duplicate owners during a partition, healing to one owner,
+loser close `1012`, and a new `409` reroute from the losing listener.
 
-`runtime_process` starts separate `paseo-relay-node` operating-system processes with piped command channels. Each process holds an independent relay state replica. Commands have a two-second response deadline, and test cleanup kills and waits for every remaining child.
+## Rust runtime
 
-The three cases cover:
+The existing process harness still starts separate `paseo-relay-node` processes
+for deterministic ownership, ciphertext forwarding, bounded pressure, process
+termination, and generation recovery. Its three focused tests pass.
 
-1. Two processes receive the same claim set in opposite order, converge on `alpha` generation 1, and return an opaque reroute from a `beta` landing.
-2. XChaCha20-Poly1305 ciphertext enters and leaves an `alpha` process byte-for-byte. Process observations expose sequence and wire size only. Decryption occurs in the test process after forwarding.
-3. A 64-byte link admits 48 bytes, rejects the next 32 bytes with `1013 SlowConsumer`, and removes the link. The test kills the owning process, reports the loss to the surviving replica, claims `beta` at generation 2, and forwards a new frame.
+`NetworkNode` adds real loopback peer and WebSocket listeners. Peers pull
+ownership snapshots directly, detect failed peer listeners after three bounded
+connection failures, and reconcile duplicate owners after connectivity returns.
+Its three focused tests prove:
 
-## Result
+1. Peer failure clears the unavailable owner without a controller `LOSE`
+   command, then the survivor accepts takeover.
+2. Text and binary WebSocket frames cross the owner unchanged and in order in
+   both directions.
+3. Partitioned peers accept duplicate owners; healing selects one owner, closes
+   the loser with `1012 Session owner moved`, and returns `409` with the opaque
+   winner target on a new upgrade.
 
-- Runtime tests: 3 passed, 0 failed
-- Ownership processes: distinct PIDs recorded in raw trace
-- Ciphertext: 62 wire bytes preserved byte-for-byte
-- Plaintext in relay responses: absent
-- Pressure boundary: 48 bytes admitted, 80-byte aggregate rejected against 64-byte limit
-- Pressure close: `1013`
-- Failure: owner child killed and reaped
-- Recovery: survivor owns generation 2 and forwards 4 bytes
-- Raw log size: 947 bytes
-- Raw log SHA-256: `de6b29b9494f0a786d54e8d6630cf561033b75ec010318a14b03cd989b80e91d`
-- Raw log: ignored local artifact at `evidence/raw/phase2/relay-runtime.log`
+The in-memory contract suite also passes five focused ownership, opacity,
+pressure, capacity, and drain tests. Clippy passes for all relay targets with
+warnings denied.
 
 ## Reproduction
 
@@ -39,12 +46,31 @@ The three cases cover:
 scripts/phase2/relay-runtime.sh
 ```
 
-The script rejects a dirty or incorrectly pinned relay baseline before running the Rust process test.
+The script rejects a dirty or incorrectly pinned baseline before running. It
+mounts the baseline read-only, removes its disposable container, runs both Rust
+runtime suites serially, and prints raw artifact hashes.
+
+## Raw evidence
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| `evidence/raw/phase2/relay-baseline-runtime.log` | 19,402 | `2bacdb670c5eb34fa4b7f99d63d47cb9c0aa4d98f094a0599bf51bd14cab8b0f` |
+| `evidence/raw/phase2/relay-runtime.log` | 1,720 | `f357947f7a1d7b41bd6af8ae1fe8394aaf393210d0240c23bcde906dc68fc480` |
+
+The logs are ignored local artifacts. Baseline compiler warnings come from
+locked third-party Syn, WebSockex, and DNSCluster dependencies; all tests pass.
 
 ## Remaining gaps
 
-- Replica commands are driven by the test controller. No peer discovery, network gossip, or automatic failure detector runs between Rust nodes.
-- The process protocol is a pilot harness, not the Paseo WebSocket protocol.
-- No live partition healing, duplicate-owner conflict, deployment adapter, readiness, metrics endpoint, or rolling drain is exercised.
-- Original-versus-Rust runtime comparison remains blocked until Elixir and Mix are available.
-- Linux service, production load, deployment, and paid-service evidence remain untested.
+- Baseline peers are separate BEAM processes. Rust network peers are threads in
+  one test process; the separate-process Rust harness remains controller-driven.
+- Rust peer addresses are configured explicitly. Discovery, deployment adapter,
+  and rolling topology changes are not exercised.
+- Rust failure detection uses bounded TCP failures, not process monitors or an
+  implementation selected for production.
+- Rust conflict selection is deterministic by node ID. It matches tested
+  outcomes, not Syn's internal conflict algorithm.
+- The Rust WebSocket pilot does not implement the full Paseo control protocol,
+  identifier limits, capacity ledger, readiness, metrics, or rolling drain.
+- Linux service, production load, deployment, and paid-service evidence remain
+  untested.

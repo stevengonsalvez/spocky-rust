@@ -3683,6 +3683,7 @@ name = "paseo-relay-pilot"
 version = "0.1.0"
 dependencies = [
  "paseo-crypto",
+ "tungstenite 0.27.0",
 ]
 
 [[package]]
