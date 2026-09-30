@@ -28,6 +28,7 @@ button, a { font: inherit; }
 .sidebar-footer .nav-button:first-child { flex: 1; }
 .icon-button { min-width: 18px; padding: 4px 2px; }
 .mobile-menu { display: none; position: absolute; z-index: 2; top: 24px; left: 16px; width: 28px; height: 28px; border: 0; background: transparent; color: #666873; font-size: 20px; cursor: pointer; }
+.mobile-menu::before { content: "☰"; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
 .content { width: min(452px, 100%); margin: 0 auto; }
 .mark { position: relative; width: 48px; height: 48px; margin: 0 auto 78px; }
@@ -124,7 +125,7 @@ pub fn PaseoShell() -> Element {
                     button { class: "nav-button icon-button", aria_label: "Settings", span { class: "nav-icon icon-settings" } }
                 }
             }
-            button { class: "mobile-menu", aria_label: "Open menu", "☰" }
+            button { class: "mobile-menu", aria_label: "Open menu" }
             section { class: "workspace", aria_label: "Open project",
                 div { class: "content",
                     div { class: "mark", aria_hidden: "true",
