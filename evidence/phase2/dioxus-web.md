@@ -78,30 +78,36 @@ ignored `target/`.
 No accepted pinned-baseline screenshot comparison, offline recovery, baseline
 browser packaging, upgrade, rollback, or uninstall evidence exists.
 
-## Pinned baseline comparison attempt
+## Executable pinned baseline comparison
 
 The bounded comparison harness archived pinned Paseo commit
 `5de45e208690b0efc51c59a585ae9729325a9204`, installed its lockfile, built its
-browser dependencies, built the frozen Dioxus candidate, and launched both on
-random loopback ports in exact named tmux sessions. Google Chrome
-`154.0.8037.59` captured desktop and mobile screenshots. Cleanup stopped both
-exact sessions and left port `6767` untouched.
+browser and server dependencies, built the frozen Dioxus candidate, and launched
+both renderers plus an isolated pinned daemon on random loopback ports in exact
+named tmux sessions. The original received a seeded direct host registry backed
+by a disposable daemon home. HTTP and WebSocket routes to port `6767` were
+blocked before navigation. Google Chrome `154.0.8037.59` captured desktop and
+mobile screenshots. Cleanup stopped all three exact sessions and removed the
+disposable daemon. Port `6767` remained untouched.
 
-The capture is not parity evidence. Both original viewports remained on the
-startup spinner without meaningful rendered text. The candidate rendered at
-both viewports and passed keyboard activation. Both runtimes failed offline
-reload. The harness now rejects a capture when either runtime has no meaningful
-rendered text, preventing this partial observation from passing a comparison
-gate.
+Both sides rendered meaningful content, but the capture rejects parity. The
+original reached `/open-project` with empty-home project actions and baseline
+navigation. The candidate showed its hardcoded agent-console fixture. Their
+state, content, navigation, styling, and interaction targets differ. Original
+keyboard focus reached New workspace, History, Search, and Schedules; candidate
+focus reached its workspace and two fixture agents. Both failed offline reload.
+The original emitted two known `uniProps` React DOM warnings. Candidate emitted
+no console errors.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 6,856 | `99030d8f8f6175182dc83f1c53b02fb808235ecfa74f5716a66d0ec1f4b217da` |
-| original desktop screenshot | 9,782 | `be29da211fafbed23c602e4919e7a682609bdda6c4aff7b17e028d9719007754` |
-| original mobile screenshot | 7,492 | `92c16e584bbe20a1e26493e0088fcf7638aaa22fd87258921363d72f9f3d8013` |
+| `browser-runtime-comparison.json` | 8,526 | `e499c3f4c7484ede66e3fa0164655c4b010b2790e0a9349de599538752abeb93` |
+| original desktop screenshot | 41,434 | `f68314cddd9ed81c8358b48db215fc42e74adbdab7ebd5efa1aecaa770e6a76a` |
+| original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
 | candidate desktop screenshot | 32,873 | `9fb1ee737dcc495a03eb02ebffcbc6d18bb59e3e317aa48a7633ded347486376` |
 | candidate mobile screenshot | 27,824 | `011da07fccee978f8df0f9956b65f2ca8debb5aba100f8e1842ea9e7f13b8da5` |
+| isolated daemon log | 38,242 | `3380a300a5cd57d95b3e9a96fc0ac8019999ea0901830ef1998c510898e5aa1c` |
 
-The next comparison needs an isolated seeded baseline daemon and matching
-candidate state. Electron guest APIs, pixel thresholds, accessibility tree
-diffs, packaging, update, rollback, and uninstall remain open.
+The next comparison needs matching original and candidate state plus explicit
+visual and semantic thresholds. Electron guest APIs, accessibility tree diffs,
+packaging, update, rollback, and uninstall remain open.
