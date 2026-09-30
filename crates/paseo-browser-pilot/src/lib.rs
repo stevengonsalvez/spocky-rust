@@ -1,7 +1,8 @@
 //! Deterministic desktop-browser contract pilot.
 //!
-//! This crate models browser-host decisions and traces. It does not embed a
-//! production webview engine and makes no full-parity claim.
+//! This library models browser-host decisions and traces. The companion
+//! `paseo-browser-host` binary exercises those boundaries through a real
+//! platform webview, without making a full-parity claim.
 
 use std::collections::{BTreeMap, BTreeSet};
 
