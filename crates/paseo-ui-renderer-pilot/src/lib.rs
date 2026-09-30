@@ -23,12 +23,12 @@ button, a { font: inherit; }
 .icon-activity::before { content: "◜"; }
 .icon-help::before { content: "?"; }
 .icon-settings::before { content: "⚙"; }
-.sidebar-empty { margin: 12px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
+.sidebar-empty { margin: 15px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
 .sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: 16px; }
 .sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: 16px; }
 .sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }
-.sidebar-empty-actions button { min-height: 28px; padding: 4px 12px; border: 1px solid transparent; border-radius: 14px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
-.sidebar-empty-actions button:last-child { border-color: #e4e4e7; background: transparent; }
+.sidebar-empty-actions button { min-height: 28px; padding: 4px 17px; border: 1px solid transparent; border-radius: 14px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
+.sidebar-empty-actions button:last-child { padding-right: 14px; padding-left: 14px; border-color: #e4e4e7; background: transparent; }
 .sidebar-spacer { flex: 1; }
 .sidebar-footer { min-height: 57px; display: flex; align-items: center; gap: 14px; padding: 10px 15px; border-top: 1px solid #e4e4e7; }
 .sidebar-footer .nav-button:first-child { flex: 1; }
@@ -38,9 +38,9 @@ button, a { font: inherit; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
 .content { width: min(452px, 100%); margin: 0 auto; }
 .mark { width: 52px; height: 52px; margin: 0 auto 76px; }
-.mark svg { display: block; width: 52px; height: 52px; fill: #1a1a1e; }
+.mark svg { display: block; width: 52px; height: 52px; fill: #1a1a1e; transform: translateY(-6px); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.action { min-height: 141px; padding: 14px 16px; border: 1px solid #dedee4; border-radius: 12px; background: #fbfbfc; color: #24252a; text-align: left; cursor: pointer; }
+.action { min-height: 132px; padding: 16px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fafafa; color: #1a1a1e; text-align: left; cursor: pointer; }
 .action:hover, .action:focus-visible { border-color: #aeb0b9; box-shadow: 0 1px 4px rgb(28 29 34 / 10%); outline: 2px solid #8ba9d8; outline-offset: 2px; }
 .action-icon { display: block; width: 20px; height: 20px; margin-bottom: 12px; color: #71717a; }
 .action:first-child .action-icon { color: #20744a; }
@@ -64,7 +64,9 @@ button, a { font: inherit; }
   .content { width: 100%; }
   .mark { margin-bottom: 58px; }
   .actions { grid-template-columns: 1fr; gap: 12px; }
-  .action { min-height: 105px; padding: 14px 16px; }
+  .mark svg { transform: translateY(27px); }
+  .actions { transform: translateY(-5px); }
+  .action { min-height: 0; padding: 16px; }
   .action-icon { margin-bottom: 10px; }
   .community { bottom: 78px; gap: 23px; }
 }
