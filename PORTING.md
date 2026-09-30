@@ -119,4 +119,22 @@ Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrati
 
 ## Current boundary
 
-Phase 1 inventory and architecture freeze passed paired adversarial review at signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2 differential harness and pilots are implementing. Its first two frozen candidates were rejected by paired adversarial review; repairs and runtime evidence continue. A stable branded browser capture now reaches exact pixels on desktop and mobile, while the shared offline-reload failure remains. Hub engine and migration parity, full renderer platforms, plugin migrations and binary frames, relay, audio, native, and delivery cases remain incomplete. Phase 3 remains blocked. No runtime parity milestone is complete. No runtime compatibility exception is accepted.
+Phase 1 inventory and architecture freeze passed paired adversarial review at
+signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2
+differential harness and pilots are implementing. Repeated adversarial reviews
+remain rejected while repairs and runtime evidence continue.
+
+The branded browser gate now enforces exact pixels, interaction, accessibility,
+and failure isolation. Mobile is exact. Desktop remains rejected because the
+pinned baseline produces two 19-pixel Plus-icon modes across fresh runs, with
+no differing DOM, network, font, stylesheet, image, focus, or accessibility
+readiness signal. The shared offline-reload failure remains pinned behavior.
+Hub installed tables match 50/50 and migration truth is append-only, but engine,
+dialect, constraints, historical PostgreSQL replay, and relational mutation
+parity remain incomplete. The selected plugin wrapper passes settings migration
+success and failure plus binary IPC. The selected relay runtime passes control,
+pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
+protocol residuals and production qualification remain. Full renderer
+platforms, cross-platform plugin clients, audio, native, and delivery cases
+remain incomplete. Phase 3 remains blocked. No runtime parity milestone is
+complete. No runtime compatibility exception is accepted.
