@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use paseo_hub_pilot::{
@@ -9,6 +10,8 @@ use paseo_hub_pilot::{
 
 struct TestDir(PathBuf);
 
+static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 impl TestDir {
     fn new() -> Self {
         let nonce = SystemTime::now()
@@ -16,8 +19,9 @@ impl TestDir {
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "paseo-hub-session-selection-{}-{nonce}",
-            std::process::id()
+            "paseo-hub-session-selection-{}-{nonce}-{}",
+            std::process::id(),
+            TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -26,7 +30,11 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
+        match fs::remove_dir_all(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("remove test directory: {error}"),
+        }
     }
 }
 
