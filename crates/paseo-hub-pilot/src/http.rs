@@ -7,8 +7,8 @@ use std::net::TcpStream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AccountId, BrowserAccountStatus, DurableHubStore, HubError, HubPilot, PasswordChange,
-    SessionToken,
+    AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore, HubError, HubPilot,
+    OrganizationId, PasswordChange, SessionToken,
 };
 
 const SESSION_COOKIE: &str = "paseo_session";
@@ -45,6 +45,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ("POST", "/api/auth/sign-in/email") => self.sign_in(request),
             ("POST", "/api/auth/paseo/change-password") => self.change_password(request),
             ("POST", "/api/auth/paseo/complete-app-setup") => self.complete_setup(request),
+            ("POST", "/api/auth/paseo/select-organization") => self.select_organization(request),
             _ => json_response(404, &ErrorBody { error: "not_found" }),
         }
     }
@@ -186,6 +187,52 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ),
         }
     }
+
+    fn select_organization(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Some(token) = session_token(request) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Ok(input) = serde_json::from_slice::<SelectOrganizationBody>(&request.body) else {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        };
+        let organization = OrganizationId::from(input.organization_id.as_str());
+        match self.hub.select_organization(&token, &organization) {
+            Ok(()) => json_response(
+                200,
+                &OrganizationBody {
+                    organization_id: input.organization_id,
+                },
+            ),
+            Err(HubError::InvalidSession) => json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            ),
+            Err(HubError::Authority(AuthorityError::OrganizationUnavailable)) => json_response(
+                404,
+                &ErrorBody {
+                    error: "organization_unavailable",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -200,6 +247,18 @@ struct SignInBody {
 struct ChangePasswordBody {
     current_password: String,
     new_password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectOrganizationBody {
+    organization_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrganizationBody {
+    organization_id: String,
 }
 
 #[derive(Serialize)]

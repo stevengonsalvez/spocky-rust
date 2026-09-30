@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use paseo_hub_pilot::http::{HubHttpService, serve_one};
 use paseo_hub_pilot::{
     AccountId, Bootstrap, BrowserAccountStatus, EmbeddedFileStore, HubPilot, OrganizationId,
+    PasswordChange,
 };
 
 struct TestDir(PathBuf);
@@ -23,6 +24,72 @@ impl TestDir {
         fs::create_dir_all(&path).expect("create test directory");
         Self(path)
     }
+}
+
+#[test]
+fn packet_level_organization_selection_is_membership_bound_and_durable() {
+    let root = TestDir::new();
+    let path = root.0.join("selection.json");
+    let owner = AccountId::from("owner@example.test");
+    let first = OrganizationId::from("organization-1");
+    let second = OrganizationId::from("organization-2");
+    let mut hub = HubPilot::open(EmbeddedFileStore::open(&path).unwrap()).unwrap();
+    hub.bootstrap(Bootstrap {
+        instance_secret: "http-selection-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: first.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .unwrap();
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .unwrap();
+    let session = hub.sign_in(&owner, "replacement-password").unwrap();
+    hub.complete_app_setup(&session).unwrap();
+    hub.create_organization_for_session(&session, second)
+        .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let mut service = HubHttpService::new(hub);
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            serve_one(&mut stream, &mut service).unwrap();
+        }
+    });
+    let cookie = format!("paseo_session={}", session.as_str());
+    let selected = request(
+        address,
+        "POST",
+        "/api/auth/paseo/select-organization",
+        Some(&cookie),
+        Some(r#"{"organizationId":"organization-1"}"#),
+    );
+    assert!(selected.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(selected.ends_with(r#"{"organizationId":"organization-1"}"#));
+    let unavailable = request(
+        address,
+        "POST",
+        "/api/auth/paseo/select-organization",
+        Some(&cookie),
+        Some(r#"{"organizationId":"foreign"}"#),
+    );
+    assert!(unavailable.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    assert!(unavailable.ends_with(r#"{"error":"organization_unavailable"}"#));
+    server.join().unwrap();
+
+    let restarted = HubPilot::open(EmbeddedFileStore::open(path).unwrap()).unwrap();
+    assert_eq!(
+        restarted.active_organization_for_session(&session),
+        Some(first)
+    );
 }
 
 impl Drop for TestDir {

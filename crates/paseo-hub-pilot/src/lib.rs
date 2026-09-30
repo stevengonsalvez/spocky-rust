@@ -258,6 +258,7 @@ struct HubState {
     session_generations: BTreeMap<DaemonId, u64>,
     continuations: BTreeMap<DaemonId, BTreeMap<String, DaemonSession>>,
     browser_sessions: BTreeMap<SessionToken, AccountId>,
+    active_browser_organizations: BTreeMap<SessionToken, OrganizationId>,
     next_browser_session: u64,
     app_setup_complete: bool,
     api_keys: BTreeMap<String, api_keys::StoredApiKey>,
@@ -274,6 +275,7 @@ pub enum BrowserAccountStatus {
     SignedOut,
     PasswordChangeRequired,
     AppSetupRequired,
+    OrganizationRequired,
     Active,
 }
 
@@ -374,6 +376,21 @@ impl<S: DurableHubStore> HubPilot<S> {
         self.state
             .browser_sessions
             .insert(token.clone(), account.clone());
+        let memberships = self
+            .state
+            .memberships
+            .iter()
+            .filter_map(|(organization, members)| {
+                members
+                    .contains_key(account)
+                    .then_some(organization.clone())
+            })
+            .collect::<Vec<_>>();
+        if let [organization] = memberships.as_slice() {
+            self.state
+                .active_browser_organizations
+                .insert(token.clone(), organization.clone());
+        }
         self.persist()?;
         Ok(token)
     }
@@ -383,24 +400,33 @@ impl<S: DurableHubStore> HubPilot<S> {
         if self.state.accounts.is_empty() {
             return BrowserAccountStatus::InstanceSetupRequired;
         }
-        let Some(account) = token.and_then(|token| self.state.browser_sessions.get(token)) else {
+        let Some((token, account_id)) = token.and_then(|token| {
+            self.state
+                .browser_sessions
+                .get(token)
+                .map(|account| (token, account))
+        }) else {
             return BrowserAccountStatus::SignedOut;
         };
-        let Some(account) = self.state.accounts.get(account) else {
+        let Some(account) = self.state.accounts.get(account_id) else {
             return BrowserAccountStatus::SignedOut;
         };
         if account.must_change_password {
             BrowserAccountStatus::PasswordChangeRequired
-        } else if self.state.app_setup_complete {
+        } else if !self.state.app_setup_complete {
+            BrowserAccountStatus::AppSetupRequired
+        } else if self.active_organization_for_session(token).is_some() {
             BrowserAccountStatus::Active
         } else {
-            BrowserAccountStatus::AppSetupRequired
+            BrowserAccountStatus::OrganizationRequired
         }
     }
 
     pub fn complete_app_setup(&mut self, token: &SessionToken) -> Result<(), HubError> {
         match self.browser_account_status(Some(token)) {
-            BrowserAccountStatus::AppSetupRequired | BrowserAccountStatus::Active => {
+            BrowserAccountStatus::AppSetupRequired
+            | BrowserAccountStatus::OrganizationRequired
+            | BrowserAccountStatus::Active => {
                 self.state.app_setup_complete = true;
                 self.persist()
             }
@@ -416,6 +442,91 @@ impl<S: DurableHubStore> HubPilot<S> {
     #[must_use]
     pub fn account_for_session(&self, token: &SessionToken) -> Option<AccountId> {
         self.state.browser_sessions.get(token).cloned()
+    }
+
+    #[must_use]
+    pub fn active_organization_for_session(&self, token: &SessionToken) -> Option<OrganizationId> {
+        let account = self.state.browser_sessions.get(token)?;
+        if let Some(organization) = self.state.active_browser_organizations.get(token)
+            && self
+                .state
+                .memberships
+                .get(organization)
+                .is_some_and(|members| members.contains_key(account))
+        {
+            return Some(organization.clone());
+        }
+        let memberships = self
+            .state
+            .memberships
+            .iter()
+            .filter_map(|(organization, members)| {
+                members
+                    .contains_key(account)
+                    .then_some(organization.clone())
+            })
+            .collect::<Vec<_>>();
+        match memberships.as_slice() {
+            [organization] => Some(organization.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn create_organization_for_session(
+        &mut self,
+        token: &SessionToken,
+        organization: OrganizationId,
+    ) -> Result<(), HubError> {
+        let account = self
+            .state
+            .browser_sessions
+            .get(token)
+            .cloned()
+            .ok_or(HubError::InvalidSession)?;
+        let state = self
+            .state
+            .accounts
+            .get(&account)
+            .ok_or(HubError::InvalidSession)?;
+        if state.must_change_password {
+            return Err(AuthorityError::PasswordChangeRequired.into());
+        }
+        if self.state.memberships.contains_key(&organization) {
+            return Err(HubError::IdempotencyConflict);
+        }
+        self.state
+            .memberships
+            .entry(organization.clone())
+            .or_default()
+            .insert(account, Role::Owner);
+        self.state
+            .active_browser_organizations
+            .insert(token.clone(), organization);
+        self.persist()
+    }
+
+    pub fn select_organization(
+        &mut self,
+        token: &SessionToken,
+        organization: &OrganizationId,
+    ) -> Result<(), HubError> {
+        let account = self
+            .state
+            .browser_sessions
+            .get(token)
+            .ok_or(HubError::InvalidSession)?;
+        if !self
+            .state
+            .memberships
+            .get(organization)
+            .is_some_and(|members| members.contains_key(account))
+        {
+            return Err(AuthorityError::OrganizationUnavailable.into());
+        }
+        self.state
+            .active_browser_organizations
+            .insert(token.clone(), organization.clone());
+        self.persist()
     }
 
     pub fn authorize(
