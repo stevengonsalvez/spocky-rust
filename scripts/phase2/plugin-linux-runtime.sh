@@ -39,7 +39,7 @@ cargo --version
 git --version
 node --version
 npm --version
-cargo test --locked -p paseo-plugin-pilot \
+cargo test --locked -p spocky-plugin-pilot \
   --test runtime_acquisition \
   --test process_protocol \
   --test plugin_lifecycle \
@@ -50,7 +50,7 @@ set +e
 gtimeout 1200 docker run --rm --platform linux/amd64 \
   --mount "type=bind,src=$repository_root,dst=/workspace,readonly" \
   --workdir /workspace \
-  --env CARGO_TARGET_DIR=/tmp/paseo-target \
+  --env CARGO_TARGET_DIR=/tmp/spocky-target \
   "$docker_image" bash -c "$linux_command" >"$log_file" 2>&1
 status=$?
 set -e

@@ -54,14 +54,14 @@ timeout 180 "$baseline_root/node_modules/.bin/vitest" run \
 
 timeout 120 cargo test \
   --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-plugin-pilot --test plugin_lifecycle
+  -p spocky-plugin-pilot --test plugin_lifecycle
 timeout 120 cargo test \
   --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-plugin-pilot --test runtime_acquisition \
+  -p spocky-plugin-pilot --test runtime_acquisition \
   -- --nocapture --test-threads=1
 timeout 120 cargo test \
   --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-plugin-pilot --test protocol_manifest
+  -p spocky-plugin-pilot --test protocol_manifest
 
 assert_clean_pinned_checkout "$baseline_root" "$expected_baseline"
 assert_clean_pinned_checkout "$import_root" "$expected_import"
@@ -73,7 +73,7 @@ if [[ "$(printf '%s\n' "$baseline_protocol" | jq -s 'length')" != "1" ]]; then
 fi
 jq -e --argjson actual "$baseline_protocol" \
   '$actual == .' \
-  "$repository_root/crates/paseo-plugin-pilot/tests/fixtures/pinned_protocol.json" >/dev/null
+  "$repository_root/crates/spocky-plugin-pilot/tests/fixtures/pinned_protocol.json" >/dev/null
 
 sed -n 's/^.*PLUGIN_RUNTIME_EVIDENCE //p' "$raw_log" | jq -s \
   --arg baseline "$expected_baseline" \

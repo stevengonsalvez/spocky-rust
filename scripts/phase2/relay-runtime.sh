@@ -32,9 +32,9 @@ docker run --rm \
   2>&1 | tee "$baseline_log"
 
 {
-  cargo test -p paseo-relay-pilot --test runtime_process -- --test-threads=1 --nocapture
-  cargo test -p paseo-relay-pilot --test network_runtime -- --test-threads=1 --nocapture
-  cargo test -p paseo-relay-pilot --test network_process_runtime -- --test-threads=1 --nocapture
+  cargo test -p spocky-relay-pilot --test runtime_process -- --test-threads=1 --nocapture
+  cargo test -p spocky-relay-pilot --test network_runtime -- --test-threads=1 --nocapture
+  cargo test -p spocky-relay-pilot --test network_process_runtime -- --test-threads=1 --nocapture
 } 2>&1 | tee "$raw_log"
 
 shasum -a 256 "$baseline_log" "$raw_log"

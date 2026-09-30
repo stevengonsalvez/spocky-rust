@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "attemptedAt": "2026-09-29",
+  "framework": {
+    "name": "Dioxus",
+    "version": "0.7.0",
+    "renderer": "HTML/CSS through browser or system WebView",
+    "dependencyPolicy": "Direct dependencies use exact versions; Cargo.lock records the full resolution.",
+    "resolvedComponents": "The Dioxus 0.7.0 facade resolved compatible 0.7.10 renderer components."
+  },
+  "environment": {
+    "rust": "1.94.0",
+    "rustupHome": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust/.rustup",
+    "cargoHome": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust/.cargo-home",
+    "androidNdk": "27.1.12297006",
+    "androidApi": 35,
+    "iosSdk": null
+  },
+  "evidence": {
+    "hostTests": {
+      "state": "passed",
+      "detail": "2 targeted tests passed: deterministic semantic HTML and report-schema coverage.",
+      "command": "cargo test --test shell -- --nocapture"
+    },
+    "webCompile": {
+      "state": "passed",
+      "detail": "Dioxus web binary compiled and produced a frozen release bundle for wasm32-unknown-unknown.",
+      "command": ".tools/bin/dx build --web -p spocky-ui-renderer-pilot --bin spocky-ui-web --no-default-features --features web --bundle web --release --frozen"
+    },
+    "desktopCompile": {
+      "state": "passed",
+      "detail": "Dioxus produced a frozen unsigned macOS release bundle and registered a running process with Launch Services.",
+      "command": ".tools/bin/dx build --macos -p spocky-ui-renderer-pilot --bin spocky-ui-desktop --no-default-features --features desktop --bundle macos --release --codesign false --frozen"
+    },
+    "iosCompile": {
+      "state": "blocked",
+      "detail": "aarch64-apple-ios target exists, but objc2-exception-helper could not locate the iphoneos SDK through xcrun.",
+      "command": "cargo check --locked --target aarch64-apple-ios --no-default-features --features mobile --bin spocky-ui-mobile"
+    },
+    "androidCompile": {
+      "state": "passed",
+      "detail": "Dioxus mobile binary compiled for aarch64-linux-android with NDK 27.1 and API 35 linker.",
+      "command": "cargo check --locked --target aarch64-linux-android --no-default-features --features mobile --bin spocky-ui-mobile"
+    },
+    "launch": {
+      "state": "partial",
+      "detail": "Release browser and Android AVD runtimes launched with touch-state transitions. A frozen macOS release process registered and remained alive without capturable window evidence; other hosts remain unproven."
+    },
+    "visual": {
+      "state": "partial",
+      "detail": "Pinned original and Rust open-project screenshots exist at desktop and mobile viewports. RMSE is 0.0464723 and 0.0776069, so no visual threshold passes."
+    },
+    "accessibility": {
+      "state": "partial",
+      "detail": "SSR, browser, and Android runtime trees expose semantic navigation, buttons, status, names, and order; screen-reader behavior remains unproven."
+    },
+    "native": {
+      "state": "unsupported",
+      "detail": "Pilot web, desktop, and mobile surfaces use HTML/CSS DOM or WebView renderers; platform-native widgets and experimental Dioxus Native were not implemented."
+    },
+    "packaging": {
+      "state": "partial",
+      "detail": "A frozen browser release bundle, unsigned Android debug APK, and unsigned macOS release app exist. IPA, signed artifacts, installers, updates, and rollback remain unproven."
+    }
+  },
+  "sources": [
+    "https://dioxuslabs.com/learn/0.7/guides/platforms/",
+    "https://dioxuslabs.com/learn/0.7/guides/platforms/desktop/",
+    "https://dioxuslabs.com/learn/0.7/guides/platforms/mobile/",
+    "https://dioxuslabs.com/learn/0.7/tutorial/next_steps/"
+  ],
+  "decision": {
+    "sufficientToSelect": false,
+    "reason": "Browser and Android runtime evidence is partial. Pinned visuals differ, and assistive-technology behavior, iOS, Windows, Linux, native integration, and delivery remain unsupported or unproven."
+  }
+}

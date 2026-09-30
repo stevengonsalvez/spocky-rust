@@ -298,7 +298,7 @@ async function waitForProductState(page, candidate) {
     const result = {
       schemaVersion: 1,
       baselineCommit: "5de45e208690b0efc51c59a585ae9729325a9204",
-      candidate: "paseo-ui-renderer-pilot Dioxus 0.7.0 frozen release",
+      candidate: "spocky-ui-renderer-pilot Dioxus 0.7.0 frozen release",
       captures,
       comparison,
       limitations: [

@@ -28,16 +28,16 @@ if [ "${1:-}" = "--output" ]; then
   }
   output=$2
 elif [ "$#" -eq 0 ]; then
-  output=$(mktemp -d /tmp/paseo-delivery-runtime.XXXXXX)
+  output=$(mktemp -d /tmp/spocky-delivery-runtime.XXXXXX)
 else
   printf 'usage: %s [--print-plan|--output DISPOSABLE_ROOT]\n' "$0" >&2
   exit 2
 fi
 
 case "$output" in
-  /tmp/paseo-delivery-runtime*|/private/tmp/paseo-delivery-runtime*) ;;
+  /tmp/spocky-delivery-runtime*|/private/tmp/spocky-delivery-runtime*) ;;
   *)
-    printf 'output must be a disposable paseo-delivery-runtime path under /tmp: %s\n' \
+    printf 'output must be a disposable spocky-delivery-runtime path under /tmp: %s\n' \
       "$output" >&2
     exit 2
     ;;
@@ -57,8 +57,8 @@ log="$output/delivery-runtime.log"
 set +e
 cargo run \
   --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-audio-delivery-pilot \
-  --bin paseo-macos-delivery-runtime \
+  -p spocky-audio-delivery-pilot \
+  --bin spocky-macos-delivery-runtime \
   -- "$output" >"$log" 2>&1
 run_status=$?
 set -e

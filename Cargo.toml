@@ -1,19 +1,19 @@
 [workspace]
 members = [
-  "crates/paseo-audio-delivery-pilot",
-  "crates/paseo-baseline",
-  "crates/paseo-browser-pilot",
-  "crates/paseo-crypto",
-  "crates/paseo-differential",
-  "crates/paseo-domain",
-  "crates/paseo-hub-pilot",
-  "crates/paseo-platform-bridge",
-  "crates/paseo-plugin-pilot",
-  "crates/paseo-relay-pilot",
-  "crates/paseo-store",
-  "crates/paseo-ui-pilot",
-  "crates/paseo-ui-renderer-pilot",
-  "crates/paseo-wire",
+  "crates/spocky-audio-delivery-pilot",
+  "crates/spocky-baseline",
+  "crates/spocky-browser-pilot",
+  "crates/spocky-crypto",
+  "crates/spocky-differential",
+  "crates/spocky-domain",
+  "crates/spocky-hub-pilot",
+  "crates/spocky-platform-bridge",
+  "crates/spocky-plugin-pilot",
+  "crates/spocky-relay-pilot",
+  "crates/spocky-store",
+  "crates/spocky-ui-pilot",
+  "crates/spocky-ui-renderer-pilot",
+  "crates/spocky-wire",
 ]
 resolver = "3"
 

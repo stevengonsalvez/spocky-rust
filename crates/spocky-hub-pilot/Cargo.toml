@@ -1,0 +1,27 @@
+[package]
+name = "spocky-hub-pilot"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[dependencies]
+base64 = "0.22.1"
+getrandom = "0.4"
+postgres = "0.19"
+reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+time = "0.3.55"
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+uuid = { version = "1", features = ["v4"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

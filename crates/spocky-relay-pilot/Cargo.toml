@@ -1,0 +1,17 @@
+[package]
+name = "spocky-relay-pilot"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[dependencies]
+spocky-crypto = { path = "../spocky-crypto" }
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

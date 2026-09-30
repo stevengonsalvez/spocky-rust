@@ -28,12 +28,12 @@ if ! command -v gtimeout >/dev/null 2>&1; then
 fi
 
 gtimeout 120 cargo run -q --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-hub-pilot --bin hub-account-recovery-evidence >"$rust"
+  -p spocky-hub-pilot --bin hub-account-recovery-evidence >"$rust"
 
-work_dir=$(mktemp -d /private/tmp/paseo-hub-recovery-compare.XXXXXX)
+work_dir=$(mktemp -d /private/tmp/spocky-hub-recovery-compare.XXXXXX)
 cleanup() {
   case "$work_dir" in
-    /private/tmp/paseo-hub-recovery-compare.*) rm -rf "$work_dir" ;;
+    /private/tmp/spocky-hub-recovery-compare.*) rm -rf "$work_dir" ;;
     *) printf 'refusing unexpected comparison directory: %s\n' "$work_dir" >&2 ;;
   esac
 }

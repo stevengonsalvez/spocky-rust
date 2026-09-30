@@ -9,10 +9,10 @@ printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/hub-account-state-original.
 printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/hub-account-state-rust.json'
 printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/hub-account-state-comparison.json'
 
-fixture=$(mktemp -d /private/tmp/paseo-hub-normalization-test.XXXXXX)
+fixture=$(mktemp -d /private/tmp/spocky-hub-normalization-test.XXXXXX)
 cleanup() {
   case "$fixture" in
-    /private/tmp/paseo-hub-normalization-test.*) rm -rf "$fixture" ;;
+    /private/tmp/spocky-hub-normalization-test.*) rm -rf "$fixture" ;;
     *) printf 'refusing to remove unexpected fixture: %s\n' "$fixture" >&2 ;;
   esac
 }

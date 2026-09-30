@@ -80,10 +80,10 @@ if [ ! -x "$dx_executable" ]; then
   exit 1
 fi
 
-capture_dir=$(mktemp -d /private/tmp/paseo-browser-runtime.XXXXXX)
-baseline_session="paseo-p2-browser-baseline-$$"
-candidate_session="paseo-p2-browser-candidate-$$"
-daemon_session="paseo-p2-browser-daemon-$$"
+capture_dir=$(mktemp -d /private/tmp/spocky-browser-runtime.XXXXXX)
+baseline_session="spocky-p2-browser-baseline-$$"
+candidate_session="spocky-p2-browser-candidate-$$"
+daemon_session="spocky-p2-browser-daemon-$$"
 cleanup() {
   if tmux has-session -t "$baseline_session" 2>/dev/null; then
     tmux kill-session -t "$baseline_session"
@@ -95,7 +95,7 @@ cleanup() {
     tmux kill-session -t "$daemon_session"
   fi
   case "$capture_dir" in
-    /private/tmp/paseo-browser-runtime.*) rm -rf "$capture_dir" ;;
+    /private/tmp/spocky-browser-runtime.*) rm -rf "$capture_dir" ;;
     *) printf 'refusing to remove unexpected capture directory: %s\n' "$capture_dir" >&2 ;;
   esac
 }
@@ -131,8 +131,8 @@ fi
 (
   cd "$repository_root"
   gtimeout 300 cargo fetch --locked
-  gtimeout 900 "$dx_executable" build --web -p paseo-ui-renderer-pilot \
-    --bin paseo-ui-web --no-default-features --features web \
+  gtimeout 900 "$dx_executable" build --web -p spocky-ui-renderer-pilot \
+    --bin spocky-ui-web --no-default-features --features web \
     --bundle web --release --frozen
 ) >"$raw_dir/browser-runtime-candidate-build.log" 2>&1
 
@@ -148,7 +148,7 @@ tmux send-keys -t "$baseline_session:server" \
   "cd '$capture_dir/reference/packages/app' && BROWSER=none ../../node_modules/.bin/expo start --web --port '$baseline_port' 2>&1 | tee '$baseline_log'" C-m
 tmux new-session -d -s "$candidate_session" -n server
 tmux send-keys -t "$candidate_session:server" \
-  "cd '$repository_root/target/dx/paseo-ui-web/release/web/public' && python3 -m http.server '$candidate_port' --bind 127.0.0.1 2>&1 | tee '$candidate_log'" C-m
+  "cd '$repository_root/target/dx/spocky-ui-web/release/web/public' && python3 -m http.server '$candidate_port' --bind 127.0.0.1 2>&1 | tee '$candidate_log'" C-m
 
 wait_for_url() {
   url=$1

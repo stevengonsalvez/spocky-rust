@@ -2,8 +2,8 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-session="paseo-hub-postgres-$$"
-container="paseo-hub-postgres-$$"
+session="spocky-hub-postgres-$$"
+container="spocky-hub-postgres-$$"
 log_file="$repository_root/evidence/raw/phase2/hub-postgres-runtime.log"
 test_log="$repository_root/evidence/raw/phase2/hub-postgres-test.log"
 
@@ -45,7 +45,7 @@ fi
 cd "$repository_root"
 set +e
 PASEO_TEST_POSTGRES_URL="postgres://postgres:paseo-test@127.0.0.1:$port/paseo_hub" \
-  gtimeout 120 cargo test -p paseo-hub-pilot \
+  gtimeout 120 cargo test -p spocky-hub-pilot \
     --test postgres_runtime --test relational_api_keys --test relational_invitations \
     --test relational_sessions -- --nocapture \
   >"$test_log" 2>&1

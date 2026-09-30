@@ -1,0 +1,19 @@
+[package]
+name = "spocky-store"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+spocky-differential = { path = "../spocky-differential" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

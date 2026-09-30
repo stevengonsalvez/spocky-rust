@@ -32,10 +32,10 @@ printf '%s\n' "$plan" | grep -F 'isolated pinned daemon on a random non-6767 por
 printf '%s\n' "$plan" | grep -F 'exact named tmux sessions with bounded waits'
 printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/browser-runtime-comparison.json'
 
-fixture=$(mktemp /private/tmp/paseo-browser-validation.XXXXXX)
+fixture=$(mktemp /private/tmp/spocky-browser-validation.XXXXXX)
 cleanup() {
   case "$fixture" in
-    /private/tmp/paseo-browser-validation.*) rm -f "$fixture" ;;
+    /private/tmp/spocky-browser-validation.*) rm -f "$fixture" ;;
     *) printf 'refusing to remove unexpected fixture: %s\n' "$fixture" >&2 ;;
   esac
 }

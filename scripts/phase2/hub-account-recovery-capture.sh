@@ -39,10 +39,10 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-capture_dir=$(mktemp -d /private/tmp/paseo-hub-recovery.XXXXXX)
+capture_dir=$(mktemp -d /private/tmp/spocky-hub-recovery.XXXXXX)
 cleanup() {
   case "$capture_dir" in
-    /private/tmp/paseo-hub-recovery.*) rm -rf "$capture_dir" ;;
+    /private/tmp/spocky-hub-recovery.*) rm -rf "$capture_dir" ;;
     *) printf 'refusing unexpected capture directory: %s\n' "$capture_dir" >&2 ;;
   esac
 }

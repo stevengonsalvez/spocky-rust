@@ -4,11 +4,11 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 reference_root=${PASEO_REFERENCE_ROOT:-"$repository_root/../paseo-rewrite"}
 expected_baseline=5de45e208690b0efc51c59a585ae9729325a9204
-capture_dir=$(mktemp -d /private/tmp/paseo-phase2-capture.XXXXXX)
+capture_dir=$(mktemp -d /private/tmp/spocky-phase2-capture.XXXXXX)
 
 cleanup() {
   case "$capture_dir" in
-    /private/tmp/paseo-phase2-capture.*) rm -rf "$capture_dir" ;;
+    /private/tmp/spocky-phase2-capture.*) rm -rf "$capture_dir" ;;
     *) printf 'refusing to remove unexpected capture directory: %s\n' "$capture_dir" >&2 ;;
   esac
 }

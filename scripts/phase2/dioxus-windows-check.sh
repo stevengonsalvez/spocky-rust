@@ -50,7 +50,7 @@ fi
 set +e
 gtimeout 1200 env XWIN_CACHE_DIR="$xwin_cache" \
   "$xwin" xwin check --locked --target "$windows_target" \
-  -p paseo-ui-renderer-pilot --bin paseo-ui-desktop \
+  -p spocky-ui-renderer-pilot --bin spocky-ui-desktop \
   --no-default-features --features desktop --target-dir "$target_dir" \
   >>"$log_file" 2>&1
 status=$?

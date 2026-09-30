@@ -12,10 +12,10 @@ printf '%s\n' "$plan" | grep -F 'lifecycle: install, launch, reject corrupt upda
 printf '%s\n' "$plan" | grep -F 'safety: disposable root only; /Applications excluded'
 printf '%s\n' "$plan" | grep -F 'safety: signing, notarization, publish, deploy excluded'
 
-output=$(mktemp -d /tmp/paseo-delivery-runtime-test.XXXXXX)
+output=$(mktemp -d /tmp/spocky-delivery-runtime-test.XXXXXX)
 cleanup() {
   case "$output" in
-    /tmp/paseo-delivery-runtime-test.*) rm -rf "$output" ;;
+    /tmp/spocky-delivery-runtime-test.*) rm -rf "$output" ;;
     *) printf 'refusing to remove unexpected test directory: %s\n' "$output" >&2 ;;
   esac
 }

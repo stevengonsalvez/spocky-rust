@@ -101,7 +101,7 @@ else
   output_root=$(mktemp -d "$repository_root/target/phase2/hub-embedded-differential.XXXXXX")
 fi
 mkdir -p "$output_root/pglite-db" "$output_root/rust-db"
-build_root=$(mktemp -d "${TMPDIR:-/tmp}/paseo-hub-embedded-original.XXXXXX")
+build_root=$(mktemp -d "${TMPDIR:-/tmp}/spocky-hub-embedded-original.XXXXXX")
 trap 'rm -rf "$build_root"' EXIT HUP INT TERM
 git -C "$baseline_root" archive "$expected_baseline" | tar -x -C "$build_root"
 (cd "$build_root" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null)
@@ -111,7 +111,7 @@ PASEO_HUB_TSX="$build_root/node_modules/.bin/tsx" \
   capture "$output_root/pglite-db" >"$output_root/pglite.json"
 
 cargo build --locked --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-hub-pilot --bin hub-embedded-evidence >/dev/null
+  -p spocky-hub-pilot --bin hub-embedded-evidence >/dev/null
 "$repository_root/target/debug/hub-embedded-evidence" capture "$output_root/rust-db" \
   >"$output_root/rust.json"
 

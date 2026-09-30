@@ -3653,139 +3653,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paseo-audio-delivery-pilot"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-baseline"
-version = "0.1.0"
-
-[[package]]
-name = "paseo-browser-pilot"
-version = "0.1.0"
-dependencies = [
- "paseo-ui-renderer-pilot",
- "percent-encoding",
- "serde",
- "serde_json",
- "tao",
- "url",
- "wry",
-]
-
-[[package]]
-name = "paseo-crypto"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "crypto_secretbox",
- "rand_core 0.6.4",
- "salsa20",
- "serde_json",
- "x25519-dalek",
-]
-
-[[package]]
-name = "paseo-differential"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "paseo-domain"
-version = "0.1.0"
-dependencies = [
- "paseo-differential",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-hub-pilot"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "getrandom 0.4.3",
- "postgres",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "time",
- "tungstenite 0.27.0",
- "uuid",
-]
-
-[[package]]
-name = "paseo-platform-bridge"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-plugin-pilot"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "paseo-relay-pilot"
-version = "0.1.0"
-dependencies = [
- "paseo-crypto",
- "tungstenite 0.27.0",
-]
-
-[[package]]
-name = "paseo-store"
-version = "0.1.0"
-dependencies = [
- "paseo-differential",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-ui-pilot"
-version = "0.1.0"
-dependencies = [
- "paseo-platform-bridge",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-ui-renderer-pilot"
-version = "0.1.0"
-dependencies = [
- "dioxus",
- "dioxus-ssr",
- "serde_json",
-]
-
-[[package]]
-name = "paseo-wire"
-version = "0.1.0"
-dependencies = [
- "ryu-js",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5170,6 +5037,139 @@ name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
+name = "spocky-audio-delivery-pilot"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "spocky-baseline"
+version = "0.1.0"
+
+[[package]]
+name = "spocky-browser-pilot"
+version = "0.1.0"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "spocky-ui-renderer-pilot",
+ "tao",
+ "url",
+ "wry",
+]
+
+[[package]]
+name = "spocky-crypto"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "crypto_secretbox",
+ "rand_core 0.6.4",
+ "salsa20",
+ "serde_json",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "spocky-differential"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "spocky-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "spocky-differential",
+]
+
+[[package]]
+name = "spocky-hub-pilot"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "postgres",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "time",
+ "tungstenite 0.27.0",
+ "uuid",
+]
+
+[[package]]
+name = "spocky-platform-bridge"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "spocky-plugin-pilot"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "spocky-relay-pilot"
+version = "0.1.0"
+dependencies = [
+ "spocky-crypto",
+ "tungstenite 0.27.0",
+]
+
+[[package]]
+name = "spocky-store"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spocky-differential",
+]
+
+[[package]]
+name = "spocky-ui-pilot"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "spocky-platform-bridge",
+]
+
+[[package]]
+name = "spocky-ui-renderer-pilot"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "dioxus-ssr",
+ "serde_json",
+]
+
+[[package]]
+name = "spocky-wire"
+version = "0.1.0"
+dependencies = [
+ "ryu-js",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"

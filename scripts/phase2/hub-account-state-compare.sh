@@ -82,13 +82,13 @@ fi
 mkdir -p "$raw_dir"
 gtimeout 120 cargo run -q \
   --manifest-path "$repository_root/Cargo.toml" \
-  -p paseo-hub-pilot \
+  -p spocky-hub-pilot \
   --bin hub-account-state-evidence >"$rust"
 
-work_dir=$(mktemp -d /private/tmp/paseo-hub-account-state.XXXXXX)
+work_dir=$(mktemp -d /private/tmp/spocky-hub-account-state.XXXXXX)
 cleanup() {
   case "$work_dir" in
-    /private/tmp/paseo-hub-account-state.*) rm -rf "$work_dir" ;;
+    /private/tmp/spocky-hub-account-state.*) rm -rf "$work_dir" ;;
     *) printf 'refusing to remove unexpected comparison directory: %s\n' "$work_dir" >&2 ;;
   esac
 }
