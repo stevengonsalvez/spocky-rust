@@ -19,8 +19,13 @@ use std::os::unix::process::CommandExt;
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+mod client_runtime;
 mod protocol;
 mod settings;
+
+pub use client_runtime::{
+    ClientContribution, ClientRuntimeSession, CompiledPluginClient, compile_plugin_client,
+};
 
 pub use protocol::{
     HookKind, PluginProcessMessage, PluginProcessRequest, ProcessHooks, ProcessProviderMetadata,
@@ -1399,6 +1404,9 @@ pub enum PluginError {
     RuntimeTimedOut,
     RuntimeRequest(String),
     RuntimeFatal(String),
+    ClientCompileFailed(String),
+    ClientEvaluationFailed(String),
+    ClientDisconnected,
     ReviewedRevisionMismatch { expected: String, actual: String },
     Io(std::io::Error),
     Json(serde_json::Error),
