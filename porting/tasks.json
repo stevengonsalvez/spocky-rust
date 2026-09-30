@@ -127,6 +127,7 @@
         "cargo test -p paseo-relay-pilot --test network_runtime",
         "scripts/phase2/relay-runtime.sh",
         "cargo test -p paseo-hub-pilot --test hub_contract",
+        "cargo test -p paseo-hub-pilot --test account_recovery",
         "cargo test -p paseo-hub-pilot --test http_runtime",
         "cargo test -p paseo-hub-pilot --test session_selection",
         "cargo test -p paseo-hub-pilot --test api_key_boundary",
@@ -196,6 +197,7 @@
         ,{ "commit": "4e624ac", "model": "gpt-5.6-sol", "effort": "medium", "result": "pinned Linux x86_64 container passes real Git/npm acquisition, process, failure, restart, envelope, lifecycle, and settings tests 17/17", "remaining": "Windows runtime, Node fork IPC, provider payload schemas, client runtime, and staging-crash recovery" }
         ,{ "commit": "58421e1", "model": "gpt-5.6-sol", "effort": "medium", "result": "real Git and npm acquisition recover stale partial stages, validate before atomic promotion, and pass macOS plus Linux gates", "remaining": "active-command termination, Windows runtime, Node fork IPC, provider payload schemas, and client runtime" }
         ,{ "commit": "7ef5469", "model": "gpt-5.6-sol", "effort": "medium", "result": "pinned Hub baseline passes 31/31 including verified account recovery, reset session revocation, password replacement, and token replay rejection", "remaining": "Rust recovery implementation and differential, broader database schema, billing operations, and provider acceptance" }
+        ,{ "commit": "e851479", "model": "gpt-5.6-sol", "effort": "medium", "result": "Rust verified recovery gates sessions, conceals missing dispatch, revokes sessions, replaces password, rejects replay, and survives restart; targeted 20/20 and clippy clean", "remaining": "packet and email recovery differential, token expiry, broader database schema, billing operations, and provider acceptance" }
       ],
       "evidence": ["evidence/phase2/baseline-captures.md", "evidence/phase2/platform-target-checks.md", "evidence/phase2/audio-native-delivery.md", "evidence/phase2/browser-contract.md", "evidence/phase2/dioxus-renderer.md", "evidence/phase2/dioxus-android.md", "evidence/phase2/dioxus-web.md", "evidence/phase2/dioxus-macos.md", "evidence/phase2/dioxus-linux.md", "evidence/phase2/dioxus-windows.md", "evidence/phase2/store-differential.md", "evidence/phase2/lifecycle-differential.md", "evidence/phase2/relay-runtime.md", "evidence/phase2/plugin-runtime.md", "evidence/phase2/hub-runtime.md", "evidence/phase2/review-a.md", "evidence/phase2/review-b.md", "evidence/phase2/review-c.md", "evidence/phase2/review-d.md", "porting/pilots/tool-selection.md", "porting/pilots/ui-renderer-candidates.md"],
       "resources": ["isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "repository-local Rust target toolchains", "repository-local Dioxus CLI 0.7.0", "repository-local cargo-xwin 0.23.1", "Android AVD ainb-api35 stopped after capture", "browser tab and exact tmux server stopped after capture", "port 6767 untouched"],

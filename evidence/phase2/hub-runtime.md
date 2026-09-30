@@ -245,6 +245,17 @@ comparison normalizes generated identifiers while preserving owner and invited
 identities, plus slug, invitation link, and expiry only. Both raw payloads and
 hashes remain available.
 
+## Rust account recovery pilot
+
+The candidate persists unverified accounts and one-shot verification and reset
+tokens. Correct credentials remain sessionless before verification. Reset
+requests for missing accounts produce no dispatch value, reset consumes its
+token, revokes every browser session for the account, replaces the password,
+rejects replay, survives restart, and never stores the plaintext replacement.
+One targeted test passes with the existing contract, HTTP, invitation, and
+session regressions clean. Packet-level recovery routes, exact email payloads,
+expiry, and original-versus-Rust recovery traces remain open.
+
 ## Remaining evidence blockers
 
 - Candidate PGlite storage, migrations, lock behavior, crash recovery, and old
@@ -260,6 +271,7 @@ hashes remain available.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation entitlement races, live provider acceptance, remaining Better Auth
-  validation errors, and complete organization HTTP traces remain open.
+  validation errors, packet-level recovery, and complete organization HTTP traces
+  remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
