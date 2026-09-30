@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::collections::{BTreeMap, VecDeque};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
@@ -16,10 +16,40 @@ const SOCKET_TIMEOUT: Duration = Duration::from_millis(100);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const FAILURE_THRESHOLD: u8 = 3;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NetworkConfig {
+    pub minimum_cluster_size: usize,
+    pub max_websockets: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TopologyState {
+    Discovered,
+    Available,
+    Lost,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TopologyEvent {
+    pub sequence: u64,
+    pub peer: NodeId,
+    pub state: TopologyState,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            minimum_cluster_size: 1,
+            max_websockets: 1_024,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Peer {
     address: SocketAddr,
     enabled: bool,
+    available: bool,
     failures: u8,
 }
 
@@ -33,6 +63,24 @@ struct SocketSender {
 enum SocketClose {
     OwnerMoved,
     SlowConsumer,
+    DataRouteUnavailable,
+    ClientDisconnected,
+    Replaced,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ConnectionKind {
+    Legacy,
+    Control,
+    Client(String),
+    Data(String),
+}
+
+#[derive(Clone, Debug)]
+struct AcceptedConnection {
+    session: String,
+    kind: ConnectionKind,
+    admitted: bool,
 }
 
 struct Shared {
@@ -40,6 +88,17 @@ struct Shared {
     peers: Mutex<BTreeMap<NodeId, Peer>>,
     owners: Mutex<BTreeMap<String, NodeId>>,
     sockets: Mutex<BTreeMap<String, BTreeMap<u64, SocketSender>>>,
+    connections: Mutex<BTreeMap<u64, AcceptedConnection>>,
+    pending: Mutex<BTreeMap<(String, String), VecDeque<Message>>>,
+    config: NetworkConfig,
+    admissions: Mutex<usize>,
+    draining: AtomicBool,
+    connection_rejections: AtomicU64,
+    reroute_responses: AtomicU64,
+    frames_forwarded: AtomicU64,
+    bytes_forwarded: AtomicU64,
+    peer_losses: AtomicU64,
+    topology: Mutex<Vec<TopologyEvent>>,
     next_socket: AtomicU64,
     running: AtomicBool,
 }
@@ -61,6 +120,15 @@ impl NetworkNode {
     ///
     /// Returns the listener binding error.
     pub fn bind(node: NodeId) -> io::Result<Self> {
+        Self::bind_with_config(node, NetworkConfig::default())
+    }
+
+    /// Binds the selected runtime with explicit admission and cluster bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns the listener binding error.
+    pub fn bind_with_config(node: NodeId, config: NetworkConfig) -> io::Result<Self> {
         let peer_listener = loopback_listener()?;
         let websocket_listener = loopback_listener()?;
         let peer_address = peer_listener.local_addr()?;
@@ -70,6 +138,17 @@ impl NetworkNode {
             peers: Mutex::new(BTreeMap::new()),
             owners: Mutex::new(BTreeMap::new()),
             sockets: Mutex::new(BTreeMap::new()),
+            connections: Mutex::new(BTreeMap::new()),
+            pending: Mutex::new(BTreeMap::new()),
+            config,
+            admissions: Mutex::new(0),
+            draining: AtomicBool::new(false),
+            connection_rejections: AtomicU64::new(0),
+            reroute_responses: AtomicU64::new(0),
+            frames_forwarded: AtomicU64::new(0),
+            bytes_forwarded: AtomicU64::new(0),
+            peer_losses: AtomicU64::new(0),
+            topology: Mutex::new(Vec::new()),
             next_socket: AtomicU64::new(0),
             running: AtomicBool::new(true),
         });
@@ -98,19 +177,34 @@ impl NetworkNode {
     }
 
     pub fn connect_peer(&self, node: NodeId, address: SocketAddr) {
+        let discovered = !locked(&self.shared.peers).contains_key(&node);
         locked(&self.shared.peers).insert(
-            node,
+            node.clone(),
             Peer {
                 address,
                 enabled: true,
+                available: false,
                 failures: 0,
             },
         );
+        if discovered {
+            record_topology(&self.shared, node, TopologyState::Discovered);
+        }
+    }
+
+    pub fn discover_peers<I>(&self, peers: I)
+    where
+        I: IntoIterator<Item = (NodeId, SocketAddr)>,
+    {
+        for (node, address) in peers {
+            self.connect_peer(node, address);
+        }
     }
 
     pub fn disconnect_peer(&self, node: &NodeId) {
         if let Some(peer) = locked(&self.shared.peers).get_mut(node) {
             peer.enabled = false;
+            peer.available = false;
             peer.failures = 0;
         }
     }
@@ -118,13 +212,27 @@ impl NetworkNode {
     pub fn reconnect_peer(&self, node: &NodeId) {
         if let Some(peer) = locked(&self.shared.peers).get_mut(node) {
             peer.enabled = true;
+            peer.available = false;
             peer.failures = 0;
         }
+    }
+
+    pub fn begin_drain(&self) {
+        self.shared.draining.store(true, Ordering::Relaxed);
+    }
+
+    pub fn cancel_drain(&self) {
+        self.shared.draining.store(false, Ordering::Relaxed);
     }
 
     #[must_use]
     pub fn owner(&self, session: &str) -> Option<NodeId> {
         locked(&self.shared.owners).get(session).cloned()
+    }
+
+    #[must_use]
+    pub fn topology_events(&self) -> Vec<TopologyEvent> {
+        locked(&self.shared.topology).clone()
     }
 
     pub fn stop(&self) {
@@ -234,8 +342,16 @@ fn fetch_snapshot(address: SocketAddr) -> io::Result<BTreeMap<String, NodeId>> {
 }
 
 fn mark_peer_live(shared: &Shared, node: &NodeId) {
-    if let Some(peer) = shared.peers.lock().unwrap().get_mut(node) {
+    let became_available = if let Some(peer) = shared.peers.lock().unwrap().get_mut(node) {
+        let became_available = !peer.available;
         peer.failures = 0;
+        peer.available = true;
+        became_available
+    } else {
+        false
+    };
+    if became_available {
+        record_topology(shared, node.clone(), TopologyState::Available);
     }
 }
 
@@ -246,15 +362,33 @@ fn mark_peer_failure(shared: &Shared, node: &NodeId) {
             return;
         };
         peer.failures = peer.failures.saturating_add(1);
-        peer.failures >= FAILURE_THRESHOLD
+        if peer.failures >= FAILURE_THRESHOLD {
+            let was_available = peer.available;
+            peer.available = false;
+            was_available
+        } else {
+            false
+        }
     };
     if failed {
+        shared.peer_losses.fetch_add(1, Ordering::Relaxed);
+        record_topology(shared, node.clone(), TopologyState::Lost);
         shared
             .owners
             .lock()
             .unwrap()
             .retain(|_, owner| owner != node);
     }
+}
+
+fn record_topology(shared: &Shared, peer: NodeId, state: TopologyState) {
+    let mut events = locked(&shared.topology);
+    let sequence = events.len() as u64 + 1;
+    events.push(TopologyEvent {
+        sequence,
+        peer,
+        state,
+    });
 }
 
 fn merge_snapshot(shared: &Shared, snapshot: BTreeMap<String, NodeId>) {
@@ -307,39 +441,39 @@ fn spawn_websocket_listener(shared: Arc<Shared>, listener: TcpListener) -> JoinH
 }
 
 #[allow(clippy::result_large_err)]
-fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
+fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
-    let accepted_session = Arc::new(Mutex::new(None));
-    let callback_session = Arc::clone(&accepted_session);
+    if serve_operation(shared, &mut stream) {
+        return;
+    }
+    let accepted_connection = Arc::new(Mutex::new(None));
+    let callback_connection = Arc::clone(&accepted_connection);
     let callback_shared = Arc::clone(shared);
     let accepted = tungstenite::accept_hdr(stream, move |request: &Request, response: Response| {
-        authorize_upgrade(&callback_shared, request, response, &callback_session)
+        authorize_upgrade(&callback_shared, request, response, &callback_connection)
     });
     let Ok(mut socket) = accepted else {
         return;
     };
     let _ = socket.get_mut().set_read_timeout(Some(POLL_INTERVAL));
-    let Some(session) = accepted_session.lock().unwrap().clone() else {
+    let Some(connection) = accepted_connection.lock().unwrap().clone() else {
         return;
     };
+    let session = connection.session.clone();
     let socket_id = shared.next_socket.fetch_add(1, Ordering::Relaxed);
     let (frame_sender, frame_receiver) = mpsc::sync_channel(32);
     let (control_sender, control_receiver) = mpsc::channel();
-    shared
-        .sockets
-        .lock()
-        .unwrap()
-        .entry(session.clone())
-        .or_default()
-        .insert(
-            socket_id,
-            SocketSender {
-                frames: frame_sender,
-                control: control_sender,
-            },
-        );
+    register_socket(
+        shared,
+        socket_id,
+        connection.clone(),
+        SocketSender {
+            frames: frame_sender,
+            control: control_sender,
+        },
+    );
 
     while shared.running.load(Ordering::Relaxed) {
         match control_receiver.try_recv() {
@@ -363,10 +497,10 @@ fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
-                broadcast(shared, &session, socket_id, &Message::Text(text));
+                broadcast(shared, &connection, socket_id, &Message::Text(text));
             }
             Ok(Message::Binary(bytes)) => {
-                broadcast(shared, &session, socket_id, &Message::Binary(bytes));
+                broadcast(shared, &connection, socket_id, &Message::Binary(bytes));
             }
             Ok(Message::Close(_)) => break,
             Ok(Message::Ping(bytes)) => {
@@ -384,56 +518,438 @@ fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
     unregister_socket(shared, &session, socket_id);
 }
 
+fn serve_operation(shared: &Shared, stream: &mut TcpStream) -> bool {
+    let mut preview = [0_u8; 512];
+    let Ok(received) = stream.peek(&mut preview) else {
+        return false;
+    };
+    let Some(first_line_end) = preview[..received]
+        .windows(2)
+        .position(|pair| pair == b"\r\n")
+    else {
+        return false;
+    };
+    let first_line = String::from_utf8_lossy(&preview[..first_line_end]);
+    let Some(path) = first_line
+        .strip_prefix("GET ")
+        .and_then(|line| line.split_once(' ').map(|(path, _)| path))
+    else {
+        return false;
+    };
+    if !matches!(path, "/health" | "/ready" | "/metrics") {
+        return false;
+    }
+    let (status, reason, content_type, body) = operation_parts(shared, path);
+    let mut request = [0_u8; 2_048];
+    let _ = stream.read(&mut request);
+    let _ = write!(
+        stream,
+        concat!(
+            "HTTP/1.1 {} {}\r\n",
+            "content-type: {}\r\n",
+            "content-length: {}\r\n",
+            "connection: close\r\n\r\n",
+            "{}"
+        ),
+        status,
+        reason,
+        content_type,
+        body.len(),
+        body
+    );
+    let _ = stream.flush();
+    true
+}
+
 #[allow(clippy::result_large_err)]
 fn authorize_upgrade(
     shared: &Shared,
     request: &Request,
     response: Response,
-    accepted_session: &Mutex<Option<String>>,
+    accepted_connection: &Mutex<Option<AcceptedConnection>>,
 ) -> Result<Response, ErrorResponse> {
-    let Some(session) = request.uri().query().and_then(|query| {
-        query
-            .split('&')
-            .find_map(|field| field.strip_prefix("session="))
-    }) else {
-        return Err(Response::builder()
-            .status(400)
-            .body(Some("missing session".to_owned()))
-            .unwrap());
-    };
-    let owner = {
+    if request.uri().path() != "/ws" {
+        return operation_response(shared, request.uri().path());
+    }
+    let mut connection = parse_connection(request)?;
+    let session = connection.session.as_str();
+    let (owner, claimed_here) = {
         let mut owners = shared.owners.lock().unwrap();
-        owners
-            .entry(session.to_owned())
-            .or_insert_with(|| shared.node.clone())
-            .clone()
+        if let Some(owner) = owners.get(session) {
+            (owner.clone(), false)
+        } else {
+            owners.insert(session.to_owned(), shared.node.clone());
+            (shared.node.clone(), true)
+        }
     };
     if owner != shared.node {
+        shared.reroute_responses.fetch_add(1, Ordering::Relaxed);
         return Err(Response::builder()
             .status(409)
             .header("x-reroute-target", owner.as_str())
             .body(Some("Session owned elsewhere".to_owned()))
             .unwrap());
     }
-    *accepted_session.lock().unwrap() = Some(session.to_owned());
+    {
+        let mut admissions = locked(&shared.admissions);
+        if shared.draining.load(Ordering::Relaxed) || *admissions >= shared.config.max_websockets {
+            shared.connection_rejections.fetch_add(1, Ordering::Relaxed);
+            if claimed_here {
+                locked(&shared.owners).remove(session);
+            }
+            return handshake_error(503, "Relay connection capacity");
+        }
+        *admissions += 1;
+        connection.admitted = true;
+    }
+    *accepted_connection.lock().unwrap() = Some(connection);
     Ok(response)
 }
 
-fn broadcast(shared: &Shared, session: &str, source: u64, frame: &Message) {
+#[allow(clippy::result_large_err)]
+fn operation_response<T>(shared: &Shared, path: &str) -> Result<T, ErrorResponse> {
+    let (status, _reason, content_type, body) = operation_parts(shared, path);
+    Err(Response::builder()
+        .status(status)
+        .header("content-type", content_type)
+        .body(Some(body))
+        .unwrap())
+}
+
+fn operation_parts(shared: &Shared, path: &str) -> (u16, &'static str, &'static str, String) {
+    match path {
+        "/health" => (
+            200,
+            "OK",
+            "application/json",
+            r#"{"status":"ok"}"#.to_owned(),
+        ),
+        "/ready" if ready(shared) => (
+            200,
+            "OK",
+            "application/json",
+            r#"{"status":"ready"}"#.to_owned(),
+        ),
+        "/ready" => (
+            503,
+            "Service Unavailable",
+            "application/json",
+            r#"{"status":"unready"}"#.to_owned(),
+        ),
+        "/metrics" => (
+            200,
+            "OK",
+            "text/plain; version=0.0.4",
+            render_metrics(shared),
+        ),
+        _ => (404, "Not Found", "text/plain", "not found\n".to_owned()),
+    }
+}
+
+fn ready(shared: &Shared) -> bool {
+    let visible_nodes = 1 + locked(&shared.peers)
+        .values()
+        .filter(|peer| peer.enabled && peer.available)
+        .count();
+    !shared.draining.load(Ordering::Relaxed)
+        && visible_nodes >= shared.config.minimum_cluster_size
+        && *locked(&shared.admissions) < shared.config.max_websockets
+}
+
+fn render_metrics(shared: &Shared) -> String {
+    let active = *locked(&shared.admissions);
+    let sessions = locked(&shared.owners)
+        .values()
+        .filter(|owner| *owner == &shared.node)
+        .count();
+    format!(
+        concat!(
+            "# TYPE spocky_relay_ready gauge\n",
+            "spocky_relay_ready {}\n",
+            "# TYPE spocky_relay_draining gauge\n",
+            "spocky_relay_draining {}\n",
+            "# TYPE spocky_relay_active_websockets gauge\n",
+            "spocky_relay_active_websockets {}\n",
+            "# TYPE spocky_relay_active_sessions gauge\n",
+            "spocky_relay_active_sessions {}\n",
+            "# TYPE spocky_relay_connection_rejections_total counter\n",
+            "spocky_relay_connection_rejections_total {}\n",
+            "# TYPE spocky_relay_reroute_responses_total counter\n",
+            "spocky_relay_reroute_responses_total {}\n",
+            "# TYPE spocky_relay_frames_forwarded_total counter\n",
+            "spocky_relay_frames_forwarded_total {}\n",
+            "# TYPE spocky_relay_bytes_forwarded_total counter\n",
+            "spocky_relay_bytes_forwarded_total {}\n",
+            "# TYPE spocky_relay_peer_losses_total counter\n",
+            "spocky_relay_peer_losses_total {}\n"
+        ),
+        usize::from(ready(shared)),
+        usize::from(shared.draining.load(Ordering::Relaxed)),
+        active,
+        sessions,
+        shared.connection_rejections.load(Ordering::Relaxed),
+        shared.reroute_responses.load(Ordering::Relaxed),
+        shared.frames_forwarded.load(Ordering::Relaxed),
+        shared.bytes_forwarded.load(Ordering::Relaxed),
+        shared.peer_losses.load(Ordering::Relaxed),
+    )
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorResponse> {
+    let fields = request
+        .uri()
+        .query()
+        .map(|query| {
+            query
+                .split('&')
+                .filter_map(|field| field.split_once('='))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    if let Some(session) = fields.get("session") {
+        return Ok(AcceptedConnection {
+            session: (*session).to_owned(),
+            kind: ConnectionKind::Legacy,
+            admitted: false,
+        });
+    }
+    let role = fields.get("role").copied().unwrap_or_default();
+    if !matches!(role, "server" | "client") {
+        return handshake_error(400, "Missing or invalid role parameter");
+    }
+    let Some(server_id) = fields
+        .get("serverId")
+        .copied()
+        .filter(|value| !value.is_empty())
+    else {
+        return handshake_error(400, "Missing serverId parameter");
+    };
+    if server_id.len() > 256 {
+        return handshake_error(400, "serverId is too long");
+    }
+    let version = fields.get("v").copied().unwrap_or("1").trim();
+    if !matches!(version, "" | "1" | "2") {
+        return handshake_error(400, "Invalid v parameter (expected 1 or 2)");
+    }
+    if version != "2" {
+        return Ok(AcceptedConnection {
+            session: server_id.to_owned(),
+            kind: ConnectionKind::Legacy,
+            admitted: false,
+        });
+    }
+    let connection_id = fields
+        .get("connectionId")
+        .copied()
+        .unwrap_or_default()
+        .trim();
+    if connection_id.len() > 256 {
+        return handshake_error(400, "connectionId is too long");
+    }
+    let kind = match (role, connection_id) {
+        ("server", "") => ConnectionKind::Control,
+        ("server", value) => ConnectionKind::Data(value.to_owned()),
+        ("client", "") => ConnectionKind::Client(format!(
+            "conn_{:016x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        )),
+        ("client", value) => ConnectionKind::Client(value.to_owned()),
+        _ => unreachable!(),
+    };
+    Ok(AcceptedConnection {
+        session: server_id.to_owned(),
+        kind,
+        admitted: false,
+    })
+}
+
+#[allow(clippy::result_large_err)]
+fn handshake_error<T>(status: u16, message: &str) -> Result<T, ErrorResponse> {
+    Err(Response::builder()
+        .status(status)
+        .body(Some(message.to_owned()))
+        .unwrap())
+}
+
+fn register_socket(
+    shared: &Shared,
+    socket_id: u64,
+    connection: AcceptedConnection,
+    sender: SocketSender,
+) {
+    let session = connection.session.clone();
+    match &connection.kind {
+        ConnectionKind::Control => {
+            let connection_ids = locked(&shared.connections)
+                .values()
+                .filter_map(|candidate| match &candidate.kind {
+                    ConnectionKind::Client(connection_id) if candidate.session == session => {
+                        Some(format!(r#"\"{connection_id}\""#))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = sender.frames.try_send(Message::Text(
+                format!(r#"{{"type":"sync","connectionIds":[{connection_ids}]}}"#).into(),
+            ));
+        }
+        ConnectionKind::Client(_) | ConnectionKind::Legacy => {}
+        ConnectionKind::Data(connection_id) => {
+            let replacements = locked(&shared.connections)
+                .iter()
+                .filter_map(|(id, candidate)| {
+                    (candidate.session == session
+                        && candidate.kind == ConnectionKind::Data(connection_id.clone()))
+                    .then_some(*id)
+                })
+                .collect::<Vec<_>>();
+            for replacement in replacements {
+                if let Some(previous) = locked(&shared.sockets)
+                    .get(&session)
+                    .and_then(|sockets| sockets.get(&replacement))
+                {
+                    let _ = previous.control.send(SocketClose::Replaced);
+                }
+                if let Some(sockets) = locked(&shared.sockets).get_mut(&session) {
+                    sockets.remove(&replacement);
+                }
+                let replaced = locked(&shared.connections).remove(&replacement);
+                release_admission(shared, replaced.as_ref());
+            }
+            if let Some(mut pending) =
+                locked(&shared.pending).remove(&(session.clone(), connection_id.clone()))
+            {
+                while let Some(frame) = pending.pop_front() {
+                    let _ = sender.frames.try_send(frame);
+                }
+            }
+        }
+    }
+    locked(&shared.sockets)
+        .entry(session.clone())
+        .or_default()
+        .insert(socket_id, sender);
+    locked(&shared.connections).insert(socket_id, connection);
+    let client_id = match &locked(&shared.connections)
+        .get(&socket_id)
+        .expect("registered connection")
+        .kind
+    {
+        ConnectionKind::Client(connection_id) => Some(connection_id.clone()),
+        _ => None,
+    };
+    if let Some(connection_id) = client_id {
+        notify_controls(
+            shared,
+            &session,
+            &Message::Text(
+                format!(r#"{{"type":"connected","connectionId":"{connection_id}"}}"#).into(),
+            ),
+        );
+    }
+}
+
+fn notify_controls(shared: &Shared, session: &str, frame: &Message) {
+    let controls = locked(&shared.connections)
+        .iter()
+        .filter_map(|(socket_id, connection)| {
+            (connection.session == session && connection.kind == ConnectionKind::Control)
+                .then_some(*socket_id)
+        })
+        .collect::<Vec<_>>();
+    if let Some(sockets) = locked(&shared.sockets).get(session) {
+        for socket_id in controls {
+            if let Some(sender) = sockets.get(&socket_id) {
+                let _ = sender.frames.try_send(frame.clone());
+            }
+        }
+    }
+}
+
+fn broadcast(shared: &Shared, connection: &AcceptedConnection, source: u64, frame: &Message) {
+    let session = connection.session.as_str();
+    if connection.kind == ConnectionKind::Control {
+        if matches!(frame, Message::Text(text) if text.contains(r#""type":"ping""#)) {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            send_to_socket(
+                shared,
+                session,
+                source,
+                Message::Text(format!(r#"{{"type":"pong","ts":{timestamp}}}"#).into()),
+            );
+        }
+        return;
+    }
+    shared.frames_forwarded.fetch_add(1, Ordering::Relaxed);
+    let frame_bytes = match frame {
+        Message::Text(text) => text.len(),
+        Message::Binary(bytes) => bytes.len(),
+        _ => 0,
+    };
+    shared
+        .bytes_forwarded
+        .fetch_add(frame_bytes as u64, Ordering::Relaxed);
+    let targets = locked(&shared.connections)
+        .iter()
+        .filter_map(|(socket_id, candidate)| {
+            if *socket_id == source || candidate.session != session {
+                return None;
+            }
+            let matches = match (&connection.kind, &candidate.kind) {
+                (ConnectionKind::Legacy, ConnectionKind::Legacy) => true,
+                (ConnectionKind::Client(left), ConnectionKind::Data(right))
+                | (ConnectionKind::Data(left), ConnectionKind::Client(right)) => left == right,
+                _ => false,
+            };
+            matches.then_some(*socket_id)
+        })
+        .collect::<Vec<_>>();
+    if targets.is_empty()
+        && let ConnectionKind::Client(connection_id) = &connection.kind
+    {
+        let overflow = {
+            let mut pending = locked(&shared.pending);
+            let queue = pending
+                .entry((session.to_owned(), connection_id.clone()))
+                .or_default();
+            if queue.len() < 32 {
+                queue.push_back(frame.clone());
+                false
+            } else {
+                true
+            }
+        };
+        if overflow
+            && let Some(sender) = locked(&shared.sockets)
+                .get(session)
+                .and_then(|sockets| sockets.get(&source))
+        {
+            let _ = sender.control.send(SocketClose::DataRouteUnavailable);
+        }
+        return;
+    }
     let mut sessions = shared.sockets.lock().unwrap();
     let Some(sockets) = sessions.get_mut(session) else {
         return;
     };
     let mut remove = Vec::new();
-    for (socket_id, sender) in sockets.iter() {
-        if *socket_id != source {
+    for socket_id in targets {
+        if let Some(sender) = sockets.get(&socket_id) {
             match sender.frames.try_send(frame.clone()) {
                 Ok(()) => {}
                 Err(mpsc::TrySendError::Full(_)) => {
                     let _ = sender.control.send(SocketClose::SlowConsumer);
-                    remove.push(*socket_id);
+                    remove.push(socket_id);
                 }
-                Err(mpsc::TrySendError::Disconnected(_)) => remove.push(*socket_id),
+                Err(mpsc::TrySendError::Disconnected(_)) => remove.push(socket_id),
             }
         }
     }
@@ -446,10 +962,22 @@ fn broadcast(shared: &Shared, session: &str, source: u64, frame: &Message) {
     }
 }
 
+fn send_to_socket(shared: &Shared, session: &str, socket_id: u64, frame: Message) {
+    if let Some(sender) = locked(&shared.sockets)
+        .get(session)
+        .and_then(|sockets| sockets.get(&socket_id))
+    {
+        let _ = sender.frames.try_send(frame);
+    }
+}
+
 fn close_socket(socket: &mut tungstenite::WebSocket<TcpStream>, reason: &SocketClose) {
     let (code, reason) = match reason {
         SocketClose::OwnerMoved => (CloseCode::Restart, "Session owner moved"),
         SocketClose::SlowConsumer => (CloseCode::Again, "Slow consumer"),
+        SocketClose::DataRouteUnavailable => (CloseCode::Again, "Data route unavailable"),
+        SocketClose::ClientDisconnected => (CloseCode::Away, "Client disconnected"),
+        SocketClose::Replaced => (CloseCode::Policy, "Replaced by new connection"),
     };
     let _ = socket.close(Some(CloseFrame {
         code,
@@ -462,11 +990,49 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn unregister_socket(shared: &Shared, session: &str, socket_id: u64) {
+    let connection = locked(&shared.connections).remove(&socket_id);
+    release_admission(shared, connection.as_ref());
+    if let Some(AcceptedConnection {
+        kind: ConnectionKind::Client(connection_id),
+        ..
+    }) = connection
+    {
+        let data_ids = locked(&shared.connections)
+            .iter()
+            .filter_map(|(id, candidate)| {
+                (candidate.session == session
+                    && candidate.kind == ConnectionKind::Data(connection_id.clone()))
+                .then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        if let Some(sockets) = locked(&shared.sockets).get(session) {
+            for data_id in data_ids {
+                if let Some(data) = sockets.get(&data_id) {
+                    let _ = data.control.send(SocketClose::ClientDisconnected);
+                }
+            }
+        }
+        notify_controls(
+            shared,
+            session,
+            &Message::Text(
+                format!(r#"{{"type":"disconnected","connectionId":"{connection_id}"}}"#).into(),
+            ),
+        );
+        locked(&shared.pending).remove(&(session.to_owned(), connection_id));
+    }
     let mut sessions = shared.sockets.lock().unwrap();
     if let Some(sockets) = sessions.get_mut(session) {
         sockets.remove(&socket_id);
         if sockets.is_empty() {
             sessions.remove(session);
         }
+    }
+}
+
+fn release_admission(shared: &Shared, connection: Option<&AcceptedConnection>) {
+    if connection.is_some_and(|connection| connection.admitted) {
+        let mut admissions = locked(&shared.admissions);
+        *admissions = admissions.saturating_sub(1);
     }
 }
