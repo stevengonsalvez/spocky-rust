@@ -362,6 +362,7 @@ pub(crate) struct BrowserMembershipAccess {
 #[derive(Serialize)]
 pub(crate) struct BrowserTeamSummary {
     members: Vec<BrowserTeamMemberSummary>,
+    invitations: Vec<BrowserManagerInvitationSummary>,
 }
 
 #[derive(Serialize)]
@@ -372,6 +373,16 @@ pub(crate) struct BrowserTeamMemberSummary {
     name: String,
     email: String,
     role: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrowserManagerInvitationSummary {
+    id: String,
+    email: String,
+    role: &'static str,
+    expires_at: String,
+    link: String,
 }
 
 pub struct HubPilot<S: DurableHubStore> {
@@ -934,7 +945,10 @@ fn browser_team(state: &HubState, organization: &OrganizationId) -> BrowserTeamS
             }
         })
         .collect();
-    BrowserTeamSummary { members }
+    BrowserTeamSummary {
+        members,
+        invitations: Vec::new(),
+    }
 }
 
 const fn browser_role(role: Role) -> &'static str {
