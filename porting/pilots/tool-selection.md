@@ -63,7 +63,7 @@ monotonic last-use timestamps, idempotent revocation timestamps, and restart.
 Active organization selection is membership-bound, packet-tested, restart-safe,
 and compatible with old single-membership snapshots.
 Pinned Hub baseline
-capture passes 29 of 29 tests across embedded persistence, setup, pricing,
+capture passes 31 of 31 tests across embedded persistence, setup, account recovery, pricing,
 catalog, and provisioning. API-key, invitation, and active-session relational
 paths pass against disposable PostgreSQL. PGlite, complete baseline relational schema, invitation
 entitlement races and live provider acceptance, remaining relational tables, Stripe operations, and full

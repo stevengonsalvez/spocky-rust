@@ -18,7 +18,7 @@ disposable directory, installs from `package-lock.json`, and leaves the baseline
 checkout unchanged. The lockfile SHA-256 is
 `1547348f61e8f305af4c3790b830ee8db120e80628b4de2eaf39254c40d40274`.
 
-Seven targeted files passed 30 of 30 tests with no failures or skips:
+Eight targeted files passed 31 of 31 tests with no failures or skips:
 
 - `embedded-persistence.integration.test.ts`: PGlite state survives restart and
   a second process cannot open the same data directory.
@@ -28,6 +28,9 @@ Seven targeted files passed 30 of 30 tests with no failures or skips:
 - `environment-bootstrap.integration.test.ts`: PostgreSQL bootstrap restart,
   conflicting identity rollback, missing-password rollback, concurrent start
   serialization, password-change authorization, and browser product gating.
+- `account-recovery.integration.test.ts`: verification-gated sessions,
+  enumeration-resistant reset requests, reset session revocation, password
+  replacement, and one-shot reset tokens.
 - `plan-prices.test.ts`: exact lookup keys, inactive prices, missing prices, and
   ambiguity rejection.
 - `public-catalog.test.ts`: active Free and paid plans, public allowance figures,
@@ -223,10 +226,10 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,562 | `7d998c6b39533c9eec031041d4e805eec80d4bb0d997d069151bbd108192d4c8` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `f05c5c2e058066fa10878d2cf2e9c0af53e553ded402d9de08247a6fb90e2af5` |
-| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `238d7cdcf27a6394e287cfcda895e60c22feebbf44763a7a32f04b252af77f28` |
-| `evidence/raw/phase2/hub-account-state-original.json` | 6,744 | `3b80f759e56dcb9894c69e9325b969d31c6c79e6eac0b1e85e326421f8d27b7d` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 11,139 | `32786fe539388d94d48a638fba2b6c76e7d219c88d5ca3b8a4d1edfa87e0b246` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 8,322 | `a445f979dace27130b10a58bafd049410bf81c73316d421209e02a420748279e` |
+| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `ab4e70f21eb1f9a983b556fd462aa3844730d679a7a2970da0416b107ad3fd4f` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 6,744 | `f6ba63031d3dfcbcc8bbeccba4a47c70f661ec31aec5ecb2894bd4807aa0ed6e` |
 | `evidence/raw/phase2/hub-account-state-rust.json` | 6,306 | `7857ba12ca25b155d3e002ea25b1259c0fc7c2abd68581870cbafbaf17f3b531` |
 | `evidence/raw/phase2/hub-account-state-comparison.json` | 13,498 | `2335a8d97477a6c1d5e2abf3b679bccaf2ebc2716db8021ac01da0a9ae8e6b57` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
