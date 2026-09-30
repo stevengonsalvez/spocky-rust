@@ -3668,10 +3668,13 @@ version = "0.1.0"
 name = "paseo-browser-pilot"
 version = "0.1.0"
 dependencies = [
+ "paseo-ui-renderer-pilot",
  "percent-encoding",
  "serde",
  "serde_json",
+ "tao",
  "url",
+ "wry",
 ]
 
 [[package]]
