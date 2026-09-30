@@ -498,6 +498,25 @@ impl<S: DurableHubStore> HubPilot<S> {
         if !stored.verified {
             return Err(HubError::EmailNotVerified);
         }
+        self.create_browser_session(account)
+    }
+
+    pub fn sign_in_after_verification(
+        &mut self,
+        account: &AccountId,
+    ) -> Result<SessionToken, HubError> {
+        if !self
+            .state
+            .accounts
+            .get(account)
+            .is_some_and(|stored| stored.verified)
+        {
+            return Err(HubError::InvalidRecoveryToken);
+        }
+        self.create_browser_session(account)
+    }
+
+    fn create_browser_session(&mut self, account: &AccountId) -> Result<SessionToken, HubError> {
         self.state.next_browser_session += 1;
         let token = SessionToken(format!("hub-session-{}", self.state.next_browser_session));
         self.state
@@ -552,7 +571,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         Ok(token)
     }
 
-    pub fn verify_account(&mut self, token: &RecoveryToken) -> Result<(), HubError> {
+    pub fn verify_account(&mut self, token: &RecoveryToken) -> Result<AccountId, HubError> {
         let grant = self
             .state
             .verification_tokens
@@ -567,7 +586,8 @@ impl<S: DurableHubStore> HubPilot<S> {
             .get_mut(&grant.account)
             .ok_or(HubError::InvalidRecoveryToken)?
             .verified = true;
-        self.persist()
+        self.persist()?;
+        Ok(grant.account)
     }
 
     pub fn request_password_reset(

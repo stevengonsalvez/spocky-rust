@@ -8,11 +8,31 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore, HubError, HubPilot,
-    InvitationRole, OrganizationId, PasswordChange, SessionToken, iso_timestamp,
+    InvitationRole, OrganizationId, PasswordChange, RecoveryToken, SessionToken, iso_timestamp,
 };
 
 const SESSION_COOKIE: &str = "paseo_session";
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegistrationMode {
+    InviteOnly,
+    OpenVerified,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountEmail {
+    pub recipient: String,
+    pub url: String,
+    pub callback_url: String,
+    pub token: RecoveryToken,
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct AccountEmails {
+    pub verifications: Vec<AccountEmail>,
+    pub password_resets: Vec<AccountEmail>,
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct HttpRequest {
@@ -31,27 +51,79 @@ pub struct HttpResponse {
 
 pub struct HubHttpService<S: DurableHubStore> {
     hub: HubPilot<S>,
+    registration: RegistrationMode,
+    base_url: String,
+    account_emails: AccountEmails,
 }
 
 impl<S: DurableHubStore> HubHttpService<S> {
     #[must_use]
-    pub const fn new(hub: HubPilot<S>) -> Self {
-        Self { hub }
+    pub fn new(hub: HubPilot<S>) -> Self {
+        Self {
+            hub,
+            registration: RegistrationMode::InviteOnly,
+            base_url: "https://hub.example.test".into(),
+            account_emails: AccountEmails::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_registration(
+        hub: HubPilot<S>,
+        registration: RegistrationMode,
+        base_url: &str,
+    ) -> Self {
+        Self {
+            hub,
+            registration,
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            account_emails: AccountEmails::default(),
+        }
+    }
+
+    #[must_use]
+    pub const fn account_emails(&self) -> &AccountEmails {
+        &self.account_emails
     }
 
     pub fn handle(&mut self, request: &HttpRequest) -> HttpResponse {
-        match (request.method.as_str(), request.path.as_str()) {
+        let path = request_path(&request.path);
+        match (request.method.as_str(), path) {
             ("GET", "/api/auth/paseo/state") => self.state(request),
+            ("GET", "/api/auth/get-session") => self.get_session(request),
+            ("GET", "/api/auth/verify-email") => self.verify_email(request),
             ("POST", "/api/auth/sign-up/email") => self.sign_up(request),
             ("POST", "/api/auth/sign-in/email") => self.sign_in(request),
+            ("POST", "/api/auth/request-password-reset") => self.request_password_reset(request),
+            ("POST", "/api/auth/reset-password") => self.reset_password(request),
             ("POST", "/api/auth/paseo/change-password") => self.change_password(request),
             ("POST", "/api/auth/paseo/complete-app-setup") => self.complete_setup(request),
             ("POST", "/api/auth/paseo/create-invitation") => self.create_invitation(request),
             ("POST", "/api/auth/paseo/cancel-invitation") => self.cancel_invitation(request),
             ("POST", "/api/auth/paseo/accept-invitation") => self.accept_invitation(request),
             ("POST", "/api/auth/paseo/select-organization") => self.select_organization(request),
+            ("GET", path) if path.starts_with("/api/auth/reset-password/") => {
+                Self::password_reset_callback(request)
+            }
             _ => json_response(404, &ErrorBody { error: "not_found" }),
         }
+    }
+
+    fn get_session(&self, request: &HttpRequest) -> HttpResponse {
+        let account = session_token(request)
+            .as_ref()
+            .and_then(|token| self.hub.account_for_session(token));
+        let Some(account) = account else {
+            return raw_json_response(200, b"null".to_vec());
+        };
+        json_response(
+            200,
+            &SessionBody {
+                user: SessionUser {
+                    email: account.as_str(),
+                },
+            },
+        )
     }
 
     fn state(&self, request: &HttpRequest) -> HttpResponse {
@@ -93,6 +165,9 @@ impl<S: DurableHubStore> HubHttpService<S> {
                 },
             );
         }
+        if self.registration == RegistrationMode::OpenVerified {
+            return self.open_sign_up(input);
+        }
         let Some(invitation) = input.invitation else {
             return json_response(
                 403,
@@ -123,6 +198,51 @@ impl<S: DurableHubStore> HubHttpService<S> {
                 400,
                 &ErrorBody {
                     error: "invalid_signup",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
+
+    fn open_sign_up(&mut self, input: SignUpBody) -> HttpResponse {
+        let callback_url = input
+            .callback_url
+            .unwrap_or_else(|| format!("{}/?auth=email-verification", self.base_url));
+        match self.hub.register_unverified_account(
+            &AccountId::from(input.email.as_str()),
+            &input.name,
+            &input.password,
+        ) {
+            Ok(token) => {
+                let url = format!(
+                    "{}/api/auth/verify-email?token={}&callbackURL={}",
+                    self.base_url,
+                    token.as_str(),
+                    percent_encode(&callback_url)
+                );
+                self.account_emails.verifications.push(AccountEmail {
+                    recipient: input.email,
+                    url,
+                    callback_url,
+                    token,
+                });
+                json_response(200, &EmptyBody {})
+            }
+            Err(HubError::InvalidRecoveryInput) => json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_signup",
+                },
+            ),
+            Err(HubError::IdempotencyConflict) => json_response(
+                422,
+                &CodeBody {
+                    code: "USER_ALREADY_EXISTS",
                 },
             ),
             Err(_) => json_response(
@@ -167,6 +287,137 @@ impl<S: DurableHubStore> HubHttpService<S> {
                 401,
                 &ErrorBody {
                     error: "invalid_credentials",
+                },
+            ),
+            Err(HubError::EmailNotVerified) => json_response(
+                403,
+                &CodeBody {
+                    code: "EMAIL_NOT_VERIFIED",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
+
+    fn verify_email(&mut self, request: &HttpRequest) -> HttpResponse {
+        let query = query_parameters(&request.path);
+        let (Some(token), Some(callback_url)) = (query.get("token"), query.get("callbackURL"))
+        else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_TOKEN",
+                },
+            );
+        };
+        let recovery = RecoveryToken::from(token.as_str());
+        let Ok(account) = self.hub.verify_account(&recovery) else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_TOKEN",
+                },
+            );
+        };
+        let Ok(session) = self.hub.sign_in_after_verification(&account) else {
+            return json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            );
+        };
+        redirect_with_session(callback_url, &session)
+    }
+
+    fn request_password_reset(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Ok(input) = serde_json::from_slice::<PasswordResetRequestBody>(&request.body) else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_BODY",
+                },
+            );
+        };
+        match self
+            .hub
+            .request_password_reset(&AccountId::from(input.email.as_str()))
+        {
+            Ok(Some(token)) => {
+                let url = format!(
+                    "{}/api/auth/reset-password/{}?callbackURL={}",
+                    self.base_url,
+                    token.as_str(),
+                    percent_encode(&input.redirect_to)
+                );
+                self.account_emails.password_resets.push(AccountEmail {
+                    recipient: input.email,
+                    url,
+                    callback_url: input.redirect_to,
+                    token,
+                });
+                json_response(200, &EmptyBody {})
+            }
+            Ok(None) => json_response(200, &EmptyBody {}),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
+
+    fn password_reset_callback(request: &HttpRequest) -> HttpResponse {
+        let path = request_path(&request.path);
+        let Some(token) = path.strip_prefix("/api/auth/reset-password/") else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_TOKEN",
+                },
+            );
+        };
+        let Some(callback_url) = query_parameters(&request.path).get("callbackURL").cloned() else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_TOKEN",
+                },
+            );
+        };
+        redirect(&append_query(&callback_url, "token", token))
+    }
+
+    fn reset_password(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Ok(input) = serde_json::from_slice::<ResetPasswordBody>(&request.body) else {
+            return json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_BODY",
+                },
+            );
+        };
+        match self.hub.reset_password(
+            &RecoveryToken::from(input.token.as_str()),
+            &input.new_password,
+        ) {
+            Ok(()) => json_response(200, &EmptyBody {}),
+            Err(HubError::InvalidRecoveryToken) => json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_TOKEN",
+                },
+            ),
+            Err(HubError::InvalidRecoveryInput) => json_response(
+                400,
+                &CodeBody {
+                    code: "INVALID_PASSWORD",
                 },
             ),
             Err(_) => json_response(
@@ -504,6 +755,22 @@ struct SignUpBody {
     email: String,
     password: String,
     invitation: Option<String>,
+    #[serde(rename = "callbackURL")]
+    callback_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PasswordResetRequestBody {
+    email: String,
+    redirect_to: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResetPasswordBody {
+    token: String,
+    new_password: String,
 }
 
 #[derive(Deserialize)]
@@ -558,6 +825,24 @@ struct StateBody {
 }
 
 #[derive(Serialize)]
+struct EmptyBody {}
+
+#[derive(Serialize)]
+struct CodeBody {
+    code: &'static str,
+}
+
+#[derive(Serialize)]
+struct SessionBody<'a> {
+    user: SessionUser<'a>,
+}
+
+#[derive(Serialize)]
+struct SessionUser<'a> {
+    email: &'a str,
+}
+
+#[derive(Serialize)]
 struct ErrorBody {
     error: &'static str,
 }
@@ -566,13 +851,111 @@ fn session_token(request: &HttpRequest) -> Option<SessionToken> {
     request.headers.get("cookie").and_then(|cookies| {
         cookies.split(';').find_map(|cookie| {
             let (name, value) = cookie.trim().split_once('=')?;
-            (name == SESSION_COOKIE).then(|| SessionToken::from(value))
+            (name == SESSION_COOKIE || name == "better-auth.session_token")
+                .then(|| SessionToken::from(value))
         })
     })
 }
 
+fn request_path(uri: &str) -> &str {
+    let uri = uri
+        .strip_prefix("http://")
+        .or_else(|| uri.strip_prefix("https://"))
+        .and_then(|remainder| remainder.find('/').map(|index| &remainder[index..]))
+        .unwrap_or(uri);
+    uri.split_once('?').map_or(uri, |(path, _)| path)
+}
+
+fn query_parameters(uri: &str) -> BTreeMap<String, String> {
+    let Some((_, query)) = uri.split_once('?') else {
+        return BTreeMap::new();
+    };
+    query
+        .split('&')
+        .filter_map(|field| {
+            let (name, value) = field.split_once('=')?;
+            Some((percent_decode(name), percent_decode(value)))
+        })
+        .collect()
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(encoded, "%{byte:02X}").expect("write URL encoding");
+        }
+    }
+    encoded
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = &value[index + 1..index + 3];
+            if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                decoded.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(if bytes[index] == b'+' {
+            b' '
+        } else {
+            bytes[index]
+        });
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn append_query(url: &str, name: &str, value: &str) -> String {
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{separator}{name}={}", percent_encode(value))
+}
+
+fn redirect(location: &str) -> HttpResponse {
+    HttpResponse {
+        status: 302,
+        headers: BTreeMap::from([
+            ("location".into(), location.into()),
+            ("content-length".into(), "0".into()),
+        ]),
+        body: Vec::new(),
+    }
+}
+
+fn redirect_with_session(location: &str, session: &SessionToken) -> HttpResponse {
+    let mut response = redirect(location);
+    response.headers.insert(
+        "set-cookie".into(),
+        format!(
+            "better-auth.session_token={}; Path=/; HttpOnly; SameSite=Lax",
+            session.as_str()
+        ),
+    );
+    response
+}
+
 fn json_response(status: u16, body: &impl Serialize) -> HttpResponse {
     let body = serde_json::to_vec(body).expect("serializable Hub response");
+    HttpResponse {
+        status,
+        headers: BTreeMap::from([
+            ("content-type".into(), "application/json".into()),
+            ("content-length".into(), body.len().to_string()),
+        ]),
+        body,
+    }
+}
+
+fn raw_json_response(status: u16, body: Vec<u8>) -> HttpResponse {
     HttpResponse {
         status,
         headers: BTreeMap::from([
@@ -661,6 +1044,8 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> io::Result
     let reason = match response.status {
         200 => "OK",
         201 => "Created",
+        302 => "Found",
+        422 => "Unprocessable Content",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
