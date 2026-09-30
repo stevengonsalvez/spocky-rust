@@ -78,13 +78,15 @@ organization, and survives snapshot restart. Owner and member behavior, secret
 concealment, malformed credentials, wrong secrets, missing scopes, last-use,
 revocation, and restart pass one targeted integration test.
 
-The invitation pilot passes four targeted tests covering owner/member authority,
+The invitation pilot passes six targeted tests covering owner/member authority,
 email normalization, one live credential per organization and email, manager-only
 listing, flag and seat-cap denial, current-member rejection, cancel and replacement,
 email-bound acceptance, one-shot replay rejection, membership creation, and snapshot
 restart. It preserves the first pending role when a reinvite reuses a credential.
-It does not prove PostgreSQL locking races, expiration against a controlled clock,
-HTTP response shapes, invitation mail delivery, or active-session selection.
+A fixed-clock restart proves exact-expiry rejection, seat release, and replacement.
+Its rendered email matches baseline text, HTML escaping, subject, destination, and
+idempotency-key shapes. It does not prove PostgreSQL locking races, HTTP response
+shapes, external mail delivery behavior, or active-session selection.
 
 The billing pilot passes four targeted tests covering active public plans, Free
 and paid presentation values, inactive-plan filtering, exact price lookup keys,
@@ -193,7 +195,7 @@ times by construction.
   traces do not exist. Candidate-only packet behavior is covered.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation PostgreSQL races, expiration, mail delivery, HTTP traces, API-key
+- Invitation PostgreSQL races, external mail delivery, HTTP traces, API-key
   relational timestamps and revocation races, and complete organization state
   remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
