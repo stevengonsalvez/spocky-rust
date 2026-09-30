@@ -54,6 +54,10 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("width: 16px; height: 12px;"));
     assert!(!first.contains("content: \"☰\""));
     assert!(first.contains(".action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }"));
+    assert!(first.contains(
+        "font-family: system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;"
+    ));
+    assert!(!first.contains("font-family: Inter"));
     assert!(first.contains(".mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }"));
     assert!(first.contains(".community { bottom: 72px; }"));
 }

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 pub const APP_TITLE: &str = "Paseo";
 
 const SHELL_CSS: &str = r#"
-:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+:root { color-scheme: light; font-family: system-ui, -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: #1a1a1e; }
 button, a { font: inherit; }
