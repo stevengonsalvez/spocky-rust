@@ -72,6 +72,29 @@ fn websocket_frames_cross_the_owner_unchanged_and_in_order() {
 }
 
 #[test]
+fn network_queue_overflow_closes_slow_consumer_with_1013() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let (mut sender, _) = websocket(node.websocket_address(), "slow-consumer").unwrap();
+    let (mut slow, _) = websocket(node.websocket_address(), "slow-consumer").unwrap();
+    sender.get_mut().set_write_timeout(Some(DEADLINE)).unwrap();
+
+    let payload = vec![0xa5; 512 * 1024];
+    for _ in 0..96 {
+        sender
+            .send(Message::Binary(payload.clone().into()))
+            .unwrap();
+    }
+
+    let close = wait_for_close(&mut slow);
+    assert_eq!(close.code, CloseCode::Again);
+    assert_eq!(close.reason, "Slow consumer");
+
+    let (mut healthy, _) = websocket(node.websocket_address(), "slow-consumer").unwrap();
+    sender.send(Message::Text("still-live".into())).unwrap();
+    assert_eq!(healthy.read().unwrap(), Message::Text("still-live".into()));
+}
+
+#[test]
 fn partition_healing_closes_loser_and_reroutes_new_websockets() {
     let alpha = NetworkNode::bind(NodeId::from("alpha")).unwrap();
     let beta = NetworkNode::bind(NodeId::from("beta")).unwrap();

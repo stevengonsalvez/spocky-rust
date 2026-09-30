@@ -23,12 +23,16 @@ struct Peer {
     failures: u8,
 }
 
-type SocketSender = mpsc::SyncSender<Outbound>;
+#[derive(Clone, Debug)]
+struct SocketSender {
+    frames: mpsc::SyncSender<Message>,
+    control: mpsc::Sender<SocketClose>,
+}
 
 #[derive(Clone, Debug)]
-enum Outbound {
-    Frame(Message),
+enum SocketClose {
     OwnerMoved,
+    SlowConsumer,
 }
 
 struct Shared {
@@ -280,7 +284,7 @@ fn merge_snapshot(shared: &Shared, snapshot: BTreeMap<String, NodeId>) {
 fn close_moved_sockets(shared: &Shared, session: &str) {
     if let Some(sockets) = shared.sockets.lock().unwrap().remove(session) {
         for sender in sockets.into_values() {
-            let _ = sender.try_send(Outbound::OwnerMoved);
+            let _ = sender.control.send(SocketClose::OwnerMoved);
         }
     }
 }
@@ -321,28 +325,38 @@ fn serve_websocket(shared: &Arc<Shared>, stream: TcpStream) {
         return;
     };
     let socket_id = shared.next_socket.fetch_add(1, Ordering::Relaxed);
-    let (sender, receiver) = mpsc::sync_channel(32);
+    let (frame_sender, frame_receiver) = mpsc::sync_channel(32);
+    let (control_sender, control_receiver) = mpsc::channel();
     shared
         .sockets
         .lock()
         .unwrap()
         .entry(session.clone())
         .or_default()
-        .insert(socket_id, sender);
+        .insert(
+            socket_id,
+            SocketSender {
+                frames: frame_sender,
+                control: control_sender,
+            },
+        );
 
     while shared.running.load(Ordering::Relaxed) {
-        match receiver.try_recv() {
-            Ok(Outbound::Frame(frame)) => {
+        match control_receiver.try_recv() {
+            Ok(reason) => {
+                close_socket(&mut socket, &reason);
+                break;
+            }
+            Err(mpsc::TryRecvError::Disconnected | mpsc::TryRecvError::Empty) => {}
+        }
+        match frame_receiver.try_recv() {
+            Ok(frame) => {
                 if socket.send(frame).is_err() {
+                    if let Ok(reason) = control_receiver.try_recv() {
+                        close_socket(&mut socket, &reason);
+                    }
                     break;
                 }
-            }
-            Ok(Outbound::OwnerMoved) => {
-                let _ = socket.close(Some(CloseFrame {
-                    code: CloseCode::Restart,
-                    reason: "Session owner moved".into(),
-                }));
-                break;
             }
             Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => {}
@@ -406,15 +420,41 @@ fn authorize_upgrade(
 }
 
 fn broadcast(shared: &Shared, session: &str, source: u64, frame: &Message) {
-    let sockets = shared.sockets.lock().unwrap();
-    let Some(sockets) = sockets.get(session) else {
+    let mut sessions = shared.sockets.lock().unwrap();
+    let Some(sockets) = sessions.get_mut(session) else {
         return;
     };
-    for (socket_id, sender) in sockets {
+    let mut remove = Vec::new();
+    for (socket_id, sender) in sockets.iter() {
         if *socket_id != source {
-            let _ = sender.try_send(Outbound::Frame(frame.clone()));
+            match sender.frames.try_send(frame.clone()) {
+                Ok(()) => {}
+                Err(mpsc::TrySendError::Full(_)) => {
+                    let _ = sender.control.send(SocketClose::SlowConsumer);
+                    remove.push(*socket_id);
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => remove.push(*socket_id),
+            }
         }
     }
+    let sockets = sessions.get_mut(session).expect("session still registered");
+    for socket_id in remove {
+        sockets.remove(&socket_id);
+    }
+    if sockets.is_empty() {
+        sessions.remove(session);
+    }
+}
+
+fn close_socket(socket: &mut tungstenite::WebSocket<TcpStream>, reason: &SocketClose) {
+    let (code, reason) = match reason {
+        SocketClose::OwnerMoved => (CloseCode::Restart, "Session owner moved"),
+        SocketClose::SlowConsumer => (CloseCode::Again, "Slow consumer"),
+    };
+    let _ = socket.close(Some(CloseFrame {
+        code,
+        reason: reason.into(),
+    }));
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
