@@ -1,11 +1,18 @@
 use std::collections::BTreeSet;
 
 mod local_runtime;
+#[cfg(target_os = "macos")]
+mod macos_delivery;
 
 pub use local_runtime::{
     AndroidDeviceAdapter, AndroidDeviceIdentity, DeliverySnapshot, LocalDeliveryRuntime,
     MacOsAudioAdapter, MacOsAudioEvidence, NativeRuntimeEvidence, PcmFileMetadata, ProcessCommand,
     ProcessResult, RuntimeError, create_pcm16_wav, create_unsigned_package,
+};
+#[cfg(target_os = "macos")]
+pub use macos_delivery::{
+    MacOsAppDeliveryRuntime, MacOsAppDeliverySnapshot, MacOsDeliveryEvidenceReport,
+    MacOsDeliveryEvidenceStep, create_unsigned_macos_app_bundle, run_macos_delivery_feasibility,
 };
 
 use serde::{Deserialize, Serialize};
