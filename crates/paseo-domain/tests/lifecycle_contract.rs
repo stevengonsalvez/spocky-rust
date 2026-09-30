@@ -139,3 +139,37 @@ fn bucket_priority_matches_protocol_contract() {
     assert!(AgentStateBucket::Running.priority() < AgentStateBucket::Attention.priority());
     assert!(AgentStateBucket::Attention.priority() < AgentStateBucket::Done.priority());
 }
+
+#[test]
+fn streamed_completion_returns_idle_and_marks_finished_attention() {
+    let mut agent = agent();
+    agent
+        .initialization_succeeded()
+        .expect("creation reaches idle");
+    agent.send().expect("turn starts");
+
+    agent
+        .complete_streamed_turn()
+        .expect("stream completion settles the turn");
+
+    assert_eq!(agent.lifecycle(), AgentLifecycle::Idle);
+    assert_eq!(agent.attention_reason(), Some(AttentionReason::Finished));
+    assert_eq!(agent.bucket(), AgentStateBucket::Attention);
+}
+
+#[test]
+fn archived_history_can_recover_read_only_without_unarchiving() {
+    let mut agent = agent();
+    agent
+        .initialization_succeeded()
+        .expect("creation reaches idle");
+    agent.archive().expect("agent archives");
+
+    agent
+        .recover_archived_history()
+        .expect("archived history loads");
+
+    assert!(agent.is_archived());
+    assert_eq!(agent.lifecycle(), AgentLifecycle::Idle);
+    assert_eq!(agent.send(), Err(DomainError::Archived));
+}

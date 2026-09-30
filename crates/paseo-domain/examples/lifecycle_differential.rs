@@ -42,13 +42,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let plan = RunPlan {
         scenario: Scenario {
-            id: "cancel-lifecycle-cases".into(),
+            id: "full-lifecycle-runtime".into(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
             initial_files: Vec::new(),
             expected_counts: ExecutionCounts {
-                fixtures: 4,
-                assertions: 16,
+                fixtures: 8,
+                assertions: 26,
             },
         },
         original,

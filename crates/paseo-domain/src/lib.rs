@@ -253,6 +253,21 @@ impl AgentLifecycleMachine {
         Ok(())
     }
 
+    /// Settles a streamed turn and marks its completed output for review.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the agent has a running, non-archived turn.
+    pub fn complete_streamed_turn(&mut self) -> Result<(), DomainError> {
+        self.require_live_state(AgentLifecycle::Running)?;
+        self.lifecycle = AgentLifecycle::Idle;
+        self.pending_permission = None;
+        self.requires_attention = true;
+        self.attention_reason = Some(AttentionReason::Finished);
+        self.last_error = None;
+        Ok(())
+    }
+
     /// Applies provider cancellation outcome semantics.
     ///
     /// # Errors
@@ -324,6 +339,22 @@ impl AgentLifecycleMachine {
         self.pending_permission = None;
         self.attention_reason = None;
         self.requires_attention = false;
+        Ok(())
+    }
+
+    /// Loads an archived agent for read-only history recovery.
+    ///
+    /// The archive marker remains set, so interactive transitions stay rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the archived record is closed.
+    pub fn recover_archived_history(&mut self) -> Result<(), DomainError> {
+        if !self.archived || self.lifecycle != AgentLifecycle::Closed {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.lifecycle = AgentLifecycle::Idle;
+        self.last_error = None;
         Ok(())
     }
 
