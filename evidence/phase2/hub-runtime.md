@@ -253,9 +253,14 @@ requests for missing accounts produce no dispatch value, reset consumes its
 token, revokes every browser session for the account, replaces the password,
 rejects replay, survives restart, and never stores the plaintext replacement.
 Fixed-clock verification and reset tokens expire after one hour across restart.
-Two targeted tests pass with the existing contract, HTTP, invitation, and
-session regressions clean. Packet-level recovery routes, exact email payloads,
-and original-versus-Rust recovery traces remain open.
+Two direct state tests pass. A packet-level test covers open verified signup,
+missing session cookie before verification, the verification redirect and
+session cookie, session lookup, enumeration-resistant reset requests, reset
+callback, session revocation, password replacement, and replay rejection. The
+verification callback also succeeds after the service restarts and loses its
+in-memory email capture. Invite-only registration remains the default, and its
+six HTTP regressions remain clean. Exact email payloads and an
+original-versus-Rust recovery trace remain open.
 
 ## Remaining evidence blockers
 
@@ -272,7 +277,7 @@ and original-versus-Rust recovery traces remain open.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation entitlement races, live provider acceptance, remaining Better Auth
-  validation errors, packet-level recovery, and complete organization HTTP traces
-  remain open.
+  validation errors, recovery differential evidence, and complete organization
+  HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
