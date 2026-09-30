@@ -42,6 +42,18 @@ viewport. Runtime semantics and the Reviewer state transition passed with no
 console messages. This closes the debug-overlay, external-font, and debug-size
 defects. Offline behavior and parity thresholds remain open.
 
+## Browser behavior matrix
+
+The frozen release bundle was rechecked with `agent-browser` in an isolated session against an exact named tmux server on port `8288`.
+
+- A `1280x800` viewport rendered without horizontal or vertical overflow.
+- A `390x844` viewport rendered the navigation above the agent list without horizontal or vertical overflow.
+- Tab focus visited workspace, Implementer, then Reviewer buttons. Enter on Reviewer produced `Selected agent: Reviewer. Status: Waiting.`
+- Chromium reported `prefers-reduced-motion: reduce`; the Implementer interaction still completed.
+- Offline reload failed at `chrome-error://chromewebdata/`. No offline shell or service-worker recovery exists.
+
+The exact browser session, tmux session, and port were stopped after capture. Port `6767` was untouched.
+
 ## Retained raw evidence
 
 Raw files remain ignored under `evidence/raw/phase2/`; build outputs remain under
@@ -59,7 +71,9 @@ ignored `target/`.
 | release `index.html` | 525 | `bfba25ed3e0b6b9aa15fef03671b70f5e907331c097696c5f47362d00fe4caf4` |
 | release JavaScript | 62,992 | `4f1cea41295acc8878f922f83db40674cc95fbe12f119dd7888ec389322f5415` |
 | release WebAssembly | 528,846 | `4bd9f8aa5949bb305eda5e4eaaba7b71999b1953fdc382c9abca4854c743a087` |
+| matrix desktop screenshot | 32,873 | `9fb1ee737dcc495a03eb02ebffcbc6d18bb59e3e317aa48a7633ded347486376` |
+| matrix mobile screenshot | 27,824 | `011da07fccee978f8df0f9956b65f2ca8debb5aba100f8e1842ea9e7f13b8da5` |
+| matrix server log | 739 | `47e36d832d2f5d31c41c21fb350d51f88f9ed1adc6eb897ebe1050aee29773b6` |
 
-No pinned-baseline screenshot comparison, keyboard path, reduced-motion path,
-offline path, responsive viewport matrix, baseline browser packaging, upgrade,
-rollback, or uninstall evidence exists.
+No pinned-baseline screenshot comparison, offline recovery, baseline browser
+packaging, upgrade, rollback, or uninstall evidence exists.
