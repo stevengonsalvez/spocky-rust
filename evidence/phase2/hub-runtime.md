@@ -18,7 +18,7 @@ disposable directory, installs from `package-lock.json`, and leaves the baseline
 checkout unchanged. The lockfile SHA-256 is
 `1547348f61e8f305af4c3790b830ee8db120e80628b4de2eaf39254c40d40274`.
 
-Six targeted files passed 29 of 29 tests with no failures or skips:
+Seven targeted files passed 30 of 30 tests with no failures or skips:
 
 - `embedded-persistence.integration.test.ts`: PGlite state survives restart and
   a second process cannot open the same data directory.
@@ -34,6 +34,8 @@ Six targeted files passed 29 of 29 tests with no failures or skips:
   inactive-plan filtering, template concealment, and mismatched price keys.
 - `provisioning-entitlement.test.ts`: active Free stamping and conservative
   fallback when Free is missing or inactive.
+- `account-state-original.integration.test.ts`: raw signed-out, password-change,
+  app-setup, and active browser account payloads from one bootstrap flow.
 
 The PostgreSQL tests use a disposable `postgres:17-alpine` container. Ryuk is
 disabled because Docker cannot mount the host Colima socket into its VM. The
@@ -94,7 +96,15 @@ idempotency-key shapes. Relational invitation creation and acceptance races now
 pass against disposable PostgreSQL: concurrent creation reuses one live
 credential, concurrent replay accepts once, and one membership remains. HTTP
 response shapes, external mail delivery behavior, entitlement races, and
-complete account-state response selection remain open.
+non-empty account-state invitation selection remain open.
+
+The pinned and Rust runtimes now produce matching four-state browser account
+payloads. The comparison preserves both raw documents and normalizes only
+generated account, organization, membership, and organization-slug identifiers.
+All status, registration, account, organization, role, capability, operator,
+creation, member, and empty-invitation values match. This does not cover invited
+users, multi-membership selection, registration admission, HTTP status, cookies,
+or database mutations across the complete auth API.
 
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
@@ -180,6 +190,7 @@ cargo test -p paseo-hub-pilot --test relational_invitations
 cargo test -p paseo-hub-pilot --test relational_sessions
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
+scripts/phase2/hub-account-state-compare.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
 ```
 
@@ -203,9 +214,12 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,138 | `58c0136983fc11bf693295335448f28fd78aeb53dbc720ad4c4524be7a49aea7` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,337 | `ba186c296b99ea776ea92ce8540dc8ebd472b74bc020fe7c0c2b4e40afa975a0` |
-| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `526d5bbfe377223199d1f68f7fc2da029677bdcc45e43f26a0e7061d538ff69a` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,579 | `8fad5feec97c1feb0e97da278e10ccd7a26889222e52b7488f4882f295d1947a` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,635 | `eee4e60d2d79282d8780b016f1b30a1e81a6948b2b4cc21f651710786360538e` |
+| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `238d7cdcf27a6394e287cfcda895e60c22feebbf44763a7a32f04b252af77f28` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 2,515 | `362483d8d1123789ecb9c22b75e122b2685d3d3b93d73c85b824c98cc690e0f1` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 2,293 | `9e12a4ac4f530412679fff242669c5b4efe6d68ec2c835d4369fe8684c3f8a93` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,091 | `bcb42246db0c7ae3b9fc8b37cd67e23a446f00248a420b63ed1e702bc9d0d56a` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -213,9 +227,10 @@ Capture safety bounds:
 Host: macOS Darwin 24.6.0 x86_64, Rust 1.94.0, Cargo 1.94.0,
 Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
 
-No normalization is applied. Original JSON contains wall-clock start times,
-durations, and disposable paths. The Rust JSON excludes generated paths and
-times by construction.
+No normalization is applied to the runtime test report. Original JSON contains
+wall-clock start times, durations, and disposable paths. The account-state
+comparison normalizes generated identifiers and their slug derivative only;
+both raw payloads and hashes remain available.
 
 ## Remaining evidence blockers
 
@@ -225,12 +240,12 @@ times by construction.
   PostgreSQL differential results do not exist. API-key, invitation, and active-
   session subsets have relational evidence; remaining tables still use
   candidate-only snapshot evidence.
-- Original-versus-Rust HTTP status, body, cookie, and database state differential
-  traces do not exist. Candidate-only authentication and organization-selection
-  packet behavior is covered.
+- Original-versus-Rust account-state bodies match for the four bootstrap states.
+  Broader HTTP status, cookie, invitation, multi-organization, and database-state
+  differential traces do not exist.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation entitlement races, live provider acceptance, HTTP traces, and
-  complete organization state remain open.
+- Invitation entitlement races, live provider acceptance, non-empty team
+  invitation state, and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
