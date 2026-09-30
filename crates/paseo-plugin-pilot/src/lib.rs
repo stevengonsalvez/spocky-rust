@@ -428,6 +428,277 @@ lines.on("line", (line) => {
 });
 "#;
 
+const SELECTED_SERVER_WORKER: &str = r#"
+const handlers = new Map();
+const providers = new Map();
+const usageSources = new Map();
+const hooks = { events: [], before: [] };
+let cleanup;
+
+function send(message) { process.send(message); }
+function describe(error) { return error instanceof Error ? error.message : String(error); }
+function validId(value, label) {
+  const id = String(value ?? "").trim();
+  if (!/^[a-z][a-z0-9._-]*$/.test(id)) throw new Error(`Invalid ${label}: ${value}`);
+  return id;
+}
+function defineRpc(definition) {
+  return { ...definition, name: validId(definition.name, "plugin RPC method") };
+}
+function runtimeRequire(name) {
+  if (name === "@getpaseo/plugin") return { defineRpc };
+  if (name === "@getpaseo/plugin/server" || name === "@getpaseo/plugin/server/provider" ||
+      name === "@getpaseo/plugin/server/acp" || name === "@getpaseo/plugin/server/usage") return {};
+  throw new Error(`Module \"${name}\" is not available in selected plugin worker`);
+}
+function serverContext() {
+  return {
+    handle(contract, handler) {
+      const method = validId(contract && contract.name, "plugin RPC method");
+      if (handlers.has(method)) throw new Error(`Duplicate plugin RPC method: ${method}`);
+      if (typeof handler !== "function") throw new Error(`Plugin RPC ${method} must provide a handler`);
+      handlers.set(method, handler);
+    },
+    registerProvider(provider) {
+      const id = validId(provider && provider.id, "plugin provider ID");
+      if (!String(provider.label ?? "").trim() || typeof provider.connect !== "function") {
+        throw new Error(`Invalid plugin provider: ${id}`);
+      }
+      if (providers.has(id)) throw new Error(`Duplicate plugin provider ID: ${id}`);
+      providers.set(id, provider);
+    },
+    registerUsageSource(source) {
+      const id = validId(source && source.id, "usage source ID");
+      if (!String(source.label ?? "").trim() || typeof source.identify !== "function" ||
+          typeof source.fetch !== "function") throw new Error(`Invalid usage source: ${id}`);
+      if (usageSources.has(id)) throw new Error(`Duplicate usage source: ${id}`);
+      usageSources.set(id, source);
+    },
+    registerSettings() { throw new Error("Settings require the full Paseo worker runtime"); },
+    on(name, handler) {
+      if (typeof handler !== "function") throw new Error(`Invalid event hook: ${name}`);
+      hooks.events.push(String(name));
+      return () => {};
+    },
+    before(name, handler) {
+      if (typeof handler !== "function") throw new Error(`Invalid before hook: ${name}`);
+      hooks.before.push(String(name));
+      return () => {};
+    },
+  };
+}
+
+async function initialize(message) {
+  const evaluate = globalThis.eval;
+  const factory = evaluate(message.bundle);
+  if (typeof factory !== "function") throw new Error("Plugin server bundle is not executable");
+  const exports = factory(runtimeRequire);
+  const contribute = exports && typeof exports === "object" ? exports.default : undefined;
+  if (typeof contribute !== "function") throw new Error("Plugin server bundle must default export a function");
+  cleanup = contribute(serverContext());
+  if (typeof cleanup !== "function") throw new Error("Plugin contribution must return a cleanup function");
+  send({
+    type: "ready",
+    methods: [...handlers.keys()].sort(),
+    providers: [...providers.entries()].sort().map(([id, value]) => ({ id, label: value.label })),
+    usageSources: [...usageSources.entries()].sort().map(([id, value]) => ({ id, label: value.label, discover: typeof value.discover === "function" })),
+    hooks,
+  });
+}
+
+process.on("message", (message) => {
+  void (async () => {
+    if (message.type === "initialize") return initialize(message);
+    if (message.type === "invoke") {
+      const handler = handlers.get(message.method);
+      if (!handler) throw new Error(`Unknown RPC method: ${message.method}`);
+      const output = await handler(message.input, { paseo: {} });
+      send({ type: "result", requestId: message.requestId, output });
+      return;
+    }
+    if (message.type === "shutdown") {
+      await cleanup?.();
+      process.disconnect();
+      return;
+    }
+    throw new Error(`Unsupported selected worker request: ${message.type}`);
+  })().catch((error) => {
+    if (message.type === "invoke") send({ type: "error", requestId: message.requestId, error: describe(error) });
+    else { send({ type: "fatal", error: describe(error) }); process.disconnect(); }
+  });
+});
+"#;
+
+const SELECTED_NODE_FORK_BRIDGE: &str = r#"
+const { fork } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const readline = require("node:readline");
+const source = process.argv[1];
+const worker = path.join(os.tmpdir(), `paseo-selected-plugin-${process.pid}.cjs`);
+fs.writeFileSync(worker, source, { mode: 0o600 });
+const child = fork(worker, [], {
+  serialization: "advanced",
+  stdio: ["ignore", "ignore", "inherit", "ipc"],
+});
+child.on("message", (message) => process.stdout.write(`${JSON.stringify(message)}\n`));
+child.on("error", () => process.exit(1));
+child.on("exit", (code, signal) => {
+  try { fs.unlinkSync(worker); } catch {}
+  process.exit(code ?? (signal ? 1 : 0));
+});
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("close", () => { if (!child.killed) child.kill("SIGKILL"); });
+lines.on("line", (line) => {
+  if (!child.connected) process.exit(1);
+  child.send(JSON.parse(line), (error) => { if (error) process.exit(1); });
+});
+"#;
+
+#[derive(Clone, Debug)]
+pub struct CompiledPluginServer {
+    bundle: String,
+}
+
+impl CompiledPluginServer {
+    #[must_use]
+    pub fn from_bundle(bundle: impl Into<String>) -> Self {
+        Self {
+            bundle: bundle.into(),
+        }
+    }
+
+    pub fn run(
+        &self,
+        plugin_id: &str,
+        plugin_directory: &str,
+        timeout: Duration,
+    ) -> Result<SelectedServerRun, PluginError> {
+        self.run_inner(plugin_id, plugin_directory, None, timeout)
+    }
+
+    pub fn run_and_invoke(
+        &self,
+        plugin_id: &str,
+        plugin_directory: &str,
+        method: &str,
+        input: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<SelectedServerRun, PluginError> {
+        self.run_inner(plugin_id, plugin_directory, Some(&(method, input)), timeout)
+    }
+
+    fn run_inner(
+        &self,
+        plugin_id: &str,
+        plugin_directory: &str,
+        invocation: Option<&(&str, serde_json::Value)>,
+        timeout: Duration,
+    ) -> Result<SelectedServerRun, PluginError> {
+        PluginId::new(plugin_id)?;
+        if invocation.is_some_and(|(method, _)| method.is_empty()) {
+            return Err(PluginError::RuntimeProtocol);
+        }
+        let mut child = Command::new("node")
+            .arg("-e")
+            .arg(SELECTED_NODE_FORK_BRIDGE)
+            .arg("--")
+            .arg(SELECTED_SERVER_WORKER)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let result = exchange_runtime(
+            &mut child,
+            &RuntimeInitialize::new(plugin_id, &self.bundle, "0.8.0-pilot", plugin_directory),
+            invocation.map(|(method, input)| (*method, input.clone())),
+            &[],
+            timeout,
+        );
+        if result.is_err() {
+            terminate_runtime(&mut child);
+        }
+        let (contributions, traffic, invocation_output) = result?;
+        Ok(SelectedServerRun {
+            contributions,
+            traffic,
+            invocation_output,
+            worker_exited: true,
+        })
+    }
+}
+
+pub fn compile_plugin_server(
+    entry: &Path,
+    esbuild: &Path,
+    timeout: Duration,
+) -> Result<CompiledPluginServer, PluginError> {
+    let output = run_bounded(
+        Command::new(esbuild).arg(entry).args([
+            "--bundle",
+            "--format=cjs",
+            "--jsx=automatic",
+            "--platform=node",
+            "--target=node20",
+            "--external:@getpaseo/plugin",
+            "--external:@getpaseo/plugin/*",
+            "--external:zod",
+            "--log-level=warning",
+        ]),
+        timeout,
+    )
+    .map_err(|error| match error {
+        PluginError::CommandFailed(message) => PluginError::ServerCompileFailed(message),
+        other => other,
+    })?;
+    let code = String::from_utf8(output.stdout).map_err(|_| PluginError::InvalidCommandOutput)?;
+    Ok(CompiledPluginServer::from_bundle(format!(
+        "(function(require) {{\nconst module = {{ exports: {{}} }};\nconst exports = module.exports;\n{code}\nreturn module.exports;\n}})"
+    )))
+}
+
+#[derive(Debug)]
+pub struct SelectedServerRun {
+    contributions: Vec<Contribution>,
+    traffic: Vec<RuntimeTraffic>,
+    invocation_output: Option<serde_json::Value>,
+    worker_exited: bool,
+}
+
+impl SelectedServerRun {
+    #[must_use]
+    pub const fn invocation_output(&self) -> Option<&serde_json::Value> {
+        self.invocation_output.as_ref()
+    }
+
+    #[must_use]
+    pub fn contribution_labels(&self) -> Vec<String> {
+        self.contributions
+            .iter()
+            .map(|contribution| match contribution {
+                Contribution::Rpc(id) => format!("rpc:{id}"),
+                Contribution::Provider(id) => format!("provider:{id}"),
+                Contribution::UsageSource(id) => format!("usage:{id}"),
+                Contribution::HookEvent(id) => format!("hook:event:{id}"),
+                Contribution::HookBefore(id) => format!("hook:before:{id}"),
+                Contribution::Surface(id) => format!("surface:{id}"),
+                Contribution::SettingsScreen(id) => format!("settings:{id}"),
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn traffic(&self) -> &[RuntimeTraffic] {
+        &self.traffic
+    }
+
+    #[must_use]
+    pub const fn worker_exited(&self) -> bool {
+        self.worker_exited
+    }
+}
+
 impl AcquiredPlugin {
     #[must_use]
     pub const fn identity(&self) -> &PluginSourceIdentity {
@@ -1405,6 +1676,7 @@ pub enum PluginError {
     RuntimeRequest(String),
     RuntimeFatal(String),
     ClientCompileFailed(String),
+    ServerCompileFailed(String),
     ClientEvaluationFailed(String),
     ClientDisconnected,
     ReviewedRevisionMismatch { expected: String, actual: String },
