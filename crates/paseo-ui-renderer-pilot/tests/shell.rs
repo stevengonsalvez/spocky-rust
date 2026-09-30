@@ -22,6 +22,8 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("Add a project to get started"));
     assert!(first.contains("<svg"));
     assert!(first.contains("viewBox=\"0 0 700 700\""));
+    assert!(first.contains(".mark svg { transform: translateY(-2px); }"));
+    assert!(first.contains(".actions { transform: translateY(-4px); }"));
     assert!(!first.contains("icon-folder::before"));
 }
 

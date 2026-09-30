@@ -64,8 +64,8 @@ button, a { font: inherit; }
   .content { width: 100%; }
   .mark { margin-bottom: 58px; }
   .actions { grid-template-columns: 1fr; gap: 12px; }
-  .mark svg { transform: translateY(27px); }
-  .actions { transform: translateY(-5px); }
+  .mark svg { transform: translateY(-2px); }
+  .actions { transform: translateY(-4px); }
   .action { min-height: 0; padding: 16px; }
   .action-icon { margin-bottom: 10px; }
   .community { bottom: 78px; gap: 23px; }
