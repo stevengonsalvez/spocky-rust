@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use paseo_plugin_pilot::{
@@ -11,6 +12,8 @@ use serde_json::json;
 
 struct TestDir(PathBuf);
 
+static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 impl TestDir {
     fn new() -> Self {
         let nonce = SystemTime::now()
@@ -18,8 +21,9 @@ impl TestDir {
             .expect("clock after epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "paseo-plugin-runtime-{}-{nonce}",
-            std::process::id()
+            "paseo-plugin-runtime-{}-{nonce}-{}",
+            std::process::id(),
+            TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).expect("create test directory");
         Self(path)
@@ -32,7 +36,11 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).expect("remove test directory");
+        match fs::remove_dir_all(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("remove test directory: {error}"),
+        }
     }
 }
 
@@ -195,6 +203,49 @@ fn npm_tarball_acquisition_runs_contribution_process_at_package_version() {
             })).collect::<Vec<_>>(),
         })
     );
+}
+
+#[test]
+fn runtime_rejects_nonzero_exit_after_valid_shutdown_handshake() {
+    let root = TestDir::new();
+    let package = root.path().join("package");
+    fs::create_dir_all(&package).expect("create package");
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@acme/nonzero","version":"1.0.0","files":["paseo-plugin.json","runtime.js"]}"#,
+    )
+    .expect("write package manifest");
+    fs::write(
+        package.join("paseo-plugin.json"),
+        r#"{"id":"nonzero","server":"runtime.js"}"#,
+    )
+    .expect("write plugin manifest");
+    fs::write(
+        package.join("runtime.js"),
+        r#"const readline = require("node:readline");
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.type === "initialize") console.log(JSON.stringify({ type: "ready", contributions: [] }));
+  if (message.type === "shutdown") { console.log(JSON.stringify({ type: "stopped" })); process.exit(7); }
+});
+"#,
+    )
+    .expect("write runtime");
+    let archive_name = run(Command::new("npm")
+        .args(["pack", "--silent"])
+        .current_dir(&package));
+    let archive = package.join(archive_name.lines().last().expect("archive name"));
+    let acquired = acquire_npm_tarball(
+        &archive,
+        "@acme/nonzero",
+        ".",
+        root.path().join("installation"),
+        Duration::from_secs(15),
+    )
+    .expect("acquire npm tarball");
+
+    assert!(acquired.load(Duration::from_secs(5)).is_err());
 }
 
 #[test]

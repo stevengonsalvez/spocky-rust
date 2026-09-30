@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -391,10 +391,24 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(PluginError::InvalidCommandOutput)?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or(PluginError::InvalidCommandOutput)?;
+    let stdout_reader = thread::spawn(move || read_to_end(stdout));
+    let stderr_reader = thread::spawn(move || read_to_end(stderr));
     let deadline = Instant::now() + timeout;
     loop {
-        if child.try_wait()?.is_some() {
-            let output = child.wait_with_output()?;
+        if let Some(status) = child.try_wait()? {
+            let output = Output {
+                status,
+                stdout: join_reader(stdout_reader)?,
+                stderr: join_reader(stderr_reader)?,
+            };
             if output.status.success() {
                 return Ok(output);
             }
@@ -405,10 +419,27 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
         if Instant::now() >= deadline {
             child.kill()?;
             let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
             return Err(PluginError::CommandTimedOut);
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn read_to_end(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn join_reader(
+    reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Vec<u8>, PluginError> {
+    reader
+        .join()
+        .map_err(|_| PluginError::InvalidCommandOutput)?
+        .map_err(PluginError::Io)
 }
 
 fn exchange_runtime(
@@ -457,7 +488,12 @@ fn exchange_runtime(
     }
     let deadline = Instant::now() + timeout;
     loop {
-        if child.try_wait()?.is_some() {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                return Err(PluginError::CommandFailed(format!(
+                    "plugin runtime exited with {status}"
+                )));
+            }
             break;
         }
         if Instant::now() >= deadline {
@@ -741,6 +777,28 @@ impl From<std::io::Error> for PluginError {
 impl From<serde_json::Error> for PluginError {
     fn from(error: serde_json::Error) -> Self {
         Self::Json(error)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::run_bounded;
+    use std::process::Command;
+    use std::time::Duration;
+
+    #[test]
+    fn bounded_command_drains_large_output_before_exit() {
+        let output = run_bounded(
+            Command::new("/bin/sh").args([
+                "-c",
+                "head -c 1048576 /dev/zero; head -c 1048576 /dev/zero >&2",
+            ]),
+            Duration::from_secs(5),
+        )
+        .expect("large output must not block child exit");
+
+        assert_eq!(output.stdout.len(), 1_048_576);
+        assert_eq!(output.stderr.len(), 1_048_576);
     }
 }
 
