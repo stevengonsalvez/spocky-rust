@@ -212,6 +212,7 @@ sh scripts/phase2/hub-account-recovery-capture.test.sh
 scripts/phase2/hub-account-recovery-capture.sh
 sh scripts/phase2/hub-account-recovery-compare.test.sh
 scripts/phase2/hub-account-recovery-compare.sh
+scripts/phase2/hub-embedded-differential.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
 ```
 
@@ -249,6 +250,9 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
+| `evidence/raw/phase2/hub-embedded-differential-bfafe28/pglite.json` | 284 | `84a2e0c15ba3e2e9b4c4d2e7ffe91b633517972df070e672f34782ade1792858` |
+| `evidence/raw/phase2/hub-embedded-differential-bfafe28/rust.json` | 282 | `dae14b39d9729ecaa521b4c9badc2d29e48645de3d8a4b34240b6bae8dea28c4` |
+| `evidence/raw/phase2/hub-embedded-differential-bfafe28/comparison.json` | 992 | `186ffc99ba92e598aa66072d86a7fac1d215163d682db685f9584192ae5dd7a9` |
 
 Host: macOS Darwin 24.6.0 x86_64, Rust 1.94.0, Cargo 1.94.0,
 Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
@@ -288,19 +292,26 @@ payload test covers both messages, including all five escaped HTML characters.
 The Rust candidate opens a real bundled SQLite database, creates a constrained
 schema, commits and rolls back arbitrary SQL transactions, persists Hub state
 across runtime reconstruction, rejects a second live owner of the same data
-directory, and serializes concurrent saves. Four embedded runtime tests and five
-Hub contract tests pass. Crate clippy passes with warnings denied.
+directory, and serializes concurrent saves. A keyed lock now serializes callers
+holding the same logical key. Five embedded runtime tests and five Hub contract
+tests pass. Crate clippy passes with warnings denied.
+
+A process differential runs the pinned Hub PGlite 0.5.4 implementation from an
+immutable archive and the Rust executable against separate disposable data
+directories. Restart, cross-process directory rejection, transaction rollback,
+and same-key serialization match. The comparison reports
+`observableParity=true` and `exactDatabaseParity=false`.
 
 This is feasibility evidence, not embedded database parity. SQLite differs from
 the pinned PGlite/PostgreSQL dialect and storage engine. The pilot persists one
 transactional whole-state row rather than the baseline relational schema and
-does not reproduce PostgreSQL advisory locks.
+does not reproduce the migration journal or PGlite stale-owner lock recovery.
 
 ## Remaining evidence blockers
 
-- Exact PGlite-compatible schema, migrations, keyed lock behavior, crash
-  recovery, and old database fixtures do not exist. The SQLite candidate proves
-  executable embedded SQL and exclusive directory ownership only.
+- Exact PGlite-compatible engine, relational schema, PostgreSQL dialect,
+  migration journal, stale-owner recovery, crash recovery, and old database
+  fixtures do not exist. The process differential preserves these mismatches.
 - Candidate complete baseline-schema PostgreSQL behavior and embedded-versus-
   PostgreSQL differential results do not exist. API-key, invitation, and active-
   session subsets have relational evidence; remaining tables still use
