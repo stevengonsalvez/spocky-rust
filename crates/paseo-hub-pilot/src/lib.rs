@@ -579,7 +579,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 capabilities: browser_capabilities(*role),
                 is_instance_operator: browser_is_instance_operator(&self.state, account),
                 can_create_organization: false,
-                team: browser_team(&self.state, &organization),
+                team: browser_team(&self.state, &organization, self.now_epoch_seconds()),
             };
         }
         if status == BrowserAccountStatus::OrganizationRequired
@@ -928,7 +928,11 @@ fn browser_is_instance_operator(state: &HubState, account: &AccountId) -> bool {
     )
 }
 
-fn browser_team(state: &HubState, organization: &OrganizationId) -> BrowserTeamSummary {
+fn browser_team(
+    state: &HubState,
+    organization: &OrganizationId,
+    now_epoch_seconds: u64,
+) -> BrowserTeamSummary {
     let members = state
         .memberships
         .get(organization)
@@ -945,10 +949,39 @@ fn browser_team(state: &HubState, organization: &OrganizationId) -> BrowserTeamS
             }
         })
         .collect();
+    let invitations = invitations::pending_summaries(state, organization, now_epoch_seconds)
+        .into_iter()
+        .map(|invitation| BrowserManagerInvitationSummary {
+            id: invitation.id,
+            email: invitation.email,
+            role: match invitation.role {
+                InvitationRole::Admin => "admin",
+                InvitationRole::Member => "member",
+            },
+            expires_at: iso_timestamp(invitation.expires_at_epoch_seconds),
+            link: invitation.link,
+        })
+        .collect();
     BrowserTeamSummary {
         members,
-        invitations: Vec::new(),
+        invitations,
     }
+}
+
+fn iso_timestamp(epoch_seconds: u64) -> String {
+    let datetime = time::OffsetDateTime::from_unix_timestamp(
+        i64::try_from(epoch_seconds).expect("invitation timestamp fits i64"),
+    )
+    .expect("invitation timestamp is representable");
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.000Z",
+        datetime.year(),
+        u8::from(datetime.month()),
+        datetime.day(),
+        datetime.hour(),
+        datetime.minute(),
+        datetime.second()
+    )
 }
 
 const fn browser_role(role: Role) -> &'static str {

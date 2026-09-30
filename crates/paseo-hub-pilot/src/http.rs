@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore, HubError, HubPilot,
-    OrganizationId, PasswordChange, SessionToken,
+    InvitationRole, OrganizationId, PasswordChange, SessionToken, iso_timestamp,
 };
 
 const SESSION_COOKIE: &str = "paseo_session";
@@ -45,6 +45,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ("POST", "/api/auth/sign-in/email") => self.sign_in(request),
             ("POST", "/api/auth/paseo/change-password") => self.change_password(request),
             ("POST", "/api/auth/paseo/complete-app-setup") => self.complete_setup(request),
+            ("POST", "/api/auth/paseo/create-invitation") => self.create_invitation(request),
             ("POST", "/api/auth/paseo/select-organization") => self.select_organization(request),
             _ => json_response(404, &ErrorBody { error: "not_found" }),
         }
@@ -232,6 +233,71 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ),
         }
     }
+
+    fn create_invitation(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Some(token) = session_token(request) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Some(account) = self.hub.account_for_session(&token) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Some(organization) = self.hub.active_organization_for_session(&token) else {
+            return json_response(
+                404,
+                &ErrorBody {
+                    error: "organization_unavailable",
+                },
+            );
+        };
+        let Ok(input) = serde_json::from_slice::<CreateInvitationBody>(&request.body) else {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        };
+        match self
+            .hub
+            .create_invitation(&account, &organization, &input.email, input.role)
+        {
+            Ok(invitation) => json_response(
+                201,
+                &ManagerInvitationBody {
+                    id: invitation.id,
+                    email: invitation.email,
+                    role: invitation.role,
+                    expires_at: iso_timestamp(invitation.expires_at_epoch_seconds),
+                    link: invitation.link,
+                },
+            ),
+            Err(HubError::Authority(_) | HubError::InvitationManagementRequired) => {
+                json_response(403, &ErrorBody { error: "forbidden" })
+            }
+            Err(HubError::InvalidInvitationInput) => json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -252,6 +318,22 @@ struct ChangePasswordBody {
 #[serde(rename_all = "camelCase")]
 struct SelectOrganizationBody {
     organization_id: String,
+}
+
+#[derive(Deserialize)]
+struct CreateInvitationBody {
+    email: String,
+    role: InvitationRole,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagerInvitationBody {
+    id: String,
+    email: String,
+    role: InvitationRole,
+    expires_at: String,
+    link: String,
 }
 
 #[derive(Serialize)]
@@ -368,6 +450,7 @@ fn read_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
 fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> io::Result<()> {
     let reason = match response.status {
         200 => "OK",
+        201 => "Created",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",

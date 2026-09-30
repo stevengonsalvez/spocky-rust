@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use paseo_hub_pilot::http::{HubHttpService, serve_one};
+use paseo_hub_pilot::http::{HttpRequest, HubHttpService, serve_one};
 use paseo_hub_pilot::{
-    AccountId, Bootstrap, BrowserAccountStatus, EmbeddedFileStore, HubPilot, OrganizationId,
-    PasswordChange,
+    AccountId, Bootstrap, BrowserAccountStatus, EmbeddedFileStore, HubPilot, InvitationRole,
+    OrganizationId, PasswordChange,
 };
 
 struct TestDir(PathBuf);
@@ -99,6 +99,63 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn active_account_state_includes_pending_manager_invitations() {
+    let root = TestDir::new();
+    let owner = AccountId::from("owner@example.test");
+    let organization = OrganizationId::from("organization-1");
+    let mut hub = HubPilot::open_at(
+        EmbeddedFileStore::open(root.0.join("invitations.json")).unwrap(),
+        1_700_000_000,
+    )
+    .unwrap();
+    hub.bootstrap(Bootstrap {
+        instance_secret: "invitation-state-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: organization.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .unwrap();
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .unwrap();
+    let invitation = hub
+        .create_invitation(
+            &owner,
+            &organization,
+            "MEMBER@EXAMPLE.TEST",
+            InvitationRole::Member,
+        )
+        .unwrap();
+    let session = hub.sign_in(&owner, "replacement-password").unwrap();
+    hub.complete_app_setup(&session).unwrap();
+    let response = HubHttpService::new(hub).handle(&HttpRequest {
+        method: "GET".into(),
+        path: "/api/auth/paseo/state".into(),
+        headers: std::collections::BTreeMap::from([(
+            "cookie".into(),
+            format!("paseo_session={}", session.as_str()),
+        )]),
+        body: Vec::new(),
+    });
+    let state: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        state["team"]["invitations"],
+        serde_json::json!([{
+            "id": invitation.id,
+            "email": "member@example.test",
+            "role": "member",
+            "expiresAt": "2023-11-16T22:13:20.000Z",
+            "link": format!("https://hub.example.test/?invitation={}", invitation.id)
+        }])
+    );
+}
+
+#[test]
 fn packet_level_state_requires_organization_when_multi_membership_session_has_no_selection() {
     let root = TestDir::new();
     let path = root.0.join("organization-required.json");
@@ -157,8 +214,11 @@ fn packet_level_state_requires_organization_when_multi_membership_session_has_no
 fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let root = TestDir::new();
     let path = root.0.join("hub.json");
-    let mut hub =
-        HubPilot::open(EmbeddedFileStore::open(&path).expect("open store")).expect("open hub");
+    let mut hub = HubPilot::open_at(
+        EmbeddedFileStore::open(&path).expect("open store"),
+        1_700_000_000,
+    )
+    .expect("open hub");
     hub.bootstrap(Bootstrap {
         instance_secret: "http-runtime-secret-at-least-32-characters".into(),
         owner: AccountId::from("owner@example.test"),
@@ -171,7 +231,7 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let address = listener.local_addr().expect("listener address");
     let server = thread::spawn(move || {
         let mut service = HubHttpService::new(hub);
-        for _ in 0..8 {
+        for _ in 0..9 {
             let (mut stream, _) = listener.accept().expect("accept request");
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
@@ -233,6 +293,18 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
         r#"{"status":"appSetupRequired","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"organization":{"id":"organization-1","name":"organization-1","slug":"organization-1"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"}],"capabilities":{"view":true,"manageMembers":true,"manageOwners":true,"manageResources":true}}"#
     ));
 
+    let invitation = request(
+        address,
+        "POST",
+        "/api/auth/paseo/create-invitation",
+        Some(cookie),
+        Some(r#"{"email":"MEMBER@EXAMPLE.TEST","role":"member"}"#),
+    );
+    assert!(invitation.starts_with("HTTP/1.1 201 Created\r\n"));
+    assert!(invitation.ends_with(
+        r#"{"id":"invitation-1","email":"member@example.test","role":"member","expiresAt":"2023-11-16T22:13:20.000Z","link":"https://hub.example.test/?invitation=invitation-1"}"#
+    ));
+
     let completed = request(
         address,
         "POST",
@@ -246,7 +318,7 @@ fn packet_level_auth_gate_matches_status_body_cookie_and_restart_state() {
     let active_state = request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
     assert!(active_state.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(active_state.ends_with(
-        r#"{"status":"active","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"}],"organization":{"id":"organization-1","name":"organization-1","slug":"organization-1"},"membership":{"id":"membership:organization-1:owner@example.test","role":"owner"},"capabilities":{"view":true,"manageMembers":true,"manageOwners":true,"manageResources":true},"isInstanceOperator":true,"canCreateOrganization":false,"team":{"members":[{"id":"membership:organization-1:owner@example.test","userId":"owner@example.test","name":"owner","email":"owner@example.test","role":"owner"}],"invitations":[]}}"#
+        r#"{"status":"active","account":{"id":"owner@example.test","name":"owner","email":"owner@example.test"},"memberships":[{"id":"organization-1","name":"organization-1","slug":"organization-1","membershipId":"membership:organization-1:owner@example.test","role":"owner"}],"organization":{"id":"organization-1","name":"organization-1","slug":"organization-1"},"membership":{"id":"membership:organization-1:owner@example.test","role":"owner"},"capabilities":{"view":true,"manageMembers":true,"manageOwners":true,"manageResources":true},"isInstanceOperator":true,"canCreateOrganization":false,"team":{"members":[{"id":"membership:organization-1:owner@example.test","userId":"owner@example.test","name":"owner","email":"owner@example.test","role":"owner"}],"invitations":[{"id":"invitation-1","email":"member@example.test","role":"member","expiresAt":"2023-11-16T22:13:20.000Z","link":"https://hub.example.test/?invitation=invitation-1"}]}}"#
     ));
     server.join().expect("server thread");
 

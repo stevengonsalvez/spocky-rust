@@ -215,19 +215,11 @@ impl<S: DurableHubStore> HubPilot<S> {
         if !self.authorize(actor, organization)?.can_manage_resources() {
             return Err(HubError::InvitationManagementRequired);
         }
-        let now = self.now_epoch_seconds();
-        let mut invitations = self
-            .state
-            .invitations
-            .values()
-            .filter(|invitation| {
-                invitation.organization == *organization
-                    && invitation.status == InvitationStatus::Pending
-                    && invitation.expires_at_epoch_seconds > now
-            })
-            .collect::<Vec<_>>();
-        invitations.sort_by_key(|invitation| invitation.created_sequence);
-        Ok(invitations.into_iter().map(summary).collect())
+        Ok(pending_summaries(
+            &self.state,
+            organization,
+            self.now_epoch_seconds(),
+        ))
     }
 
     pub fn cancel_invitation(
@@ -302,6 +294,24 @@ fn summary(invitation: &StoredInvitation) -> InvitationSummary {
         expires_at_epoch_seconds: invitation.expires_at_epoch_seconds,
         link: format!("{INVITATION_BASE_URL}/?invitation={}", invitation.id),
     }
+}
+
+pub(crate) fn pending_summaries(
+    state: &crate::HubState,
+    organization: &OrganizationId,
+    now_epoch_seconds: u64,
+) -> Vec<InvitationSummary> {
+    let mut invitations = state
+        .invitations
+        .values()
+        .filter(|invitation| {
+            invitation.organization == *organization
+                && invitation.status == InvitationStatus::Pending
+                && invitation.expires_at_epoch_seconds > now_epoch_seconds
+        })
+        .collect::<Vec<_>>();
+    invitations.sort_by_key(|invitation| invitation.created_sequence);
+    invitations.into_iter().map(summary).collect()
 }
 
 fn normalize_email(email: &str) -> Option<String> {
