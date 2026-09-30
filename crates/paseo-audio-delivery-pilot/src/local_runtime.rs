@@ -1,9 +1,14 @@
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use crate::NativeCapability;
 use serde::{Deserialize, Serialize};
@@ -20,6 +25,7 @@ pub struct ProcessResult {
 pub struct ProcessCommand {
     program: OsString,
     args: Vec<OsString>,
+    timeout: Duration,
 }
 
 impl ProcessCommand {
@@ -27,6 +33,7 @@ impl ProcessCommand {
         Self {
             program: program.as_ref().to_owned(),
             args: Vec::new(),
+            timeout: Duration::from_secs(30),
         }
     }
 
@@ -47,19 +54,101 @@ impl ProcessCommand {
         self
     }
 
-    /// Runs the command to completion while capturing both output streams.
+    #[must_use]
+    pub const fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Runs the command within its deadline while draining both output streams.
     ///
     /// # Errors
     ///
-    /// Returns an error when the operating system cannot launch or wait for the process.
+    /// Returns an error when the process times out or the operating system cannot launch or wait
+    /// for it. A timeout terminates the process group on Unix and the child process elsewhere.
     pub fn run(&self) -> io::Result<ProcessResult> {
-        let output = Command::new(&self.program).args(&self.args).output()?;
+        let mut command = Command::new(&self.program);
+        command
+            .args(&self.args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        command.process_group(0);
+
+        let mut child = command.spawn()?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("child stdout pipe is unavailable"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("child stderr pipe is unavailable"))?;
+        let stdout_reader = read_stream(stdout);
+        let stderr_reader = read_stream(stderr);
+        let started = Instant::now();
+
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if started.elapsed() >= self.timeout {
+                terminate_process_tree(&mut child)?;
+                let _ = child.wait();
+                let _ = join_stream(stdout_reader);
+                let _ = join_stream(stderr_reader);
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "process timed out after {} ms: {}",
+                        self.timeout.as_millis(),
+                        self.program.to_string_lossy()
+                    ),
+                ));
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+
         Ok(ProcessResult {
-            exit_code: output.status.code(),
-            stdout: output.stdout,
-            stderr: output.stderr,
+            exit_code: status.code(),
+            stdout: join_stream(stdout_reader)?,
+            stderr: join_stream(stderr_reader)?,
         })
     }
+}
+
+fn read_stream(mut stream: impl Read + Send + 'static) -> thread::JoinHandle<io::Result<Vec<u8>>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })
+}
+
+fn join_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| io::Error::other("output reader thread panicked"))?
+}
+
+#[cfg(unix)]
+fn terminate_process_tree(child: &mut Child) -> io::Result<()> {
+    let process_group = format!("-{}", child.id());
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", "--", &process_group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if killed.success() {
+        Ok(())
+    } else {
+        child.kill()
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_process_tree(child: &mut Child) -> io::Result<()> {
+    child.kill()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

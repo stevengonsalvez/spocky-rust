@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use paseo_audio_delivery_pilot::{
     LocalDeliveryRuntime, ProcessCommand, create_pcm16_wav, create_unsigned_package,
@@ -34,6 +36,53 @@ fn process_adapter_captures_real_stdout_stderr_and_exit_status() {
     assert_eq!(result.exit_code, Some(7));
     assert_eq!(result.stdout, b"runtime-out");
     assert_eq!(result.stderr, b"runtime-err");
+}
+
+#[test]
+fn process_adapter_drains_large_stdout_and_stderr_without_deadlock() {
+    let result = ProcessCommand::new("/bin/sh")
+        .args([
+            "-c",
+            "dd if=/dev/zero bs=1024 count=128 2>/dev/null; dd if=/dev/zero bs=1024 count=128 >&2 2>/dev/null",
+        ])
+        .timeout(Duration::from_secs(2))
+        .run()
+        .expect("large output process completes");
+
+    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.stdout.len(), 128 * 1024);
+    assert_eq!(result.stderr.len(), 128 * 1024);
+}
+
+#[test]
+fn process_adapter_times_out_and_reaps_the_spawned_process_group() {
+    let root = temp_directory("process-timeout");
+    let child_pid = root.join("child.pid");
+    let script = format!(
+        "sleep 30 & child=$!; printf %s $child > '{}'; wait $child",
+        child_pid.display()
+    );
+    let started = Instant::now();
+    let error = ProcessCommand::new("/bin/sh")
+        .args(["-c", &script])
+        .timeout(Duration::from_millis(150))
+        .run()
+        .expect_err("long-running process times out");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert_eq!(error.to_string(), "process timed out after 150 ms: /bin/sh");
+    assert!(started.elapsed() < Duration::from_secs(2));
+
+    let pid = fs::read_to_string(&child_pid).expect("child pid is recorded");
+    let probe = Command::new("/bin/kill")
+        .args(["-0", pid.trim()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("process probe runs");
+    assert!(!probe.success(), "timed-out child process remains alive");
+
+    cleanup(&root);
 }
 
 #[test]
