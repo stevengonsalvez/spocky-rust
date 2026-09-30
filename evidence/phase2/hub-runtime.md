@@ -118,6 +118,10 @@ bodies. Invite-only admission also matches missing, unknown, wrong-email, and
 invalid-email status and error bodies. This does not cover multi-membership
 selection or database mutations across the complete auth API.
 
+Normalization replaces only values equal to canonical captured identities.
+Mutation regressions prove missing IDs, null IDs, and wrong identity references
+remain observable differences.
+
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
 official endpoint, a ten-second request bound, bearer and idempotency headers,
@@ -235,8 +239,8 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-runtime-original.log` | 8,322 | `a445f979dace27130b10a58bafd049410bf81c73316d421209e02a420748279e` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `ab4e70f21eb1f9a983b556fd462aa3844730d679a7a2970da0416b107ad3fd4f` |
 | `evidence/raw/phase2/hub-account-state-original.json` | 6,744 | `f6ba63031d3dfcbcc8bbeccba4a47c70f661ec31aec5ecb2894bd4807aa0ed6e` |
-| `evidence/raw/phase2/hub-account-state-rust.json` | 6,306 | `7857ba12ca25b155d3e002ea25b1259c0fc7c2abd68581870cbafbaf17f3b531` |
-| `evidence/raw/phase2/hub-account-state-comparison.json` | 13,498 | `2335a8d97477a6c1d5e2abf3b679bccaf2ebc2716db8021ac01da0a9ae8e6b57` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 6,306 | `a475b7612eb77763594dd1e379f5662fafa98ced4ecb86631db3a03842739c18` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 13,498 | `87f54ee01f236b25eb10795dff7d0273f63c9903088eb4ebda8a771286f6d85d` |
 | `evidence/raw/phase2/hub-account-recovery-original.json` | 1,727 | `19a464fc6245cf845b43fe40639eba51f53a52c5c60df005fdee2d8ec99595e4` |
 | `evidence/raw/phase2/hub-account-recovery-original.log` | 787 | `5fa5b4b353b684b26cd97c0c6f77c65a45f5cfaea83412fd2a5278cd5eadfb25` |
 | `evidence/raw/phase2/hub-account-recovery-npm-ci.log` | 700 | `ab4e70f21eb1f9a983b556fd462aa3844730d679a7a2970da0416b107ad3fd4f` |
