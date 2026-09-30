@@ -10,6 +10,9 @@ plugin runtime, close `P2-PLUGIN-01`, or establish complete `DPLUGIN-001` parity
 - Rust runtime-capture base: `ca190e4111ff7df6976629c5923d06fe05509068`
 - Rust settings checkpoint: `057d7a9`
 - Host: macOS, `rustc 1.94.0`, Cargo `1.94.0`, Node `v26.7.0`, npm `11.19.0`, Git `2.52.0`
+- Linux qualification: pinned Rust image
+  `sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55`,
+  Rust `1.94.0`, Cargo `1.94.0`, Git `2.39.5`, Node `18.20.4`, npm `9.2.0`
 - Both pinned checkouts were clean before and after capture. The source alias in
   `plugin-vitest.config.mts` avoids generating build output in the baseline.
 
@@ -76,6 +79,9 @@ sources live in disposable temporary directories.
 - Pinned protocol fixture SHA-256: `14f39a3541bc79a13e82354b5d91619f6bc4dcada91dfd095bbf0a191faef252`
 - Raw log SHA-256: `06ff3fc87898fa2f71d36cd6df368cebf045a3cea16854eb734ca709ce24a0be`
 - Raw traffic SHA-256: `8365f9a4ee81b94f8e02f34c0b2bd4891c3c63a00dcde8d9cb91de1163056bd7`
+- Linux selected tests: 17 passed, 0 failed
+- Linux raw log: 3,949 bytes, SHA-256
+  `ca37d06cee8d053e5729b645ad541051637bbecc0a57983cd19a0bb3d1c44c38`
 - Raw artifacts: ignored `evidence/raw/phase2/plugin-runtime.log` and
   `evidence/raw/phase2/plugin-runtime-traffic.json`
 
@@ -92,7 +98,7 @@ sources live in disposable temporary directories.
 - The Rust settings pilot covers the pinned boolean and integer schema used by
   baseline tests. Arbitrary JSON schemas, async refinements, callback error
   reporting, and daemon RPC integration remain open.
-- Windows and Linux acquisition, path, process, failure, and restart runs are absent.
+- Windows acquisition, path, process, failure, and restart runs are absent.
 - Managed checkout deletion and recovery after host termination during staging are
   not exercised against real acquired sources.
 - Two parallel-test fixture collisions were confirmed and repaired with atomic
@@ -105,6 +111,7 @@ sources live in disposable temporary directories.
 
 ```sh
 scripts/phase2/plugin-runtime-capture.sh
+scripts/phase2/plugin-linux-runtime.sh
 cargo test -p paseo-plugin-pilot --test settings_lifecycle
 cargo test -p paseo-plugin-pilot --test process_protocol
 cargo fmt --package paseo-plugin-pilot -- --check
