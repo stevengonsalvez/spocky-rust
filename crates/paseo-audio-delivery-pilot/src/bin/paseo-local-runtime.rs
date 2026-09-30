@@ -2,8 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use paseo_audio_delivery_pilot::{
-    AndroidDeviceAdapter, LocalDeliveryRuntime, NativeCapability, NativeRuntimeEvidence,
-    ProcessCommand, create_pcm16_wav, create_unsigned_package,
+    AndroidDeviceAdapter, LocalDeliveryRuntime, MacOsAudioAdapter, MacOsAudioEvidence,
+    NativeCapability, NativeRuntimeEvidence, ProcessCommand, create_pcm16_wav,
+    create_unsigned_package,
 };
 use serde::Serialize;
 
@@ -16,6 +17,7 @@ struct LocalRuntimeReport {
     host: HostEvidence,
     process: ProcessEvidence,
     audio: AudioEvidence,
+    speech: Option<MacOsAudioEvidence>,
     native: NativeEvidence,
     delivery: DeliveryEvidence,
     limitations: Vec<&'static str>,
@@ -95,21 +97,7 @@ fn run(arguments: Arguments) -> Result<LocalRuntimeReport, Box<dyn std::error::E
         stderr: String::from_utf8_lossy(&process.stderr).into_owned(),
     };
 
-    let audio_path = arguments.root.join("audio").join("silence-16khz.wav");
-    fs::create_dir_all(audio_path.parent().expect("audio artifact has a parent"))?;
-    let audio_metadata = create_pcm16_wav(&audio_path, 16_000, &[0; 1_600])?;
-    let audio_probe = ProcessCommand::new(&arguments.afinfo)
-        .arg(&audio_path)
-        .run()?;
-    let audio = AudioEvidence {
-        artifact: audio_path,
-        sample_rate: audio_metadata.sample_rate,
-        channels: audio_metadata.channels,
-        samples: audio_metadata.samples,
-        file_bytes: audio_metadata.file_bytes,
-        probe_exit_code: audio_probe.exit_code,
-        probe_output: String::from_utf8_lossy(&audio_probe.stdout).into_owned(),
-    };
+    let (audio, speech) = collect_audio(&arguments)?;
 
     let packages = arguments.root.join("packages");
     let package_100 = packages.join("paseo-1.0.0-unsigned");
@@ -176,17 +164,46 @@ fn run(arguments: Arguments) -> Result<LocalRuntimeReport, Box<dyn std::error::E
         },
         process,
         audio,
+        speech,
         native,
         delivery,
         limitations: vec![
             "no_real_microphone_capture",
             "no_audible_playback_assertion",
-            "no_speech_service_credentials",
+            "no_speech_to_text_runtime",
             "no_ios_simulator_or_device",
             "no_signed_package_artifact",
             "no_production_update_execution",
         ],
     })
+}
+
+fn collect_audio(
+    arguments: &Arguments,
+) -> Result<(AudioEvidence, Option<MacOsAudioEvidence>), Box<dyn std::error::Error>> {
+    let audio_path = arguments.root.join("audio/silence-16khz.wav");
+    fs::create_dir_all(audio_path.parent().expect("audio artifact has a parent"))?;
+    let metadata = create_pcm16_wav(&audio_path, 16_000, &[0; 1_600])?;
+    let probe = ProcessCommand::new(&arguments.afinfo)
+        .arg(&audio_path)
+        .run()?;
+    let audio = AudioEvidence {
+        artifact: audio_path,
+        sample_rate: metadata.sample_rate,
+        channels: metadata.channels,
+        samples: metadata.samples,
+        file_bytes: metadata.file_bytes,
+        probe_exit_code: probe.exit_code,
+        probe_output: String::from_utf8_lossy(&probe.stdout).into_owned(),
+    };
+    #[cfg(target_os = "macos")]
+    let speech = Some(MacOsAudioAdapter::system().synthesize_and_play_muted(
+        "Paseo runtime test",
+        &arguments.root.join("audio/speech.aiff"),
+    )?);
+    #[cfg(not(target_os = "macos"))]
+    let speech = None;
+    Ok((audio, speech))
 }
 
 fn parse_arguments() -> Result<Arguments, Box<dyn std::error::Error>> {

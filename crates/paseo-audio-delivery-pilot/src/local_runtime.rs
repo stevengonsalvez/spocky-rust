@@ -303,6 +303,97 @@ impl AndroidDeviceAdapter {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacOsAudioEvidence {
+    pub artifact: PathBuf,
+    pub file_bytes: u64,
+    pub synthesis_exit_code: Option<i32>,
+    pub probe_exit_code: Option<i32>,
+    pub playback_exit_code: Option<i32>,
+    pub probe_output: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacOsAudioAdapter {
+    say: PathBuf,
+    afinfo: PathBuf,
+    afplay: PathBuf,
+}
+
+impl MacOsAudioAdapter {
+    #[must_use]
+    pub fn system() -> Self {
+        Self {
+            say: PathBuf::from("/usr/bin/say"),
+            afinfo: PathBuf::from("/usr/bin/afinfo"),
+            afplay: PathBuf::from("/usr/bin/afplay"),
+        }
+    }
+
+    /// Synthesizes text through the macOS speech service, probes the generated audio, and sends
+    /// it through the system playback engine at zero volume.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty input, process failure, missing output, or filesystem failure.
+    pub fn synthesize_and_play_muted(
+        &self,
+        text: &str,
+        output: &Path,
+    ) -> Result<MacOsAudioEvidence, RuntimeError> {
+        if text.trim().is_empty() {
+            return Err(RuntimeError::InvalidPackage(
+                "speech text must not be empty",
+            ));
+        }
+        let parent = output
+            .parent()
+            .ok_or(RuntimeError::InvalidPackage("speech output has no parent"))?;
+        fs::create_dir_all(parent)?;
+
+        let synthesis = ProcessCommand::new(&self.say)
+            .args([OsStr::new("-o"), output.as_os_str(), OsStr::new(text)])
+            .run()?;
+        require_success("speech synthesis", &synthesis)?;
+        let file_bytes = fs::metadata(output)?.len();
+        if file_bytes == 0 {
+            return Err(RuntimeError::ProcessFailed(
+                "speech synthesis produced an empty artifact".to_owned(),
+            ));
+        }
+
+        let probe = ProcessCommand::new(&self.afinfo).arg(output).run()?;
+        require_success("audio probe", &probe)?;
+        let playback = ProcessCommand::new(&self.afplay)
+            .args([OsStr::new("-v"), OsStr::new("0")])
+            .arg(output)
+            .run()?;
+        require_success("muted playback", &playback)?;
+
+        Ok(MacOsAudioEvidence {
+            artifact: output.to_owned(),
+            file_bytes,
+            synthesis_exit_code: synthesis.exit_code,
+            probe_exit_code: probe.exit_code,
+            playback_exit_code: playback.exit_code,
+            probe_output: String::from_utf8_lossy(&probe.stdout).into_owned(),
+        })
+    }
+}
+
+fn require_success(label: &str, result: &ProcessResult) -> Result<(), RuntimeError> {
+    if result.exit_code == Some(0) {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&result.stderr);
+    Err(RuntimeError::ProcessFailed(format!(
+        "{label} failed with {:?}: {}",
+        result.exit_code,
+        detail.trim()
+    )))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PcmFileMetadata {
     pub sample_rate: u32,

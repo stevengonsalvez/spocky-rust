@@ -25,6 +25,13 @@ fn local_runtime_binary_emits_machine_readable_unsigned_evidence() {
     assert_eq!(report["claim"], "local_unsigned_runtime");
     assert_eq!(report["audio"]["probeExitCode"], 0);
     assert_eq!(report["audio"]["sampleRate"], 16_000);
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(report["speech"]["synthesisExitCode"], 0);
+        assert_eq!(report["speech"]["probeExitCode"], 0);
+        assert_eq!(report["speech"]["playbackExitCode"], 0);
+        assert!(report["speech"]["fileBytes"].as_u64().unwrap() > 4_096);
+    }
     assert_eq!(report["process"]["exitCode"], 7);
     assert_eq!(report["delivery"]["signing"], "unsigned");
     assert_eq!(

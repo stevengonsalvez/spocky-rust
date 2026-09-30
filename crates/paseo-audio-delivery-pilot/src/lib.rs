@@ -4,8 +4,8 @@ mod local_runtime;
 
 pub use local_runtime::{
     AndroidDeviceAdapter, AndroidDeviceIdentity, DeliverySnapshot, LocalDeliveryRuntime,
-    NativeRuntimeEvidence, PcmFileMetadata, ProcessCommand, ProcessResult, RuntimeError,
-    create_pcm16_wav, create_unsigned_package,
+    MacOsAudioAdapter, MacOsAudioEvidence, NativeRuntimeEvidence, PcmFileMetadata, ProcessCommand,
+    ProcessResult, RuntimeError, create_pcm16_wav, create_unsigned_package,
 };
 
 use serde::{Deserialize, Serialize};
