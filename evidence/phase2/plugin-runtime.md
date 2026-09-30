@@ -1,7 +1,8 @@
 # Plugin runtime pilot
 
-Status: passing expanded local macOS runtime evidence. This does not select a
-plugin runtime, close `P2-PLUGIN-01`, or establish complete `DPLUGIN-001` parity.
+Status: selected headless compiled-worker path with expanded local macOS runtime
+evidence. This does not close `P2-PLUGIN-01` or establish complete
+`DPLUGIN-001` platform parity.
 
 ## Provenance
 
@@ -60,6 +61,13 @@ nine real local acquisition/runtime cases, and five settings lifecycle cases:
 11. Put each external Git and npm command in an isolated Unix process group.
     Force a timeout and prove both the shell and its descendant are reaped while
     preserving concurrent stdout and stderr drainage.
+12. Compile server source with the pinned esbuild binary, execute the bundle in
+    the selected bounded Node worker, register RPC, provider, usage, and hook
+    contributions, invoke an RPC, run cleanup, recover from a broken bundle,
+    and start a fresh worker.
+13. Evaluate all 12 inventoried headless client contribution discriminants,
+    execute command, slash-command, transform, and action callbacks, reconnect,
+    time out and reap a worker, and clean every registered contribution.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -75,6 +83,9 @@ all 12 input and 19 event discriminants. Input extras are rejected, event extras
 are stripped, and top-level ID, limit, history, scope, restoration, and turn-state
 boundaries match the pinned schemas.
 
+Nested session configuration, MCP, prompt, permission, persistence, configure,
+catalog, and timeline shapes now enforce the pinned provider boundaries.
+
 Every Git, npm, and subprocess command has a deadline. The npm case cannot contact
 the network and cannot run package lifecycle scripts. Test fixtures and acquired
 sources live in disposable temporary directories.
@@ -86,8 +97,10 @@ sources live in disposable temporary directories.
 - Rust manifest/client protocol: 2 passed, 0 failed
 - Rust acquisition/runtime: 9 passed, 0 failed, repeated twice
 - Rust process envelope: 2 passed, 0 failed
-- Rust provider payload protocol: 4 passed, 0 failed
+- Rust provider payload protocol: 6 passed, 0 failed
 - Rust client compile and evaluator runtime: 2 passed, 0 failed
+- Rust complete headless contribution runtime: 2 passed, 0 failed
+- Rust selected server wrapper: 3 passed, 0 failed
 - Rust bounded-command unit cases: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
@@ -100,21 +113,20 @@ sources live in disposable temporary directories.
   `accb9b37953edddebabd747874b52053e3b3bec6c48a192a36341f8f44f03857`
 - Raw artifacts: ignored `evidence/raw/phase2/plugin-runtime.log` and
   `evidence/raw/phase2/plugin-runtime-traffic.json`
+- Integrated targeted test log SHA-256:
+  `11281da3eedcf9c3129719f3b0a82d32ff86daf49fb9de9b7489112e11d9331a`
+- Integrated clippy log SHA-256:
+  `86767064ae442ce7d55659d73f5c45e03667ac71eb2d648b10857d09cd21c154`
 
 ## Remaining blockers
 
-- The Rust pilot now exercises Node fork IPC with advanced serialization through
-  a bounded bridge. The selected production plugin worker wrapper remains open.
-  Major outer request and message families have bounded process sequences,
-  including fatal restart, hook cancellation, provider reconnect, and
-  daemon-session frames, connection failure, and input rejection.
-- Nested provider config, prompt, permission, catalog, timeline, and error payload
-  schemas remain JSON values pending their detailed schema port.
-- Client source now compiles through the pinned esbuild binary and runs in a
-  bounded Node evaluator. Representative surface, sidebar, and Command Center
-  contributions register; compile and setup failures recover; host disconnect,
-  reconnect generation, cleanup, and evaluator restart execute. iOS, Android,
-  browser, desktop, and the complete client API surface remain open.
+- The selected headless compiled-worker path exists. Settings persistence, live
+  provider connections, usage execution, daemon Paseo API calls, and hook
+  invocation are not wired through that selected wrapper.
+- Client source compiles through the pinned esbuild binary and runs in a bounded
+  Node evaluator. All inventoried headless contribution shapes execute. React,
+  native rendering, menus, navigation, RPC, settings, and host UI still require
+  iOS, Android, browser, and desktop qualification.
 - The Rust settings pilot covers the pinned boolean and integer schema used by
   baseline tests. Arbitrary JSON schemas, async refinements, callback error
   reporting, and daemon RPC integration remain open.
@@ -136,6 +148,8 @@ scripts/phase2/plugin-linux-runtime.sh
 cargo test -p paseo-plugin-pilot --test settings_lifecycle
 cargo test -p paseo-plugin-pilot --test process_protocol
 cargo test -p paseo-plugin-pilot --test client_runtime
+cargo test -p paseo-plugin-pilot --test client_contribution_runtime
+cargo test -p paseo-plugin-pilot --test selected_server_runtime
 cargo fmt --package paseo-plugin-pilot -- --check
 cargo clippy -p paseo-plugin-pilot --all-targets -- -D warnings
 ```
