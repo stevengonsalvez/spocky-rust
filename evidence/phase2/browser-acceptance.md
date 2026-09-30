@@ -31,6 +31,25 @@ failure events are retained. Capture failures write the completed captures and
 the failing capture instrumentation into the attempt comparison JSON before
 exiting. Instrumentation adds no retry or acceptance condition.
 
+## Desktop baseline evidence
+
+Two rejected branded attempts show two original desktop pixel modes. Attempt
+`20260930T225932Z-86610` captured `fad844b5` first and `59709577` on repeat.
+Attempt `20260930T231716Z-32848` captured `fad844b5` for both original passes.
+The candidate captured `59709577` in both attempts. The modes differ by a
+normalized RMSE of `0.0000847864`, localized to the New workspace plus icon.
+
+In the instrumented attempt, both original desktop screenshot probes reported
+328 text characters, 11 loaded stylesheets, loaded fonts, two observed animation
+frames, no images, and no pending requests. Interaction and accessibility passed
+for both desktop runtimes. Original, repeated original, and candidate mobile
+screenshots were identical.
+
+No recorded readiness probe distinguishes the two original desktop pixel modes.
+The exact desktop gate therefore continues to reject the branded comparison.
+Resolution still requires either an approved nondeterminism exception with an
+explicit contract or a source-level fix that renders the icon deterministically.
+
 ## Checks
 
 ```text
