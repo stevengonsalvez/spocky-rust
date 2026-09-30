@@ -55,15 +55,38 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains(".mobile-menu-line:nth-child(2) { top: 5px; }"));
     assert!(first.contains(".mobile-menu-line.short { top: 10px; width: 8px; height: 2px; }"));
     assert!(first.contains("M9 3v18"));
-    assert!(first.contains(".sidebar-empty { margin: 14px 8px 0;"));
+    assert!(first.contains(
+        ".sidebar-empty { margin: 12px 0 0; padding: 16px; display: flex; flex-direction: column;"
+    ));
+    assert!(first.contains(".sidebar-scroll { flex: 1; overflow-y: auto; }"));
+    assert!(first.contains(".sidebar-list-content { min-height: 100%; padding: 2px 8px 16px; }"));
+    assert!(
+        first.contains(".sidebar-empty-copy { display: flex; flex-direction: column; gap: 4px; }")
+    );
+    assert!(first.contains(".sidebar-empty-title { margin: 0; color: #1a1a1e;"));
     assert!(first.contains("font-size: 12px; line-height: normal;"));
-    assert!(first.contains("<div class=\"sidebar-empty-title\">No projects yet</div>"));
+    assert!(first.contains(
+        "<div class=\"sidebar-empty-copy\"><div class=\"sidebar-empty-title\">No projects yet</div>"
+    ));
+    assert!(first.contains("border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px;"));
+    assert!(first.contains(
+        ".action { width: 220px; min-height: 132px; display: flex; flex-direction: column; gap: 12px;"
+    ));
+    assert!(first.contains(
+        ".actions { display: flex; flex-flow: row wrap; justify-content: flex-start; gap: 12px; }"
+    ));
+    assert!(
+        first
+            .contains("<div class=\"action-copy\"><div class=\"action-title\">Add a project</div>")
+    );
     assert!(first.contains("<div>Add project</div>"));
     assert!(
         first.contains(".sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }")
     );
     assert!(!first.contains("content: \"☰\""));
-    assert!(first.contains(".action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }"));
+    assert!(first.contains(
+        ".action-title { display: block; font-size: 14px; line-height: normal; color: #1a1a1e; }"
+    ));
     assert!(first.contains(
         "font-family: system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;"
     ));

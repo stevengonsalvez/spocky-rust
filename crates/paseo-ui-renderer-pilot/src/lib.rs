@@ -15,14 +15,16 @@ button, a { font: inherit; }
 .nav-list > .nav-button { margin: 0 8px; }
 .nav-icon { display: block; width: 14px; height: 14px; flex: none; color: #71717a; }
 .nav-icon svg, .footer-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.sidebar-empty { margin: 14px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
-.sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: normal; }
+.sidebar-scroll { flex: 1; overflow-y: auto; }
+.sidebar-list-content { min-height: 100%; padding: 2px 8px 16px; }
+.sidebar-empty { margin: 12px 0 0; padding: 16px; display: flex; flex-direction: column; border: 1px solid #e4e4e7; border-radius: 8px; color: #000; font-size: 16px; }
+.sidebar-empty-copy { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-empty-title { margin: 0; color: #1a1a1e; font-size: 12px; line-height: normal; }
 .sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: normal; }
 .sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }
 .sidebar-empty-actions button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
 .sidebar-empty-actions button:last-child { border-color: #ececf1; background: transparent; }
 .sidebar-empty-actions .nav-icon { width: 12px; height: 12px; color: currentColor; }
-.sidebar-spacer { flex: 1; }
 .sidebar-footer { min-height: 57px; display: flex; align-items: center; gap: 8px; padding: 12px 8px; border-top: 1px solid #e4e4e7; }
 .sidebar-footer .nav-button:first-child { min-width: 0; min-height: 32px; flex: 1; padding: 6px 8px; }
 .footer-icon { display: block; width: 16px; height: 16px; flex: none; color: #71717a; }
@@ -38,13 +40,14 @@ button, a { font: inherit; }
 .content { width: min(452px, 100%); margin: 0 auto; }
 .mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }
 .mark svg { display: block; width: 52px; height: 52px; fill: #1a1a1e; transform: translateY(-6px); }
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.action { min-height: 132px; padding: 16px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fafafa; color: #1a1a1e; text-align: left; cursor: pointer; }
+.actions { display: flex; flex-flow: row wrap; justify-content: flex-start; gap: 12px; }
+.action { width: 220px; min-height: 132px; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fafafa; color: #000; text-align: left; cursor: pointer; }
 .action:hover, .action:focus-visible { border-color: #aeb0b9; box-shadow: 0 1px 4px rgb(28 29 34 / 10%); outline: 2px solid #8ba9d8; outline-offset: 2px; }
-.action-icon { display: block; width: 20px; height: 20px; margin-bottom: 12px; color: #71717a; }
+.action-icon { display: block; width: 20px; height: 20px; color: #71717a; }
 .action:first-child .action-icon { color: #20744a; }
 .action-icon svg { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }
+.action-copy { display: flex; flex-direction: column; gap: 4px; }
+.action-title { display: block; font-size: 14px; line-height: normal; color: #1a1a1e; }
 .action-detail { display: block; color: #71717a; font-size: 14px; line-height: 18px; }
 .community { position: absolute; right: 0; bottom: 44px; left: 0; display: flex; justify-content: center; gap: 0; color: #71717a; font-size: 14px; }
 .community a { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; color: inherit; text-decoration: none; }
@@ -63,10 +66,9 @@ button, a { font: inherit; }
   .workspace { min-height: 100vh; padding: 114px 24px 92px; }
   .content { width: 100%; }
   .mark { margin-bottom: 58px; }
-  .actions { grid-template-columns: 1fr; gap: 12px; }
   .mark svg { transform: translateY(-2px); }
   .actions { transform: translateY(-4px); }
-  .action { min-height: 0; padding: 16px; }
+  .action { width: 100%; min-height: 0; padding: 16px; }
   .community { bottom: 72px; }
 }
 "#;
@@ -245,15 +247,20 @@ pub fn PaseoShell() -> Element {
                     button { class: "nav-button", aria_label: "Search", span { class: "nav-icon", {sidebar_icon(SidebarIcon::Search)} } "Search" }
                     button { class: "nav-button", aria_label: "Schedules", span { class: "nav-icon", {sidebar_icon(SidebarIcon::CalendarClock)} } "Schedules" }
                 }
-                div { class: "sidebar-empty",
-                    div { class: "sidebar-empty-title", "No projects yet" }
-                    div { class: "sidebar-empty-detail", "Add a project to get started" }
-                    div { class: "sidebar-empty-actions",
-                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } div { "Add project" } }
-                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Import)} } div { "Import session" } }
+                div { class: "sidebar-scroll",
+                    div { class: "sidebar-list-content",
+                        div { class: "sidebar-empty",
+                            div { class: "sidebar-empty-copy",
+                                div { class: "sidebar-empty-title", "No projects yet" }
+                                div { class: "sidebar-empty-detail", "Add a project to get started" }
+                            }
+                            div { class: "sidebar-empty-actions",
+                                button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } div { "Add project" } }
+                                button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Import)} } div { "Import session" } }
+                            }
+                        }
                     }
                 }
-                div { class: "sidebar-spacer" }
                 div { class: "sidebar-footer",
                     button { class: "nav-button", span { class: "footer-icon", {sidebar_icon(SidebarIcon::FolderPlus)} } "Add project" }
                     button { class: "nav-button icon-button", aria_label: "Hosts", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Server)} } }
@@ -292,8 +299,10 @@ pub fn PaseoShell() -> Element {
                                     }
                                 },
                                 span { class: "action-icon", {project_icon(action.icon)} }
-                                span { class: "action-title", "{action.title}" }
-                                span { class: "action-detail", "{action.detail}" }
+                                div { class: "action-copy",
+                                    div { class: "action-title", "{action.title}" }
+                                    div { class: "action-detail", "{action.detail}" }
+                                }
                             }
                         }
                     }
