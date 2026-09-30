@@ -110,7 +110,7 @@ fn project_icon(icon: ProjectIcon) -> Element {
     match icon {
         ProjectIcon::FolderOpen => rsx! {
             svg { view_box: "0 0 24 24",
-                path { d: "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.45 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H19a2 2 0 0 1 2 2v2" }
+                path { d: "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" }
             }
         },
         ProjectIcon::Inbox => rsx! {
@@ -124,7 +124,7 @@ fn project_icon(icon: ProjectIcon) -> Element {
                 path { d: "M12 22v-5" }
                 path { d: "M9 8V2" }
                 path { d: "M15 8V2" }
-                path { d: "M18 8v5a6 6 0 0 1-12 0V8Z" }
+                path { d: "M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" }
             }
         },
     }

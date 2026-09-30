@@ -24,6 +24,12 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("viewBox=\"0 0 700 700\""));
     assert!(first.contains(".mark svg { transform: translateY(-2px); }"));
     assert!(first.contains(".actions { transform: translateY(-4px); }"));
+    assert!(first.contains("1.95 1.5H4"));
+    assert!(first.contains("0 0 0 1.67.9H18"));
+    assert!(first.contains("M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"));
+    assert!(!first.contains("1.95 1.5H5"));
+    assert!(!first.contains("0 0 0 1.67.9H19"));
+    assert!(!first.contains("M18 8v5a6 6"));
     assert!(!first.contains("icon-folder::before"));
 }
 
