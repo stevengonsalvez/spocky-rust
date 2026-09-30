@@ -21,10 +21,11 @@ The fixture includes nested provider options, MCP configuration, runtime metadat
 - Rust exit: `0`
 - Expected counts: one fixture, five assertions
 - Differences: none
-- Raw manifest SHA-256: `eae10bedf5e4797b92dee24fa795384874a0da6217828aed854deb6cb2bc2186`
+- Raw manifest SHA-256: `32e0866aee12ad95a3598e0b1f41f6062ec7ce7439b772cf5c64b9d9dbb0f7ed`
 - Raw manifest: ignored local artifact at `evidence/raw/phase2/store-differential.json`
 
 The first valid comparison exposed sorted Rust object keys in the persisted file. Enabling `serde_json` `preserve_order` made persisted bytes match the original insertion order.
+Both drivers derive the five-assertion count from completed write, file, restart, identity, and value checks.
 
 ## Reproduction
 
