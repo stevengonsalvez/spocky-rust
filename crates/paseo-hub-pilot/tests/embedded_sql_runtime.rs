@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Barrier;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -135,4 +136,54 @@ fn embedded_sql_serializes_concurrent_state_transactions() {
     assert!(bytes == b"writer-a" || bytes == b"writer-b");
     assert!(EmbeddedSqlStore::LIMITATIONS.contains("not PGlite"));
     assert!(EmbeddedSqlStore::LIMITATIONS.contains("whole-state snapshot"));
+}
+
+#[test]
+fn embedded_sql_serializes_callers_holding_the_same_key() {
+    let root = TestDir::new();
+    let store = Arc::new(EmbeddedSqlStore::open(&root.0).expect("open embedded SQL"));
+    let first_entered = Arc::new(Barrier::new(2));
+    let release_first = Arc::new(Barrier::new(2));
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let first = {
+        let store = Arc::clone(&store);
+        let first_entered = Arc::clone(&first_entered);
+        let release_first = Arc::clone(&release_first);
+        let events = Arc::clone(&events);
+        thread::spawn(move || {
+            store
+                .with_lock("shared", || {
+                    events.lock().expect("events").push("first:start");
+                    first_entered.wait();
+                    release_first.wait();
+                    events.lock().expect("events").push("first:end");
+                    Ok(())
+                })
+                .expect("first lock");
+        })
+    };
+    first_entered.wait();
+    let second = {
+        let store = Arc::clone(&store);
+        let events = Arc::clone(&events);
+        thread::spawn(move || {
+            store
+                .with_lock("shared", || {
+                    events.lock().expect("events").push("second:start");
+                    events.lock().expect("events").push("second:end");
+                    Ok(())
+                })
+                .expect("second lock");
+        })
+    };
+    thread::sleep(std::time::Duration::from_millis(25));
+    assert_eq!(*events.lock().expect("events"), ["first:start"]);
+    release_first.wait();
+    first.join().expect("join first");
+    second.join().expect("join second");
+    assert_eq!(
+        *events.lock().expect("events"),
+        ["first:start", "first:end", "second:start", "second:end"]
+    );
 }

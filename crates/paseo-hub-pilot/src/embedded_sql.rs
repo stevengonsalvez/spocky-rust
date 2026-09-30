@@ -1,8 +1,9 @@
 //! Executable embedded SQL pilot for durable Hub state.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
@@ -20,6 +21,7 @@ const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS hub_state (
 pub struct EmbeddedSqlStore {
     connection: Mutex<Connection>,
     data_directory: PathBuf,
+    keyed_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl EmbeddedSqlStore {
@@ -45,6 +47,7 @@ impl EmbeddedSqlStore {
         Ok(Self {
             connection: Mutex::new(connection),
             data_directory,
+            keyed_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -90,6 +93,24 @@ impl EmbeddedSqlStore {
         let result = operation(&transaction)?;
         transaction.commit()?;
         Ok(result)
+    }
+
+    /// Runs one operation at a time for a shared in-process lock key.
+    pub fn with_lock<T>(
+        &self,
+        key: &str,
+        operation: impl FnOnce() -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let lock = {
+            let mut keyed_locks = self.keyed_locks.lock().map_err(|_| StoreError::Poisoned)?;
+            Arc::clone(
+                keyed_locks
+                    .entry(key.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let _guard = lock.lock().map_err(|_| StoreError::Poisoned)?;
+        operation()
     }
 
     #[must_use]
