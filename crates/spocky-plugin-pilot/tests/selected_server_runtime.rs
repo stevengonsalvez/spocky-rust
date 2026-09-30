@@ -3,7 +3,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
-use spocky_plugin_pilot::{CompiledPluginServer, compile_plugin_server};
+use spocky_plugin_pilot::{
+    CompiledPluginServer, HookKind, PluginProcessMessage, PluginProcessRequest,
+    ProviderConnectRequest, ProviderEvent, ProviderInput, RuntimeProtocolStep,
+    compile_plugin_server,
+};
 
 const SERVER_BUNDLE: &str = r#"(function(require) {
   const { defineRpc } = require("@getpaseo/plugin");
@@ -14,6 +18,52 @@ const SERVER_BUNDLE: &str = r#"(function(require) {
     server.before("agent.create", () => {});
     server.registerProvider({ id: "direct", label: "Direct", connect() {} });
     server.registerUsageSource({ id: "credits", label: "Credits", input: {}, identify() {}, fetch() {} });
+    return () => {};
+  } };
+})"#;
+
+const FULL_SERVER_BUNDLE: &str = r#"(function(require) {
+  const { defineRpc, defineSettings } = require("@getpaseo/plugin");
+  return { default(server) {
+    const preferences = server.registerSettings(defineSettings({
+      id: "preferences",
+      scope: "host",
+      version: 1,
+      schema: { async parseAsync(value) { return { enabled: value.enabled ?? true }; } },
+    }));
+    preferences.subscribe((state) => { globalThis.lastSettings = state; });
+    server.handle(defineRpc({ name: "settings.snapshot", input: {}, output: {} }), async () => ({
+      current: await preferences.read(),
+      observed: globalThis.lastSettings ?? null,
+    }));
+    server.handle(defineRpc({ name: "daemon.sessions", input: {}, output: {} }), async (_, { paseo }) =>
+      paseo.sessions.list({ limit: 2 }));
+    server.on("session.created", (input) => ({ observed: input.id }));
+    server.before("session.prompt", async (_input, { signal }) =>
+      new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("cancelled")))));
+    server.registerUsageSource({
+      id: "credits",
+      label: "Credits",
+      input: { async parseAsync(value) { return value; } },
+      identify: async (input) => ({ account: input.token }),
+      fetch: async (input) => ({ remaining: input.account.length }),
+      discover: async () => [{ token: "found" }],
+    });
+    server.registerProvider({
+      id: "direct",
+      label: "Direct",
+      async connect(request) {
+        if (request.capabilities.includes("fail")) throw new Error("unavailable");
+        let listener = () => {};
+        return {
+          version: 2,
+          capabilities: ["sessions"],
+          onEvent(next) { listener = next; return () => { listener = () => {}; }; },
+          async send(input) { listener({ type: "sessions", requestId: input.requestId, sessions: [] }); },
+          async close() {},
+        };
+      },
+    });
     return () => {};
   } };
 })"#;
@@ -112,4 +162,198 @@ fn selected_wrapper_reports_failure_and_recovers_with_fresh_worker() {
             .run("selected", "/tmp/selected-plugin", Duration::from_secs(5))
             .is_ok()
     );
+}
+
+fn result(request_id: &str, output: serde_json::Value) -> RuntimeProtocolStep {
+    RuntimeProtocolStep::Receive(PluginProcessMessage::Result {
+        request_id: request_id.into(),
+        output,
+    })
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn selected_wrapper_routes_headless_plugin_contracts_and_persists_settings() {
+    let root = std::env::temp_dir().join(format!(
+        "spocky-selected-full-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let settings = root.join("settings");
+    fs::create_dir_all(&root).expect("create fixture root");
+    let compiled = CompiledPluginServer::from_bundle(FULL_SERVER_BUNDLE);
+    let connect = |capabilities: Vec<String>, connection_id: &str| {
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderConnect {
+            provider_id: "direct".into(),
+            connection_id: connection_id.into(),
+            request: ProviderConnectRequest {
+                versions: vec![1, 2],
+                capabilities,
+            },
+        })
+    };
+    let steps = vec![
+        RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+            request_id: "settings-read-1".into(),
+            method: "settings.preferences.read".into(),
+            input: json!({}),
+        }),
+        result(
+            "settings-read-1",
+            json!({"status":"ready","revision":"missing","values":{"enabled":true}}),
+        ),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+            request_id: "settings-write".into(),
+            method: "settings.preferences.write".into(),
+            input: json!({"revision":"missing","values":{"enabled":false}}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::SettingsChanged {
+            settings_id: "preferences".into(),
+        }),
+        result(
+            "settings-write",
+            json!({"status":"saved","revision":"c5bc420158555027be715d6b00845243be72562dd1147c0095c9f40f3971e8c6","values":{"enabled":false}}),
+        ),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageIdentify {
+            request_id: "usage-identify".into(),
+            source_id: "credits".into(),
+            input: json!({"token":"acct"}),
+        }),
+        result("usage-identify", json!({"account":"acct"})),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageFetch {
+            request_id: "usage-fetch".into(),
+            source_id: "credits".into(),
+            input: json!({"account":"acct"}),
+        }),
+        result("usage-fetch", json!({"remaining":4})),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageDiscover {
+            request_id: "usage-discover".into(),
+            source_id: "credits".into(),
+        }),
+        result("usage-discover", json!([{"token":"found"}])),
+        connect(vec!["sessions".into()], "connection-1"),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderConnected {
+            connection_id: "connection-1".into(),
+            version: 2,
+            capabilities: vec!["sessions".into()],
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderSend {
+            connection_id: "connection-1".into(),
+            acceptance_id: "accept-1".into(),
+            input: ProviderInput::Sessions {
+                request_id: "sessions-1".into(),
+                query: None,
+                cwd: None,
+                limit: None,
+            },
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderEvent {
+            connection_id: "connection-1".into(),
+            event: ProviderEvent::Sessions {
+                request_id: "sessions-1".into(),
+                sessions: vec![],
+            },
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderAccepted {
+            connection_id: "connection-1".into(),
+            acceptance_id: "accept-1".into(),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderClose {
+            connection_id: "connection-1".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderClosed {
+            connection_id: "connection-1".into(),
+            error: None,
+        }),
+        connect(vec!["fail".into()], "connection-failed"),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderConnectFailed {
+            connection_id: "connection-failed".into(),
+            error: "unavailable".into(),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Hook {
+            request_id: "event-hook".into(),
+            kind: HookKind::Event,
+            name: "session.created".into(),
+            input: json!({"id":"session-1"}),
+        }),
+        result("event-hook", json!({"observed":"session-1"})),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Hook {
+            request_id: "before-hook".into(),
+            kind: HookKind::Before,
+            name: "session.prompt".into(),
+            input: json!({}),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::HookCancel {
+            request_id: "before-hook".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::Error {
+            request_id: "before-hook".into(),
+            error: "cancelled".into(),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+            request_id: "daemon-call".into(),
+            method: "daemon.sessions".into(),
+            input: json!({}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::PaseoFrame {
+            data: json!(
+                r#"{"type":"request","requestId":"paseo-1","method":"sessions.list","input":{"limit":2}}"#
+            ),
+            is_binary: false,
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::PaseoFrame {
+            data: json!(r#"{"type":"response","requestId":"paseo-1","output":{"entries":[]}}"#),
+            is_binary: false,
+        }),
+        result("daemon-call", json!({"entries":[]})),
+    ];
+
+    let run = compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &steps,
+            Duration::from_secs(5),
+        )
+        .expect("run full selected worker flow");
+    assert!(run.worker_exited());
+    assert!(settings.join("preferences.json").is_file());
+    assert!(
+        fs::read_dir(&settings)
+            .expect("read settings")
+            .all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp"))
+    );
+
+    let persisted = compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &[
+                RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+                    request_id: "snapshot".into(),
+                    method: "settings.snapshot".into(),
+                    input: json!({}),
+                }),
+                result(
+                    "snapshot",
+                    json!({
+                        "current":{"status":"ready","revision":"c5bc420158555027be715d6b00845243be72562dd1147c0095c9f40f3971e8c6","values":{"enabled":false}},
+                        "observed":null
+                    }),
+                ),
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("fresh worker reads persisted settings");
+    assert!(persisted.worker_exited());
+    fs::remove_dir_all(root).expect("remove fixture root");
 }

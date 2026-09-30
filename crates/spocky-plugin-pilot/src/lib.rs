@@ -429,14 +429,28 @@ lines.on("line", (line) => {
 "#;
 
 const SELECTED_SERVER_WORKER: &str = r#"
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const handlers = new Map();
 const providers = new Map();
 const usageSources = new Map();
-const hooks = { events: [], before: [] };
+const hookHandlers = { event: new Map(), before: new Map() };
+const hookRequests = new Map();
+const settings = new Map();
+const connections = new Map();
+const paseoRequests = new Map();
+let paseoSequence = 0;
+let settingsDirectory;
 let cleanup;
 
 function send(message) { process.send(message); }
 function describe(error) { return error instanceof Error ? error.message : String(error); }
+function jsonValue(value) {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new Error("Plugin value is not JSON-serializable");
+  return JSON.parse(encoded);
+}
 function validId(value, label) {
   const id = String(value ?? "").trim();
   if (!/^[a-z][a-z0-9._-]*$/.test(id)) throw new Error(`Invalid ${label}: ${value}`);
@@ -445,20 +459,118 @@ function validId(value, label) {
 function defineRpc(definition) {
   return { ...definition, name: validId(definition.name, "plugin RPC method") };
 }
+function defineSettings(definition) {
+  const id = validId(definition && definition.id, "settings ID");
+  if (definition.scope !== "host" || !Number.isSafeInteger(definition.version) || definition.version < 1 ||
+      !definition.schema || typeof definition.schema.parseAsync !== "function") {
+    throw new Error(`Invalid settings definition: ${id}`);
+  }
+  return { ...definition, id };
+}
 function runtimeRequire(name) {
-  if (name === "@getpaseo/plugin") return { defineRpc };
+  if (name === "@getpaseo/plugin") return { defineRpc, defineSettings };
   if (name === "@getpaseo/plugin/server" || name === "@getpaseo/plugin/server/provider" ||
       name === "@getpaseo/plugin/server/acp" || name === "@getpaseo/plugin/server/usage") return {};
   throw new Error(`Module \"${name}\" is not available in selected plugin worker`);
 }
+function revision(raw) { return crypto.createHash("sha256").update(raw).digest("hex"); }
+async function stored(definition) {
+  if (!settingsDirectory) return { raw: null, revision: "missing" };
+  try {
+    const raw = await fs.promises.readFile(path.join(settingsDirectory, `${definition.id}.json`), "utf8");
+    return { raw, revision: revision(raw) };
+  } catch (error) {
+    if (error && error.code === "ENOENT") return { raw: null, revision: "missing" };
+    throw error;
+  }
+}
+async function readSettings(current) {
+  const saved = await stored(current.definition);
+  try {
+    const envelope = saved.raw === null ? null : JSON.parse(saved.raw);
+    if (envelope && envelope.version !== current.definition.version) {
+      throw new Error("Settings version requires migration in the full worker");
+    }
+    const values = jsonValue(await current.definition.schema.parseAsync(envelope?.values ?? {}));
+    return { status: "ready", revision: saved.revision, values };
+  } catch (error) {
+    return { status: "invalid", revision: saved.revision, error: describe(error) };
+  }
+}
+async function persistSettings(current, values) {
+  if (!settingsDirectory) throw new Error("Plugin settings storage is unavailable");
+  await fs.promises.mkdir(settingsDirectory, { recursive: true });
+  const target = path.join(settingsDirectory, `${current.definition.id}.json`);
+  const temporary = `${target}.${crypto.randomUUID()}.tmp`;
+  const raw = JSON.stringify({ version: current.definition.version, values });
+  try {
+    await fs.promises.writeFile(temporary, raw, { mode: 0o600 });
+    await fs.promises.rename(temporary, target);
+  } finally {
+    await fs.promises.rm(temporary, { force: true });
+  }
+  return revision(raw);
+}
+async function writeSettings(current, input, reset) {
+  const saved = await stored(current.definition);
+  if (saved.revision !== input.revision) {
+    return { status: "conflict", error: "Settings changed on another client. Reload before saving again." };
+  }
+  try {
+    const values = jsonValue(await current.definition.schema.parseAsync(reset ? {} : input.values));
+    const nextRevision = await persistSettings(current, values);
+    const state = { status: "ready", revision: nextRevision, values };
+    for (const listener of current.listeners) await listener(structuredClone(state));
+    send({ type: "settings.changed", settingsId: current.definition.id });
+    return { status: "saved", revision: nextRevision, values };
+  } catch (error) {
+    return { status: "invalid", error: describe(error) };
+  }
+}
+function registerHandler(contract, handler) {
+  const method = validId(contract && contract.name, "plugin RPC method");
+  if (handlers.has(method)) throw new Error(`Duplicate plugin RPC method: ${method}`);
+  if (typeof handler !== "function") throw new Error(`Plugin RPC ${method} must provide a handler`);
+  handlers.set(method, { contract, handler });
+}
+function registerSettings(definition) {
+  if (!settingsDirectory) throw new Error("Plugin settings storage is unavailable");
+  definition = defineSettings(definition);
+  if (settings.has(definition.id)) throw new Error(`Duplicate settings: ${definition.id}`);
+  const current = { definition, listeners: new Set() };
+  settings.set(definition.id, current);
+  registerHandler({ name: `settings.${definition.id}.read` }, () => readSettings(current));
+  registerHandler({ name: `settings.${definition.id}.write` }, (input) => writeSettings(current, input, false));
+  registerHandler({ name: `settings.${definition.id}.reset` }, (input) => writeSettings(current, input, true));
+  return {
+    read: () => readSettings(current),
+    subscribe(listener) {
+      current.listeners.add(listener);
+      return () => current.listeners.delete(listener);
+    },
+  };
+}
+function addHook(kind, name, handler) {
+  if (typeof handler !== "function") throw new Error(`Invalid ${kind} hook: ${name}`);
+  const normalized = String(name);
+  const entries = hookHandlers[kind].get(normalized) ?? new Set();
+  entries.add(handler);
+  hookHandlers[kind].set(normalized, entries);
+  return () => entries.delete(handler);
+}
+function paseoRequest(method, input) {
+  const requestId = `paseo-${++paseoSequence}`;
+  send({ type: "paseo_frame", data: JSON.stringify({ type: "request", requestId, method, input }), isBinary: false });
+  return new Promise((resolve, reject) => paseoRequests.set(requestId, { resolve, reject }));
+}
+const paseo = {
+  request: paseoRequest,
+  sessions: { list: (input) => paseoRequest("sessions.list", input) },
+  agents: { list: (input) => paseoRequest("agents.list", input) },
+};
 function serverContext() {
   return {
-    handle(contract, handler) {
-      const method = validId(contract && contract.name, "plugin RPC method");
-      if (handlers.has(method)) throw new Error(`Duplicate plugin RPC method: ${method}`);
-      if (typeof handler !== "function") throw new Error(`Plugin RPC ${method} must provide a handler`);
-      handlers.set(method, handler);
-    },
+    handle: registerHandler,
     registerProvider(provider) {
       const id = validId(provider && provider.id, "plugin provider ID");
       if (!String(provider.label ?? "").trim() || typeof provider.connect !== "function") {
@@ -474,21 +586,14 @@ function serverContext() {
       if (usageSources.has(id)) throw new Error(`Duplicate usage source: ${id}`);
       usageSources.set(id, source);
     },
-    registerSettings() { throw new Error("Settings require the full Spocky worker runtime"); },
-    on(name, handler) {
-      if (typeof handler !== "function") throw new Error(`Invalid event hook: ${name}`);
-      hooks.events.push(String(name));
-      return () => {};
-    },
-    before(name, handler) {
-      if (typeof handler !== "function") throw new Error(`Invalid before hook: ${name}`);
-      hooks.before.push(String(name));
-      return () => {};
-    },
+    registerSettings,
+    on: (name, handler) => addHook("event", name, handler),
+    before: (name, handler) => addHook("before", name, handler),
   };
 }
 
 async function initialize(message) {
+  settingsDirectory = message.settingsDirectory;
   const evaluate = globalThis.eval;
   const factory = evaluate(message.bundle);
   if (typeof factory !== "function") throw new Error("Plugin server bundle is not executable");
@@ -502,28 +607,138 @@ async function initialize(message) {
     methods: [...handlers.keys()].sort(),
     providers: [...providers.entries()].sort().map(([id, value]) => ({ id, label: value.label })),
     usageSources: [...usageSources.entries()].sort().map(([id, value]) => ({ id, label: value.label, discover: typeof value.discover === "function" })),
-    hooks,
+    hooks: {
+      events: [...hookHandlers.event.keys()].sort(),
+      before: [...hookHandlers.before.keys()].sort(),
+    },
   });
+}
+
+async function invokeHook(message) {
+  const controller = new AbortController();
+  hookRequests.set(message.requestId, controller);
+  try {
+    const registered = [...(hookHandlers[message.kind]?.get(message.name) ?? [])];
+    let output = null;
+    for (const handler of registered) {
+      const current = await handler(message.input, { paseo, signal: controller.signal });
+      if (current !== undefined) output = current;
+    }
+    send({ type: "result", requestId: message.requestId, output: jsonValue(output) });
+  } catch (error) {
+    send({ type: "error", requestId: message.requestId, error: describe(error) });
+  } finally {
+    hookRequests.delete(message.requestId);
+  }
+}
+
+async function connectProvider(message) {
+  const provider = providers.get(message.providerId);
+  if (!provider) throw new Error(`Unknown plugin provider: ${message.providerId}`);
+  if (connections.has(message.connectionId)) throw new Error(`Duplicate provider connection: ${message.connectionId}`);
+  const connection = await provider.connect(message.request);
+  let unsubscribe = () => {};
+  unsubscribe = connection.onEvent((event) => {
+    try {
+      send({ type: "provider.event", connectionId: message.connectionId, event: jsonValue(event) });
+    } catch (error) {
+      unsubscribe();
+      void connection.close();
+      connections.delete(message.connectionId);
+      send({ type: "provider.closed", connectionId: message.connectionId, error: describe(error) });
+    }
+  });
+  connections.set(message.connectionId, { connection, unsubscribe });
+  send({
+    type: "provider.connected",
+    connectionId: message.connectionId,
+    version: connection.version,
+    capabilities: connection.capabilities,
+  });
+}
+
+async function closeProvider(connectionId) {
+  const current = connections.get(connectionId);
+  if (!current) return;
+  connections.delete(connectionId);
+  current.unsubscribe();
+  try {
+    await current.connection.close();
+    send({ type: "provider.closed", connectionId });
+  } catch (error) {
+    send({ type: "provider.closed", connectionId, error: describe(error) });
+  }
 }
 
 process.on("message", (message) => {
   void (async () => {
     if (message.type === "initialize") return initialize(message);
     if (message.type === "invoke") {
-      const handler = handlers.get(message.method);
-      if (!handler) throw new Error(`Unknown RPC method: ${message.method}`);
-      const output = await handler(message.input, { paseo: {} });
+      const registered = handlers.get(message.method);
+      if (!registered) throw new Error(`Unknown RPC method: ${message.method}`);
+      const input = registered.contract.input?.parseAsync ?
+        await registered.contract.input.parseAsync(message.input) : message.input;
+      const output = await registered.handler(input, { paseo });
       send({ type: "result", requestId: message.requestId, output });
       return;
     }
+    if (message.type === "usage.identify" || message.type === "usage.fetch" || message.type === "usage.discover") {
+      const source = usageSources.get(message.sourceId);
+      if (!source) throw new Error(`Unknown usage source: ${message.sourceId}`);
+      const output = message.type === "usage.discover" ? await source.discover?.() ?? [] :
+        message.type === "usage.identify" ? await source.identify(await source.input.parseAsync(message.input)) :
+        await source.fetch(await source.input.parseAsync(message.input));
+      send({ type: "result", requestId: message.requestId, output: jsonValue(output) });
+      return;
+    }
+    if (message.type === "provider.connect") {
+      try {
+        await connectProvider(message);
+      } catch (error) {
+        send({ type: "provider.connect_failed", connectionId: message.connectionId, error: describe(error) });
+      }
+      return;
+    }
+    if (message.type === "provider.send") {
+      const current = connections.get(message.connectionId);
+      if (!current) throw new Error(`Unknown provider connection: ${message.connectionId}`);
+      try {
+        await current.connection.send(message.input);
+        send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
+      } catch (error) {
+        send({ type: "provider.rejected", connectionId: message.connectionId, acceptanceId: message.acceptanceId, error: describe(error) });
+      }
+      return;
+    }
+    if (message.type === "provider.close") return closeProvider(message.connectionId);
+    if (message.type === "hook") { void invokeHook(message); return; }
+    if (message.type === "hook.cancel") { hookRequests.get(message.requestId)?.abort(); return; }
+    if (message.type === "paseo_frame") {
+      if (typeof message.data !== "string") throw new Error("Binary Paseo frames are unsupported");
+      const frame = JSON.parse(message.data);
+      const pending = paseoRequests.get(frame.requestId);
+      if (pending) {
+        paseoRequests.delete(frame.requestId);
+        if (frame.error !== undefined) pending.reject(new Error(String(frame.error)));
+        else pending.resolve(frame.output);
+      }
+      return;
+    }
+    if (message.type === "paseo_close") {
+      for (const pending of paseoRequests.values()) pending.reject(new Error("Paseo transport closed"));
+      paseoRequests.clear();
+      return;
+    }
     if (message.type === "shutdown") {
+      for (const connectionId of [...connections.keys()]) await closeProvider(connectionId);
       await cleanup?.();
+      send({ type: "paseo_close" });
       process.disconnect();
       return;
     }
     throw new Error(`Unsupported selected worker request: ${message.type}`);
   })().catch((error) => {
-    if (message.type === "invoke") send({ type: "error", requestId: message.requestId, error: describe(error) });
+    if (message.requestId) send({ type: "error", requestId: message.requestId, error: describe(error) });
     else { send({ type: "fatal", error: describe(error) }); process.disconnect(); }
   });
 });
@@ -575,7 +790,7 @@ impl CompiledPluginServer {
         plugin_directory: &str,
         timeout: Duration,
     ) -> Result<SelectedServerRun, PluginError> {
-        self.run_inner(plugin_id, plugin_directory, None, timeout)
+        self.run_inner(plugin_id, plugin_directory, None, None, &[], timeout)
     }
 
     pub fn run_and_invoke(
@@ -586,14 +801,41 @@ impl CompiledPluginServer {
         input: serde_json::Value,
         timeout: Duration,
     ) -> Result<SelectedServerRun, PluginError> {
-        self.run_inner(plugin_id, plugin_directory, Some(&(method, input)), timeout)
+        self.run_inner(
+            plugin_id,
+            plugin_directory,
+            None,
+            Some(&(method, input)),
+            &[],
+            timeout,
+        )
+    }
+
+    pub fn run_with_protocol_steps(
+        &self,
+        plugin_id: &str,
+        plugin_directory: &str,
+        settings_directory: &Path,
+        protocol_steps: &[RuntimeProtocolStep],
+        timeout: Duration,
+    ) -> Result<SelectedServerRun, PluginError> {
+        self.run_inner(
+            plugin_id,
+            plugin_directory,
+            Some(settings_directory),
+            None,
+            protocol_steps,
+            timeout,
+        )
     }
 
     fn run_inner(
         &self,
         plugin_id: &str,
         plugin_directory: &str,
+        settings_directory: Option<&Path>,
         invocation: Option<&(&str, serde_json::Value)>,
+        protocol_steps: &[RuntimeProtocolStep],
         timeout: Duration,
     ) -> Result<SelectedServerRun, PluginError> {
         PluginId::new(plugin_id)?;
@@ -609,11 +851,18 @@ impl CompiledPluginServer {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
+        let settings_directory = settings_directory.map(Path::to_string_lossy);
         let result = exchange_runtime(
             &mut child,
-            &RuntimeInitialize::new(plugin_id, &self.bundle, "0.8.0-pilot", plugin_directory),
+            &RuntimeInitialize::new(
+                plugin_id,
+                &self.bundle,
+                "0.8.0-pilot",
+                plugin_directory,
+                settings_directory.as_deref(),
+            ),
             invocation.map(|(method, input)| (*method, input.clone())),
-            &[],
+            protocol_steps,
             timeout,
         );
         if result.is_err() {
@@ -789,6 +1038,7 @@ impl AcquiredPlugin {
                 &bundle,
                 "0.8.0-pilot",
                 &self.directory.to_string_lossy(),
+                None,
             ),
             invocation,
             protocol_steps,
@@ -924,6 +1174,8 @@ struct RuntimeInitialize<'a> {
     bundle: &'a str,
     app_version: &'a str,
     plugin_directory: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings_directory: Option<&'a str>,
 }
 
 impl<'a> RuntimeInitialize<'a> {
@@ -932,6 +1184,7 @@ impl<'a> RuntimeInitialize<'a> {
         bundle: &'a str,
         app_version: &'a str,
         plugin_directory: &'a str,
+        settings_directory: Option<&'a str>,
     ) -> Self {
         Self {
             kind: "initialize",
@@ -939,6 +1192,7 @@ impl<'a> RuntimeInitialize<'a> {
             bundle,
             app_version,
             plugin_directory,
+            settings_directory,
         }
     }
 }
