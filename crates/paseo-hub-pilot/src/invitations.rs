@@ -135,6 +135,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 password_fingerprint: fingerprint(password),
                 must_change_password: false,
                 display_name: Some(display_name.to_owned()),
+                verified: true,
             },
         );
         self.persist()
@@ -305,6 +306,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 password_fingerprint: fingerprint("invitation-account"),
                 must_change_password: false,
                 display_name: None,
+                verified: true,
             });
         self.state
             .memberships

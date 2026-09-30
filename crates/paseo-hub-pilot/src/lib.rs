@@ -59,6 +59,7 @@ identifier!(AccountId);
 identifier!(OrganizationId);
 identifier!(DaemonId);
 identifier!(SessionToken);
+identifier!(RecoveryToken);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Role {
@@ -243,6 +244,8 @@ struct Account {
     must_change_password: bool,
     #[serde(default)]
     display_name: Option<String>,
+    #[serde(default = "default_true")]
+    verified: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -271,6 +274,9 @@ struct HubState {
     invitations: BTreeMap<String, invitations::StoredInvitation>,
     invitation_entitlements: BTreeMap<OrganizationId, invitations::InvitationEntitlements>,
     next_invitation_sequence: u64,
+    verification_tokens: BTreeMap<RecoveryToken, AccountId>,
+    password_reset_tokens: BTreeMap<RecoveryToken, AccountId>,
+    next_recovery_sequence: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -441,6 +447,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 password_fingerprint: fingerprint(&input.temporary_password),
                 must_change_password: true,
                 display_name: None,
+                verified: true,
             },
         );
         self.state
@@ -482,6 +489,9 @@ impl<S: DurableHubStore> HubPilot<S> {
         if stored.password_fingerprint != fingerprint(password) {
             return Err(HubError::InvalidCredentials);
         }
+        if !stored.verified {
+            return Err(HubError::EmailNotVerified);
+        }
         self.state.next_browser_session += 1;
         let token = SessionToken(format!("hub-session-{}", self.state.next_browser_session));
         self.state
@@ -504,6 +514,103 @@ impl<S: DurableHubStore> HubPilot<S> {
         }
         self.persist()?;
         Ok(token)
+    }
+
+    pub fn register_unverified_account(
+        &mut self,
+        account: &AccountId,
+        display_name: &str,
+        password: &str,
+    ) -> Result<RecoveryToken, HubError> {
+        if !account.as_str().contains('@') || display_name.trim().is_empty() || password.is_empty()
+        {
+            return Err(HubError::InvalidRecoveryInput);
+        }
+        if self.state.accounts.contains_key(account) {
+            return Err(HubError::IdempotencyConflict);
+        }
+        self.state.accounts.insert(
+            account.clone(),
+            Account {
+                password_fingerprint: fingerprint(password),
+                must_change_password: false,
+                display_name: Some(display_name.trim().to_owned()),
+                verified: false,
+            },
+        );
+        let token = self.next_recovery_token("verification");
+        self.state
+            .verification_tokens
+            .insert(token.clone(), account.clone());
+        self.persist()?;
+        Ok(token)
+    }
+
+    pub fn verify_account(&mut self, token: &RecoveryToken) -> Result<(), HubError> {
+        let account = self
+            .state
+            .verification_tokens
+            .remove(token)
+            .ok_or(HubError::InvalidRecoveryToken)?;
+        self.state
+            .accounts
+            .get_mut(&account)
+            .ok_or(HubError::InvalidRecoveryToken)?
+            .verified = true;
+        self.persist()
+    }
+
+    pub fn request_password_reset(
+        &mut self,
+        account: &AccountId,
+    ) -> Result<Option<RecoveryToken>, HubError> {
+        if !self.state.accounts.contains_key(account) {
+            return Ok(None);
+        }
+        let token = self.next_recovery_token("password-reset");
+        self.state
+            .password_reset_tokens
+            .insert(token.clone(), account.clone());
+        self.persist()?;
+        Ok(Some(token))
+    }
+
+    pub fn reset_password(
+        &mut self,
+        token: &RecoveryToken,
+        new_password: &str,
+    ) -> Result<(), HubError> {
+        if new_password.is_empty() {
+            return Err(HubError::InvalidRecoveryInput);
+        }
+        let account = self
+            .state
+            .password_reset_tokens
+            .remove(token)
+            .ok_or(HubError::InvalidRecoveryToken)?;
+        self.state
+            .accounts
+            .get_mut(&account)
+            .ok_or(HubError::InvalidRecoveryToken)?
+            .password_fingerprint = fingerprint(new_password);
+        let revoked = self
+            .state
+            .browser_sessions
+            .iter()
+            .filter_map(|(session, owner)| (owner == &account).then_some(session.clone()))
+            .collect::<Vec<_>>();
+        self.state
+            .browser_sessions
+            .retain(|_, owner| owner != &account);
+        for session in revoked {
+            self.state.active_browser_organizations.remove(&session);
+        }
+        self.persist()
+    }
+
+    fn next_recovery_token(&mut self, prefix: &str) -> RecoveryToken {
+        self.state.next_recovery_sequence += 1;
+        RecoveryToken(format!("{prefix}-{}", self.state.next_recovery_sequence))
     }
 
     #[must_use]
@@ -754,6 +861,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 password_fingerprint: 0,
                 must_change_password: false,
                 display_name: None,
+                verified: true,
             });
         self.state
             .memberships
@@ -1067,6 +1175,9 @@ pub enum HubError {
     BootstrapUnavailable,
     InvalidCurrentPassword,
     InvalidCredentials,
+    EmailNotVerified,
+    InvalidRecoveryInput,
+    InvalidRecoveryToken,
     InvalidSession,
     InvalidApiKeyInput,
     InvalidInvitationInput,
@@ -1131,6 +1242,10 @@ impl fmt::Display for HubError {
 }
 
 impl std::error::Error for HubError {}
+
+const fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug)]
 pub enum StoreError {
