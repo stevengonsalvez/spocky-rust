@@ -227,6 +227,37 @@ pub struct DifferentialManifest {
     pub executed_assertions: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DifferentialFailureManifest {
+    pub status: String,
+    pub format_version: u32,
+    pub scenario: Scenario,
+    pub rules: Vec<NormalizationRule>,
+    pub error: String,
+    pub original_raw: Observation,
+    pub rust_raw: Observation,
+    pub original_raw_digests: BTreeMap<String, String>,
+    pub rust_raw_digests: BTreeMap<String, String>,
+}
+
+impl DifferentialFailureManifest {
+    /// Serializes a failed comparison while retaining both raw observations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if failure serialization fails.
+    pub fn to_bytes(report: &Self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(report)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DifferentialRun {
+    Compared(Box<DifferentialManifest>),
+    ComparisonFailed(Box<DifferentialFailureManifest>),
+}
+
 impl DifferentialManifest {
     /// Serializes the report with stable field and map ordering.
     ///
@@ -301,6 +332,59 @@ pub fn compare_observations(
 /// Returns an error when disposable state cannot be prepared, a configured
 /// path escapes that state, or normalization rules are invalid.
 pub fn run_differential(plan: &RunPlan) -> Result<DifferentialManifest, HarnessError> {
+    with_executed_observations(plan, |original, rust, original_root, rust_root| {
+        compare_with_roots(
+            &plan.scenario,
+            original,
+            rust,
+            &plan.normalization_rules,
+            Some(original_root),
+            Some(rust_root),
+        )
+    })
+}
+
+/// Executes a scenario and retains raw observations when comparison setup fails.
+///
+/// # Errors
+///
+/// Returns an error only when the disposable scenario cannot be prepared or run.
+pub fn run_differential_preserving_evidence(
+    plan: &RunPlan,
+) -> Result<DifferentialRun, HarnessError> {
+    with_executed_observations(plan, |original, rust, original_root, rust_root| {
+        let original_raw = original.clone();
+        let rust_raw = rust.clone();
+        match compare_with_roots(
+            &plan.scenario,
+            original,
+            rust,
+            &plan.normalization_rules,
+            Some(original_root),
+            Some(rust_root),
+        ) {
+            Ok(report) => Ok(DifferentialRun::Compared(Box::new(report))),
+            Err(error) => Ok(DifferentialRun::ComparisonFailed(Box::new(
+                DifferentialFailureManifest {
+                    status: "error".into(),
+                    format_version: 1,
+                    scenario: plan.scenario.clone(),
+                    rules: plan.normalization_rules.clone(),
+                    error: error.to_string(),
+                    original_raw_digests: digest_observation(&original_raw),
+                    rust_raw_digests: digest_observation(&rust_raw),
+                    original_raw,
+                    rust_raw,
+                },
+            ))),
+        }
+    })
+}
+
+fn with_executed_observations<T>(
+    plan: &RunPlan,
+    finish: impl FnOnce(Observation, Observation, &Path, &Path) -> Result<T, HarnessError>,
+) -> Result<T, HarnessError> {
     if plan.state_environment_variable.trim().is_empty() {
         return Err(HarnessError::Io {
             operation: "validate state environment variable".into(),
@@ -327,14 +411,7 @@ pub fn run_differential(plan: &RunPlan) -> Result<DifferentialManifest, HarnessE
         rust_state.path(),
     );
 
-    compare_with_roots(
-        &plan.scenario,
-        original,
-        rust,
-        &plan.normalization_rules,
-        Some(original_state.path()),
-        Some(rust_state.path()),
-    )
+    finish(original, rust, original_state.path(), rust_state.path())
 }
 
 fn compare_with_roots(

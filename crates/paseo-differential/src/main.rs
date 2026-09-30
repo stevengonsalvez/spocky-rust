@@ -3,7 +3,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use paseo_differential::{DifferentialManifest, RunPlan, run_differential};
+use paseo_differential::{
+    DifferentialFailureManifest, DifferentialManifest, DifferentialRun, RunPlan,
+    run_differential_preserving_evidence,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -33,8 +36,16 @@ fn run() -> Result<bool, Box<dyn Error>> {
     }
 
     let plan: RunPlan = serde_json::from_slice(&fs::read(&plan_path)?)?;
-    let report = run_differential(&plan)?;
-    let bytes = DifferentialManifest::to_bytes(&report)?;
-    fs::write(&manifest_path, bytes)?;
-    Ok(report.equivalent)
+    match run_differential_preserving_evidence(&plan)? {
+        DifferentialRun::Compared(report) => {
+            let bytes = DifferentialManifest::to_bytes(&report)?;
+            fs::write(&manifest_path, bytes)?;
+            Ok(report.equivalent)
+        }
+        DifferentialRun::ComparisonFailed(failure) => {
+            let bytes = DifferentialFailureManifest::to_bytes(&failure)?;
+            fs::write(&manifest_path, bytes)?;
+            Err(std::io::Error::other(failure.error).into())
+        }
+    }
 }

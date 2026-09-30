@@ -383,6 +383,40 @@ fn binary_writes_the_deterministic_manifest() {
     assert_eq!(manifest.executed_assertions, 7);
 }
 
+#[test]
+fn binary_preserves_raw_observations_when_normalization_fails() {
+    let directory = TestDirectory::new();
+    let plan_path = directory.path.join("plan.json");
+    let manifest_path = directory.path.join("failure.json");
+    let mut plan = runner_plan();
+    plan.normalization_rules[0].exact_values = vec!["never-produced".into()];
+    fs::write(
+        &plan_path,
+        serde_json::to_vec_pretty(&plan).expect("plan serializes"),
+    )
+    .expect("plan writes");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_paseo-differential"))
+        .args([&plan_path, &manifest_path])
+        .output()
+        .expect("binary executes");
+
+    assert_eq!(output.status.code(), Some(2));
+    let failure: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).expect("binary wrote failure manifest"))
+            .expect("failure manifest parses");
+    assert_eq!(failure["status"], "error");
+    assert_eq!(failure["scenario"]["id"], "create-agent");
+    assert!(
+        failure["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("runner-id")),
+        "{failure:#}"
+    );
+    assert_eq!(failure["originalRaw"]["exit_code"]["value"], 0);
+    assert_eq!(failure["rustRaw"]["exit_code"]["value"], 0);
+}
+
 fn runner_plan() -> RunPlan {
     let script = r#"
 set -eu
