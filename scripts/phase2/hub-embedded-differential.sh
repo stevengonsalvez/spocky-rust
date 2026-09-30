@@ -44,6 +44,7 @@ compare_json() {
       observableParity: ($pglite[0].operations == $rust[0].operations),
       exactDatabaseParity: ($pglite[0] == $rust[0]),
       operations: {pglite: $pglite[0].operations, rust: $rust[0].operations},
+      observations: {pglite: $pglite[0].observations, rust: $rust[0].observations},
       mismatches: [mismatch("engine"), mismatch("schema"), mismatch("dialect"), mismatch("migrations")],
       boundary: {pglite: $pglite[0].boundary, rust: $rust[0].boundary}
     }'
@@ -54,7 +55,8 @@ case "${1:-}" in
     printf '%s\n' \
       "Hub baseline: $expected_baseline" \
       "PGlite package: $pglite_version" \
-      'operations: restart, cross-process rejection, transaction rollback, same-key serialization' \
+      'operations: restart, cross-process rejection, transaction rollback, same-key serialization, stale-owner recovery' \
+      'observations: tables, constraints, migration journal, lock owner record' \
       'expected mismatch: engine, schema, dialect, migrations'
     exit 0
     ;;

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -6,6 +7,7 @@ const sourceRoot = process.env.PASEO_HUB_SOURCE_ROOT;
 const tsx = process.env.PASEO_HUB_TSX;
 if (!sourceRoot) throw new Error("PASEO_HUB_SOURCE_ROOT is required");
 if (!tsx) throw new Error("PASEO_HUB_TSX is required");
+process.chdir(sourceRoot);
 const { embeddedDatabaseRuntime } = await import(
   pathToFileURL(join(sourceRoot, "src/db/runtime/index.ts")).href
 );
@@ -29,11 +31,13 @@ if (operation === "probe-open") {
 
 async function capture(directory) {
   let bundle = await embeddedDatabaseRuntime(directory);
+  await bundle.runtime.migrate();
   await bundle.runtime.query(`create table differential_probe (value text not null unique)`);
   await bundle.runtime.query(`insert into differential_probe (value) values ('kept')`);
   await bundle.runtime.close();
 
   bundle = await embeddedDatabaseRuntime(directory);
+  await bundle.runtime.migrate();
   const restarted = await bundle.runtime.query(`select value from differential_probe`);
   const child = await spawnChild(directory);
   const rollbackResult = await bundle.runtime.transaction(async (transaction) => {
@@ -62,6 +66,41 @@ async function capture(directory) {
   await new Promise((resolve) => setTimeout(resolve, 25));
   releaseFirst();
   await Promise.all([first, second]);
+  const tables = await bundle.runtime.query(`
+    select table_schema || '.' || table_name as name
+    from information_schema.tables
+    where table_schema in ('public', 'drizzle')
+    order by table_schema, table_name
+  `);
+  const constraints = await bundle.runtime.query(`
+    select constraint_name as name
+    from information_schema.table_constraints
+    where table_schema = 'public'
+    order by constraint_name
+  `);
+  const migrationJournal = await bundle.runtime.query(`
+    select hash, created_at as "createdAt"
+    from drizzle.__drizzle_migrations
+    order by created_at, id
+  `);
+  const lockOwnerKeys = Object.keys(
+    JSON.parse(await readFile(join(directory, ".paseo-hub.lock"), "utf8")),
+  ).sort();
+  await bundle.runtime.close();
+
+  const lockPath = join(directory, ".paseo-hub.lock");
+  await writeFile(lockPath, JSON.stringify({ pid: 2_147_483_647, token: "stale" }));
+  const staleOwnerRecovery = await recoversOwner(directory);
+  await writeFile(lockPath, `{"pid":123`);
+  const incompleteOwnerRecovery = await recoversOwner(directory);
+
+  bundle = await embeddedDatabaseRuntime(directory);
+  await bundle.runtime.migrate();
+  const reopenedJournal = await bundle.runtime.query(`
+    select hash, created_at as "createdAt"
+    from drizzle.__drizzle_migrations
+    order by created_at, id
+  `);
   await bundle.runtime.close();
 
   process.stdout.write(`${JSON.stringify({
@@ -70,6 +109,15 @@ async function capture(directory) {
       crossProcessRejection: child.exitCode === 23,
       transactionRollback: rollbackResult === "rolled-back" && rolledBackRows.rows.length === 0,
       sameKeySerialization: events,
+      staleOwnerRecovery: staleOwnerRecovery && incompleteOwnerRecovery,
+    },
+    observations: {
+      tables: tables.rows.map((row) => row.name),
+      constraints: constraints.rows.map((row) => row.name),
+      migrationJournal: migrationJournal.rows,
+      migrationReopenStable:
+        JSON.stringify(migrationJournal.rows) === JSON.stringify(reopenedJournal.rows),
+      lockOwnerKeys,
     },
     boundary: {
       engine: "PGlite",
@@ -78,6 +126,16 @@ async function capture(directory) {
       migrations: "baseline journal",
     },
   })}\n`);
+}
+
+async function recoversOwner(directory) {
+  try {
+    const recovered = await embeddedDatabaseRuntime(directory);
+    await recovered.runtime.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function spawnChild(directory) {

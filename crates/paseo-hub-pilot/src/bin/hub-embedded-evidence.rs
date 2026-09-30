@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 use std::sync::{Arc, Barrier, Mutex};
@@ -67,18 +68,57 @@ fn capture(data_directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
             .is_empty();
 
     let same_key_serialization = capture_same_key_serialization(&store)?;
+    let tables = store.relational_tables()?;
+    let constraints = store.schema_constraints()?;
+    let migration_journal = store
+        .migration_journal()?
+        .into_iter()
+        .map(|(version, name)| json!({ "version": version, "name": name }))
+        .collect::<Vec<_>>();
+    let lock_owner = serde_json::from_slice::<serde_json::Value>(&fs::read(
+        data_directory.join(".paseo-hub.lock"),
+    )?)?;
+    let mut lock_owner_keys = lock_owner
+        .as_object()
+        .ok_or("lock owner is not an object")?
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    lock_owner_keys.sort();
+    drop(store);
+
+    let lock_path = data_directory.join(".paseo-hub.lock");
+    fs::write(&lock_path, r#"{"pid":2147483647,"token":"stale"}"#)?;
+    let stale_owner_recovery = EmbeddedSqlStore::open(data_directory).is_ok();
+    fs::write(&lock_path, r#"{"pid":123"#)?;
+    let incomplete_owner_recovery = EmbeddedSqlStore::open(data_directory).is_ok();
+    let reopened = EmbeddedSqlStore::open(data_directory)?;
+    let reopened_journal = reopened
+        .migration_journal()?
+        .into_iter()
+        .map(|(version, name)| json!({ "version": version, "name": name }))
+        .collect::<Vec<_>>();
+    drop(reopened);
     let output = json!({
         "operations": {
             "restart": restart,
             "crossProcessRejection": cross_process_rejection,
             "transactionRollback": transaction_rollback,
             "sameKeySerialization": same_key_serialization,
+            "staleOwnerRecovery": stale_owner_recovery && incomplete_owner_recovery,
+        },
+        "observations": {
+            "tables": tables,
+            "constraints": constraints,
+            "migrationJournal": migration_journal,
+            "migrationReopenStable": migration_journal == reopened_journal,
+            "lockOwnerKeys": lock_owner_keys,
         },
         "boundary": {
             "engine": "SQLite",
-            "schema": "whole-state snapshot",
+            "schema": "modeled relational subset plus snapshot",
             "dialect": "SQLite",
-            "migrations": "pilot schema only",
+            "migrations": "pilot version journal",
         },
     });
     println!("{output}");
