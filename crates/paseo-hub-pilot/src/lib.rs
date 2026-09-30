@@ -20,12 +20,14 @@ pub mod billing;
 pub mod daemon_socket;
 pub mod http;
 mod invitations;
+mod relational_api_keys;
 
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
 pub use invitations::{
     InvitationEmail, InvitationEmailMessage, InvitationRole, InvitationSummary,
     render_invitation_email,
 };
+pub use relational_api_keys::PostgresApiKeyStore;
 
 macro_rules! identifier {
     ($name:ident) => {
