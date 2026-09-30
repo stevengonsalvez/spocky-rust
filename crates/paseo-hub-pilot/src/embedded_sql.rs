@@ -14,6 +14,9 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::embedded_schema::{
+    BASELINE_CONSTRAINT_NAMES, BASELINE_JOURNAL, BASELINE_SCHEMA_SQL, BASELINE_TABLES,
+};
 use crate::{DurableHubStore, StoreError, StoreSemantics};
 
 const DATABASE_FILE: &str = "hub.sqlite3";
@@ -25,112 +28,6 @@ const SNAPSHOT_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS hub_state (
     state_bytes BLOB NOT NULL,
     revision INTEGER NOT NULL CHECK (revision > 0)
 )";
-const RELATIONAL_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS "user" (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    email_verified INTEGER NOT NULL DEFAULT 0 CHECK (email_verified IN (0, 1)),
-    must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
-    is_instance_operator INTEGER NOT NULL DEFAULT 0 CHECK (is_instance_operator IN (0, 1))
-);
-CREATE TABLE IF NOT EXISTS account (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    provider_id TEXT NOT NULL,
-    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-    password TEXT
-);
-CREATE TABLE IF NOT EXISTS organization (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE
-);
-CREATE TABLE IF NOT EXISTS member (
-    id TEXT PRIMARY KEY,
-    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    CONSTRAINT members_organization_user_unique UNIQUE (organization_id, user_id),
-    CONSTRAINT members_role_check CHECK (role IN ('owner', 'admin', 'member'))
-);
-CREATE INDEX IF NOT EXISTS members_user_id_idx ON member (user_id);
-CREATE INDEX IF NOT EXISTS members_organization_id_idx ON member (organization_id);
-CREATE TABLE IF NOT EXISTS session (
-    id TEXT PRIMARY KEY,
-    expires_at INTEGER NOT NULL,
-    token TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-    active_organization_id TEXT REFERENCES organization(id) ON DELETE SET NULL
-);
-CREATE INDEX IF NOT EXISTS sessions_active_organization_id_idx
-    ON session (active_organization_id);
-CREATE TABLE IF NOT EXISTS invitation (
-    id TEXT PRIMARY KEY,
-    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
-    role TEXT NOT NULL,
-    status TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    inviter_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    CONSTRAINT invitations_role_check CHECK (role IN ('admin', 'member')),
-    CONSTRAINT invitations_status_check
-        CHECK (status IN ('pending', 'accepted', 'rejected', 'canceled'))
-);
-CREATE INDEX IF NOT EXISTS invitations_organization_status_idx
-    ON invitation (organization_id, status);
-CREATE UNIQUE INDEX IF NOT EXISTS invitations_pending_organization_email_unique
-    ON invitation (organization_id, lower(email)) WHERE status = 'pending';
-CREATE TABLE IF NOT EXISTS instance_bootstrap (
-    id TEXT PRIMARY KEY,
-    organization_id TEXT REFERENCES organization(id) ON DELETE RESTRICT,
-    owner_user_id TEXT REFERENCES "user"(id) ON DELETE RESTRICT,
-    completed_at INTEGER,
-    app_onboarding_completed_at INTEGER,
-    CONSTRAINT instance_bootstrap_completion_check
-        CHECK (completed_at IS NULL OR (organization_id IS NOT NULL AND owner_user_id IS NOT NULL))
-);
-CREATE TABLE IF NOT EXISTS runtime_configuration (
-    singleton INTEGER PRIMARY KEY DEFAULT 1,
-    auth_secret TEXT NOT NULL,
-    CONSTRAINT runtime_configuration_singleton_check CHECK (singleton = 1)
-);
-CREATE TABLE IF NOT EXISTS organization_api_keys (
-    id TEXT PRIMARY KEY,
-    organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    prefix TEXT NOT NULL,
-    verifier TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    created_by_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    last_used_at INTEGER,
-    revoked_at INTEGER,
-    CONSTRAINT organization_api_keys_scopes_check
-        CHECK (json_valid(scopes) AND json_array_length(scopes) > 0)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS organization_api_keys_prefix_unique
-    ON organization_api_keys (prefix);
-CREATE INDEX IF NOT EXISTS organization_api_keys_organization_created_idx
-    ON organization_api_keys (organization_id, created_at DESC);
-"#;
-const MIGRATIONS: &[(u32, &str, &str)] = &[
-    (1, "0001_snapshot_state", SNAPSHOT_SCHEMA_SQL),
-    (2, "0002_modeled_relational_state", RELATIONAL_SCHEMA_SQL),
-];
-const MODELED_CONSTRAINTS: &[&str] = &[
-    "instance_bootstrap_completion_check",
-    "invitations_pending_organization_email_unique",
-    "invitations_role_check",
-    "invitations_status_check",
-    "members_organization_user_unique",
-    "members_role_check",
-    "organization_api_keys_prefix_unique",
-    "organization_api_keys_scopes_check",
-    "runtime_configuration_singleton_check",
-];
 
 /// Single-owner `SQLite` runtime with transactional whole-state persistence.
 pub struct EmbeddedSqlStore {
@@ -196,10 +93,19 @@ impl EmbeddedSqlStore {
 
     pub fn schema_constraints(&self) -> Result<Vec<String>, StoreError> {
         let schema = self.schema_observation()?;
-        Ok(MODELED_CONSTRAINTS
+        Ok(BASELINE_CONSTRAINT_NAMES
             .iter()
             .filter(|name| schema.contains(*name))
             .map(ToString::to_string)
+            .collect())
+    }
+
+    pub fn baseline_tables(&self) -> Result<Vec<String>, StoreError> {
+        let installed = self.relational_tables()?;
+        Ok(BASELINE_TABLES
+            .iter()
+            .filter(|name| installed.iter().any(|installed| installed == **name))
+            .map(|name| format!("public.{name}"))
             .collect())
     }
 
@@ -287,21 +193,20 @@ fn apply_migrations(connection: &Connection) -> Result<(), StoreError> {
             applied_at INTEGER NOT NULL DEFAULT (unixepoch())
         )",
     )?;
-    let current = connection.query_row(
-        "SELECT coalesce(max(version), 0) FROM paseo_hub_migrations",
-        [],
-        |row| row.get::<_, u32>(0),
-    )?;
-    for &(version, name, sql) in MIGRATIONS {
-        if version <= current {
-            continue;
-        }
-        connection.execute_batch(sql)?;
+    // COMPAT(snapshot-state): retained until HubPilot no longer serializes whole state.
+    connection.execute_batch(SNAPSHOT_SCHEMA_SQL)?;
+    connection.execute_batch(BASELINE_SCHEMA_SQL)?;
+    for &(version, name, applied_at) in BASELINE_JOURNAL {
         connection.execute(
-            "INSERT INTO paseo_hub_migrations (version, name) VALUES (?1, ?2)",
-            (version, name),
+            "INSERT INTO paseo_hub_migrations (version, name, applied_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(version) DO UPDATE SET
+                 name = excluded.name,
+                 applied_at = excluded.applied_at",
+            (version, name, applied_at),
         )?;
     }
+    connection.execute("DELETE FROM paseo_hub_migrations WHERE version > 48", [])?;
     Ok(())
 }
 

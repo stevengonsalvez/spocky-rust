@@ -196,21 +196,31 @@ fn embedded_sql_installs_relational_hub_tables_and_constraints() {
     let root = TestDir::new();
     let store = EmbeddedSqlStore::open(&root.0).expect("open embedded SQL");
 
-    assert_eq!(
-        store.relational_tables().expect("relational tables"),
-        [
-            "account",
-            "hub_state",
-            "instance_bootstrap",
-            "invitation",
-            "member",
-            "organization",
-            "organization_api_keys",
-            "runtime_configuration",
-            "session",
-            "user",
-        ]
-    );
+    let tables = store.relational_tables().expect("relational tables");
+    assert_eq!(tables.len(), 50);
+    for expected in [
+        "account",
+        "agent_executions",
+        "attachment_capabilities",
+        "billing_plan_prices",
+        "cli_authorizations",
+        "configuration_sync_attempts",
+        "daemons",
+        "execution_authorities",
+        "github_connections",
+        "organization_trigger_revisions",
+        "project_configuration_revisions",
+        "provider_event_receipts",
+        "trigger_runs",
+        "workflow_step_runs",
+        "workflow_wakeups",
+    ] {
+        assert!(
+            tables.iter().any(|table| table == expected),
+            "missing {expected}"
+        );
+    }
+    assert!(tables.iter().any(|table| table == "hub_state"));
     let schema = store.schema_observation().expect("schema observation");
     assert!(schema.contains("members_role_check"));
     assert!(schema.contains("invitations_role_check"));
@@ -218,19 +228,25 @@ fn embedded_sql_installs_relational_hub_tables_and_constraints() {
     assert!(schema.contains("invitations_pending_organization_email_unique"));
     assert!(schema.contains("organization_api_keys_prefix_unique"));
     assert!(schema.contains("runtime_configuration_singleton_check"));
+    for expected in [
+        "agent_executions_daemon_organization_fk",
+        "agent_executions_hub_action_check",
+        "agent_executions_project_started_at_idx",
+        "cli_authorizations_user_code_verifier_unique",
+        "organization_connection_attempts_shape_check",
+        "project_configuration_revisions_project_organization_fk",
+        "provider_event_receipts_organization_delivery_unique",
+        "trigger_runs_status_check",
+        "workflow_step_runs_trigger_step_unique",
+    ] {
+        assert!(schema.contains(expected), "missing {expected}");
+    }
     assert_eq!(
-        store.schema_constraints().expect("schema constraints"),
-        [
-            "instance_bootstrap_completion_check",
-            "invitations_pending_organization_email_unique",
-            "invitations_role_check",
-            "invitations_status_check",
-            "members_organization_user_unique",
-            "members_role_check",
-            "organization_api_keys_prefix_unique",
-            "organization_api_keys_scopes_check",
-            "runtime_configuration_singleton_check",
-        ]
+        store
+            .schema_constraints()
+            .expect("schema constraints")
+            .len(),
+        208
     );
 }
 
@@ -258,9 +274,9 @@ fn embedded_sql_migrates_old_database_once_and_reopens_at_latest_version() {
         Some(b"old-state".to_vec())
     );
     let first_journal = store.migration_journal().expect("migration journal");
-    assert_eq!(first_journal.len(), 2);
-    assert_eq!(first_journal[0].0, 1);
-    assert_eq!(first_journal[1].0, 2);
+    assert_eq!(first_journal.len(), 49);
+    assert_eq!(first_journal[0], (0, "0000_phase_0_spine".into()));
+    assert_eq!(first_journal[48], (48, "0048_execution_authority".into()));
     drop(store);
 
     let reopened = EmbeddedSqlStore::open(&root.0).expect("reopen upgraded database");
@@ -269,6 +285,34 @@ fn embedded_sql_migrates_old_database_once_and_reopens_at_latest_version() {
         first_journal
     );
     assert_eq!(reopened.revision().expect("old revision"), Some(7));
+}
+
+#[test]
+fn embedded_sql_resumes_an_interrupted_schema_install() {
+    let root = TestDir::new();
+    let database = root.0.join("hub.sqlite3");
+    let connection = Connection::open(&database).expect("open interrupted database");
+    connection
+        .execute_batch(
+            "CREATE TABLE paseo_hub_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO paseo_hub_migrations (version, name, applied_at)
+            VALUES (0, '0000_phase_0_spine', 1784319580564);",
+        )
+        .expect("create interrupted database");
+    drop(connection);
+
+    let store = EmbeddedSqlStore::open(&root.0).expect("resume interrupted migration");
+    assert_eq!(
+        store.migration_journal().expect("migration journal").len(),
+        49
+    );
+    assert_eq!(store.relational_tables().expect("tables").len(), 50);
+    let schema = store.schema_observation().expect("schema");
+    assert!(schema.contains("workflow_step_runs_trigger_step_unique"));
 }
 
 #[test]

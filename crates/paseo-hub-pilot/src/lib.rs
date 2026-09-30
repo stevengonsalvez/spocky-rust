@@ -20,6 +20,7 @@ mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
 mod email_delivery;
+mod embedded_schema;
 mod embedded_sql;
 pub mod http;
 mod invitations;
