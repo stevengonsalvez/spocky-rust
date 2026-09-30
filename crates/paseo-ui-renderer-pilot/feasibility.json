@@ -48,7 +48,7 @@
     },
     "visual": {
       "state": "partial",
-      "detail": "Android and browser candidate screenshots were captured, but no pinned-baseline pixel comparison exists."
+      "detail": "Pinned original and Rust open-project screenshots exist at desktop and mobile viewports. RMSE is 0.0464723 and 0.0776069, so no visual threshold passes."
     },
     "accessibility": {
       "state": "partial",
@@ -71,6 +71,6 @@
   ],
   "decision": {
     "sufficientToSelect": false,
-    "reason": "Browser and Android runtime evidence is partial. Pinned-baseline visuals, assistive-technology behavior, iOS, Windows, Linux, native integration, and delivery remain unsupported or unproven."
+    "reason": "Browser and Android runtime evidence is partial. Pinned visuals differ, and assistive-technology behavior, iOS, Windows, Linux, native integration, and delivery remain unsupported or unproven."
   }
 }

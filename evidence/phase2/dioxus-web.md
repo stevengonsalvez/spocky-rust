@@ -90,24 +90,30 @@ blocked before navigation. Google Chrome `154.0.8037.59` captured desktop and
 mobile screenshots. Cleanup stopped all three exact sessions and removed the
 disposable daemon. Port `6767` remained untouched.
 
-Both sides rendered meaningful content, but the capture rejects parity. The
-original reached `/open-project` with empty-home project actions and baseline
-navigation. The candidate showed its hardcoded agent-console fixture. Their
-state, content, navigation, styling, and interaction targets differ. Original
-keyboard focus reached New workspace, History, Search, and Schedules; candidate
-focus reached its workspace and two fixture agents. Both failed offline reload.
-The original emitted two known `uniProps` React DOM warnings. Candidate emitted
-no console errors.
+Both sides rendered the open-project state, but the capture rejects exact parity.
+Desktop focus order, element types, labels, and text now match for New workspace,
+History, Search, and Schedules. Mobile focus element types and project-action text
+also match; the captured candidate menu still exposed its glyph as text, fixed in
+the next signed source checkpoint. Candidate Enter handling changes its live
+status. Original action behavior is not yet driven by the Rust pilot.
+
+Visual RMSE remains `0.0464723` on desktop and `0.0776069` on mobile. Icon paths,
+logo shape, font metrics, spacing, and colors still differ. Both runtimes fail
+offline reload. The original emitted two known `uniProps` React DOM warnings;
+the candidate emitted no console errors. No visual acceptance threshold passes.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 8,526 | `e499c3f4c7484ede66e3fa0164655c4b010b2790e0a9349de599538752abeb93` |
-| original desktop screenshot | 41,434 | `f68314cddd9ed81c8358b48db215fc42e74adbdab7ebd5efa1aecaa770e6a76a` |
+| `browser-runtime-comparison.json` | 8,707 | `5072c6faee42599a3140fb20fb62b0a77c5af8b5665bd61f8ff7d555b1876546` |
+| original desktop screenshot | 49,262 | `fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f` |
 | original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
-| candidate desktop screenshot | 32,873 | `9fb1ee737dcc495a03eb02ebffcbc6d18bb59e3e317aa48a7633ded347486376` |
-| candidate mobile screenshot | 27,824 | `011da07fccee978f8df0f9956b65f2ca8debb5aba100f8e1842ea9e7f13b8da5` |
-| isolated daemon log | 38,242 | `3380a300a5cd57d95b3e9a96fc0ac8019999ea0901830ef1998c510898e5aa1c` |
+| candidate desktop screenshot | 41,241 | `e3e3040ddb47a67c2d4cff0b9d19a48a6661c864f5b4183e6acfc4b494c2e884` |
+| candidate mobile screenshot | 28,450 | `3147605b8ab060aa1d4e6b75d01643d10d9c9f40bd4e8050229df3e2218b78e1` |
+| isolated daemon log | 43,922 | `2fa5c60b3197bf3e416f450174b619d1ab414e43237ed487bb2673608c3d52ba` |
 
-The next comparison needs matching original and candidate state plus explicit
-visual and semantic thresholds. Electron guest APIs, accessibility tree diffs,
-packaging, update, rollback, and uninstall remain open.
+This capture's disposable daemon started default local speech-model downloads;
+cleanup removed them with the daemon home. The harness now disables unrelated
+speech paths before launch. The next comparison needs baseline icon assets,
+font and token matching, real candidate actions, and explicit visual thresholds.
+Electron guest APIs, accessibility tree diffs, packaging, update, rollback, and
+uninstall remain open.
