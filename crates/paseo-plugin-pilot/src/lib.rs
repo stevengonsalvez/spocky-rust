@@ -13,6 +13,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
@@ -892,6 +895,8 @@ fn assert_contained_directory(root: &Path, directory: &Path) -> Result<(), Plugi
 }
 
 fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, PluginError> {
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -922,7 +927,7 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
             ));
         }
         if Instant::now() >= deadline {
-            child.kill()?;
+            terminate_command_tree(&mut child)?;
             let _ = child.wait();
             let _ = stdout_reader.join();
             let _ = stderr_reader.join();
@@ -930,6 +935,26 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[cfg(unix)]
+fn terminate_command_tree(child: &mut Child) -> Result<(), PluginError> {
+    let process_group = format!("-{}", child.id());
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", "--", &process_group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if killed.success() {
+        Ok(())
+    } else {
+        child.kill().map_err(PluginError::Io)
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_command_tree(child: &mut Child) -> Result<(), PluginError> {
+    child.kill().map_err(PluginError::Io)
 }
 
 fn read_to_end(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
@@ -1402,7 +1427,8 @@ impl From<serde_json::Error> for PluginError {
 #[cfg(all(test, unix))]
 mod tests {
     use super::run_bounded;
-    use std::process::Command;
+    use std::fs;
+    use std::process::{Command, Stdio};
     use std::time::Duration;
 
     #[test]
@@ -1418,6 +1444,38 @@ mod tests {
 
         assert_eq!(output.stdout.len(), 1_048_576);
         assert_eq!(output.stderr.len(), 1_048_576);
+    }
+
+    #[test]
+    fn bounded_command_timeout_reaps_descendants() {
+        let root = std::env::temp_dir().join(format!(
+            "paseo-plugin-command-timeout-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create timeout fixture");
+        let child_pid = root.join("child.pid");
+        let script = format!(
+            "sleep 30 </dev/null >/dev/null 2>&1 & child=$!; printf %s $child > '{}'; wait $child",
+            child_pid.display()
+        );
+
+        assert!(matches!(
+            run_bounded(
+                Command::new("/bin/sh").args(["-c", &script]),
+                Duration::from_millis(150),
+            ),
+            Err(super::PluginError::CommandTimedOut)
+        ));
+        let pid = fs::read_to_string(&child_pid).expect("child pid");
+        let probe = Command::new("/bin/kill")
+            .args(["-0", pid.trim()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("probe child");
+        assert!(!probe.success(), "timed-out descendant must be reaped");
+        fs::remove_dir_all(&root).expect("remove timeout fixture");
     }
 }
 
