@@ -19,8 +19,10 @@ mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
 pub mod http;
+mod invitations;
 
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
+pub use invitations::{InvitationRole, InvitationSummary};
 
 macro_rules! identifier {
     ($name:ident) => {
@@ -251,6 +253,9 @@ struct HubState {
     app_setup_complete: bool,
     api_keys: BTreeMap<String, api_keys::StoredApiKey>,
     next_api_key_sequence: u64,
+    invitations: BTreeMap<String, invitations::StoredInvitation>,
+    invitation_entitlements: BTreeMap<OrganizationId, invitations::InvitationEntitlements>,
+    next_invitation_sequence: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -607,6 +612,12 @@ pub enum HubError {
     InvalidCredentials,
     InvalidSession,
     InvalidApiKeyInput,
+    InvalidInvitationInput,
+    InvitationManagementRequired,
+    InvitationsDisabled,
+    SeatLimitReached,
+    AlreadyMember,
+    InvitationUnavailable,
     RandomUnavailable,
     IdempotencyConflict,
     Store(StoreError),
