@@ -21,8 +21,8 @@ mod settings;
 
 pub use protocol::{
     HookKind, PluginProcessMessage, PluginProcessRequest, ProcessHooks, ProcessProviderMetadata,
-    ProcessUsageSourceMetadata, ProviderCatalogOptions, ProviderConnectRequest,
-    RuntimeProtocolStep, decode_process_message, decode_process_request,
+    ProcessUsageSourceMetadata, ProviderCatalogOptions, ProviderConnectRequest, ProviderEvent,
+    ProviderInput, RuntimeProtocolStep, decode_process_message, decode_process_request,
 };
 pub use settings::{
     PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsState,

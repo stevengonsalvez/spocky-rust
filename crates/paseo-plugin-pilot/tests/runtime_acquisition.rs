@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use paseo_plugin_pilot::{
     Contribution, HookKind, PluginHost, PluginProcessMessage, PluginProcessRequest,
     PluginSourceIdentity, ProcessHooks, ProviderCatalogOptions, ProviderConnectRequest,
-    RuntimeProtocolStep, acquire_git, acquire_npm_tarball,
+    ProviderEvent, ProviderInput, RuntimeProtocolStep, acquire_git, acquire_npm_tarball,
 };
 use serde_json::json;
 
@@ -564,7 +564,7 @@ lines.on("line", (line) => {
     if (message.acceptanceId === "acceptance-rejected") send({ type: "provider.rejected", connectionId: message.connectionId, acceptanceId: message.acceptanceId, error: "denied" });
     else {
       send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
-      send({ type: "provider.event", connectionId: message.connectionId, event: { type: "sessions", sessions: [] } });
+      send({ type: "provider.event", connectionId: message.connectionId, event: { type: "sessions", requestId: message.input.requestId, sessions: [] } });
     }
   }
   if (message.type === "provider.close") send({ type: "provider.closed", connectionId: message.connectionId });
@@ -657,7 +657,12 @@ lines.on("line", (line) => {
         RuntimeProtocolStep::Send(PluginProcessRequest::ProviderSend {
             connection_id: "connection-1".into(),
             acceptance_id: "accept-1".into(),
-            input: json!({"type": "sessions"}),
+            input: ProviderInput::Sessions {
+                request_id: "sessions-1".into(),
+                query: None,
+                cwd: None,
+                limit: None,
+            },
         }),
         RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderAccepted {
             connection_id: "connection-1".into(),
@@ -665,7 +670,10 @@ lines.on("line", (line) => {
         }),
         RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderEvent {
             connection_id: "connection-1".into(),
-            event: json!({"type": "sessions", "sessions": []}),
+            event: ProviderEvent::Sessions {
+                request_id: "sessions-1".into(),
+                sessions: vec![],
+            },
         }),
         RuntimeProtocolStep::Send(PluginProcessRequest::ProviderClose {
             connection_id: "connection-1".into(),
@@ -695,7 +703,12 @@ lines.on("line", (line) => {
         RuntimeProtocolStep::Send(PluginProcessRequest::ProviderSend {
             connection_id: "connection-1".into(),
             acceptance_id: "acceptance-rejected".into(),
-            input: json!({"type": "sessions"}),
+            input: ProviderInput::Sessions {
+                request_id: "sessions-2".into(),
+                query: None,
+                cwd: None,
+                limit: None,
+            },
         }),
         RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderRejected {
             connection_id: "connection-1".into(),
