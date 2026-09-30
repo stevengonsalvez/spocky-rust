@@ -278,7 +278,7 @@
       "acceptanceCases": ["Spocky is the display and product identity for owned new work", "owned paseo-* crates and packages become spocky-*", "owned paseo_* Rust imports become spocky_*", "owned binaries, scripts, current commands, UI strings, and help text use Spocky", "every remaining Paseo reference is classified and justified", "legacy PASEO_* inputs, state, protocol, deep-link, crypto, cookie, auth, and storage identities remain compatible until explicit migration tests pass", "frozen captures, raw evidence, digests, upstream URLs, commits, licenses, and historical commands remain unchanged", "physical repository, worktree, tmux, session, and native goal identities remain stable during active work"],
       "platforms": ["iOS", "Android", "macOS", "Windows", "Linux", "browser"],
       "implementationCommits": ["4cce774259c974fb44ae78520488938a793ed5f8"],
-      "integrationCommits": [],
+      "integrationCommits": ["0e374b2"],
       "revisions": ["2026-09-30 Stevie selected Spocky despite disclosed spocky.ai overlap", "Branding is a narrow approved parity exception, not publication or legal clearance", "Safe boundary closed after browser and embedded-schema integration", "Selected-plugin expansion paused before edits", "Cross-cutting rename completed under lead ownership", "All 14 Cargo packages and owned binaries renamed", "Workspace check, clippy, 74 per-crate tests, and 23 post-audit tests passed", "Repository relocation remains a separate final coordinated operation"],
       "reviews": [],
       "repairs": [],
