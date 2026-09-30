@@ -23,7 +23,7 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("<svg"));
     assert!(first.contains("viewBox=\"0 0 700 700\""));
     assert!(first.contains(".mark svg { transform: translateY(-2px); }"));
-    assert!(first.contains(".actions { transform: translateY(-4px); }"));
+    assert!(first.contains(".actions { margin-top: -4px; }"));
     assert!(first.contains("1.95 1.5H4"));
     assert!(first.contains("0 0 0 1.67.9H18"));
     assert!(first.contains("M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"));
@@ -58,7 +58,9 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains(
         ".sidebar-empty { margin: 12px 0 0; padding: 16px; display: flex; flex-direction: column;"
     ));
-    assert!(first.contains(".sidebar-scroll { flex: 1; overflow-y: auto; }"));
+    assert!(
+        first.contains(".sidebar-scroll { flex: 1; overflow-y: auto; transform: translateZ(0); }")
+    );
     assert!(first.contains(".sidebar-list-content { min-height: 100%; padding: 2px 8px 16px; }"));
     assert!(
         first.contains(".sidebar-empty-copy { display: flex; flex-direction: column; gap: 4px; }")
@@ -68,7 +70,7 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains(
         "<div class=\"sidebar-empty-copy\"><div class=\"sidebar-empty-title\">No projects yet</div>"
     ));
-    assert!(first.contains("border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px;"));
+    assert!(first.contains("border: 1px solid #e4e4e7; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px;"));
     assert!(first.contains(
         ".action { width: 220px; min-height: 132px; display: flex; flex-direction: column; gap: 12px;"
     ));
