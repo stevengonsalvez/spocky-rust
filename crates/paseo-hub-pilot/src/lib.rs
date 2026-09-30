@@ -254,6 +254,12 @@ struct StoredRegistration {
     idempotency_key: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RecoveryGrant {
+    account: AccountId,
+    expires_at_epoch_seconds: u64,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 struct HubState {
@@ -274,8 +280,8 @@ struct HubState {
     invitations: BTreeMap<String, invitations::StoredInvitation>,
     invitation_entitlements: BTreeMap<OrganizationId, invitations::InvitationEntitlements>,
     next_invitation_sequence: u64,
-    verification_tokens: BTreeMap<RecoveryToken, AccountId>,
-    password_reset_tokens: BTreeMap<RecoveryToken, AccountId>,
+    verification_tokens: BTreeMap<RecoveryToken, RecoveryGrant>,
+    password_reset_tokens: BTreeMap<RecoveryToken, RecoveryGrant>,
     next_recovery_sequence: u64,
 }
 
@@ -541,20 +547,24 @@ impl<S: DurableHubStore> HubPilot<S> {
         let token = self.next_recovery_token("verification");
         self.state
             .verification_tokens
-            .insert(token.clone(), account.clone());
+            .insert(token.clone(), self.recovery_grant(account));
         self.persist()?;
         Ok(token)
     }
 
     pub fn verify_account(&mut self, token: &RecoveryToken) -> Result<(), HubError> {
-        let account = self
+        let grant = self
             .state
             .verification_tokens
             .remove(token)
             .ok_or(HubError::InvalidRecoveryToken)?;
+        if grant.expires_at_epoch_seconds <= self.now_epoch_seconds() {
+            self.persist()?;
+            return Err(HubError::InvalidRecoveryToken);
+        }
         self.state
             .accounts
-            .get_mut(&account)
+            .get_mut(&grant.account)
             .ok_or(HubError::InvalidRecoveryToken)?
             .verified = true;
         self.persist()
@@ -570,7 +580,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         let token = self.next_recovery_token("password-reset");
         self.state
             .password_reset_tokens
-            .insert(token.clone(), account.clone());
+            .insert(token.clone(), self.recovery_grant(account));
         self.persist()?;
         Ok(Some(token))
     }
@@ -583,11 +593,16 @@ impl<S: DurableHubStore> HubPilot<S> {
         if new_password.is_empty() {
             return Err(HubError::InvalidRecoveryInput);
         }
-        let account = self
+        let grant = self
             .state
             .password_reset_tokens
             .remove(token)
             .ok_or(HubError::InvalidRecoveryToken)?;
+        if grant.expires_at_epoch_seconds <= self.now_epoch_seconds() {
+            self.persist()?;
+            return Err(HubError::InvalidRecoveryToken);
+        }
+        let account = grant.account;
         self.state
             .accounts
             .get_mut(&account)
@@ -611,6 +626,13 @@ impl<S: DurableHubStore> HubPilot<S> {
     fn next_recovery_token(&mut self, prefix: &str) -> RecoveryToken {
         self.state.next_recovery_sequence += 1;
         RecoveryToken(format!("{prefix}-{}", self.state.next_recovery_sequence))
+    }
+
+    fn recovery_grant(&self, account: &AccountId) -> RecoveryGrant {
+        RecoveryGrant {
+            account: account.clone(),
+            expires_at_epoch_seconds: self.now_epoch_seconds() + 3_600,
+        }
     }
 
     #[must_use]
