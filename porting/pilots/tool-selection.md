@@ -4,7 +4,7 @@ No implementation tool is selected until its applicable cases pass. A retained J
 
 ## Host snapshot
 
-Captured on 2026-09-29:
+Captured on 2026-09-29 and updated with later qualification tools:
 
 ```text
 rustc 1.94.0 (4a4ef493e 2026-03-02)
@@ -17,7 +17,7 @@ Java 17: available through repository-command-local JAVA_HOME
 Android SDK: platforms 35 and 36, NDK 27.1.12297006
 Android AVD: ainb-api35, shutdown at capture time
 adb and emulator: available through explicit SDK paths
-cargo-xwin: unavailable
+cargo-xwin: repository-local 0.23.1, installed 2026-09-30
 cross: unavailable
 wasm-pack: unavailable
 node: v26.7.0
@@ -33,15 +33,15 @@ accessibility, native adapter, packaging, or update cases.
 Dioxus Android candidate evidence now includes an unsigned debug APK, AVD
 launch, touch state transition, screenshots, and accessibility trees. Cold-start
 performance is outside an acceptable selection state. Baseline visual comparison,
-remaining desktop systems, iOS, native adapters, and delivery cases remain open,
+iOS, native adapters, and delivery cases remain open,
 so Dioxus is not selected.
 
 Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, semantic trees, and input transitions. A pinned original
 capture runs against an isolated daemon in the same open-project state. Desktop
 focus semantics match, but the latest exact-threshold capture reports desktop
-RMSE 0.0000862789 and mobile RMSE 0.00000882431. The remaining 854 desktop
-pixels are confined to the sidebar empty-state card; mobile differs by 5 pixels.
+RMSE 0.000120966 and mobile RMSE 0.00000882431. The remaining 872 desktop
+pixels and 5 mobile pixels keep the zero threshold rejected.
 Offline reload fails. Packaging cases remain open.
 
 Dioxus Linux candidate evidence now includes a locked x86_64 build and a
@@ -49,6 +49,11 @@ Dioxus Linux candidate evidence now includes a locked x86_64 build and a
 container. No runtime output or process failure occurred. Linux visual,
 accessibility, interaction, packaging, update, rollback, and pinned-original
 comparison remain open.
+
+Dioxus Windows candidate evidence now includes a locked
+`x86_64-pc-windows-msvc` compile check through repository-local
+`cargo-xwin 0.23.1`. Windows launch, visual, accessibility, interaction,
+packaging, update, rollback, and pinned-original comparison remain open.
 
 The Hub candidate now covers offline billing catalog and conservative
 provisioning rules, invitation authority, lifecycle, expiry, email rendering,

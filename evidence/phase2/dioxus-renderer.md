@@ -2,7 +2,7 @@
 
 Dioxus `0.7.0` remains a candidate. It is not selected.
 
-Integrated checks passed on 2026-09-29:
+Integrated checks passed through 2026-09-30:
 
 | Surface | Evidence | Result |
 |---|---|---|
@@ -10,6 +10,8 @@ Integrated checks passed on 2026-09-29:
 | Browser | pinned runtime comparison, frozen WebAssembly, keyboard, accessibility | partial: visual mismatch and offline failure open |
 | macOS desktop | frozen unsigned `.app`, Launch Services registration, process launch | partial: visual, AT, signing, delivery open |
 | Android mobile | compile, unsigned APK, AVD launch, touch, accessibility | pass with cold-start performance defect |
+| Linux desktop | locked build and 10-second Xvfb launch | partial: visual, AT, interaction, delivery open |
+| Windows desktop | locked MSVC cross-check through cargo-xwin | partial: runtime and delivery open |
 | iOS mobile | `aarch64-apple-ios` compile | blocked: iphoneos SDK absent |
 
 The macOS desktop binary launched as PID 61790 from exact tmux session
@@ -22,14 +24,15 @@ Android runtime evidence, artifact hashes, screenshots, accessibility trees,
 and performance observations are recorded in `evidence/phase2/dioxus-android.md`.
 Browser runtime evidence is recorded in `evidence/phase2/dioxus-web.md`.
 macOS bundle and launch evidence is recorded in `evidence/phase2/dioxus-macos.md`.
+Linux launch evidence is recorded in `evidence/phase2/dioxus-linux.md`.
+Windows compile evidence is recorded in `evidence/phase2/dioxus-windows.md`.
 
 Raw macOS launch output is retained at
 `evidence/raw/phase2/dioxus-desktop-launch.log`. It is 7,735 bytes with SHA-256
 `0e7f6a76e12fe18aedd3d18c3e9ededdd1847a34f40c1ae20fe4eaa691da8a48`.
 
 A pinned open-project comparison exists, but its latest desktop and mobile RMSE
-are `0.0000862789` and `0.00000882431`. Desktop has 854 differing pixels confined
-to the sidebar empty-state card; mobile has 5 differing pixels. No visual
-threshold passes. iOS compile, Windows or Linux launch,
-IPA, signed artifact, native adapter, upgrade, rollback, and uninstall evidence
-does not exist. Current runtime evidence cannot select the renderer.
+are `0.000120966` and `0.00000882431`. Desktop has 872 differing pixels, and
+mobile has 5 differing pixels. No visual threshold passes. iOS compile, Windows
+launch, IPA, signed artifact, native adapter, upgrade, rollback, and uninstall
+evidence does not exist. Current runtime evidence cannot select the renderer.
