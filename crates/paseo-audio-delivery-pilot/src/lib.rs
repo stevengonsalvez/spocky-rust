@@ -1,5 +1,13 @@
 use std::collections::BTreeSet;
 
+mod local_runtime;
+
+pub use local_runtime::{
+    AndroidDeviceAdapter, AndroidDeviceIdentity, DeliverySnapshot, LocalDeliveryRuntime,
+    NativeRuntimeEvidence, PcmFileMetadata, ProcessCommand, ProcessResult, RuntimeError,
+    create_pcm16_wav, create_unsigned_package,
+};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
