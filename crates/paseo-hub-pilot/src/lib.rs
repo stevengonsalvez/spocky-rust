@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 
+mod account_emails;
 mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
@@ -25,6 +26,9 @@ mod relational_api_keys;
 mod relational_invitations;
 mod relational_sessions;
 
+pub use account_emails::{
+    AccountEmailMessage, render_password_reset_email, render_verification_email,
+};
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
 pub use email_delivery::{ResendConfig, ResendEmailDelivery};
 pub use invitations::{

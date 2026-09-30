@@ -7,8 +7,9 @@ use std::net::TcpStream;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore, HubError, HubPilot,
-    InvitationRole, OrganizationId, PasswordChange, RecoveryToken, SessionToken, iso_timestamp,
+    AccountEmailMessage, AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore,
+    HubError, HubPilot, InvitationRole, OrganizationId, PasswordChange, RecoveryToken,
+    SessionToken, iso_timestamp, render_password_reset_email, render_verification_email,
 };
 
 const SESSION_COOKIE: &str = "paseo_session";
@@ -26,6 +27,7 @@ pub struct AccountEmail {
     pub url: String,
     pub callback_url: String,
     pub token: RecoveryToken,
+    pub message: AccountEmailMessage,
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -226,6 +228,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
                     percent_encode(&callback_url)
                 );
                 self.account_emails.verifications.push(AccountEmail {
+                    message: render_verification_email(&input.email, &url, token.as_str()),
                     recipient: input.email,
                     url,
                     callback_url,
@@ -357,6 +360,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
                     percent_encode(&input.redirect_to)
                 );
                 self.account_emails.password_resets.push(AccountEmail {
+                    message: render_password_reset_email(&input.email, &url, token.as_str()),
                     recipient: input.email,
                     url,
                     callback_url: input.redirect_to,

@@ -39,6 +39,8 @@ fn packet_level_verified_account_recovery_matches_pinned_boundary() {
         verification.callback_url,
         "http://localhost:3000/?auth=email-verification"
     );
+    assert_eq!(verification.message.subject, "Verify your Paseo Hub email");
+    assert_eq!(verification.message.to, "verified@example.test");
 
     let unverified = service.handle(&post(
         "/api/auth/sign-in/email",
@@ -92,6 +94,10 @@ fn packet_level_verified_account_recovery_matches_pinned_boundary() {
         200
     );
     assert_eq!(service.account_emails().password_resets.len(), 1);
+    assert_eq!(
+        service.account_emails().password_resets[0].message.subject,
+        "Reset your Paseo Hub password"
+    );
     let reset_url = service.account_emails().password_resets[0].url.clone();
     let reset_callback = service.handle(&get(&reset_url, None));
     assert_eq!(reset_callback.status, 302);
