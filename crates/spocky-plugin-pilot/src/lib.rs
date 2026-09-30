@@ -484,15 +484,38 @@ async function stored(definition) {
     throw error;
   }
 }
+function settingsEnvelope(raw) {
+  const envelope = JSON.parse(raw);
+  if (!envelope || typeof envelope !== "object" || !Number.isSafeInteger(envelope.version) ||
+      envelope.version < 1 || !("values" in envelope)) {
+    throw new Error("Invalid settings envelope");
+  }
+  jsonValue(envelope.values);
+  return envelope;
+}
 async function readSettings(current) {
   const saved = await stored(current.definition);
   try {
-    const envelope = saved.raw === null ? null : JSON.parse(saved.raw);
+    const envelope = saved.raw === null ? null : settingsEnvelope(saved.raw);
+    let values = envelope?.values ?? {};
     if (envelope && envelope.version !== current.definition.version) {
-      throw new Error("Settings version requires migration in the full worker");
+      if (envelope.version > current.definition.version) {
+        throw new Error("Settings were saved by a newer plugin version");
+      }
+      if (typeof current.definition.migrate !== "function") {
+        throw new Error(`Settings version ${envelope.version} requires a migration`);
+      }
+      values = await current.definition.migrate(values, envelope.version);
     }
-    const values = jsonValue(await current.definition.schema.parseAsync(envelope?.values ?? {}));
-    return { status: "ready", revision: saved.revision, values };
+    values = jsonValue(await current.definition.schema.parseAsync(values));
+    const migrated = envelope !== null && envelope.version !== current.definition.version;
+    const nextRevision = migrated ? await persistSettings(current, values) : saved.revision;
+    const state = { status: "ready", revision: nextRevision, values };
+    if (migrated) {
+      for (const listener of current.listeners) await listener(structuredClone(state));
+      send({ type: "settings.changed", settingsId: current.definition.id });
+    }
+    return state;
   } catch (error) {
     return { status: "invalid", revision: saved.revision, error: describe(error) };
   }
@@ -517,6 +540,12 @@ async function writeSettings(current, input, reset) {
     return { status: "conflict", error: "Settings changed on another client. Reload before saving again." };
   }
   try {
+    if (!reset && saved.raw !== null) {
+      const envelope = settingsEnvelope(saved.raw);
+      if (envelope.version !== current.definition.version) {
+        throw new Error("Reload or reset settings before saving a different schema version");
+      }
+    }
     const values = jsonValue(await current.definition.schema.parseAsync(reset ? {} : input.values));
     const nextRevision = await persistSettings(current, values);
     const state = { status: "ready", revision: nextRevision, values };
@@ -714,8 +743,15 @@ process.on("message", (message) => {
     if (message.type === "hook") { void invokeHook(message); return; }
     if (message.type === "hook.cancel") { hookRequests.get(message.requestId)?.abort(); return; }
     if (message.type === "paseo_frame") {
-      if (typeof message.data !== "string") throw new Error("Binary Paseo frames are unsupported");
-      const frame = JSON.parse(message.data);
+      let encoded;
+      if (message.isBinary) {
+        if (!(message.data instanceof Uint8Array)) throw new Error("Binary Paseo frame must be bytes");
+        encoded = Buffer.from(message.data).toString("utf8");
+      } else {
+        if (typeof message.data !== "string") throw new Error("Text Paseo frame must be a string");
+        encoded = message.data;
+      }
+      const frame = JSON.parse(encoded);
       const pending = paseoRequests.get(frame.requestId);
       if (pending) {
         paseoRequests.delete(frame.requestId);
@@ -757,7 +793,23 @@ const child = fork(worker, [], {
   serialization: "advanced",
   stdio: ["ignore", "ignore", "inherit", "ipc"],
 });
-child.on("message", (message) => process.stdout.write(`${JSON.stringify(message)}\n`));
+function encodeMessage(message) {
+  if (message?.type !== "paseo_frame" || !message.isBinary) return message;
+  if (!(message.data instanceof Uint8Array)) throw new Error("Binary Paseo frame must be bytes");
+  return { ...message, data: Array.from(message.data) };
+}
+function decodeMessage(message) {
+  if (message?.type !== "paseo_frame" || !message.isBinary) return message;
+  if (!Array.isArray(message.data) ||
+      message.data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+    throw new Error("Binary Paseo frame must be bytes");
+  }
+  return { ...message, data: Uint8Array.from(message.data) };
+}
+child.on("message", (message) => {
+  try { process.stdout.write(`${JSON.stringify(encodeMessage(message))}\n`); }
+  catch { process.exit(1); }
+});
 child.on("error", () => process.exit(1));
 child.on("exit", (code, signal) => {
   try { fs.unlinkSync(worker); } catch {}
@@ -767,7 +819,10 @@ const lines = readline.createInterface({ input: process.stdin });
 lines.on("close", () => { if (!child.killed) child.kill("SIGKILL"); });
 lines.on("line", (line) => {
   if (!child.connected) process.exit(1);
-  child.send(JSON.parse(line), (error) => { if (error) process.exit(1); });
+  let message;
+  try { message = decodeMessage(JSON.parse(line)); }
+  catch { process.exit(1); return; }
+  child.send(message, (error) => { if (error) process.exit(1); });
 });
 "#;
 

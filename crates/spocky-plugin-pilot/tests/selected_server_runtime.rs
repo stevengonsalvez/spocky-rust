@@ -68,6 +68,49 @@ const FULL_SERVER_BUNDLE: &str = r#"(function(require) {
   } };
 })"#;
 
+const MIGRATING_SETTINGS_BUNDLE: &str = r#"(function(require) {
+  const { defineRpc, defineSettings } = require("@getpaseo/plugin");
+  return { default(server) {
+    const preferences = server.registerSettings(defineSettings({
+      id: "preferences",
+      scope: "host",
+      version: 2,
+      schema: {
+        async parseAsync(value) {
+          return { total: typeof value.total === "number" ? value.total : 0 };
+        },
+      },
+      async migrate(values, version) {
+        if (version !== 1) throw new Error(`unexpected source version: ${version}`);
+        return { total: values.count };
+      },
+    }));
+    server.handle(defineRpc({ name: "settings.snapshot", input: {}, output: {} }), async () =>
+      preferences.read());
+    return () => {};
+  } };
+})"#;
+
+const FAILING_SETTINGS_MIGRATION_BUNDLE: &str = r#"(function(require) {
+  const { defineRpc, defineSettings } = require("@getpaseo/plugin");
+  return { default(server) {
+    const preferences = server.registerSettings(defineSettings({
+      id: "preferences",
+      scope: "host",
+      version: 2,
+      schema: {
+        async parseAsync(value) {
+          return { total: typeof value.total === "number" ? value.total : 0 };
+        },
+      },
+      async migrate() { throw new Error("migration failed"); },
+    }));
+    server.handle(defineRpc({ name: "settings.snapshot", input: {}, output: {} }), async () =>
+      preferences.read());
+    return () => {};
+  } };
+})"#;
+
 fn esbuild() -> PathBuf {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest.ancestors() {
@@ -162,6 +205,228 @@ fn selected_wrapper_reports_failure_and_recovers_with_fresh_worker() {
             .run("selected", "/tmp/selected-plugin", Duration::from_secs(5))
             .is_ok()
     );
+}
+
+#[test]
+fn selected_wrapper_migrates_pinned_settings_once_and_persists_the_new_version() {
+    let root = std::env::temp_dir().join(format!(
+        "spocky-selected-migration-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let settings = root.join("settings");
+    fs::create_dir_all(&settings).expect("create settings fixture");
+    fs::write(
+        settings.join("preferences.json"),
+        r#"{"version":1,"values":{"count":7}}"#,
+    )
+    .expect("write version one settings");
+    let compiled = CompiledPluginServer::from_bundle(MIGRATING_SETTINGS_BUNDLE);
+    let read = RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+        request_id: "settings-read".into(),
+        method: "settings.snapshot".into(),
+        input: json!({}),
+    });
+    let migrated = result(
+        "settings-read",
+        json!({
+            "status":"ready",
+            "revision":"d420654e99279ca1ed8b93f0bc7a910d5b4227d2bf938c7dc368a5de5688b23c",
+            "values":{"total":7}
+        }),
+    );
+
+    compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &[
+                read.clone(),
+                RuntimeProtocolStep::Receive(PluginProcessMessage::SettingsChanged {
+                    settings_id: "preferences".into(),
+                }),
+                migrated.clone(),
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("migrate version one settings");
+    assert_eq!(
+        fs::read_to_string(settings.join("preferences.json")).expect("read migrated settings"),
+        r#"{"version":2,"values":{"total":7}}"#
+    );
+
+    compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &[read, migrated],
+            Duration::from_secs(5),
+        )
+        .expect("restart reads migrated settings without migrating again");
+    fs::remove_dir_all(root).expect("remove fixture root");
+}
+
+#[test]
+fn selected_wrapper_preserves_failed_migration_until_explicit_reset() {
+    let root = std::env::temp_dir().join(format!(
+        "spocky-selected-failed-migration-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let settings = root.join("settings");
+    fs::create_dir_all(&settings).expect("create settings fixture");
+    let original = r#"{"version":1,"values":{"count":7}}"#;
+    fs::write(settings.join("preferences.json"), original).expect("write version one settings");
+    let compiled = CompiledPluginServer::from_bundle(FAILING_SETTINGS_MIGRATION_BUNDLE);
+
+    compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &[
+                RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+                    request_id: "settings-read".into(),
+                    method: "settings.snapshot".into(),
+                    input: json!({}),
+                }),
+                result(
+                    "settings-read",
+                    json!({
+                        "status":"invalid",
+                        "revision":"eaa5946e7501f2f983eef5cf9bf0e5f33b5402598eed3c7529a85c59eed96a23",
+                        "error":"migration failed"
+                    }),
+                ),
+                RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+                    request_id: "settings-write".into(),
+                    method: "settings.preferences.write".into(),
+                    input: json!({
+                        "revision":"eaa5946e7501f2f983eef5cf9bf0e5f33b5402598eed3c7529a85c59eed96a23",
+                        "values":{"total":9}
+                    }),
+                }),
+                result(
+                    "settings-write",
+                    json!({
+                        "status":"invalid",
+                        "error":"Reload or reset settings before saving a different schema version"
+                    }),
+                ),
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("surface failed migration");
+    assert_eq!(
+        fs::read_to_string(settings.join("preferences.json")).expect("read preserved settings"),
+        original
+    );
+
+    compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &[
+                RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+                    request_id: "settings-reset".into(),
+                    method: "settings.preferences.reset".into(),
+                    input: json!({
+                        "revision":"eaa5946e7501f2f983eef5cf9bf0e5f33b5402598eed3c7529a85c59eed96a23"
+                    }),
+                }),
+                RuntimeProtocolStep::Receive(PluginProcessMessage::SettingsChanged {
+                    settings_id: "preferences".into(),
+                }),
+                result(
+                    "settings-reset",
+                    json!({
+                        "status":"saved",
+                        "revision":"b6c43f46dd20c412e1874c356f3d2baa93058ec82f19bef471610c7200da0865",
+                        "values":{"total":0}
+                    }),
+                ),
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("reset failed migration");
+    assert_eq!(
+        fs::read_to_string(settings.join("preferences.json")).expect("read reset settings"),
+        r#"{"version":2,"values":{"total":0}}"#
+    );
+    fs::remove_dir_all(root).expect("remove fixture root");
+}
+
+#[test]
+fn selected_wrapper_routes_binary_ipc_frames_without_regressing_text_rpc() {
+    let root = std::env::temp_dir().join(format!(
+        "spocky-selected-binary-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let settings = root.join("settings");
+    fs::create_dir_all(&root).expect("create fixture root");
+    let compiled = CompiledPluginServer::from_bundle(FULL_SERVER_BUNDLE);
+    let response =
+        r#"{"type":"response","requestId":"paseo-2","output":{"entries":[{"id":"binary"}]}}"#;
+    let steps = [
+        RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+            request_id: "text-call".into(),
+            method: "daemon.sessions".into(),
+            input: json!({}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::PaseoFrame {
+            data: json!(
+                r#"{"type":"request","requestId":"paseo-1","method":"sessions.list","input":{"limit":2}}"#
+            ),
+            is_binary: false,
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::PaseoFrame {
+            data: json!(
+                r#"{"type":"response","requestId":"paseo-1","output":{"entries":[{"id":"text"}]}}"#
+            ),
+            is_binary: false,
+        }),
+        result("text-call", json!({"entries":[{"id":"text"}]})),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Invoke {
+            request_id: "binary-call".into(),
+            method: "daemon.sessions".into(),
+            input: json!({}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::PaseoFrame {
+            data: json!(
+                r#"{"type":"request","requestId":"paseo-2","method":"sessions.list","input":{"limit":2}}"#
+            ),
+            is_binary: false,
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::PaseoFrame {
+            data: json!(response.as_bytes()),
+            is_binary: true,
+        }),
+        result("binary-call", json!({"entries":[{"id":"binary"}]})),
+    ];
+
+    compiled
+        .run_with_protocol_steps(
+            "selected",
+            "/tmp/selected-plugin",
+            &settings,
+            &steps,
+            Duration::from_secs(5),
+        )
+        .expect("route text and binary daemon frames");
+    fs::remove_dir_all(root).expect("remove fixture root");
 }
 
 fn result(request_id: &str, output: serde_json::Value) -> RuntimeProtocolStep {
