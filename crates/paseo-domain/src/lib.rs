@@ -1,7 +1,12 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::fs;
+use std::io;
+use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentId(String);
 
 impl AgentId {
@@ -19,7 +24,7 @@ impl AgentId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionRequestId(String);
 
 impl PermissionRequestId {
@@ -37,7 +42,7 @@ impl PermissionRequestId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentLifecycle {
     Initializing,
     Idle,
@@ -68,7 +73,7 @@ impl AgentStateBucket {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AttentionReason {
     Finished,
     Error,
@@ -117,7 +122,7 @@ impl Display for DomainError {
 
 impl Error for DomainError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLifecycleMachine {
     id: AgentId,
     lifecycle: AgentLifecycle,
@@ -126,6 +131,74 @@ pub struct AgentLifecycleMachine {
     attention_reason: Option<AttentionReason>,
     last_error: Option<String>,
     archived: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLifecycleRecord {
+    machine: AgentLifecycleMachine,
+    provider_session_id: String,
+    assistant_messages: Vec<String>,
+}
+
+impl AgentLifecycleRecord {
+    #[must_use]
+    pub fn new(machine: AgentLifecycleMachine, provider_session_id: impl Into<String>) -> Self {
+        Self {
+            machine,
+            provider_session_id: provider_session_id.into(),
+            assistant_messages: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub const fn machine(&self) -> &AgentLifecycleMachine {
+        &self.machine
+    }
+
+    #[must_use]
+    pub const fn machine_mut(&mut self) -> &mut AgentLifecycleMachine {
+        &mut self.machine
+    }
+
+    #[must_use]
+    pub fn provider_session_id(&self) -> &str {
+        &self.provider_session_id
+    }
+
+    pub fn record_assistant_message(&mut self, text: impl Into<String>) {
+        self.assistant_messages.push(text.into());
+    }
+
+    #[must_use]
+    pub const fn assistant_message_count(&self) -> usize {
+        self.assistant_messages.len()
+    }
+
+    /// Writes a complete lifecycle record and atomically replaces the prior record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when serialization or filesystem operations fail.
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("lifecycle record path has no parent"))?;
+        fs::create_dir_all(parent)?;
+        let temporary = path.with_extension(format!("json.tmp-{}", std::process::id()));
+        let bytes = serde_json::to_vec(self).map_err(io::Error::other)?;
+        fs::write(&temporary, bytes)?;
+        fs::rename(temporary, path)
+    }
+
+    /// Reconstructs a lifecycle record from durable storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the record cannot be read or decoded.
+    pub fn load(path: &Path) -> io::Result<Self> {
+        let bytes = fs::read(path)?;
+        serde_json::from_slice(&bytes).map_err(io::Error::other)
+    }
 }
 
 impl AgentLifecycleMachine {

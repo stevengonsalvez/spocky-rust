@@ -3650,6 +3650,7 @@ name = "paseo-domain"
 version = "0.1.0"
 dependencies = [
  "paseo-differential",
+ "serde",
  "serde_json",
 ]
 

@@ -78,4 +78,11 @@ fn driver_covers_complete_lifecycle_with_measured_counts() {
             .map(|phase| phase.as_object().expect("phase is an object").len() - 1)
             .sum::<usize>()
     );
+    assert!(
+        state
+            .path()
+            .join("agents/00000000-0000-4000-8000-000000000901.json")
+            .is_file(),
+        "driver must persist a reloadable lifecycle record"
+    );
 }

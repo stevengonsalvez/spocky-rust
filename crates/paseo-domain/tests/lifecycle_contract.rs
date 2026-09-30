@@ -1,7 +1,8 @@
 use paseo_domain::{
-    AgentId, AgentLifecycle, AgentLifecycleMachine, AgentStateBucket, AttentionReason,
-    CancellationOutcome, DomainError, PermissionDecision, PermissionRequestId,
+    AgentId, AgentLifecycle, AgentLifecycleMachine, AgentLifecycleRecord, AgentStateBucket,
+    AttentionReason, CancellationOutcome, DomainError, PermissionDecision, PermissionRequestId,
 };
+use std::fs;
 
 fn agent() -> AgentLifecycleMachine {
     AgentLifecycleMachine::create(AgentId::new("agent-contract").expect("valid agent id"))
@@ -172,4 +173,30 @@ fn archived_history_can_recover_read_only_without_unarchiving() {
     assert!(agent.is_archived());
     assert_eq!(agent.lifecycle(), AgentLifecycle::Idle);
     assert_eq!(agent.send(), Err(DomainError::Archived));
+}
+
+#[test]
+fn lifecycle_record_roundtrips_machine_session_and_history() {
+    let root = std::env::temp_dir().join(format!("paseo-lifecycle-record-{}", std::process::id()));
+    let path = root.join("agents/agent-contract.json");
+    let mut machine = agent();
+    machine
+        .initialization_succeeded()
+        .expect("creation reaches idle");
+    machine
+        .close_for_restart()
+        .expect("restart closes live session");
+    let mut record = AgentLifecycleRecord::new(machine, "provider-session-1");
+    record.record_assistant_message("STREAM_OK");
+    record
+        .save(&path)
+        .expect("persist lifecycle record atomically");
+
+    drop(record);
+    let loaded = AgentLifecycleRecord::load(&path).expect("reconstruct lifecycle from disk");
+    assert_eq!(loaded.machine().lifecycle(), AgentLifecycle::Closed);
+    assert_eq!(loaded.provider_session_id(), "provider-session-1");
+    assert_eq!(loaded.assistant_message_count(), 1);
+
+    fs::remove_dir_all(root).expect("remove lifecycle record fixture");
 }
