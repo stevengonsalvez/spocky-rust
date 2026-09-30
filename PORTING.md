@@ -1,6 +1,38 @@
-# Paseo Rust Exact Parity
+# Spocky Rust Exact Parity
 
-This repository rebuilds Paseo-owned implementation surfaces in Rust against four immutable source baselines. Behavior, compatibility, state, visuals, interactions, accessibility, performance, packaging, failure recovery, and supported platforms must match before feature work begins.
+This repository rebuilds Paseo-owned implementation surfaces as Spocky in Rust
+against four immutable source baselines. Behavior, compatibility, state,
+visuals, interactions, accessibility, performance, packaging, failure recovery,
+and supported platforms must match before feature work begins.
+
+## Product identity amendment
+
+Stevie selected **Spocky** as the rewrite product identity on 2026-09-30 after
+being informed of existing `spocky.ai` overlap. This is an authorized branding
+exception to text and visual parity, not legal clearance or permission to
+publish, buy a domain, rename remotes, or create mascot assets.
+
+Task `BRAND-SPOCKY-001` owns the coordinated rename. Its safe boundary is after
+the active exact-browser and embedded-schema checkpoints integrate. Cross-cutting
+writers pause there. The lead then serially renames owned crates, modules,
+packages, binaries, scripts, current commands, UI strings, and help text from
+`paseo-*` or `paseo_*` to `spocky-*` or `spocky_*`.
+
+Every remaining Paseo name is classified before change:
+
+| Class | Treatment |
+|---|---|
+| Owned implementation | Rename to Spocky at the serialized boundary |
+| Compatibility contract | Inventory, migrate, and test before changing |
+| Upstream attribution or provenance | Preserve exact Paseo name and source |
+| Historical evidence | Preserve command, capture, digest, and observation |
+| Physical orchestration path | Keep stable while workers and goal run |
+
+New product-facing identity defaults to Spocky. Existing `PASEO_*` inputs,
+legacy state, protocol and wire names, crypto contexts, deep links, cookies,
+auth and storage keys remain compatible until an explicit migration proves old
+and new behavior. Never move or delete user state for branding. Branded evidence
+is captured separately from frozen original baselines.
 
 ## Immutable baselines
 
@@ -63,7 +95,7 @@ Tracked evidence manifests live under `evidence/`. Large raw captures live under
 
 ## Build, test, run, and rollback
 
-- Build current pilot crates with `cargo build --workspace`. No parity-qualified Paseo service binary exists yet.
+- Build current pilot crates with `cargo build --workspace`. No parity-qualified Spocky service binary exists yet.
 - Run only the targeted commands recorded in `porting/tasks.json`. Full platform matrices belong in CI after their jobs exist.
 - Run future services with a disposable home, random non-6767 port, and named tmux session. Record the exact home, port, session, commit, and log path in evidence before launch.
 - Stop only the recorded tmux session. Delete only its exact disposable home after evidence capture.
