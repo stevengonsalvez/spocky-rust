@@ -3,6 +3,7 @@
 #![allow(clippy::missing_errors_doc)]
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -601,6 +602,9 @@ pub fn acquire_git(
     if checkout.exists() {
         return Err(PluginError::InvalidCandidate);
     }
+    let staging = staging_path(&checkout)?;
+    remove_stale_staging(&staging)?;
+    fs::create_dir_all(checkout.parent().unwrap_or_else(|| Path::new(".")))?;
     let relative_plugin_path = if plugin_path == "." {
         PathBuf::new()
     } else {
@@ -610,19 +614,19 @@ pub fn acquire_git(
         run_bounded(
             Command::new("git")
                 .args(["clone", "--no-checkout", "--", remote])
-                .arg(&checkout),
+                .arg(&staging),
             timeout,
         )?;
         run_bounded(
             Command::new("git")
                 .args(["checkout", "--detach", reviewed_revision])
-                .current_dir(&checkout),
+                .current_dir(&staging),
             timeout,
         )?;
         let output = run_bounded(
             Command::new("git")
                 .args(["rev-parse", "HEAD"])
-                .current_dir(&checkout),
+                .current_dir(&staging),
             timeout,
         )?;
         let actual_revision = String::from_utf8(output.stdout)
@@ -635,10 +639,11 @@ pub fn acquire_git(
                 actual: actual_revision,
             });
         }
-        let directory = checkout.join(&relative_plugin_path);
-        assert_contained_directory(&checkout, &directory)?;
+        let staged_directory = staging.join(&relative_plugin_path);
+        assert_contained_directory(&staging, &staged_directory)?;
+        fs::rename(&staging, &checkout)?;
         Ok(AcquiredPlugin {
-            directory,
+            directory: checkout.join(&relative_plugin_path),
             identity: PluginSourceIdentity::Git {
                 remote: remote.to_owned(),
                 plugin_path: plugin_path.to_owned(),
@@ -647,7 +652,7 @@ pub fn acquire_git(
         })
     })();
     if acquired.is_err() {
-        let _ = fs::remove_dir_all(&checkout);
+        let _ = remove_stale_staging(&staging);
     }
     acquired
 }
@@ -670,7 +675,10 @@ pub fn acquire_npm_tarball(
     if installation.exists() {
         return Err(PluginError::InvalidCandidate);
     }
-    fs::create_dir_all(&installation)?;
+    let staging = staging_path(&installation)?;
+    remove_stale_staging(&staging)?;
+    fs::create_dir_all(installation.parent().unwrap_or_else(|| Path::new(".")))?;
+    fs::create_dir_all(&staging)?;
     let acquired = (|| {
         run_bounded(
             Command::new("npm")
@@ -683,11 +691,11 @@ pub fn acquire_npm_tarball(
                     "--package-lock=false",
                     "--prefix",
                 ])
-                .arg(&installation)
+                .arg(&staging)
                 .arg(&archive),
             timeout,
         )?;
-        let mut package_root = installation.join("node_modules");
+        let mut package_root = staging.join("node_modules");
         for segment in package_segments {
             package_root.push(segment);
         }
@@ -696,10 +704,15 @@ pub fn acquire_npm_tarball(
         if package.name != package_name || package.version.is_empty() {
             return Err(PluginError::InvalidCandidate);
         }
-        let directory = package_root.join(relative_plugin_path);
-        assert_contained_directory(&package_root, &directory)?;
+        let staged_directory = package_root.join(&relative_plugin_path);
+        assert_contained_directory(&package_root, &staged_directory)?;
+        fs::rename(&staging, &installation)?;
+        let mut final_package_root = installation.join("node_modules");
+        for segment in npm_package_segments(package_name)? {
+            final_package_root.push(segment);
+        }
         Ok(AcquiredPlugin {
-            directory,
+            directory: final_package_root.join(&relative_plugin_path),
             identity: PluginSourceIdentity::Npm {
                 package_name: package_name.to_owned(),
                 plugin_path: plugin_path.to_owned(),
@@ -708,9 +721,34 @@ pub fn acquire_npm_tarball(
         })
     })();
     if acquired.is_err() {
-        let _ = fs::remove_dir_all(&installation);
+        let _ = remove_stale_staging(&staging);
     }
     acquired
+}
+
+fn staging_path(destination: &Path) -> Result<PathBuf, PluginError> {
+    let file_name = destination
+        .file_name()
+        .ok_or(PluginError::InvalidCandidate)?;
+    let mut staging_name = OsString::from(".");
+    staging_name.push(file_name);
+    staging_name.push(".staging");
+    Ok(destination
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(staging_name))
+}
+
+fn remove_stale_staging(staging: &Path) -> Result<(), PluginError> {
+    match fs::symlink_metadata(staging) {
+        Ok(metadata) if metadata.file_type().is_symlink() || metadata.is_file() => {
+            fs::remove_file(staging)?;
+        }
+        Ok(_) => fs::remove_dir_all(staging)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

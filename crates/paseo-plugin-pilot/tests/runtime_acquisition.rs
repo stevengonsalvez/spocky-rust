@@ -188,14 +188,20 @@ fn git_acquisition_normalizes_host_separators_and_cleans_failed_staging() {
         .args(["rev-parse", "HEAD"])
         .current_dir(&repository));
 
+    let recovered_checkout = root.path().join("windows-separator-checkout");
+    let stale_checkout = root.path().join(".windows-separator-checkout.staging");
+    fs::create_dir_all(&stale_checkout).expect("create interrupted Git staging");
+    fs::write(stale_checkout.join("partial"), "interrupted").expect("write staging marker");
     acquire_git(
         repository.to_str().expect("repository path"),
         "plugins\\review",
         &revision,
-        root.path().join("windows-separator-checkout"),
+        &recovered_checkout,
         Duration::from_secs(10),
     )
-    .expect("normalize Windows separator");
+    .expect("recover staging and normalize Windows separator");
+    assert!(recovered_checkout.is_dir());
+    assert!(!stale_checkout.exists());
 
     let failed_checkout = root.path().join("failed-checkout");
     assert!(
@@ -227,14 +233,20 @@ fn npm_tarball_acquisition_runs_contribution_process_at_package_version() {
         .current_dir(&package));
     let archive = package.join(archive_name.lines().last().expect("archive name"));
 
+    let installation = root.path().join("installation");
+    let stale_installation = root.path().join(".installation.staging");
+    fs::create_dir_all(&stale_installation).expect("create interrupted npm staging");
+    fs::write(stale_installation.join("partial"), "interrupted").expect("write staging marker");
     let acquired = acquire_npm_tarball(
         &archive,
         "@acme/review",
         ".",
-        root.path().join("installation"),
+        &installation,
         Duration::from_secs(15),
     )
-    .expect("acquire npm tarball");
+    .expect("recover staging and acquire npm tarball");
+    assert!(installation.is_dir());
+    assert!(!stale_installation.exists());
     assert_eq!(
         acquired.identity(),
         &PluginSourceIdentity::Npm {
