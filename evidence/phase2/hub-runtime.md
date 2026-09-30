@@ -5,7 +5,8 @@
 `P2-HUB-01` and `P2-HUB-02` remain blocked. The pinned original Hub runtime is
 locally executable, but the Rust candidate still uses a single-process JSON
 snapshot. It has a bounded packet-level authentication HTTP pilot, but no
-PGlite, PostgreSQL, production HTTP server, or direct daemon WebSocket. No Hub
+PGlite, baseline relational PostgreSQL schema, production HTTP server, or direct
+daemon WebSocket. A PostgreSQL transactional snapshot pilot now exists. No Hub
 implementation tool is selected.
 
 ## Proven original-runtime behavior
@@ -58,6 +59,18 @@ before browser-session fields existed still load with defaults.
 This adapter is pilot code. Its deterministic session token is not production
 authentication, and its four routes do not represent the complete Hub API.
 
+## Rust PostgreSQL pilot
+
+The candidate opens real PostgreSQL 17 storage, creates a namespaced snapshot
+table, serializes same-key writes with `pg_advisory_xact_lock`, and commits each
+write transactionally. A disposable `postgres:17-alpine` runtime proves restart
+state plus two concurrent writers and observes revision 2 after both commits.
+
+The container runs inside an exact named tmux session, binds a random loopback
+port, and is stopped by exact container and session names. No container or tmux
+session remains after capture. This is not the baseline relational schema and
+does not prove baseline transaction boundaries.
+
 ## Reproduce
 
 ```text
@@ -65,6 +78,7 @@ sh scripts/phase2/hub-runtime-capture.test.sh
 scripts/phase2/hub-runtime-capture.sh
 cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
 cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
+scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
 ```
 
@@ -84,6 +98,8 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-runtime-original.log` | 4,164 | `8dd2cffb029ad799124345199d235668cc38b2c0f86346b62899e2ea00d0e2fa` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `5eb36a06d15fab2b18a3bc0bc8b6c9070036b14f91f7915918dac6fa31c45ba2` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
+| `evidence/raw/phase2/hub-postgres-runtime.log` | 4,059 | `c6d5c6a538c290920719dd3ab522414a27d0f78c95ef912fa460530ac878a8bf` |
+| `evidence/raw/phase2/hub-postgres-test.log` | 344 | `c9a0d55fbd4d596ea5368d552234049480db9315b1796893cbc401be0bc11a41` |
 
 Host: macOS Darwin 24.6.0 x86_64, Rust 1.94.0, Cargo 1.94.0,
 Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
@@ -96,8 +112,9 @@ times by construction.
 
 - Candidate PGlite storage, migrations, lock behavior, crash recovery, and old
   database fixtures do not exist.
-- Candidate PostgreSQL storage, transactions, advisory locks, concurrency, and
-  embedded-versus-PostgreSQL differential results do not exist.
+- Candidate baseline-schema PostgreSQL behavior and embedded-versus-PostgreSQL
+  differential results do not exist. Snapshot transactions and advisory locking
+  are candidate-only evidence.
 - Original-versus-Rust HTTP status, body, cookie, and database state differential
   traces do not exist. Candidate-only packet behavior is covered.
 - Real daemon outbound registration, permission agreement, reconnect, socket

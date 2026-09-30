@@ -10,7 +10,9 @@ use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 
 pub mod http;
@@ -120,6 +122,7 @@ pub struct DaemonSession {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StoreSemantics {
     SingleProcessFileSnapshot,
+    PostgreSqlTransactionalSnapshot,
 }
 
 pub trait DurableHubStore {
@@ -157,6 +160,62 @@ impl DurableHubStore for EmbeddedFileStore {
 
     fn save(&self, bytes: &[u8]) -> Result<(), StoreError> {
         atomic_write(&self.path, bytes)
+    }
+}
+
+pub struct PostgresStore {
+    client: Mutex<Client>,
+    state_key: String,
+}
+
+impl PostgresStore {
+    pub const SEMANTICS: StoreSemantics = StoreSemantics::PostgreSqlTransactionalSnapshot;
+    pub const LIMITATIONS: &str =
+        "not PGlite; whole-state snapshot rather than the baseline relational schema";
+
+    pub fn open(connection: &str, state_key: impl Into<String>) -> Result<Self, StoreError> {
+        let mut client = Client::connect(connection, NoTls)?;
+        client.batch_execute(
+            "CREATE TABLE IF NOT EXISTS paseo_hub_pilot_state (
+                state_key TEXT PRIMARY KEY,
+                state_bytes BYTEA NOT NULL,
+                revision BIGINT NOT NULL DEFAULT 1
+            )",
+        )?;
+        Ok(Self {
+            client: Mutex::new(client),
+            state_key: state_key.into(),
+        })
+    }
+}
+
+impl DurableHubStore for PostgresStore {
+    fn load(&self) -> Result<Option<Vec<u8>>, StoreError> {
+        let mut client = self.client.lock().map_err(|_| StoreError::Poisoned)?;
+        let row = client.query_opt(
+            "SELECT state_bytes FROM paseo_hub_pilot_state WHERE state_key = $1",
+            &[&self.state_key],
+        )?;
+        Ok(row.map(|row| row.get(0)))
+    }
+
+    fn save(&self, bytes: &[u8]) -> Result<(), StoreError> {
+        let mut client = self.client.lock().map_err(|_| StoreError::Poisoned)?;
+        let mut transaction = client.transaction()?;
+        transaction.query_one(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            &[&self.state_key],
+        )?;
+        transaction.execute(
+            "INSERT INTO paseo_hub_pilot_state (state_key, state_bytes, revision)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (state_key) DO UPDATE
+             SET state_bytes = EXCLUDED.state_bytes,
+                 revision = paseo_hub_pilot_state.revision + 1",
+            &[&self.state_key, &bytes],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 }
 
@@ -591,17 +650,31 @@ impl fmt::Display for HubError {
 impl std::error::Error for HubError {}
 
 #[derive(Debug)]
-pub struct StoreError(std::io::Error);
+pub enum StoreError {
+    Io(std::io::Error),
+    Postgres(postgres::Error),
+    Poisoned,
+}
 
 impl From<std::io::Error> for StoreError {
     fn from(error: std::io::Error) -> Self {
-        Self(error)
+        Self::Io(error)
+    }
+}
+
+impl From<postgres::Error> for StoreError {
+    fn from(error: postgres::Error) -> Self {
+        Self::Postgres(error)
     }
 }
 
 impl fmt::Display for StoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        match self {
+            Self::Io(error) => error.fmt(formatter),
+            Self::Postgres(error) => error.fmt(formatter),
+            Self::Poisoned => formatter.write_str("PostgreSQL client lock poisoned"),
+        }
     }
 }
 
