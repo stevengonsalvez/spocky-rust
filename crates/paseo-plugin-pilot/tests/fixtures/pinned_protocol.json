@@ -1,0 +1,68 @@
+{
+  "workerInitialize": {
+    "type": "initialize",
+    "pluginId": "review",
+    "bundle": "bundle",
+    "appVersion": "0.8.0",
+    "pluginDirectory": "/plugins/review",
+    "settingsDirectory": "/settings/review"
+  },
+  "workerReady": {
+    "type": "ready",
+    "methods": ["review.start"],
+    "providers": [],
+    "usageSources": [],
+    "hooks": { "events": [], "before": [] }
+  },
+  "workerInvoke": {
+    "type": "invoke",
+    "requestId": "worker-1",
+    "method": "review.start",
+    "input": { "change": 7 }
+  },
+  "workerResult": {
+    "type": "result",
+    "requestId": "worker-1",
+    "output": { "accepted": true }
+  },
+  "workerShutdown": { "type": "shutdown" },
+  "catalogRequest": {
+    "type": "plugin.catalog.get.request",
+    "requestId": "catalog-1"
+  },
+  "catalogResponse": {
+    "type": "plugin.catalog.get.response",
+    "payload": {
+      "requestId": "catalog-1",
+      "plugins": [
+        {
+          "id": "review",
+          "clientBundle": "bundle",
+          "requirements": { "paseo": ">=0.8.0" }
+        }
+      ]
+    }
+  },
+  "invokeRequest": {
+    "type": "plugin.rpc.invoke.request",
+    "requestId": "rpc-1",
+    "pluginId": "review",
+    "method": "review.start",
+    "input": { "change": 7 }
+  },
+  "invokeResponse": {
+    "type": "plugin.rpc.invoke.response",
+    "payload": {
+      "requestId": "rpc-1",
+      "output": { "accepted": true }
+    }
+  },
+  "settingsChanged": {
+    "type": "status",
+    "payload": {
+      "status": "plugin_settings_changed",
+      "pluginId": "review",
+      "settingsId": "display"
+    }
+  }
+}

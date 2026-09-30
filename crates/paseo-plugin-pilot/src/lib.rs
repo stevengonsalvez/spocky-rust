@@ -12,10 +12,21 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct PluginId(String);
+
+impl<'de> Deserialize<'de> for PluginId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
 
 impl PluginId {
     pub fn new(value: impl Into<String>) -> Result<Self, PluginError> {
@@ -59,6 +70,211 @@ pub enum Contribution {
     Rpc(String),
     Surface(String),
     SettingsScreen(String),
+    Provider(String),
+    UsageSource(String),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRequirements {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paseo: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginManifest {
+    pub id: PluginId,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub requirements: PluginRequirements,
+    #[serde(default)]
+    pub build: Vec<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LoadedManifest {
+    pub manifest: PluginManifest,
+    pub client_entry: Option<PathBuf>,
+    pub server_entry: Option<PathBuf>,
+}
+
+pub fn load_manifest(directory: &Path) -> Result<LoadedManifest, PluginError> {
+    let manifest: PluginManifest =
+        serde_json::from_slice(&fs::read(directory.join("paseo-plugin.json"))?)?;
+    if manifest
+        .description
+        .as_ref()
+        .is_some_and(|value| value.trim().is_empty())
+        || manifest
+            .build
+            .iter()
+            .any(|command| command.is_empty() || command.iter().any(|arg| arg.trim().is_empty()))
+    {
+        return Err(PluginError::InvalidCandidate);
+    }
+    let mut manifest = manifest;
+    manifest.description = manifest.description.map(|value| value.trim().to_owned());
+    let client_entry = find_entry(directory, &["index.client.ts", "index.client.tsx"]);
+    let server_entry = find_entry(directory, &["index.server.ts", "index.server.tsx"]);
+    if client_entry.is_none() && server_entry.is_none() {
+        return Err(PluginError::PluginEntryPointsMissing);
+    }
+    Ok(LoadedManifest {
+        manifest,
+        client_entry,
+        server_entry,
+    })
+}
+
+fn find_entry(directory: &Path, names: &[&str]) -> Option<PathBuf> {
+    names
+        .iter()
+        .map(|name| directory.join(name))
+        .find(|entry| entry.is_file())
+}
+
+pub struct PluginCatalogGetRequest {
+    pub request_id: String,
+}
+
+impl Serialize for PluginCatalogGetRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        json_object([
+            ("type", serde_json::json!("plugin.catalog.get.request")),
+            ("requestId", serde_json::json!(self.request_id)),
+        ])
+        .serialize(serializer)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PluginCatalogEntry {
+    pub id: PluginId,
+    pub client_bundle: String,
+    pub paseo_requirement: Option<String>,
+}
+
+impl Serialize for PluginCatalogEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut value = serde_json::json!({
+            "id": self.id,
+            "clientBundle": self.client_bundle,
+        });
+        if let Some(requirement) = &self.paseo_requirement {
+            value["requirements"] = serde_json::json!({"paseo": requirement});
+        }
+        value.serialize(serializer)
+    }
+}
+
+pub struct PluginCatalogGetResponse {
+    pub request_id: String,
+    pub plugins: Vec<PluginCatalogEntry>,
+}
+
+impl Serialize for PluginCatalogGetResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serde_json::json!({
+            "type": "plugin.catalog.get.response",
+            "payload": {"requestId": self.request_id, "plugins": self.plugins},
+        })
+        .serialize(serializer)
+    }
+}
+
+pub struct PluginRpcInvokeRequest {
+    pub request_id: String,
+    pub plugin_id: PluginId,
+    pub method: String,
+    pub input: serde_json::Value,
+}
+
+impl Serialize for PluginRpcInvokeRequest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serde_json::json!({
+            "type": "plugin.rpc.invoke.request",
+            "requestId": self.request_id,
+            "pluginId": self.plugin_id,
+            "method": self.method,
+            "input": self.input,
+        })
+        .serialize(serializer)
+    }
+}
+
+pub struct PluginRpcInvokeResponse {
+    pub request_id: String,
+    pub output: serde_json::Value,
+}
+
+impl Serialize for PluginRpcInvokeResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serde_json::json!({
+            "type": "plugin.rpc.invoke.response",
+            "payload": {"requestId": self.request_id, "output": self.output},
+        })
+        .serialize(serializer)
+    }
+}
+
+pub enum PluginStatusPayload {
+    CatalogChanged {
+        plugin_id: PluginId,
+    },
+    SettingsChanged {
+        plugin_id: PluginId,
+        settings_id: String,
+    },
+}
+
+pub struct PluginStatus {
+    pub payload: PluginStatusPayload,
+}
+
+impl Serialize for PluginStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let payload = match &self.payload {
+            PluginStatusPayload::CatalogChanged { plugin_id } => serde_json::json!({
+                "status": "plugin_catalog_changed", "pluginId": plugin_id,
+            }),
+            PluginStatusPayload::SettingsChanged {
+                plugin_id,
+                settings_id,
+            } => serde_json::json!({
+                "status": "plugin_settings_changed", "pluginId": plugin_id, "settingsId": settings_id,
+            }),
+        };
+        serde_json::json!({"type": "status", "payload": payload}).serialize(serializer)
+    }
+}
+
+fn json_object<const N: usize>(entries: [(&str, serde_json::Value); N]) -> serde_json::Value {
+    serde_json::Value::Object(
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value))
+            .collect(),
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -160,28 +376,66 @@ impl AcquiredPlugin {
     }
 
     pub fn load(self, timeout: Duration) -> Result<LoadedPlugin, PluginError> {
-        let manifest: RuntimeManifest =
-            serde_json::from_slice(&fs::read(self.directory.join("paseo-plugin.json"))?)?;
-        let id = PluginId::new(manifest.id)?;
-        let entry = safe_relative_path(&manifest.server)?;
+        self.load_inner(None, timeout)
+    }
+
+    pub fn load_and_invoke(
+        self,
+        method: &str,
+        input: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<LoadedPlugin, PluginError> {
+        if method.is_empty() {
+            return Err(PluginError::RuntimeProtocol);
+        }
+        self.load_inner(Some((method, input)), timeout)
+    }
+
+    fn load_inner(
+        self,
+        invocation: Option<(&str, serde_json::Value)>,
+        timeout: Duration,
+    ) -> Result<LoadedPlugin, PluginError> {
+        let loaded_manifest = load_manifest(&self.directory)?;
+        let id = loaded_manifest.manifest.id.clone();
+        let entry = loaded_manifest
+            .server_entry
+            .ok_or(PluginError::PluginServerEntryMissing)?;
+        let bundle = fs::read_to_string(&entry)?;
         let mut child = Command::new("node")
-            .arg(entry)
+            .args(["-e", &bundle])
             .current_dir(&self.directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
-        let result = exchange_runtime(&mut child, timeout);
+        let result = exchange_runtime(
+            &mut child,
+            &RuntimeInitialize::new(
+                id.as_str(),
+                &bundle,
+                "0.8.0-pilot",
+                &self.directory.to_string_lossy(),
+            ),
+            invocation,
+            timeout,
+        );
         if result.is_err() {
             let _ = child.kill();
             let _ = child.wait();
         }
-        let (contributions, traffic) = result?;
+        let (contributions, traffic, invocation_output) = result?;
         Ok(LoadedPlugin {
             id,
             candidate: Candidate::new(self.identity, Some(self.revision), contributions.clone()),
             contributions,
             traffic,
+            client_bundle: loaded_manifest
+                .client_entry
+                .map(fs::read_to_string)
+                .transpose()?
+                .unwrap_or_default(),
+            invocation_output,
         })
     }
 }
@@ -192,6 +446,8 @@ pub struct LoadedPlugin {
     candidate: Candidate,
     contributions: Vec<Contribution>,
     traffic: Vec<RuntimeTraffic>,
+    client_bundle: String,
+    invocation_output: Option<serde_json::Value>,
 }
 
 impl LoadedPlugin {
@@ -211,27 +467,94 @@ impl LoadedPlugin {
     }
 
     #[must_use]
+    pub fn client_bundle(&self) -> &str {
+        &self.client_bundle
+    }
+
+    #[must_use]
+    pub const fn invocation_output(&self) -> Option<&serde_json::Value> {
+        self.invocation_output.as_ref()
+    }
+
+    #[must_use]
     pub fn into_candidate(self) -> Candidate {
         self.candidate
     }
 }
 
 #[derive(Deserialize)]
-struct RuntimeManifest {
-    id: String,
-    server: String,
-}
-
-#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReadyMessage {
     r#type: String,
-    contributions: Vec<WireContribution>,
+    methods: Vec<String>,
+    providers: Vec<ProviderMetadata>,
+    #[serde(default, rename = "usageSources")]
+    usage_sources: Vec<UsageSourceMetadata>,
+    #[serde(default, rename = "hooks")]
+    _hooks: HooksMetadata,
 }
 
 #[derive(Deserialize)]
-struct WireContribution {
-    kind: String,
+#[serde(deny_unknown_fields)]
+struct ProviderMetadata {
     id: String,
+    #[serde(rename = "label")]
+    _label: String,
+    #[serde(default)]
+    _description: Option<String>,
+    #[serde(default, rename = "iconPath")]
+    _icon_path: Option<String>,
+    #[serde(default, rename = "hasCatalogCacheKey")]
+    _has_catalog_cache_key: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UsageSourceMetadata {
+    id: String,
+    #[serde(rename = "label")]
+    _label: String,
+    #[serde(default)]
+    _icon: Option<String>,
+    #[serde(rename = "discover")]
+    _discover: bool,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HooksMetadata {
+    #[serde(default, rename = "events")]
+    _events: Vec<String>,
+    #[serde(default, rename = "before")]
+    _before: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeInitialize<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    plugin_id: &'a str,
+    bundle: &'a str,
+    app_version: &'a str,
+    plugin_directory: &'a str,
+}
+
+impl<'a> RuntimeInitialize<'a> {
+    fn new(
+        plugin_id: &'a str,
+        bundle: &'a str,
+        app_version: &'a str,
+        plugin_directory: &'a str,
+    ) -> Self {
+        Self {
+            kind: "initialize",
+            plugin_id,
+            bundle,
+            app_version,
+            plugin_directory,
+        }
+    }
 }
 
 pub fn acquire_git(
@@ -250,51 +573,58 @@ pub fn acquire_git(
         return Err(PluginError::InvalidCandidate);
     }
     let checkout = checkout.into();
+    if checkout.exists() {
+        return Err(PluginError::InvalidCandidate);
+    }
     let relative_plugin_path = if plugin_path == "." {
         PathBuf::new()
     } else {
         safe_relative_path(plugin_path)?
     };
-    run_bounded(
-        Command::new("git")
-            .args(["clone", "--no-checkout", "--", remote])
-            .arg(&checkout),
-        timeout,
-    )?;
-    run_bounded(
-        Command::new("git")
-            .args(["checkout", "--detach", reviewed_revision])
-            .current_dir(&checkout),
-        timeout,
-    )?;
-    let output = run_bounded(
-        Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&checkout),
-        timeout,
-    )?;
-    let actual_revision = String::from_utf8(output.stdout)
-        .map_err(|_| PluginError::InvalidCommandOutput)?
-        .trim()
-        .to_owned();
-    if actual_revision != reviewed_revision {
-        return Err(PluginError::ReviewedRevisionMismatch {
-            expected: reviewed_revision.to_owned(),
-            actual: actual_revision,
-        });
+    let acquired = (|| {
+        run_bounded(
+            Command::new("git")
+                .args(["clone", "--no-checkout", "--", remote])
+                .arg(&checkout),
+            timeout,
+        )?;
+        run_bounded(
+            Command::new("git")
+                .args(["checkout", "--detach", reviewed_revision])
+                .current_dir(&checkout),
+            timeout,
+        )?;
+        let output = run_bounded(
+            Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&checkout),
+            timeout,
+        )?;
+        let actual_revision = String::from_utf8(output.stdout)
+            .map_err(|_| PluginError::InvalidCommandOutput)?
+            .trim()
+            .to_owned();
+        if actual_revision != reviewed_revision {
+            return Err(PluginError::ReviewedRevisionMismatch {
+                expected: reviewed_revision.to_owned(),
+                actual: actual_revision,
+            });
+        }
+        let directory = checkout.join(&relative_plugin_path);
+        assert_contained_directory(&checkout, &directory)?;
+        Ok(AcquiredPlugin {
+            directory,
+            identity: PluginSourceIdentity::Git {
+                remote: remote.to_owned(),
+                plugin_path: plugin_path.to_owned(),
+            },
+            revision: reviewed_revision.to_owned(),
+        })
+    })();
+    if acquired.is_err() {
+        let _ = fs::remove_dir_all(&checkout);
     }
-    let directory = checkout.join(&relative_plugin_path);
-    if !directory.is_dir() {
-        return Err(PluginError::PluginNotFound);
-    }
-    Ok(AcquiredPlugin {
-        directory,
-        identity: PluginSourceIdentity::Git {
-            remote: remote.to_owned(),
-            plugin_path: plugin_path.to_owned(),
-        },
-        revision: reviewed_revision.to_owned(),
-    })
+    acquired
 }
 
 pub fn acquire_npm_tarball(
@@ -312,43 +642,50 @@ pub fn acquire_npm_tarball(
     };
     let archive = archive.canonicalize()?;
     let installation = installation.into();
-    fs::create_dir_all(&installation)?;
-    run_bounded(
-        Command::new("npm")
-            .args([
-                "install",
-                "--offline",
-                "--ignore-scripts",
-                "--no-audit",
-                "--no-fund",
-                "--package-lock=false",
-                "--prefix",
-            ])
-            .arg(&installation)
-            .arg(&archive),
-        timeout,
-    )?;
-    let mut package_root = installation.join("node_modules");
-    for segment in package_segments {
-        package_root.push(segment);
-    }
-    let package: NpmPackageManifest =
-        serde_json::from_slice(&fs::read(package_root.join("package.json"))?)?;
-    if package.name != package_name || package.version.is_empty() {
+    if installation.exists() {
         return Err(PluginError::InvalidCandidate);
     }
-    let directory = package_root.join(relative_plugin_path);
-    if !directory.is_dir() {
-        return Err(PluginError::PluginNotFound);
+    fs::create_dir_all(&installation)?;
+    let acquired = (|| {
+        run_bounded(
+            Command::new("npm")
+                .args([
+                    "install",
+                    "--offline",
+                    "--ignore-scripts",
+                    "--no-audit",
+                    "--no-fund",
+                    "--package-lock=false",
+                    "--prefix",
+                ])
+                .arg(&installation)
+                .arg(&archive),
+            timeout,
+        )?;
+        let mut package_root = installation.join("node_modules");
+        for segment in package_segments {
+            package_root.push(segment);
+        }
+        let package: NpmPackageManifest =
+            serde_json::from_slice(&fs::read(package_root.join("package.json"))?)?;
+        if package.name != package_name || package.version.is_empty() {
+            return Err(PluginError::InvalidCandidate);
+        }
+        let directory = package_root.join(relative_plugin_path);
+        assert_contained_directory(&package_root, &directory)?;
+        Ok(AcquiredPlugin {
+            directory,
+            identity: PluginSourceIdentity::Npm {
+                package_name: package_name.to_owned(),
+                plugin_path: plugin_path.to_owned(),
+            },
+            revision: package.version,
+        })
+    })();
+    if acquired.is_err() {
+        let _ = fs::remove_dir_all(&installation);
     }
-    Ok(AcquiredPlugin {
-        directory,
-        identity: PluginSourceIdentity::Npm {
-            package_name: package_name.to_owned(),
-            plugin_path: plugin_path.to_owned(),
-        },
-        revision: package.version,
-    })
+    acquired
 }
 
 #[derive(Deserialize)]
@@ -374,7 +711,16 @@ fn npm_package_segments(package_name: &str) -> Result<Vec<&str>, PluginError> {
 }
 
 fn safe_relative_path(path: &str) -> Result<PathBuf, PluginError> {
-    let path = Path::new(path);
+    if path.starts_with(['/', '\\'])
+        || path.as_bytes().get(1) == Some(&b':')
+        || path
+            .split(['/', '\\'])
+            .any(|part| part.is_empty() || matches!(part, "." | ".."))
+    {
+        return Err(PluginError::InvalidCandidate);
+    }
+    let normalized = path.replace('\\', "/");
+    let path = Path::new(&normalized);
     if path.as_os_str().is_empty()
         || path.is_absolute()
         || path
@@ -384,6 +730,21 @@ fn safe_relative_path(path: &str) -> Result<PathBuf, PluginError> {
         return Err(PluginError::InvalidCandidate);
     }
     Ok(path.to_owned())
+}
+
+fn assert_contained_directory(root: &Path, directory: &Path) -> Result<(), PluginError> {
+    let root = root.canonicalize()?;
+    let directory = directory.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            PluginError::PluginNotFound
+        } else {
+            PluginError::Io(error)
+        }
+    })?;
+    if !directory.is_dir() || !directory.starts_with(root) {
+        return Err(PluginError::InvalidCandidate);
+    }
+    Ok(())
 }
 
 fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, PluginError> {
@@ -444,8 +805,10 @@ fn join_reader(
 
 fn exchange_runtime(
     child: &mut Child,
+    initialize: &RuntimeInitialize<'_>,
+    invocation: Option<(&str, serde_json::Value)>,
     timeout: Duration,
-) -> Result<(Vec<Contribution>, Vec<RuntimeTraffic>), PluginError> {
+) -> Result<RuntimeExchange, PluginError> {
     let stdout = child.stdout.take().ok_or(PluginError::RuntimeProtocol)?;
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
@@ -456,7 +819,7 @@ fn exchange_runtime(
         }
     });
     let stdin = child.stdin.as_mut().ok_or(PluginError::RuntimeProtocol)?;
-    let initialize = r#"{"type":"initialize"}"#;
+    let initialize = serde_json::to_string(initialize)?;
     writeln!(stdin, "{initialize}")?;
     stdin.flush()?;
     let ready_line = receiver
@@ -466,26 +829,45 @@ fn exchange_runtime(
     if ready.r#type != "ready" {
         return Err(PluginError::RuntimeProtocol);
     }
-    let contributions = ready
-        .contributions
-        .into_iter()
-        .map(|item| match item.kind.as_str() {
-            "rpc" => Ok(Contribution::Rpc(item.id)),
-            "surface" => Ok(Contribution::Surface(item.id)),
-            "settings_screen" => Ok(Contribution::SettingsScreen(item.id)),
-            _ => Err(PluginError::RuntimeProtocol),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let methods = ready.methods;
+    let mut contributions = methods
+        .iter()
+        .cloned()
+        .map(Contribution::Rpc)
+        .collect::<Vec<_>>();
+    contributions.extend(
+        ready
+            .providers
+            .into_iter()
+            .map(|provider| Contribution::Provider(provider.id)),
+    );
+    contributions.extend(
+        ready
+            .usage_sources
+            .into_iter()
+            .map(|source| Contribution::UsageSource(source.id)),
+    );
+    let mut traffic = vec![
+        RuntimeTraffic {
+            direction: "host_to_plugin",
+            message: initialize.clone(),
+        },
+        RuntimeTraffic {
+            direction: "plugin_to_host",
+            message: ready_line,
+        },
+    ];
+    let invocation_output = perform_invocation(
+        stdin,
+        &receiver,
+        &methods,
+        invocation,
+        timeout,
+        &mut traffic,
+    )?;
     let shutdown = r#"{"type":"shutdown"}"#;
     writeln!(stdin, "{shutdown}")?;
     stdin.flush()?;
-    let stopped_line = receiver
-        .recv_timeout(timeout)
-        .map_err(|_| PluginError::RuntimeTimedOut)??;
-    let stopped: serde_json::Value = serde_json::from_str(&stopped_line)?;
-    if stopped.get("type").and_then(serde_json::Value::as_str) != Some("stopped") {
-        return Err(PluginError::RuntimeProtocol);
-    }
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child.try_wait()? {
@@ -501,27 +883,67 @@ fn exchange_runtime(
         }
         thread::sleep(Duration::from_millis(10));
     }
-    Ok((
-        contributions,
-        vec![
-            RuntimeTraffic {
-                direction: "host_to_plugin",
-                message: initialize.to_owned(),
-            },
-            RuntimeTraffic {
-                direction: "plugin_to_host",
-                message: ready_line,
-            },
-            RuntimeTraffic {
-                direction: "host_to_plugin",
-                message: shutdown.to_owned(),
-            },
-            RuntimeTraffic {
-                direction: "plugin_to_host",
-                message: stopped_line,
-            },
-        ],
-    ))
+    traffic.push(RuntimeTraffic {
+        direction: "host_to_plugin",
+        message: shutdown.to_owned(),
+    });
+    Ok((contributions, traffic, invocation_output))
+}
+
+type RuntimeLineReceiver = mpsc::Receiver<Result<String, std::io::Error>>;
+type RuntimeExchange = (
+    Vec<Contribution>,
+    Vec<RuntimeTraffic>,
+    Option<serde_json::Value>,
+);
+
+fn perform_invocation(
+    stdin: &mut impl Write,
+    receiver: &RuntimeLineReceiver,
+    methods: &[String],
+    invocation: Option<(&str, serde_json::Value)>,
+    timeout: Duration,
+    traffic: &mut Vec<RuntimeTraffic>,
+) -> Result<Option<serde_json::Value>, PluginError> {
+    let Some((method, input)) = invocation else {
+        return Ok(None);
+    };
+    if !methods.iter().any(|candidate| candidate == method) {
+        return Err(PluginError::RuntimeProtocol);
+    }
+    let request = serde_json::to_string(&serde_json::json!({
+        "type": "invoke",
+        "requestId": "pilot-1",
+        "method": method,
+        "input": input,
+    }))?;
+    writeln!(stdin, "{request}")?;
+    stdin.flush()?;
+    traffic.push(RuntimeTraffic {
+        direction: "host_to_plugin",
+        message: request,
+    });
+    let response_line = receiver
+        .recv_timeout(timeout)
+        .map_err(|_| PluginError::RuntimeTimedOut)??;
+    let response: RuntimeResult = serde_json::from_str(&response_line)?;
+    if response.r#type != "result" || response.request_id != "pilot-1" {
+        return Err(PluginError::RuntimeProtocol);
+    }
+    traffic.push(RuntimeTraffic {
+        direction: "plugin_to_host",
+        message: response_line,
+    });
+    Ok(Some(response.output))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeResult {
+    r#type: String,
+    #[serde(rename = "requestId")]
+    request_id: String,
+    output: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -746,6 +1168,8 @@ pub enum PluginError {
     InvalidPluginId,
     InvalidCandidate,
     PluginNotFound,
+    PluginEntryPointsMissing,
+    PluginServerEntryMissing,
     LocalDirectoryCannotUpdate,
     ReviewedStateChanged,
     CandidateDoesNotMatchReview,
