@@ -13,6 +13,16 @@ button, a { font: inherit; }
 .nav-button { min-height: 28px; display: flex; align-items: center; gap: 10px; padding: 4px 7px; border: 0; border-radius: 7px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .nav-button:hover, .nav-button:focus-visible { background: #ececf0; color: #28292f; outline: 2px solid #8ba9d8; outline-offset: -2px; }
 .nav-icon { width: 12px; text-align: center; color: #72747c; }
+.icon-add::before { content: "+"; }
+.icon-history::before { content: "◴"; }
+.icon-search::before { content: "⌕"; }
+.icon-schedule::before { content: "◫"; }
+.icon-project::before { content: "⊞"; }
+.icon-hosts::before { content: "▤"; }
+.icon-import::before { content: "⇩"; }
+.icon-activity::before { content: "◜"; }
+.icon-help::before { content: "?"; }
+.icon-settings::before { content: "⚙"; }
 .sidebar-spacer { flex: 1; }
 .sidebar-footer { min-height: 57px; display: flex; align-items: center; gap: 14px; padding: 10px 15px; border-top: 1px solid #e3e3e8; }
 .sidebar-footer .nav-button:first-child { flex: 1; }
@@ -29,19 +39,26 @@ button, a { font: inherit; }
 .action:hover, .action:focus-visible { border-color: #aeb0b9; box-shadow: 0 1px 4px rgb(28 29 34 / 10%); outline: 2px solid #8ba9d8; outline-offset: 2px; }
 .action-icon { display: block; margin-bottom: 12px; color: #767881; font-size: 19px; line-height: 1; }
 .action:first-child .action-icon { color: #24895a; }
+.icon-folder::before { content: "▱"; }
+.icon-inbox::before { content: "▣"; }
+.icon-plug::before { content: "♧"; }
 .action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: 20px; }
 .action-detail { display: block; color: #777983; font-size: 14px; line-height: 18px; }
 .community { position: absolute; right: 0; bottom: 50px; left: 0; display: flex; justify-content: center; gap: 24px; color: #72747d; font-size: 14px; }
 .community a { color: inherit; text-decoration: none; }
+.community-icon { margin-right: 6px; }
+.icon-star::before { content: "◉"; }
+.icon-sponsor::before { content: "♡"; }
+.icon-community::before { content: "♣"; }
 .community a:hover, .community a:focus-visible { color: #292a30; text-decoration: underline; outline: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 42rem) {
   .shell { display: block; }
   .sidebar { display: none; }
   .mobile-menu { display: block; }
-  .workspace { min-height: 100vh; padding: 96px 24px 92px; }
+  .workspace { min-height: 100vh; padding: 114px 24px 92px; }
   .content { width: 100%; }
-  .mark { margin-bottom: 76px; }
+  .mark { margin-bottom: 58px; }
   .actions { grid-template-columns: 1fr; gap: 12px; }
   .action { min-height: 105px; padding: 14px 16px; }
   .action-icon { margin-bottom: 10px; }
@@ -51,24 +68,24 @@ button, a { font: inherit; }
 
 #[derive(Clone, Copy)]
 struct ProjectAction {
-    icon: &'static str,
+    icon_class: &'static str,
     title: &'static str,
     detail: &'static str,
 }
 
 const PROJECT_ACTIONS: [ProjectAction; 3] = [
     ProjectAction {
-        icon: "▱",
+        icon_class: "icon-folder",
         title: "Add a project",
         detail: "Open a folder on your machine",
     },
     ProjectAction {
-        icon: "▣",
+        icon_class: "icon-inbox",
         title: "Import session",
         detail: "Open a Claude Code, Codex or other session you started in a terminal",
     },
     ProjectAction {
-        icon: "♧",
+        icon_class: "icon-plug",
         title: "Setup providers",
         detail: "Configure Claude Code, Codex, and more",
     },
@@ -92,19 +109,19 @@ pub fn PaseoShell() -> Element {
         main { class: "shell",
             nav { class: "sidebar", aria_label: "Primary navigation",
                 div { class: "nav-list",
-                    button { class: "nav-button", span { class: "nav-icon", "+" } "New workspace" }
-                    button { class: "nav-button", span { class: "nav-icon", "◴" } "History" }
-                    button { class: "nav-button", span { class: "nav-icon", "⌕" } "Search" }
-                    button { class: "nav-button", span { class: "nav-icon", "◫" } "Schedules" }
+                    button { class: "nav-button", aria_label: "New workspace", span { class: "nav-icon icon-add" } "New workspace" }
+                    button { class: "nav-button", aria_label: "History", span { class: "nav-icon icon-history" } "History" }
+                    button { class: "nav-button", aria_label: "Search", span { class: "nav-icon icon-search" } "Search" }
+                    button { class: "nav-button", aria_label: "Schedules", span { class: "nav-icon icon-schedule" } "Schedules" }
                 }
                 div { class: "sidebar-spacer" }
                 div { class: "sidebar-footer",
-                    button { class: "nav-button", span { class: "nav-icon", "⊞" } "Add project" }
-                    button { class: "nav-button icon-button", aria_label: "Hosts", "▤" }
-                    button { class: "nav-button icon-button", aria_label: "Import", "⇩" }
-                    button { class: "nav-button icon-button", aria_label: "Activity", "◜" }
-                    button { class: "nav-button icon-button", aria_label: "Help", "?" }
-                    button { class: "nav-button icon-button", aria_label: "Settings", "⚙" }
+                    button { class: "nav-button", span { class: "nav-icon icon-project" } "Add project" }
+                    button { class: "nav-button icon-button", aria_label: "Hosts", span { class: "nav-icon icon-hosts" } }
+                    button { class: "nav-button icon-button", aria_label: "Import", span { class: "nav-icon icon-import" } }
+                    button { class: "nav-button icon-button", aria_label: "Activity", span { class: "nav-icon icon-activity" } }
+                    button { class: "nav-button icon-button", aria_label: "Help", span { class: "nav-icon icon-help" } }
+                    button { class: "nav-button icon-button", aria_label: "Settings", span { class: "nav-icon icon-settings" } }
                 }
             }
             button { class: "mobile-menu", aria_label: "Open menu", "☰" }
@@ -117,10 +134,17 @@ pub fn PaseoShell() -> Element {
                     }
                     div { class: "actions",
                         for (index, action) in PROJECT_ACTIONS.iter().enumerate() {
-                            button {
+                            div {
                                 class: "action",
+                                role: "button",
+                                tabindex: "0",
                                 onclick: move |_| selected_action.set(Some(index)),
-                                span { class: "action-icon", aria_hidden: "true", "{action.icon}" }
+                                onkeydown: move |event: KeyboardEvent| {
+                                    if event.key() == Key::Enter {
+                                        selected_action.set(Some(index));
+                                    }
+                                },
+                                span { class: "action-icon {action.icon_class}", aria_hidden: "true" }
                                 span { class: "action-title", "{action.title}" }
                                 span { class: "action-detail", "{action.detail}" }
                             }
@@ -128,9 +152,9 @@ pub fn PaseoShell() -> Element {
                     }
                 }
                 footer { class: "community",
-                    a { href: "https://github.com/getpaseo/paseo", "◉ Star" }
-                    a { href: "https://github.com/sponsors/getpaseo", "♡ Sponsor" }
-                    a { href: "https://discord.gg/paseo", "♣ Community" }
+                    a { href: "https://github.com/getpaseo/paseo", span { class: "community-icon icon-star", aria_hidden: "true" } "Star" }
+                    a { href: "https://github.com/sponsors/getpaseo", span { class: "community-icon icon-sponsor", aria_hidden: "true" } "Sponsor" }
+                    a { href: "https://discord.gg/paseo", span { class: "community-icon icon-community", aria_hidden: "true" } "Community" }
                 }
                 output { class: "sr-only", role: "status", aria_live: "polite", "{status}" }
                 span { class: "sr-only", {APP_TITLE} }
