@@ -1,4 +1,4 @@
-use spocky_ui_renderer_pilot::{APP_TITLE, render_shell_html};
+use spocky_ui_renderer_pilot::{APP_TITLE, render_add_project_dialog_html, render_shell_html};
 
 #[test]
 fn shell_renders_deterministic_semantic_html() {
@@ -10,8 +10,7 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("<nav"));
     assert!(first.contains("aria-label=\"Primary navigation\""));
     assert!(first.contains("<button"));
-    assert!(first.contains("role=\"status\""));
-    assert!(first.contains("aria-live=\"polite\""));
+    assert!(!first.contains("role=\"status\""));
     assert!(first.contains(APP_TITLE));
     assert!(first.contains("New workspace"));
     assert!(first.contains("Add a project"));
@@ -97,6 +96,26 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("-moz-osx-font-smoothing: grayscale"));
     assert!(first.contains(".mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }"));
     assert!(first.contains(".community { bottom: 72px; }"));
+}
+
+#[test]
+fn add_project_activation_renders_upstream_dialog_outcome() {
+    let shell = render_shell_html();
+    let dialog = render_add_project_dialog_html();
+
+    assert!(!shell.contains("role=\"status\""));
+    assert!(!shell.contains("Selected action:"));
+    assert!(dialog.contains("role=\"dialog\""));
+    assert!(dialog.contains("aria-modal=\"true\""));
+    assert!(dialog.contains("aria-label=\"Add project: method\""));
+    assert!(dialog.contains("Add project"));
+    assert!(dialog.contains("isolated-baseline"));
+    assert!(dialog.contains("Search for directory"));
+    assert!(dialog.contains("Find a directory on isolated-baseline"));
+    assert!(dialog.contains("Clone from GitHub"));
+    assert!(dialog.contains("Enter a GitHub URL or owner/repo"));
+    assert!(dialog.contains("New directory"));
+    assert!(dialog.contains("Create an empty directory on isolated-baseline"));
 }
 
 #[test]

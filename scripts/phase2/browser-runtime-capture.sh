@@ -32,22 +32,23 @@ print_evidence_paths() {
     'publish-policy=accepted-attempt-only'
 }
 
-parse_normalized_rmse() {
+parse_different_pixels() {
   metric=$1
-  value=$(printf '%s\n' "$metric" | sed -n 's/.*(\([-+0-9.eE][^)]*\)).*/\1/p')
-  if [ -z "$value" ]; then
-    printf 'could not parse normalized RMSE: %s\n' "$metric" >&2
-    return 1
-  fi
-  printf '%s\n' "$value"
+  case "$metric" in
+    ''|*[!0-9]*)
+      printf 'could not parse absolute pixel difference: %s\n' "$metric" >&2
+      return 1
+      ;;
+    *) printf '%s\n' "$metric" ;;
+  esac
 }
 
-if [ "${1:-}" = "--parse-rmse" ]; then
+if [ "${1:-}" = "--parse-different-pixels" ]; then
   if [ "$#" -ne 2 ]; then
-    printf 'usage: %s --parse-rmse IMAGE_MAGICK_METRIC\n' "$0" >&2
+    printf 'usage: %s --parse-different-pixels IMAGE_MAGICK_METRIC\n' "$0" >&2
     exit 2
   fi
-  parse_normalized_rmse "$2"
+  parse_different_pixels "$2"
   exit 0
 fi
 
@@ -90,13 +91,14 @@ if [ "${1:-}" = "--print-plan" ]; then
   printf '%s\n' \
     'original desktop 1280x800' \
     'original mobile 390x844' \
-    'original repeat desktop and mobile stability captures' \
+    'original repeat desktop and mobile rejected-mode evidence' \
     'candidate desktop 1280x800' \
     'candidate mobile 390x844' \
-    'exact-pixel threshold: normalized RMSE 0' \
+    'candidate consecutive same-page and fresh-context stability captures' \
+    'exact-pixel threshold: 0 different pixels, direct images, no normalization' \
     'stable product-state readiness before interaction and screenshot' \
     'layout geometry and computed styles' \
-    'keyboard focus order and activation' \
+    'complete keyboard focus cycle and activation dialog outcome' \
     'prefers-reduced-motion: reduce' \
     'online reload and offline reload' \
     'guest startup and browser runtime boundary' \
@@ -107,7 +109,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
 
@@ -242,45 +244,72 @@ gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
     "$daemon_port"
 ) >"$attempt_dir/capture.log" 2>&1
 
-normalized_rmse() {
+different_pixels() {
   original=$1
   candidate=$2
   set +e
-  metric=$(magick compare -metric RMSE "$original" "$candidate" null: 2>&1)
+  metric=$(magick compare -metric AE "$original" "$candidate" null: 2>&1)
   status=$?
   set -e
   if [ "$status" -gt 1 ]; then
     printf 'ImageMagick comparison failed with status %s: %s\n' "$status" "$metric" >&2
     return "$status"
   fi
-  parse_normalized_rmse "$metric"
+  parse_different_pixels "$metric"
 }
 
-desktop_rmse=$(normalized_rmse \
+desktop_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/original-desktop.png" \
   "$attempt_screenshot_dir/candidate-desktop.png")
-mobile_rmse=$(normalized_rmse \
+mobile_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/original-mobile.png" \
   "$attempt_screenshot_dir/candidate-mobile.png")
-original_desktop_rmse=$(normalized_rmse \
+original_desktop_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/original-desktop.png" \
   "$attempt_screenshot_dir/original-repeat-desktop.png")
-original_mobile_rmse=$(normalized_rmse \
+original_mobile_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/original-mobile.png" \
   "$attempt_screenshot_dir/original-repeat-mobile.png")
+candidate_same_page_desktop_different_pixels=$(different_pixels \
+  "$attempt_screenshot_dir/candidate-desktop.png" \
+  "$attempt_screenshot_dir/candidate-same-page-desktop.png")
+candidate_same_page_mobile_different_pixels=$(different_pixels \
+  "$attempt_screenshot_dir/candidate-mobile.png" \
+  "$attempt_screenshot_dir/candidate-same-page-mobile.png")
+candidate_fresh_desktop_different_pixels=$(different_pixels \
+  "$attempt_screenshot_dir/candidate-desktop.png" \
+  "$attempt_screenshot_dir/candidate-fresh-desktop.png")
+candidate_fresh_mobile_different_pixels=$(different_pixels \
+  "$attempt_screenshot_dir/candidate-mobile.png" \
+  "$attempt_screenshot_dir/candidate-fresh-mobile.png")
 result_temp="$attempt_result_file.tmp"
 jq \
-  --arg desktop "$desktop_rmse" \
-  --arg mobile "$mobile_rmse" \
-  --arg originalDesktop "$original_desktop_rmse" \
-  --arg originalMobile "$original_mobile_rmse" \
+  --arg desktop "$desktop_different_pixels" \
+  --arg mobile "$mobile_different_pixels" \
+  --arg originalDesktop "$original_desktop_different_pixels" \
+  --arg originalMobile "$original_mobile_different_pixels" \
+  --arg candidateSamePageDesktop "$candidate_same_page_desktop_different_pixels" \
+  --arg candidateSamePageMobile "$candidate_same_page_mobile_different_pixels" \
+  --arg candidateFreshDesktop "$candidate_fresh_desktop_different_pixels" \
+  --arg candidateFreshMobile "$candidate_fresh_mobile_different_pixels" \
   '.comparison.visual = {
-    threshold: { metric: "normalized RMSE", maximum: 0 },
-    desktop: { rmse: ($desktop | tonumber), passes: (($desktop | tonumber) == 0) },
-    mobile: { rmse: ($mobile | tonumber), passes: (($mobile | tonumber) == 0) },
+    threshold: { metric: "different pixels", maximum: 0, normalization: "none" },
+    desktop: { differentPixels: ($desktop | tonumber), passes: (($desktop | tonumber) == 0) },
+    mobile: { differentPixels: ($mobile | tonumber), passes: (($mobile | tonumber) == 0) },
     originalStability: {
-      desktop: { rmse: ($originalDesktop | tonumber), passes: (($originalDesktop | tonumber) == 0) },
-      mobile: { rmse: ($originalMobile | tonumber), passes: (($originalMobile | tonumber) == 0) }
+      acceptanceGate: false,
+      desktop: { differentPixels: ($originalDesktop | tonumber), passes: (($originalDesktop | tonumber) == 0) },
+      mobile: { differentPixels: ($originalMobile | tonumber), passes: (($originalMobile | tonumber) == 0) }
+    },
+    candidateStability: {
+      samePage: {
+        desktop: { differentPixels: ($candidateSamePageDesktop | tonumber), passes: (($candidateSamePageDesktop | tonumber) == 0) },
+        mobile: { differentPixels: ($candidateSamePageMobile | tonumber), passes: (($candidateSamePageMobile | tonumber) == 0) }
+      },
+      freshContext: {
+        desktop: { differentPixels: ($candidateFreshDesktop | tonumber), passes: (($candidateFreshDesktop | tonumber) == 0) },
+        mobile: { differentPixels: ($candidateFreshMobile | tonumber), passes: (($candidateFreshMobile | tonumber) == 0) }
+      }
     }
   }' "$attempt_result_file" >"$result_temp"
 mv "$result_temp" "$attempt_result_file"

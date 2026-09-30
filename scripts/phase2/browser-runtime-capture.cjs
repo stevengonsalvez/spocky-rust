@@ -37,26 +37,24 @@ function comparisonState(captures, visual = null) {
     const candidate = captureByName(captures, `candidate-${viewport}`);
     const originalActivation = original?.keyboardActivation ?? null;
     const candidateActivation = candidate?.keyboardActivation ?? null;
-    const originalActivationResult = originalActivation
-      ? { attempted: originalActivation.attempted, changed: originalActivation.changed }
-      : null;
-    const candidateActivationResult = candidateActivation
-      ? { attempted: candidateActivation.attempted, changed: candidateActivation.changed }
-      : null;
     interaction[viewport] = {
       original: originalActivation,
       candidate: candidateActivation,
       passes:
         originalActivation?.attempted === true &&
         originalActivation.changed === true &&
-        valuesMatch(originalActivationResult, candidateActivationResult),
+        candidateActivation?.attempted === true &&
+        candidateActivation.changed === true &&
+        originalActivation.after?.dialogs?.length === 1 &&
+        valuesMatch(originalActivation.before, candidateActivation.before) &&
+        valuesMatch(originalActivation.after, candidateActivation.after),
     };
 
     const originalAccessibility = original
-      ? { reducedMotion: original.reducedMotion, keyboardFocus: original.keyboardFocus ?? [] }
+      ? { reducedMotion: original.reducedMotion, keyboardFocus: original.keyboardFocus ?? null }
       : null;
     const candidateAccessibility = candidate
-      ? { reducedMotion: candidate.reducedMotion, keyboardFocus: candidate.keyboardFocus ?? [] }
+      ? { reducedMotion: candidate.reducedMotion, keyboardFocus: candidate.keyboardFocus ?? null }
       : null;
     accessibility[viewport] = {
       original: originalAccessibility,
@@ -64,8 +62,10 @@ function comparisonState(captures, visual = null) {
       passes:
         originalAccessibility?.reducedMotion === true &&
         candidateAccessibility?.reducedMotion === true &&
-        originalAccessibility.keyboardFocus.length > 0 &&
-        originalAccessibility.keyboardFocus.every(
+        originalAccessibility.keyboardFocus?.completed === true &&
+        candidateAccessibility.keyboardFocus?.completed === true &&
+        originalAccessibility.keyboardFocus.entries.length > 0 &&
+        originalAccessibility.keyboardFocus.entries.every(
           (focus) => focus.tag && (focus.label || focus.text),
         ) &&
         valuesMatch(originalAccessibility.keyboardFocus, candidateAccessibility.keyboardFocus),
@@ -92,8 +92,21 @@ function comparisonState(captures, visual = null) {
   const comparable = readiness.every((capture) => capture.meaningfulRenderedText);
   const accepted =
     comparable &&
+    visual?.threshold?.metric === "different pixels" &&
+    visual?.threshold?.maximum === 0 &&
+    visual?.threshold?.normalization === "none" &&
+    visual?.desktop?.differentPixels === 0 &&
     visual?.desktop?.passes === true &&
+    visual?.mobile?.differentPixels === 0 &&
     visual?.mobile?.passes === true &&
+    visual?.candidateStability?.samePage?.desktop?.differentPixels === 0 &&
+    visual?.candidateStability?.samePage?.desktop?.passes === true &&
+    visual?.candidateStability?.samePage?.mobile?.differentPixels === 0 &&
+    visual?.candidateStability?.samePage?.mobile?.passes === true &&
+    visual?.candidateStability?.freshContext?.desktop?.differentPixels === 0 &&
+    visual?.candidateStability?.freshContext?.desktop?.passes === true &&
+    visual?.candidateStability?.freshContext?.mobile?.differentPixels === 0 &&
+    visual?.candidateStability?.freshContext?.mobile?.passes === true &&
     interaction.desktop.passes &&
     interaction.mobile.passes &&
     accessibility.desktop.passes &&
@@ -133,7 +146,15 @@ if (!baselineUrl || !candidateUrl || !outputPath || !screenshotDir || !daemonPor
   );
 }
 
-async function capture(browser, name, url, viewport, candidate, baselineDaemonPort) {
+async function capture(
+  browser,
+  name,
+  url,
+  viewport,
+  candidate,
+  baselineDaemonPort,
+  samePageStabilityName = null,
+) {
   const context = await browser.newContext({
     viewport,
     reducedMotion: "reduce",
@@ -183,22 +204,10 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     await instrumentation.checkpoint("meaningful-text:ready", { phase: "initial" });
 
     instrumentation.mark("keyboard-focus-scan:start");
-    const keyboardFocus = [];
-    for (let index = 0; index < 4; index += 1) {
-      await page.keyboard.press("Tab");
-      keyboardFocus.push(
-        await page.evaluate(() => {
-          const active = document.activeElement;
-          return {
-            tag: active?.tagName.toLowerCase() ?? null,
-            label: active?.getAttribute("aria-label") ?? null,
-            text: active?.textContent?.trim().replace(/\s+/g, " ").slice(0, 120) ?? null,
-          };
-        }),
-      );
-    }
+    const keyboardFocus = await captureKeyboardFocusCycle(page);
     await instrumentation.checkpoint("keyboard-focus-scan:complete", {
-      entries: keyboardFocus.length,
+      entries: keyboardFocus.entries.length,
+      completed: keyboardFocus.completed,
     });
     await recordScheduledReadiness(page, instrumentation, "initial");
 
@@ -214,6 +223,15 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     instrumentation.mark("activation:dispatch", { control: actionSelector });
     await page.keyboard.press("Enter");
     const fileChooserOpened = await fileChooser;
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelector('[role="dialog"]') !== null ||
+          document.querySelector('[role="status"], [role="alert"]') !== null,
+        null,
+        { timeout: 2_000 },
+      )
+      .catch(() => {});
     const afterActivation = await captureInteractionState(page);
     const keyboardActivation = {
       attempted: true,
@@ -246,6 +264,12 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
       path: path.join(screenshotDir, `${name}.png`),
       fullPage: true,
     });
+    if (samePageStabilityName) {
+      await page.screenshot({
+        path: path.join(screenshotDir, `${samePageStabilityName}.png`),
+        fullPage: true,
+      });
+    }
     await instrumentation.checkpoint("screenshot:complete");
     await recordScheduledReadiness(page, instrumentation, "online-reload");
     const onlineUrl = page.url();
@@ -463,13 +487,81 @@ async function recordScheduledReadiness(page, instrumentation, phase) {
 }
 
 async function captureInteractionState(page) {
-  return page.evaluate(() => ({
-    url: location.href,
-    dialogs: document.querySelectorAll('[role="dialog"]').length,
-    status: [...document.querySelectorAll('[role="status"], [role="alert"]')]
-      .map((element) => element.textContent?.replace(/\s+/g, " ").trim() ?? "")
-      .filter(Boolean),
-  }));
+  return page.evaluate(() => {
+    const normalizedText = (element) => element.innerText?.replace(/\s+/g, " ").trim() ?? "";
+    const semanticRole = (element) => {
+      const explicit = element.getAttribute("role");
+      if (explicit) return explicit;
+      if (element.tagName === "BUTTON") return "button";
+      if (element.tagName === "A") return "link";
+      if (element.tagName === "INPUT") return "textbox";
+      return null;
+    };
+    return {
+      dialogs: [...document.querySelectorAll('[role="dialog"]')].map((dialog) => ({
+        role: "dialog",
+        label: dialog.getAttribute("aria-label"),
+        text: normalizedText(dialog),
+        controls: [...dialog.querySelectorAll('button, a, input, select, textarea, [role="button"]')]
+          .filter((element) => element.getClientRects().length > 0)
+          .map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            role: semanticRole(element),
+            label: element.getAttribute("aria-label"),
+            text: normalizedText(element),
+            disabled:
+              element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true",
+          })),
+      })),
+      status: [...document.querySelectorAll('[role="status"], [role="alert"]')]
+        .map(normalizedText)
+        .filter(Boolean),
+    };
+  });
+}
+
+async function captureKeyboardFocusCycle(page) {
+  await page.evaluate(() => {
+    globalThis.__spockyFirstFocusedElement = null;
+    document.activeElement?.blur();
+  });
+  const entries = [];
+  let completed = false;
+  for (let index = 0; index < 64; index += 1) {
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        return { returnedToFirst: false, entry: null };
+      }
+      if (globalThis.__spockyFirstFocusedElement === null) {
+        globalThis.__spockyFirstFocusedElement = active;
+      } else if (active === globalThis.__spockyFirstFocusedElement) {
+        return { returnedToFirst: true, entry: null };
+      }
+      const tag = active.tagName.toLowerCase();
+      const role =
+        active.getAttribute("role") ??
+        (tag === "button" ? "button" : tag === "a" ? "link" : tag === "input" ? "textbox" : null);
+      return {
+        returnedToFirst: false,
+        entry: {
+          tag,
+          role,
+          label: active.getAttribute("aria-label"),
+          text: active.innerText?.trim().replace(/\s+/g, " ").slice(0, 120) ?? null,
+          disabled:
+            active.hasAttribute("disabled") || active.getAttribute("aria-disabled") === "true",
+        },
+      };
+    });
+    if (focused.returnedToFirst) {
+      completed = true;
+      break;
+    }
+    if (focused.entry) entries.push(focused.entry);
+  }
+  return { entries, completed };
 }
 
 async function captureLayoutGeometry(page, candidate) {
@@ -626,15 +718,27 @@ async function waitForProductState(page, candidate) {
       fs.writeFileSync(outputPath, `${JSON.stringify(result(), null, 2)}\n`);
     writeCheckpoint();
     try {
-      for (const [name, url, viewport, candidate, seededDaemonPort] of [
-        ["original-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort],
-        ["original-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort],
-        ["original-repeat-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort],
-        ["original-repeat-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort],
-        ["candidate-desktop", candidateUrl, { width: 1280, height: 800 }, true, null],
-        ["candidate-mobile", candidateUrl, { width: 390, height: 844 }, true, null],
+      for (const [name, url, viewport, candidate, seededDaemonPort, samePageStabilityName] of [
+        ["original-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort, null],
+        ["original-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort, null],
+        ["original-repeat-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort, null],
+        ["original-repeat-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort, null],
+        ["candidate-desktop", candidateUrl, { width: 1280, height: 800 }, true, null, "candidate-same-page-desktop"],
+        ["candidate-mobile", candidateUrl, { width: 390, height: 844 }, true, null, "candidate-same-page-mobile"],
+        ["candidate-fresh-desktop", candidateUrl, { width: 1280, height: 800 }, true, null, null],
+        ["candidate-fresh-mobile", candidateUrl, { width: 390, height: 844 }, true, null, null],
       ]) {
-        captures.push(await capture(browser, name, url, viewport, candidate, seededDaemonPort));
+        captures.push(
+          await capture(
+            browser,
+            name,
+            url,
+            viewport,
+            candidate,
+            seededDaemonPort,
+            samePageStabilityName,
+          ),
+        );
         writeCheckpoint();
       }
     } catch (error) {

@@ -55,6 +55,17 @@ button, a { font: inherit; }
 .community-icon-fill svg { fill: currentColor; }
 .community-icon-stroke svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .community a:hover, .community a:focus-visible { color: #292a30; text-decoration: underline; outline: none; }
+.dialog-overlay { position: fixed; z-index: 10; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 48px; background: rgb(0 0 0 / 50%); }
+.dialog-panel { width: min(560px, calc(100% - 32px)); max-height: calc(100vh - 96px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e4e4e7; border-radius: 12px; background: #fff; color: #1a1a1e; }
+.dialog-header { padding: 16px; border-bottom: 1px solid #e4e4e7; }
+.dialog-title { font-size: 16px; font-weight: 600; }
+.dialog-host { margin-top: 2px; color: #71717a; font-size: 12px; }
+.dialog-results { display: grid; gap: 4px; padding: 8px; }
+.dialog-row { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; outline: none; }
+.dialog-row:first-child, .dialog-row:focus-visible { background: #ececf0; }
+.dialog-row-title { font-size: 14px; }
+.dialog-row-detail { color: #71717a; font-size: 12px; }
+.dialog-footer { display: flex; gap: 16px; padding: 12px 16px; border-top: 1px solid #e4e4e7; color: #71717a; font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 42rem) {
   .shell { display: block; }
@@ -232,11 +243,7 @@ fn sidebar_icon(icon: SidebarIcon) -> Element {
 /// Dioxus returns a rendering error when component construction fails.
 #[allow(non_snake_case)]
 pub fn SpockyShell() -> Element {
-    let mut selected_action = use_signal(|| None::<usize>);
-    let status = selected_action().map_or_else(
-        || "Choose a project action.".to_owned(),
-        |index| format!("Selected action: {}.", PROJECT_ACTIONS[index].title),
-    );
+    let mut add_project_open = use_signal(|| false);
 
     rsx! {
         style { {SHELL_CSS} }
@@ -293,10 +300,14 @@ pub fn SpockyShell() -> Element {
                                 class: "action",
                                 role: "button",
                                 tabindex: "0",
-                                onclick: move |_| selected_action.set(Some(index)),
+                                onclick: move |_| {
+                                    if index == 0 {
+                                        add_project_open.set(true);
+                                    }
+                                },
                                 onkeydown: move |event: KeyboardEvent| {
-                                    if event.key() == Key::Enter {
-                                        selected_action.set(Some(index));
+                                    if index == 0 && event.key() == Key::Enter {
+                                        add_project_open.set(true);
                                     }
                                 },
                                 span { class: "action-icon", {project_icon(action.icon)} }
@@ -313,8 +324,50 @@ pub fn SpockyShell() -> Element {
                     a { href: "https://github.com/sponsors/boudra", span { class: "community-icon community-icon-stroke", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: HEART_ICON_PATH } } } "Sponsor" }
                     a { href: "https://discord.gg/jz8T2uahpH", span { class: "community-icon community-icon-fill", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: DISCORD_ICON_PATH } } } "Community" }
                 }
-                output { class: "sr-only", role: "status", aria_live: "polite", "{status}" }
                 span { class: "sr-only", {APP_TITLE} }
+            }
+            if add_project_open() {
+                AddProjectDialog {}
+            }
+        }
+    }
+}
+
+#[allow(non_snake_case)]
+fn AddProjectDialog() -> Element {
+    rsx! {
+        div {
+            class: "dialog-overlay",
+            role: "dialog",
+            aria_modal: "true",
+            aria_label: "Add project: method",
+            div { class: "dialog-panel",
+                div { class: "dialog-header",
+                    div { class: "dialog-title", "Add project" }
+                    div { class: "dialog-host", "isolated-baseline" }
+                }
+                div { class: "dialog-results",
+                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "true",
+                        div { class: "dialog-row-title", "Search for directory" }
+                        div { class: "dialog-row-detail", "Find a directory on isolated-baseline" }
+                    }
+                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "false",
+                        div { class: "dialog-row-title", "Clone from GitHub" }
+                        div { class: "dialog-row-detail", "Enter a GitHub URL or owner/repo" }
+                    }
+                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "false",
+                        div { class: "dialog-row-title", "New directory" }
+                        div { class: "dialog-row-detail", "Create an empty directory on isolated-baseline" }
+                    }
+                }
+                div { class: "dialog-footer",
+                    span { "↑+↓" }
+                    span { "Navigate" }
+                    span { "⏎" }
+                    span { "Select" }
+                    span { "Esc" }
+                    span { "Close" }
+                }
             }
         }
     }
@@ -325,4 +378,11 @@ pub fn SpockyShell() -> Element {
 #[must_use]
 pub fn render_shell_html() -> String {
     dioxus_ssr::render_element(rsx! { SpockyShell {} })
+}
+
+/// Produces the deterministic Add Project dialog outcome for host contract checks.
+#[cfg(feature = "host")]
+#[must_use]
+pub fn render_add_project_dialog_html() -> String {
+    dioxus_ssr::render_element(rsx! { AddProjectDialog {} })
 }

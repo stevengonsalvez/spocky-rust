@@ -1,10 +1,14 @@
 # Browser acceptance enforcement
 
-The browser runtime capture now exits nonzero unless desktop and mobile both
-pass exact-pixel, keyboard activation, and accessibility comparison gates.
-Original and candidate captures both activate the Add a project control.
-The original resolves `open-project-submit`; the candidate resolves its first
-semantic project action. Accessible-name changes do not prevent activation.
+The browser runtime capture exits nonzero unless desktop and mobile pass direct
+zero-different-pixel, keyboard activation, dialog-outcome, accessibility, and
+candidate-stability gates. It does not normalize, mask, or allowlist pixels.
+
+Original and candidate captures activate the Add a project control. The
+original resolves `open-project-submit`; the candidate resolves its first
+semantic project action. The candidate now opens the same pinned Add Project
+method dialog contract instead of replacing the outcome with live-status text.
+The comparison records the dialog label, visible text, and semantic controls.
 
 The contract test injects and rejects these regressions:
 
@@ -12,6 +16,11 @@ The contract test injects and rejects these regressions:
 - mobile pixel mismatch
 - mobile keyboard activation failure
 - desktop accessible focus-label mismatch
+- incomplete keyboard focus cycle
+- dialog shape or content mismatch
+- consecutive same-page candidate instability
+- fresh-browser-context candidate instability
+- a nonzero pixel count mislabeled as passing
 
 The validation result retains `shared-pinned-failure` when both runtimes fail
 offline reload. That pinned behavior does not become a candidate regression.
@@ -25,11 +34,18 @@ its attempt evidence.
 
 Each capture also records non-compared instrumentation with monotonic offsets.
 Checkpoints cover navigation, meaningful text, font readiness, two animation
-frames, focus scanning, activation, and screenshots. DOM probes report pending
+frames, complete keyboard focus-cycle scanning, activation, and screenshots.
+DOM probes report pending
 stylesheets, fonts, images, and relevant requests. Request completion and
 failure events are retained. Capture failures write the completed captures and
 the failing capture instrumentation into the attempt comparison JSON before
 exiting. Instrumentation adds no retry or acceptance condition.
+
+Candidate screenshot stability has two independent zero-pixel gates per
+viewport. One compares consecutive screenshots of the same page. The other
+compares the accepted screenshot with a new browser context. Original repeat
+captures remain diagnostic evidence for the two observed upstream modes and do
+not create a visual exception.
 
 ## Desktop baseline evidence
 
@@ -46,9 +62,8 @@ for both desktop runtimes. Original, repeated original, and candidate mobile
 screenshots were identical.
 
 No recorded readiness probe distinguishes the two original desktop pixel modes.
-The exact desktop gate therefore continues to reject the branded comparison.
-Resolution still requires either an approved nondeterminism exception with an
-explicit contract or a source-level fix that renders the icon deterministically.
+The exact desktop gate therefore continues to reject both recorded branded
+comparisons. No visual exception or allowlist is implemented.
 
 ## Checks
 
@@ -57,8 +72,9 @@ PASEO_REFERENCE_ROOT=/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rewrite 
 node --check scripts/phase2/browser-runtime-capture.cjs
 sh -n scripts/phase2/browser-runtime-capture.sh
 sh -n scripts/phase2/browser-runtime-capture.test.sh
+cargo test -p spocky-ui-renderer-pilot --test shell -- --test-threads=1
 ```
 
-The full browser capture was not run. Hub work may build concurrently. Browser
-runtime, macOS desktop, Linux desktop, Windows desktop, iOS, and Android
-environment evidence remains open.
+The focused renderer tests and script contracts pass. The full browser capture
+was not run. Browser runtime, macOS desktop, Linux desktop, Windows desktop,
+iOS, and Android environment evidence remains open.

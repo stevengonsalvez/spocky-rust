@@ -4,9 +4,9 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 capture="$repository_root/scripts/phase2/browser-runtime-capture.sh"
 
-parsed_rmse=$($capture --parse-rmse '5.65429 (8.62789e-05)')
-if [ "$parsed_rmse" != "8.62789e-05" ]; then
-  printf 'scientific normalized RMSE parsed as %s\n' "$parsed_rmse" >&2
+parsed_different_pixels=$($capture --parse-different-pixels '872')
+if [ "$parsed_different_pixels" != "872" ]; then
+  printf 'absolute pixel difference parsed as %s\n' "$parsed_different_pixels" >&2
   exit 1
 fi
 
@@ -18,13 +18,14 @@ printf '%s\n' "$preflight" | grep -F 'port 6767 excluded'
 plan=$($capture --print-plan)
 printf '%s\n' "$plan" | grep -F 'original desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'original mobile 390x844'
-printf '%s\n' "$plan" | grep -F 'original repeat desktop and mobile stability captures'
+printf '%s\n' "$plan" | grep -F 'original repeat desktop and mobile rejected-mode evidence'
 printf '%s\n' "$plan" | grep -F 'candidate desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'candidate mobile 390x844'
-printf '%s\n' "$plan" | grep -F 'exact-pixel threshold: normalized RMSE 0'
+printf '%s\n' "$plan" | grep -F 'candidate consecutive same-page and fresh-context stability captures'
+printf '%s\n' "$plan" | grep -F 'exact-pixel threshold: 0 different pixels, direct images, no normalization'
 printf '%s\n' "$plan" | grep -F 'stable product-state readiness before interaction and screenshot'
 printf '%s\n' "$plan" | grep -F 'layout geometry and computed styles'
-printf '%s\n' "$plan" | grep -F 'keyboard focus order and activation'
+printf '%s\n' "$plan" | grep -F 'complete keyboard focus cycle and activation dialog outcome'
 printf '%s\n' "$plan" | grep -F 'prefers-reduced-motion: reduce'
 printf '%s\n' "$plan" | grep -F 'online reload and offline reload'
 printf '%s\n' "$plan" | grep -F 'guest startup and browser runtime boundary'
@@ -98,12 +99,14 @@ fi
 valid_fixture="$fixture_dir/valid.json"
 printf '%s\n' '{
   "captures": [
-    {"name":"original-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false},"instrumentation":{"timeline":[{"event":"navigation:start","monotonicMs":0}],"requests":{"completed":[],"failed":[]}}},
-    {"name":"original-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
-    {"name":"candidate-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
-    {"name":"candidate-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}}
+    {"name":"original-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":{"entries":[{"tag":"button","role":"button","label":"Add a project","text":"Add a project","disabled":false}],"completed":true},"keyboardActivation":{"attempted":true,"changed":true,"before":{"dialogs":[],"status":[]},"after":{"dialogs":[{"role":"dialog","label":"Add project: method","text":"Add project isolated-baseline Search for directory","controls":[{"tag":"div","role":"button","label":null,"text":"Search for directory","disabled":false}]}],"status":[]}},"offlineReload":{"loaded":false},"instrumentation":{"timeline":[{"event":"navigation:start","monotonicMs":0}],"requests":{"completed":[],"failed":[]}}},
+    {"name":"original-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":{"entries":[{"tag":"button","role":"button","label":"Add a project","text":"Add a project","disabled":false}],"completed":true},"keyboardActivation":{"attempted":true,"changed":true,"before":{"dialogs":[],"status":[]},"after":{"dialogs":[{"role":"dialog","label":"Add project: method","text":"Add project isolated-baseline Search for directory","controls":[{"tag":"div","role":"button","label":null,"text":"Search for directory","disabled":false}]}],"status":[]}},"offlineReload":{"loaded":false}},
+    {"name":"candidate-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":{"entries":[{"tag":"button","role":"button","label":"Add a project","text":"Add a project","disabled":false}],"completed":true},"keyboardActivation":{"attempted":true,"changed":true,"before":{"dialogs":[],"status":[]},"after":{"dialogs":[{"role":"dialog","label":"Add project: method","text":"Add project isolated-baseline Search for directory","controls":[{"tag":"div","role":"button","label":null,"text":"Search for directory","disabled":false}]}],"status":[]}},"offlineReload":{"loaded":false}},
+    {"name":"candidate-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":{"entries":[{"tag":"button","role":"button","label":"Add a project","text":"Add a project","disabled":false}],"completed":true},"keyboardActivation":{"attempted":true,"changed":true,"before":{"dialogs":[],"status":[]},"after":{"dialogs":[{"role":"dialog","label":"Add project: method","text":"Add project isolated-baseline Search for directory","controls":[{"tag":"div","role":"button","label":null,"text":"Search for directory","disabled":false}]}],"status":[]}},"offlineReload":{"loaded":false}},
+    {"name":"candidate-fresh-desktop","guestStartup":{"visibleText":"ready"}},
+    {"name":"candidate-fresh-mobile","guestStartup":{"visibleText":"ready"}}
   ],
-  "comparison": {"visual":{"desktop":{"rmse":0,"passes":true},"mobile":{"rmse":0,"passes":true}}}
+  "comparison": {"visual":{"threshold":{"metric":"different pixels","maximum":0,"normalization":"none"},"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true},"candidateStability":{"samePage":{"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true}},"freshContext":{"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true}}}}}
 }' >"$valid_fixture"
 valid_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
   --validate-result "$valid_fixture")
@@ -126,7 +129,7 @@ expect_rejected() {
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.desktop = { rmse: 0.01, passes: false };
+  result.comparison.visual.desktop = { differentPixels: 1, passes: false };
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/pixel-desktop.json"
 expect_rejected 'desktop pixel' "$fixture_dir/pixel-desktop.json"
@@ -142,7 +145,7 @@ node -e '
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.mobile = { rmse: 0.01, passes: false };
+  result.comparison.visual.mobile = { differentPixels: 1, passes: false };
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/pixel-mobile.json"
 expect_rejected 'mobile pixel' "$fixture_dir/pixel-mobile.json"
@@ -151,7 +154,7 @@ node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
   result.captures.find((capture) => capture.name === "candidate-mobile")
-    .keyboardActivation.changed = false;
+    .keyboardActivation.after.dialogs[0].text = "status-only substitution";
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/interaction.json"
 expect_rejected 'interaction' "$fixture_dir/interaction.json"
@@ -160,10 +163,49 @@ node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
   result.captures.find((capture) => capture.name === "candidate-desktop")
-    .keyboardFocus[0].label = "Regressed label";
+    .keyboardFocus.entries[0].label = "Regressed label";
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/accessibility.json"
 expect_rejected 'accessibility' "$fixture_dir/accessibility.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures.find((capture) => capture.name === "candidate-mobile")
+    .keyboardFocus.completed = false;
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/incomplete-focus.json"
+expect_rejected 'incomplete focus cycle' "$fixture_dir/incomplete-focus.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.candidateStability.samePage.desktop = {
+    differentPixels: 1,
+    passes: false,
+  };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/candidate-same-page-instability.json"
+expect_rejected 'candidate same-page stability' "$fixture_dir/candidate-same-page-instability.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.candidateStability.freshContext.mobile = {
+    differentPixels: 1,
+    passes: false,
+  };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/candidate-fresh-context-instability.json"
+expect_rejected 'candidate fresh-context stability' "$fixture_dir/candidate-fresh-context-instability.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.desktop = { differentPixels: 1, passes: true };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/visual-flag-bypass.json"
+expect_rejected 'zero-pixel flag bypass' "$fixture_dir/visual-flag-bypass.json"
 
 grep -F 'page.routeWebSocket(/:(6767)' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
