@@ -5,8 +5,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -117,6 +121,371 @@ pub struct ReviewedUpdate {
 pub struct TransportedContribution {
     pub plugin_id: PluginId,
     pub contribution: Contribution,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeTraffic {
+    direction: &'static str,
+    message: String,
+}
+
+impl RuntimeTraffic {
+    #[must_use]
+    pub const fn direction(&self) -> &'static str {
+        self.direction
+    }
+
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+#[derive(Debug)]
+pub struct AcquiredPlugin {
+    directory: PathBuf,
+    identity: PluginSourceIdentity,
+    revision: String,
+}
+
+impl AcquiredPlugin {
+    #[must_use]
+    pub const fn identity(&self) -> &PluginSourceIdentity {
+        &self.identity
+    }
+
+    #[must_use]
+    pub fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    pub fn load(self, timeout: Duration) -> Result<LoadedPlugin, PluginError> {
+        let manifest: RuntimeManifest =
+            serde_json::from_slice(&fs::read(self.directory.join("paseo-plugin.json"))?)?;
+        let id = PluginId::new(manifest.id)?;
+        let entry = safe_relative_path(&manifest.server)?;
+        let mut child = Command::new("node")
+            .arg(entry)
+            .current_dir(&self.directory)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let result = exchange_runtime(&mut child, timeout);
+        if result.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let (contributions, traffic) = result?;
+        Ok(LoadedPlugin {
+            id,
+            candidate: Candidate::new(self.identity, Some(self.revision), contributions.clone()),
+            contributions,
+            traffic,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct LoadedPlugin {
+    id: PluginId,
+    candidate: Candidate,
+    contributions: Vec<Contribution>,
+    traffic: Vec<RuntimeTraffic>,
+}
+
+impl LoadedPlugin {
+    #[must_use]
+    pub const fn id(&self) -> &PluginId {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn contributions(&self) -> &[Contribution] {
+        &self.contributions
+    }
+
+    #[must_use]
+    pub fn traffic(&self) -> &[RuntimeTraffic] {
+        &self.traffic
+    }
+
+    #[must_use]
+    pub fn into_candidate(self) -> Candidate {
+        self.candidate
+    }
+}
+
+#[derive(Deserialize)]
+struct RuntimeManifest {
+    id: String,
+    server: String,
+}
+
+#[derive(Deserialize)]
+struct ReadyMessage {
+    r#type: String,
+    contributions: Vec<WireContribution>,
+}
+
+#[derive(Deserialize)]
+struct WireContribution {
+    kind: String,
+    id: String,
+}
+
+pub fn acquire_git(
+    remote: &str,
+    plugin_path: &str,
+    reviewed_revision: &str,
+    checkout: impl Into<PathBuf>,
+    timeout: Duration,
+) -> Result<AcquiredPlugin, PluginError> {
+    if remote.is_empty()
+        || !matches!(reviewed_revision.len(), 40..=64)
+        || !reviewed_revision
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err(PluginError::InvalidCandidate);
+    }
+    let checkout = checkout.into();
+    let relative_plugin_path = if plugin_path == "." {
+        PathBuf::new()
+    } else {
+        safe_relative_path(plugin_path)?
+    };
+    run_bounded(
+        Command::new("git")
+            .args(["clone", "--no-checkout", "--", remote])
+            .arg(&checkout),
+        timeout,
+    )?;
+    run_bounded(
+        Command::new("git")
+            .args(["checkout", "--detach", reviewed_revision])
+            .current_dir(&checkout),
+        timeout,
+    )?;
+    let output = run_bounded(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&checkout),
+        timeout,
+    )?;
+    let actual_revision = String::from_utf8(output.stdout)
+        .map_err(|_| PluginError::InvalidCommandOutput)?
+        .trim()
+        .to_owned();
+    if actual_revision != reviewed_revision {
+        return Err(PluginError::ReviewedRevisionMismatch {
+            expected: reviewed_revision.to_owned(),
+            actual: actual_revision,
+        });
+    }
+    let directory = checkout.join(&relative_plugin_path);
+    if !directory.is_dir() {
+        return Err(PluginError::PluginNotFound);
+    }
+    Ok(AcquiredPlugin {
+        directory,
+        identity: PluginSourceIdentity::Git {
+            remote: remote.to_owned(),
+            plugin_path: plugin_path.to_owned(),
+        },
+        revision: reviewed_revision.to_owned(),
+    })
+}
+
+pub fn acquire_npm_tarball(
+    archive: &Path,
+    package_name: &str,
+    plugin_path: &str,
+    installation: impl Into<PathBuf>,
+    timeout: Duration,
+) -> Result<AcquiredPlugin, PluginError> {
+    let package_segments = npm_package_segments(package_name)?;
+    let relative_plugin_path = if plugin_path == "." {
+        PathBuf::new()
+    } else {
+        safe_relative_path(plugin_path)?
+    };
+    let archive = archive.canonicalize()?;
+    let installation = installation.into();
+    fs::create_dir_all(&installation)?;
+    run_bounded(
+        Command::new("npm")
+            .args([
+                "install",
+                "--offline",
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+                "--package-lock=false",
+                "--prefix",
+            ])
+            .arg(&installation)
+            .arg(&archive),
+        timeout,
+    )?;
+    let mut package_root = installation.join("node_modules");
+    for segment in package_segments {
+        package_root.push(segment);
+    }
+    let package: NpmPackageManifest =
+        serde_json::from_slice(&fs::read(package_root.join("package.json"))?)?;
+    if package.name != package_name || package.version.is_empty() {
+        return Err(PluginError::InvalidCandidate);
+    }
+    let directory = package_root.join(relative_plugin_path);
+    if !directory.is_dir() {
+        return Err(PluginError::PluginNotFound);
+    }
+    Ok(AcquiredPlugin {
+        directory,
+        identity: PluginSourceIdentity::Npm {
+            package_name: package_name.to_owned(),
+            plugin_path: plugin_path.to_owned(),
+        },
+        revision: package.version,
+    })
+}
+
+#[derive(Deserialize)]
+struct NpmPackageManifest {
+    name: String,
+    version: String,
+}
+
+fn npm_package_segments(package_name: &str) -> Result<Vec<&str>, PluginError> {
+    let segments = package_name.split('/').collect::<Vec<_>>();
+    let valid_count = if package_name.starts_with('@') { 2 } else { 1 };
+    if segments.len() != valid_count
+        || segments.iter().any(|segment| {
+            segment.is_empty()
+                || *segment == "."
+                || *segment == ".."
+                || segment.contains(['\\', ':'])
+        })
+    {
+        return Err(PluginError::InvalidCandidate);
+    }
+    Ok(segments)
+}
+
+fn safe_relative_path(path: &str) -> Result<PathBuf, PluginError> {
+    let path = Path::new(path);
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(PluginError::InvalidCandidate);
+    }
+    Ok(path.to_owned())
+}
+
+fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, PluginError> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            let output = child.wait_with_output()?;
+            if output.status.success() {
+                return Ok(output);
+            }
+            return Err(PluginError::CommandFailed(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
+        if Instant::now() >= deadline {
+            child.kill()?;
+            let _ = child.wait();
+            return Err(PluginError::CommandTimedOut);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn exchange_runtime(
+    child: &mut Child,
+    timeout: Duration,
+) -> Result<(Vec<Contribution>, Vec<RuntimeTraffic>), PluginError> {
+    let stdout = child.stdout.take().ok_or(PluginError::RuntimeProtocol)?;
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let stdin = child.stdin.as_mut().ok_or(PluginError::RuntimeProtocol)?;
+    let initialize = r#"{"type":"initialize"}"#;
+    writeln!(stdin, "{initialize}")?;
+    stdin.flush()?;
+    let ready_line = receiver
+        .recv_timeout(timeout)
+        .map_err(|_| PluginError::RuntimeTimedOut)??;
+    let ready: ReadyMessage = serde_json::from_str(&ready_line)?;
+    if ready.r#type != "ready" {
+        return Err(PluginError::RuntimeProtocol);
+    }
+    let contributions = ready
+        .contributions
+        .into_iter()
+        .map(|item| match item.kind.as_str() {
+            "rpc" => Ok(Contribution::Rpc(item.id)),
+            "surface" => Ok(Contribution::Surface(item.id)),
+            "settings_screen" => Ok(Contribution::SettingsScreen(item.id)),
+            _ => Err(PluginError::RuntimeProtocol),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let shutdown = r#"{"type":"shutdown"}"#;
+    writeln!(stdin, "{shutdown}")?;
+    stdin.flush()?;
+    let stopped_line = receiver
+        .recv_timeout(timeout)
+        .map_err(|_| PluginError::RuntimeTimedOut)??;
+    let stopped: serde_json::Value = serde_json::from_str(&stopped_line)?;
+    if stopped.get("type").and_then(serde_json::Value::as_str) != Some("stopped") {
+        return Err(PluginError::RuntimeProtocol);
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return Err(PluginError::RuntimeTimedOut);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    Ok((
+        contributions,
+        vec![
+            RuntimeTraffic {
+                direction: "host_to_plugin",
+                message: initialize.to_owned(),
+            },
+            RuntimeTraffic {
+                direction: "plugin_to_host",
+                message: ready_line,
+            },
+            RuntimeTraffic {
+                direction: "host_to_plugin",
+                message: shutdown.to_owned(),
+            },
+            RuntimeTraffic {
+                direction: "plugin_to_host",
+                message: stopped_line,
+            },
+        ],
+    ))
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -345,6 +714,12 @@ pub enum PluginError {
     ReviewedStateChanged,
     CandidateDoesNotMatchReview,
     ActivationFailed,
+    InvalidCommandOutput,
+    CommandFailed(String),
+    CommandTimedOut,
+    RuntimeProtocol,
+    RuntimeTimedOut,
+    ReviewedRevisionMismatch { expected: String, actual: String },
     Io(std::io::Error),
     Json(serde_json::Error),
 }
