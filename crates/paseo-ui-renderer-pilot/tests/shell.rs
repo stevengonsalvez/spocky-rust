@@ -31,6 +31,14 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("0 0 0 1.67.9H19"));
     assert!(!first.contains("M18 8v5a6 6"));
     assert!(!first.contains("icon-folder::before"));
+    assert!(first.contains("https://github.com/sponsors/boudra"));
+    assert!(first.contains("https://discord.gg/jz8T2uahpH"));
+    assert!(first.contains("viewBox=\"0 -0.5 25 25\""));
+    assert!(first.contains("M2 9.5a5.5 5.5"));
+    assert!(first.contains("M20.317 4.3698"));
+    assert!(!first.contains("icon-star::before"));
+    assert!(!first.contains("icon-sponsor::before"));
+    assert!(!first.contains("icon-community::before"));
 }
 
 #[test]
