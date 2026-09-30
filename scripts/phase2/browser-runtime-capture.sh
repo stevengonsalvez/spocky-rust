@@ -5,8 +5,16 @@ repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 reference_root=${PASEO_REFERENCE_ROOT:-"$repository_root/../paseo-rewrite"}
 expected_baseline=5de45e208690b0efc51c59a585ae9729325a9204
 raw_dir="$repository_root/evidence/raw/phase2"
-result_file="$raw_dir/browser-runtime-comparison.json"
-screenshot_dir="$raw_dir/browser-runtime-comparison"
+evidence_stem=${SPOCKY_BROWSER_EVIDENCE_STEM:-browser-runtime}
+case "$evidence_stem" in
+  *[!a-z0-9-]*|'')
+    printf 'SPOCKY_BROWSER_EVIDENCE_STEM must contain lowercase letters, digits, or hyphens: %s\n' \
+      "$evidence_stem" >&2
+    exit 2
+    ;;
+esac
+result_file="$raw_dir/$evidence_stem-comparison.json"
+screenshot_dir="$raw_dir/$evidence_stem-comparison"
 dx_executable=${PASEO_DX_EXECUTABLE:-"$repository_root/.tools/bin/dx"}
 
 parse_normalized_rmse() {
@@ -61,7 +69,7 @@ if [ "${1:-}" = "--print-plan" ]; then
     'guest startup and browser runtime boundary' \
     'isolated pinned daemon on a random non-6767 port' \
     'exact named tmux sessions with bounded waits' \
-    'evidence/raw/phase2/browser-runtime-comparison.json'
+    "evidence/raw/phase2/$evidence_stem-comparison.json"
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
@@ -114,11 +122,11 @@ git -C "$reference_root" archive "$actual_baseline" | tar -x -C "$capture_dir/re
 cp "$repository_root/scripts/phase2/browser-runtime-capture.cjs" "$capture_dir/reference/browser-runtime-capture.cjs"
 
 gtimeout 900 npm ci --prefix "$capture_dir/reference" --ignore-scripts --no-audit --no-fund \
-  >"$raw_dir/browser-runtime-npm-ci.log" 2>&1
+  >"$raw_dir/$evidence_stem-npm-ci.log" 2>&1
 chromium_executable=${PASEO_CHROMIUM_EXECUTABLE:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
 if [ ! -x "$chromium_executable" ]; then
   gtimeout 300 "$capture_dir/reference/node_modules/.bin/playwright" install chromium \
-    >"$raw_dir/browser-runtime-playwright-install.log" 2>&1
+    >"$raw_dir/$evidence_stem-playwright-install.log" 2>&1
   chromium_executable=
 fi
 (
@@ -126,7 +134,7 @@ fi
   PATH="$capture_dir/reference/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
   gtimeout 900 npm run build:server
   gtimeout 900 npm run build:app-deps
-) >"$raw_dir/browser-runtime-build.log" 2>&1
+) >"$raw_dir/$evidence_stem-build.log" 2>&1
 
 (
   cd "$repository_root"
@@ -134,11 +142,11 @@ fi
   gtimeout 900 "$dx_executable" build --web -p spocky-ui-renderer-pilot \
     --bin spocky-ui-web --no-default-features --features web \
     --bundle web --release --frozen
-) >"$raw_dir/browser-runtime-candidate-build.log" 2>&1
+) >"$raw_dir/$evidence_stem-candidate-build.log" 2>&1
 
-baseline_log="$raw_dir/browser-runtime-baseline-server.log"
-candidate_log="$raw_dir/browser-runtime-candidate-server.log"
-daemon_log="$raw_dir/browser-runtime-daemon.log"
+baseline_log="$raw_dir/$evidence_stem-baseline-server.log"
+candidate_log="$raw_dir/$evidence_stem-candidate-server.log"
+daemon_log="$raw_dir/$evidence_stem-daemon.log"
 mkdir -p "$capture_dir/daemon-home"
 tmux new-session -d -s "$daemon_session" -n server
 tmux send-keys -t "$daemon_session:server" \
@@ -176,7 +184,7 @@ gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
     "$result_file" \
     "$screenshot_dir" \
     "$daemon_port"
-) >"$raw_dir/browser-runtime-capture.log" 2>&1
+) >"$raw_dir/$evidence_stem-capture.log" 2>&1
 
 normalized_rmse() {
   original=$1

@@ -32,6 +32,18 @@ printf '%s\n' "$plan" | grep -F 'isolated pinned daemon on a random non-6767 por
 printf '%s\n' "$plan" | grep -F 'exact named tmux sessions with bounded waits'
 printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/browser-runtime-comparison.json'
 
+branded_plan=$(
+  SPOCKY_BROWSER_EVIDENCE_STEM=spocky-brand-runtime \
+    "$capture" --print-plan
+)
+printf '%s\n' "$branded_plan" \
+  | grep -F 'evidence/raw/phase2/spocky-brand-runtime-comparison.json'
+if SPOCKY_BROWSER_EVIDENCE_STEM='../invalid' \
+  "$capture" --print-plan >/dev/null 2>&1; then
+  printf 'invalid branded evidence stem unexpectedly passed\n' >&2
+  exit 1
+fi
+
 fixture=$(mktemp /private/tmp/spocky-browser-validation.XXXXXX)
 cleanup() {
   case "$fixture" in
