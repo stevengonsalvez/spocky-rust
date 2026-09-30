@@ -100,6 +100,7 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
   if (!onlineReload) throw new Error(`${name} online reload failed before screenshot`);
   await waitForProductState(page, candidate);
   await page.evaluate(() => scrollTo(0, 0));
+  const layoutGeometry = await captureLayoutGeometry(page, candidate);
   await page.screenshot({
     path: path.join(screenshotDir, `${name}.png`),
     fullPage: true,
@@ -130,6 +131,7 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     reducedMotion,
     keyboardFocus,
     keyboardActivation,
+    layoutGeometry,
     guestStartup: {
       isolatedDaemonSeededBeforeNavigation: Boolean(baselineDaemonPort),
       visibleText: visibleText.replace(/\s+/g, " ").trim().slice(0, 500),
@@ -142,6 +144,97 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     },
     consoleErrors,
   };
+}
+
+async function captureLayoutGeometry(page, candidate) {
+  const selectors = candidate
+    ? {
+        menu: ".mobile-menu",
+        logo: ".mark",
+        addProject: ".action:nth-child(1)",
+        importSession: ".action:nth-child(2)",
+        setupProviders: ".action:nth-child(3)",
+        communityStar: ".community a:nth-child(1)",
+        communitySponsor: ".community a:nth-child(2)",
+        communityChat: ".community a:nth-child(3)",
+      }
+    : {
+        menu: '[data-testid="menu-button"]',
+        logo: 'svg[viewBox="0 0 700 700"]',
+        addProject: '[data-testid="open-project-submit"]',
+        importSession: '[data-testid="open-project-import-session"]',
+        setupProviders: '[data-testid="open-project-setup-providers"]',
+        communityStar: '[data-testid="community-links-github-star"]',
+        communitySponsor: '[data-testid="community-links-sponsor"]',
+        communityChat: '[data-testid="community-links-discord"]',
+      };
+  return page.evaluate((entries) => {
+    function snapshot(element) {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        rect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        style: {
+          display: style.display,
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          lineHeight: style.lineHeight,
+          color: style.color,
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          padding: style.padding,
+          margin: style.margin,
+          gap: style.gap,
+        },
+        directText: [...element.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        descendants: [...element.querySelectorAll("*")]
+          .map((descendant) => ({
+            tag: descendant.tagName.toLowerCase(),
+            ...snapshotWithoutDescendants(descendant),
+          }))
+          .filter((descendant) => descendant.directText || descendant.tag === "svg")
+          .slice(0, 20),
+      };
+    }
+    function snapshotWithoutDescendants(element) {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        style: {
+          fontSize: style.fontSize,
+          lineHeight: style.lineHeight,
+          color: style.color,
+          margin: style.margin,
+          gap: style.gap,
+        },
+        directText: [...element.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(entries).map(([key, selector]) => [
+        key,
+        snapshot(document.querySelector(selector)),
+      ]),
+    );
+  }, selectors);
 }
 
 async function waitForProductState(page, candidate) {
