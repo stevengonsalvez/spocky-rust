@@ -32,6 +32,7 @@ if [ "${1:-}" = "--print-plan" ]; then
     'candidate desktop 1280x800' \
     'candidate mobile 390x844' \
     'exact-pixel threshold: normalized RMSE 0' \
+    'stable product-state readiness before interaction and screenshot' \
     'keyboard focus order and activation' \
     'prefers-reduced-motion: reduce' \
     'online reload and offline reload' \

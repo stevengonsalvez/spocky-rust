@@ -15,6 +15,7 @@ printf '%s\n' "$plan" | grep -F 'original mobile 390x844'
 printf '%s\n' "$plan" | grep -F 'candidate desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'candidate mobile 390x844'
 printf '%s\n' "$plan" | grep -F 'exact-pixel threshold: normalized RMSE 0'
+printf '%s\n' "$plan" | grep -F 'stable product-state readiness before interaction and screenshot'
 printf '%s\n' "$plan" | grep -F 'keyboard focus order and activation'
 printf '%s\n' "$plan" | grep -F 'prefers-reduced-motion: reduce'
 printf '%s\n' "$plan" | grep -F 'online reload and offline reload'
@@ -41,4 +42,6 @@ if [ "$validation_status" -ne 2 ]; then
   exit 1
 fi
 grep -F 'page.routeWebSocket(/:(6767)' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'sidebar-project-empty-state' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null

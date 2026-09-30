@@ -66,9 +66,7 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     { port: baselineDaemonPort },
   );
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120_000 });
-  await page
-    .waitForFunction(() => document.body.innerText.trim().length > 0, null, { timeout: 30_000 })
-    .catch(() => undefined);
+  await waitForProductState(page, candidate);
 
   const keyboardFocus = [];
   for (let index = 0; index < 4; index += 1) {
@@ -99,6 +97,8 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     .reload({ waitUntil: "domcontentloaded", timeout: 120_000 })
     .then(() => true)
     .catch(() => false);
+  if (!onlineReload) throw new Error(`${name} online reload failed before screenshot`);
+  await waitForProductState(page, candidate);
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({
     path: path.join(screenshotDir, `${name}.png`),
@@ -142,6 +142,26 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     },
     consoleErrors,
   };
+}
+
+async function waitForProductState(page, candidate) {
+  if (candidate) {
+    await page.getByRole("button", { name: /^Add a project/ }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+  } else {
+    await page.locator('[data-testid="sidebar-project-empty-state"]').waitFor({
+      state: "attached",
+      timeout: 30_000,
+    });
+  }
+  const first = await page.locator("body").innerText();
+  await page.waitForTimeout(250);
+  const second = await page.locator("body").innerText();
+  if (first !== second) {
+    await page.waitForTimeout(500);
+  }
 }
 
 (async () => {
