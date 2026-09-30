@@ -45,7 +45,10 @@ fn packet_level_verified_account_recovery_matches_pinned_boundary() {
         r#"{"email":"verified@example.test","password":"original-password"}"#,
     ));
     assert_eq!(unverified.status, 403);
-    assert_eq!(unverified.body, br#"{"code":"EMAIL_NOT_VERIFIED"}"#);
+    assert_eq!(
+        unverified.body,
+        br#"{"message":"Email not verified","code":"EMAIL_NOT_VERIFIED"}"#
+    );
 
     drop(service);
     let restarted =

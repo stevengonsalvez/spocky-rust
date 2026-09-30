@@ -291,7 +291,8 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ),
             Err(HubError::EmailNotVerified) => json_response(
                 403,
-                &CodeBody {
+                &MessageCodeBody {
+                    message: "Email not verified",
                     code: "EMAIL_NOT_VERIFIED",
                 },
             ),
@@ -833,6 +834,12 @@ struct CodeBody {
 }
 
 #[derive(Serialize)]
+struct MessageCodeBody {
+    message: &'static str,
+    code: &'static str,
+}
+
+#[derive(Serialize)]
 struct SessionBody<'a> {
     user: SessionUser<'a>,
 }
@@ -936,7 +943,7 @@ fn redirect_with_session(location: &str, session: &SessionToken) -> HttpResponse
     response.headers.insert(
         "set-cookie".into(),
         format!(
-            "better-auth.session_token={}; Path=/; HttpOnly; SameSite=Lax",
+            "better-auth.session_token={}; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax",
             session.as_str()
         ),
     );
