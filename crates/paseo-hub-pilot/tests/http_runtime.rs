@@ -186,6 +186,68 @@ fn packet_level_invitation_accept_activates_the_invited_organization() {
 }
 
 #[test]
+fn packet_level_signup_matches_invite_only_admission_failures() {
+    let root = TestDir::new();
+    let owner = AccountId::from("owner@example.test");
+    let organization = OrganizationId::from("organization-1");
+    let mut hub = HubPilot::open_at(
+        EmbeddedFileStore::open(root.0.join("signup-admission.json")).unwrap(),
+        1_700_000_000,
+    )
+    .unwrap();
+    hub.bootstrap(Bootstrap {
+        instance_secret: "signup-admission-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: organization.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .unwrap();
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .unwrap();
+    hub.create_invitation(
+        &owner,
+        &organization,
+        "member@example.test",
+        InvitationRole::Member,
+    )
+    .unwrap();
+
+    let service = &mut HubHttpService::new(hub);
+    for body in [
+        r#"{"name":"Member","email":"member@example.test","password":"member-password"}"#,
+        r#"{"name":"Member","email":"member@example.test","password":"member-password","invitation":"unknown"}"#,
+        r#"{"name":"Wrong","email":"wrong@example.test","password":"member-password","invitation":"invitation-1"}"#,
+    ] {
+        let response = service.handle(&HttpRequest {
+            method: "POST".into(),
+            path: "/api/auth/sign-up/email".into(),
+            headers: std::collections::BTreeMap::from([(
+                "content-type".into(),
+                "application/json".into(),
+            )]),
+            body: body.as_bytes().to_vec(),
+        });
+        assert_eq!(response.status, 403);
+        assert_eq!(response.body, br#"{"error":"registration_closed"}"#);
+    }
+    let invalid_email = service.handle(&HttpRequest {
+        method: "POST".into(),
+        path: "/api/auth/sign-up/email".into(),
+        headers: std::collections::BTreeMap::from([(
+            "content-type".into(),
+            "application/json".into(),
+        )]),
+        body: br#"{"name":"Member","email":"invalid","password":"member-password","invitation":"invitation-1"}"#.to_vec(),
+    });
+    assert_eq!(invalid_email.status, 400);
+    assert_eq!(invalid_email.body, br#"{"error":"invalid_signup"}"#);
+}
+
+#[test]
 fn active_account_state_includes_pending_manager_invitations() {
     let root = TestDir::new();
     let owner = AccountId::from("owner@example.test");

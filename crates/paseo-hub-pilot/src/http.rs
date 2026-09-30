@@ -60,11 +60,28 @@ impl<S: DurableHubStore> HubHttpService<S> {
     }
 
     fn sign_up(&mut self, request: &HttpRequest) -> HttpResponse {
+        if request
+            .headers
+            .get("content-type")
+            .is_none_or(|content_type| {
+                !content_type
+                    .split(';')
+                    .next()
+                    .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
+            })
+        {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_signup",
+                },
+            );
+        }
         let Ok(input) = serde_json::from_slice::<SignUpBody>(&request.body) else {
             return json_response(
                 400,
                 &ErrorBody {
-                    error: "invalid_body",
+                    error: "invalid_signup",
                 },
             );
         };
@@ -72,15 +89,23 @@ impl<S: DurableHubStore> HubHttpService<S> {
             return json_response(
                 400,
                 &ErrorBody {
-                    error: "invalid_body",
+                    error: "invalid_signup",
                 },
             );
         }
+        let Some(invitation) = input.invitation else {
+            return json_response(
+                403,
+                &ErrorBody {
+                    error: "registration_closed",
+                },
+            );
+        };
         match self.hub.register_invited_account(
             &AccountId::from(input.email.as_str()),
             &input.name,
             &input.password,
-            &input.invitation,
+            &invitation,
         ) {
             Ok(()) => json_response(
                 200,
@@ -88,16 +113,16 @@ impl<S: DurableHubStore> HubHttpService<S> {
                     status: BrowserAccountStatus::AppSetupRequired,
                 },
             ),
-            Err(HubError::InvitationUnavailable) => json_response(
-                404,
+            Err(HubError::InvitationUnavailable | HubError::IdempotencyConflict) => json_response(
+                403,
                 &ErrorBody {
-                    error: "invitation_unavailable",
+                    error: "registration_closed",
                 },
             ),
-            Err(HubError::InvalidInvitationInput | HubError::IdempotencyConflict) => json_response(
+            Err(HubError::InvalidInvitationInput) => json_response(
                 400,
                 &ErrorBody {
-                    error: "invalid_body",
+                    error: "invalid_signup",
                 },
             ),
             Err(_) => json_response(
@@ -478,7 +503,7 @@ struct SignUpBody {
     name: String,
     email: String,
     password: String,
-    invitation: String,
+    invitation: Option<String>,
 }
 
 #[derive(Deserialize)]

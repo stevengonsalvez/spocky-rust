@@ -37,6 +37,13 @@ struct InvitationAcceptance {
     owner_after_acceptance: Value,
 }
 
+struct AdmissionFailures {
+    without_invitation: Value,
+    unknown_invitation: Value,
+    wrong_email: Value,
+    invalid_email: Value,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = TestDir::new()?;
     let mut hub = HubPilot::open(EmbeddedFileStore::open(root.0.join("hub.json"))?)?;
@@ -105,6 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     require_status(canceled.status, 200)?;
     let canceled_body: Value = serde_json::from_slice(&canceled.body)?;
     let active = state(&mut service, Some(cookie))?;
+    let admission = admission_failures(&mut service)?;
     let acceptance = accept_invitation(&mut service, cookie)?;
 
     println!(
@@ -117,7 +125,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "cancelInvitationBody": canceled_body,
                 "signUpInvitedStatus": acceptance.signed_up_status,
                 "acceptInvitationStatus": acceptance.accepted_status,
-                "acceptInvitationBody": acceptance.accepted_body
+                "acceptInvitationBody": acceptance.accepted_body,
+                "admissionWithoutInvitation": admission.without_invitation,
+                "admissionWithUnknownInvitation": admission.unknown_invitation,
+                "admissionWithWrongEmail": admission.wrong_email,
+                "admissionWithInvalidEmail": admission.invalid_email
             },
             "states": {
                 "signedOut": signed_out,
@@ -179,6 +191,64 @@ fn accept_invitation(
     })
 }
 
+fn signup_failure(
+    service: &mut HubHttpService<EmbeddedFileStore>,
+    body: Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let response = service.handle(&request(
+        "POST",
+        "/api/auth/sign-up/email",
+        None,
+        Some(body),
+    ));
+    Ok(json!({
+        "status": response.status,
+        "body": serde_json::from_slice::<Value>(&response.body)?
+    }))
+}
+
+fn admission_failures(
+    service: &mut HubHttpService<EmbeddedFileStore>,
+) -> Result<AdmissionFailures, Box<dyn std::error::Error>> {
+    Ok(AdmissionFailures {
+        without_invitation: signup_failure(
+            service,
+            json!({
+                "name": "Member",
+                "email": "member@example.test",
+                "password": "member-password"
+            }),
+        )?,
+        unknown_invitation: signup_failure(
+            service,
+            json!({
+                "name": "Member",
+                "email": "member@example.test",
+                "password": "member-password",
+                "invitation": "unknown"
+            }),
+        )?,
+        wrong_email: signup_failure(
+            service,
+            json!({
+                "name": "Wrong",
+                "email": "wrong@example.test",
+                "password": "member-password",
+                "invitation": "invitation-1"
+            }),
+        )?,
+        invalid_email: signup_failure(
+            service,
+            json!({
+                "name": "Member",
+                "email": "invalid",
+                "password": "member-password",
+                "invitation": "invitation-1"
+            }),
+        )?,
+    })
+}
+
 fn state(
     service: &mut HubHttpService<EmbeddedFileStore>,
     cookie: Option<&str>,
@@ -192,6 +262,9 @@ fn request(method: &str, path: &str, cookie: Option<&str>, body: Option<Value>) 
     let mut headers = BTreeMap::new();
     if let Some(cookie) = cookie {
         headers.insert("cookie".into(), cookie.into());
+    }
+    if body.is_some() {
+        headers.insert("content-type".into(), "application/json".into());
     }
     HttpRequest {
         method: method.into(),

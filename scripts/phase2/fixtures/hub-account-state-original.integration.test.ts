@@ -100,18 +100,36 @@ it("captures the pinned browser account state sequence", async () => {
   const canceledBody = await canceled.json();
   states["active"] = await readState(runtime, cookie);
 
-  const signedUp = await runtime.auth(
-    new Request(`${APP_URL}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers: { origin: APP_URL, "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "Invited Member",
-        email: INVITED_EMAIL,
-        password: "member-password",
-        invitation: invitationBody.id,
-      }),
-    }),
-  );
+  const missingInvitation = await signUp(runtime, {
+    name: "Member",
+    email: INVITED_EMAIL,
+    password: "member-password",
+  });
+  const unknownInvitation = await signUp(runtime, {
+    name: "Member",
+    email: INVITED_EMAIL,
+    password: "member-password",
+    invitation: "unknown",
+  });
+  const wrongEmail = await signUp(runtime, {
+    name: "Wrong",
+    email: "wrong@example.test",
+    password: "member-password",
+    invitation: invitationBody.id,
+  });
+  const invalidEmail = await signUp(runtime, {
+    name: "Member",
+    email: "invalid",
+    password: "member-password",
+    invitation: invitationBody.id,
+  });
+
+  const signedUp = await signUp(runtime, {
+    name: "Invited Member",
+    email: INVITED_EMAIL,
+    password: "member-password",
+    invitation: invitationBody.id,
+  });
   assert.equal(signedUp.status, 200);
   const invitedCookie = await signIn(runtime, INVITED_EMAIL, "member-password");
   const accepted = await runtime.auth(
@@ -138,6 +156,10 @@ it("captures the pinned browser account state sequence", async () => {
         signUpInvitedStatus: signedUp.status,
         acceptInvitationStatus: accepted.status,
         acceptInvitationBody: acceptedBody,
+        admissionWithoutInvitation: await responseSummary(missingInvitation),
+        admissionWithUnknownInvitation: await responseSummary(unknownInvitation),
+        admissionWithWrongEmail: await responseSummary(wrongEmail),
+        admissionWithInvalidEmail: await responseSummary(invalidEmail),
       },
       states,
     }, null, 2)}\n`,
@@ -171,4 +193,18 @@ async function signIn(
   const cookie = response.headers.get("set-cookie")?.match(/^(?:[^;]+);/u)?.[0]?.slice(0, -1);
   assert.ok(cookie, "sign-in did not issue a session cookie");
   return cookie;
+}
+
+async function signUp(runtime: Runtime, body: Record<string, string>): Promise<Response> {
+  return runtime.auth(
+    new Request(`${APP_URL}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+async function responseSummary(response: Response): Promise<unknown> {
+  return { status: response.status, body: await response.json() };
 }
