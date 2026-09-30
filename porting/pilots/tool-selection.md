@@ -44,11 +44,11 @@ RMSE 0.0516104 and mobile RMSE 0.0703698. The pinned original desktop image also
 changed hash between runs. Offline reload fails. Packaging cases remain open.
 
 The Hub candidate now covers offline billing catalog and conservative
-provisioning rules plus organization-scoped API-key generation, concealment,
-scope authorization, last-use, revocation, and restart. Pinned Hub baseline
+provisioning rules, invitation authority and lifecycle, plus organization-scoped
+API-key generation, concealment, scope authorization, last-use, revocation, and restart. Pinned Hub baseline
 capture passes 29 of 29 tests across embedded persistence, setup, pricing,
-catalog, and provisioning. PGlite, baseline relational schema, invitations,
-API-key transaction races, Stripe operations, and full HTTP differentials remain
+catalog, and provisioning. PGlite, baseline relational schema, invitation SQL
+races and delivery, API-key transaction races, Stripe operations, and full HTTP differentials remain
 open, so no Hub implementation tool is selected.
 
 ## Executable cases

@@ -66,7 +66,7 @@ before browser-session fields existed still load with defaults.
 This adapter is pilot code. Its deterministic session token is not production
 authentication, and its four routes do not represent the complete Hub API.
 
-## Rust account, API-key, and billing boundary pilots
+## Rust account, invitation, API-key, and billing boundary pilots
 
 The candidate now preserves organization role gates for resource management and
 adds an organization-scoped API-key pilot. It generates the baseline
@@ -77,6 +77,14 @@ last-use state only after successful scope authorization, revokes within an
 organization, and survives snapshot restart. Owner and member behavior, secret
 concealment, malformed credentials, wrong secrets, missing scopes, last-use,
 revocation, and restart pass one targeted integration test.
+
+The invitation pilot passes four targeted tests covering owner/member authority,
+email normalization, one live credential per organization and email, manager-only
+listing, flag and seat-cap denial, current-member rejection, cancel and replacement,
+email-bound acceptance, one-shot replay rejection, membership creation, and snapshot
+restart. It preserves the first pending role when a reinvite reuses a credential.
+It does not prove PostgreSQL locking races, expiration against a controlled clock,
+HTTP response shapes, invitation mail delivery, or active-session selection.
 
 The billing pilot passes four targeted tests covering active public plans, Free
 and paid presentation values, inactive-plan filtering, exact price lookup keys,
@@ -134,6 +142,7 @@ cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
 cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
 cargo test -p paseo-hub-pilot --test api_key_boundary
 cargo test -p paseo-hub-pilot --test billing_boundary
+cargo test -p paseo-hub-pilot --test invitation_boundary
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
@@ -184,7 +193,8 @@ times by construction.
   traces do not exist. Candidate-only packet behavior is covered.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation flows, API-key relational timestamps and revocation races, complete
-  organization state, and original-versus-Rust API-key HTTP traces remain open.
+- Invitation PostgreSQL races, expiration, mail delivery, HTTP traces, API-key
+  relational timestamps and revocation races, and complete organization state
+  remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
