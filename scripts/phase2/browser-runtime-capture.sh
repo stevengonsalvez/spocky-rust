@@ -7,6 +7,7 @@ expected_baseline=5de45e208690b0efc51c59a585ae9729325a9204
 raw_dir="$repository_root/evidence/raw/phase2"
 result_file="$raw_dir/browser-runtime-comparison.json"
 screenshot_dir="$raw_dir/browser-runtime-comparison"
+dx_executable=${PASEO_DX_EXECUTABLE:-"$repository_root/.tools/bin/dx"}
 
 parse_normalized_rmse() {
   metric=$1
@@ -74,6 +75,10 @@ for command in gtimeout tmux python3 npm curl jq magick; do
     exit 1
   fi
 done
+if [ ! -x "$dx_executable" ]; then
+  printf 'Dioxus CLI is not executable: %s\n' "$dx_executable" >&2
+  exit 1
+fi
 
 capture_dir=$(mktemp -d /private/tmp/paseo-browser-runtime.XXXXXX)
 baseline_session="paseo-p2-browser-baseline-$$"
@@ -126,7 +131,7 @@ fi
 (
   cd "$repository_root"
   gtimeout 300 cargo fetch --locked
-  gtimeout 900 .tools/bin/dx build --web -p paseo-ui-renderer-pilot \
+  gtimeout 900 "$dx_executable" build --web -p paseo-ui-renderer-pilot \
     --bin paseo-ui-web --no-default-features --features web \
     --bundle web --release --frozen
 ) >"$raw_dir/browser-runtime-candidate-build.log" 2>&1

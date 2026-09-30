@@ -59,3 +59,5 @@ grep -F 'fontWeight: style.fontWeight' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'sidebarEmptyDetail' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'PASEO_DX_EXECUTABLE' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.sh" >/dev/null
