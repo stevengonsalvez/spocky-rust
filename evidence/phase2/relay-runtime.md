@@ -36,6 +36,11 @@ Its three focused tests prove:
    the loser with `1012 Session owner moved`, and returns `409` with the opaque
    winner target on a new upgrade.
 
+The same peer and WebSocket runtime also runs in separate
+`paseo-relay-network-node` processes. Two focused tests prove automatic owner
+loss and takeover after killing the owner process, plus partition healing,
+loser close `1012`, and `409` reroute without a controller `LOSE` command.
+
 The in-memory contract suite also passes five focused ownership, opacity,
 pressure, capacity, and drain tests. Clippy passes for all relay targets with
 warnings denied.
@@ -47,23 +52,21 @@ scripts/phase2/relay-runtime.sh
 ```
 
 The script rejects a dirty or incorrectly pinned baseline before running. It
-mounts the baseline read-only, removes its disposable container, runs both Rust
-runtime suites serially, and prints raw artifact hashes.
+mounts the baseline read-only, removes its disposable container, runs all three
+Rust runtime suites serially, and prints raw artifact hashes.
 
 ## Raw evidence
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/relay-baseline-runtime.log` | 19,402 | `2bacdb670c5eb34fa4b7f99d63d47cb9c0aa4d98f094a0599bf51bd14cab8b0f` |
-| `evidence/raw/phase2/relay-runtime.log` | 1,720 | `f357947f7a1d7b41bd6af8ae1fe8394aaf393210d0240c23bcde906dc68fc480` |
+| `evidence/raw/phase2/relay-baseline-runtime.log` | 19,403 | `82ef66a09742b1792ab3780f7c1f280bd63f7bd85fc161f68be01909e0ab7ed9` |
+| `evidence/raw/phase2/relay-runtime.log` | 2,243 | `590771215ae8d08350937178d2bde272f30405d9229c8b1924e395c448f9d706` |
 
 The logs are ignored local artifacts. Baseline compiler warnings come from
 locked third-party Syn, WebSockex, and DNSCluster dependencies; all tests pass.
 
 ## Remaining gaps
 
-- Baseline peers are separate BEAM processes. Rust network peers are threads in
-  one test process; the separate-process Rust harness remains controller-driven.
 - Rust peer addresses are configured explicitly. Discovery, deployment adapter,
   and rolling topology changes are not exercised.
 - Rust failure detection uses bounded TCP failures, not process monitors or an
