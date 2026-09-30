@@ -95,16 +95,18 @@ Its rendered email matches baseline text, HTML escaping, subject, destination, a
 idempotency-key shapes. Relational invitation creation and acceptance races now
 pass against disposable PostgreSQL: concurrent creation reuses one live
 credential, concurrent replay accepts once, and one membership remains. HTTP
-response shapes, external mail delivery behavior, entitlement races, and
-non-empty account-state invitation selection remain open.
+cancel and accept HTTP response shapes, external mail delivery behavior, and
+entitlement races remain open. The create-invitation packet path and active
+account-state selection now have pinned differential evidence.
 
 The pinned and Rust runtimes now produce matching four-state browser account
-payloads. The comparison preserves both raw documents and normalizes only
-generated account, organization, membership, and organization-slug identifiers.
-All status, registration, account, organization, role, capability, operator,
-creation, member, and empty-invitation values match. This does not cover invited
-users, multi-membership selection, registration admission, HTTP status, cookies,
-or database mutations across the complete auth API.
+payloads. The comparison preserves both raw documents and normalizes generated
+account, organization, membership, invitation, organization-slug, invitation-link,
+and invitation-expiry values. All status, registration, account, organization,
+role, capability, operator, creation, member, and pending-invitation semantic
+values match. Candidate packet evidence also matches the pinned 201 creation
+status. This does not cover invited-user admission, multi-membership selection,
+cookies, or database mutations across the complete auth API.
 
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
@@ -214,12 +216,12 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,579 | `8fad5feec97c1feb0e97da278e10ccd7a26889222e52b7488f4882f295d1947a` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,635 | `eee4e60d2d79282d8780b016f1b30a1e81a6948b2b4cc21f651710786360538e` |
-| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `238d7cdcf27a6394e287cfcda895e60c22feebbf44763a7a32f04b252af77f28` |
-| `evidence/raw/phase2/hub-account-state-original.json` | 2,515 | `362483d8d1123789ecb9c22b75e122b2685d3d3b93d73c85b824c98cc690e0f1` |
-| `evidence/raw/phase2/hub-account-state-rust.json` | 2,293 | `9e12a4ac4f530412679fff242669c5b4efe6d68ec2c835d4369fe8684c3f8a93` |
-| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,091 | `bcb42246db0c7ae3b9fc8b37cd67e23a446f00248a420b63ed1e702bc9d0d56a` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,581 | `79ca69c64c749664518dadb5f8d1f30b9e50c101a6d26badf8a3dcdfc8f271e6` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `dde5c49d0eb0b9875635a31814f02c8c1d0f2a8c749ec80df3567707eda30996` |
+| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `68514755e3e70aa5be0bbef7372ba2066f5924d09410849f48da5b90350f84da` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 2,826 | `9889c9d8e0389f8c6967b2f33103a929e2e289346196caa13094c1ca5e70d4d5` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 2,559 | `31e29a4651cd4b6812f207226af4580caea888829c98dd1a0d0f39d105ba6024` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,608 | `4f5eaf2e7ee627a45765d7c80531be4a17964357aa738c75dc0eb1ea52033931` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -229,8 +231,8 @@ Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
 
 No normalization is applied to the runtime test report. Original JSON contains
 wall-clock start times, durations, and disposable paths. The account-state
-comparison normalizes generated identifiers and their slug derivative only;
-both raw payloads and hashes remain available.
+comparison normalizes generated identifiers, slug, invitation link, and expiry
+only; both raw payloads and hashes remain available.
 
 ## Remaining evidence blockers
 
@@ -240,12 +242,12 @@ both raw payloads and hashes remain available.
   PostgreSQL differential results do not exist. API-key, invitation, and active-
   session subsets have relational evidence; remaining tables still use
   candidate-only snapshot evidence.
-- Original-versus-Rust account-state bodies match for the four bootstrap states.
-  Broader HTTP status, cookie, invitation, multi-organization, and database-state
-  differential traces do not exist.
+- Original-versus-Rust account-state bodies match for the four bootstrap states,
+  including one pending team invitation. Broader cookie, admission,
+  multi-organization, and database-state differential traces do not exist.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation entitlement races, live provider acceptance, non-empty team
-  invitation state, and complete organization HTTP traces remain open.
+- Invitation entitlement races, live provider acceptance, cancel and accept
+  packet traces, and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
