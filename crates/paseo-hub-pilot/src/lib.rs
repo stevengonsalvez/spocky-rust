@@ -271,15 +271,28 @@ pub enum BrowserAccountStatus {
 pub struct HubPilot<S: DurableHubStore> {
     store: S,
     state: HubState,
+    invitation_now_override: Option<u64>,
 }
 
 impl<S: DurableHubStore> HubPilot<S> {
     pub fn open(store: S) -> Result<Self, HubError> {
+        Self::open_inner(store, None)
+    }
+
+    pub fn open_at(store: S, invitation_now_epoch_seconds: u64) -> Result<Self, HubError> {
+        Self::open_inner(store, Some(invitation_now_epoch_seconds))
+    }
+
+    fn open_inner(store: S, invitation_now_override: Option<u64>) -> Result<Self, HubError> {
         let state = match store.load()? {
             Some(bytes) => serde_json::from_slice(&bytes)?,
             None => HubState::default(),
         };
-        Ok(Self { store, state })
+        Ok(Self {
+            store,
+            state,
+            invitation_now_override,
+        })
     }
 
     pub fn bootstrap(&mut self, input: Bootstrap) -> Result<BootstrapResult, HubError> {

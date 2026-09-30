@@ -210,3 +210,56 @@ fn current_members_are_rejected_without_leaving_pending_credentials() {
             .is_empty()
     );
 }
+
+#[test]
+fn expiration_releases_reserved_seat_and_replaces_the_credential() {
+    let root = TestDir::new();
+    let state = root.path().join("hub.json");
+    let owner = AccountId::from("owner@example.test");
+    let bob = AccountId::from("bob@example.test");
+    let organization = OrganizationId::from("organization-1");
+    let mut hub = HubPilot::open_at(
+        EmbeddedFileStore::open(&state).expect("open store"),
+        1_000_000,
+    )
+    .expect("open fixed-time hub");
+    hub.bootstrap(Bootstrap {
+        instance_secret: "first-run-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: organization.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .expect("bootstrap");
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .expect("replace password");
+    hub.set_invitation_entitlements(&owner, &organization, true, Some(2))
+        .expect("cap seats");
+    let expired = hub
+        .create_invitation(&owner, &organization, bob.as_str(), InvitationRole::Member)
+        .expect("create invitation");
+    drop(hub);
+
+    let mut later = HubPilot::open_at(
+        EmbeddedFileStore::open(state).expect("reopen store"),
+        expired.expires_at_epoch_seconds,
+    )
+    .expect("open at exact expiry");
+    assert!(
+        later
+            .pending_invitations(&owner, &organization)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        later.accept_invitation(&bob, &expired.id),
+        Err(HubError::InvitationUnavailable)
+    );
+    let replacement = later
+        .create_invitation(&owner, &organization, bob.as_str(), InvitationRole::Member)
+        .expect("expired seat is reusable");
+    assert_ne!(replacement.id, expired.id);
+}

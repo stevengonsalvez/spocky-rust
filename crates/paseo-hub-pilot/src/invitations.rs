@@ -102,7 +102,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         {
             return Err(HubError::AlreadyMember);
         }
-        let now = now_epoch_seconds();
+        let now = self.invitation_now();
         if let Some(existing) = self.state.invitations.values().find(|invitation| {
             invitation.organization == *organization
                 && invitation.email == email
@@ -169,7 +169,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         if !self.authorize(actor, organization)?.can_manage_resources() {
             return Err(HubError::InvitationManagementRequired);
         }
-        let now = now_epoch_seconds();
+        let now = self.invitation_now();
         let mut invitations = self
             .state
             .invitations
@@ -213,7 +213,7 @@ impl<S: DurableHubStore> HubPilot<S> {
     ) -> Result<OrganizationId, HubError> {
         let normalized_account =
             normalize_email(account.as_str()).ok_or(HubError::InvitationUnavailable)?;
-        let now = now_epoch_seconds();
+        let now = self.invitation_now();
         let invitation = self
             .state
             .invitations
@@ -245,6 +245,11 @@ impl<S: DurableHubStore> HubPilot<S> {
             .status = InvitationStatus::Accepted;
         self.persist()?;
         Ok(invitation.organization)
+    }
+
+    fn invitation_now(&self) -> u64 {
+        self.invitation_now_override
+            .unwrap_or_else(now_epoch_seconds)
     }
 }
 
