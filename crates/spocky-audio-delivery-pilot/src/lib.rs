@@ -1,9 +1,22 @@
 use std::collections::BTreeSet;
 
+#[cfg(unix)]
+mod linux_delivery;
 mod local_runtime;
 #[cfg(target_os = "macos")]
 mod macos_delivery;
+#[cfg(unix)]
+mod sha512;
 
+#[cfg(unix)]
+pub use linux_delivery::{
+    BASELINE_AFTER_INSTALL, BASELINE_AFTER_REMOVE, BASELINE_LAUNCHER, DISPOSABLE_ROOT_ENV,
+    LINUX_DELIVERY_BASELINE, LinuxAppImageRuntime, LinuxAppImageSnapshot, LinuxDebLifecycleConfig,
+    LinuxDeliveryEvidenceReport, LinuxDeliveryStep, UpdateManifest, baseline_fixture_digests,
+    build_linux_deb, create_linux_appimage_fixture, create_linux_deb_tree,
+    linux_delivery_limitations, run_linux_appimage_lifecycle, run_linux_deb_lifecycle,
+    run_linux_delivery_qualification,
+};
 pub use local_runtime::{
     AndroidDeviceAdapter, AndroidDeviceIdentity, DeliverySnapshot, LocalDeliveryRuntime,
     MacOsAudioAdapter, MacOsAudioEvidence, NativeRuntimeEvidence, PcmFileMetadata, ProcessCommand,
