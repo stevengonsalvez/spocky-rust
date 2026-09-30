@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,6 +65,36 @@ fn credential_is_private_and_standard_session_requires_permission_agreement() {
     assert_eq!(record.credential_verifier, credential_verifier(CREDENTIAL));
     assert!(!runtime.snapshot_contains(CREDENTIAL));
     assert_eq!(record.presence, DaemonPresence::Connected);
+}
+
+#[test]
+fn fragmented_upgrade_waits_for_complete_headers() {
+    let root = TestDir::new();
+    let runtime = enrolled_runtime(&root.state_path(), &["hub.execute"]);
+    let mut stream = TcpStream::connect(runtime.address()).expect("connect TCP");
+    stream
+        .set_read_timeout(Some(DEADLINE))
+        .expect("set read timeout");
+    stream
+        .write_all(b"GET /api/daemons/socket HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+        .expect("write first header fragment");
+    thread::sleep(Duration::from_millis(100));
+    stream
+        .write_all(
+            format!(
+                "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer {CREDENTIAL}\r\nX-Paseo-Daemon-Id: {DAEMON_ID}\r\nX-Paseo-Session-Protocol: 1\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .expect("write remaining headers");
+
+    let mut response = [0_u8; 4096];
+    let read = stream.read(&mut response).expect("read upgrade response");
+    let response = String::from_utf8_lossy(&response[..read]);
+    assert!(
+        response.starts_with("HTTP/1.1 101"),
+        "unexpected upgrade response: {response}"
+    );
 }
 
 #[test]

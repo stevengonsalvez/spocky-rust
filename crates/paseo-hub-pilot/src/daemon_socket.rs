@@ -359,6 +359,9 @@ struct AcceptedDaemon {
 
 #[allow(clippy::result_large_err)]
 fn serve_connection(shared: Arc<Shared>, stream: TcpStream) {
+    if stream.set_nonblocking(false).is_err() {
+        return;
+    }
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
     let accepted = Arc::new(Mutex::new(None));
