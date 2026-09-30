@@ -37,12 +37,18 @@ remaining desktop systems, iOS, native adapters, and delivery cases remain open,
 so Dioxus is not selected.
 
 Dioxus browser candidate evidence now includes a frozen release bundle,
-WebAssembly launch, a semantic tree, and a touch state transition. Release mode
-removes the debug rebuild overlay and external font request and reduces WASM to
-528,846 bytes. Desktop and mobile viewport, keyboard, and reduced-motion checks
-pass. Offline reload fails. A pinned original capture now runs against an isolated
-daemon, but the candidate's hardcoded fixture does not match original state or
-visuals. Packaging cases remain open.
+WebAssembly launch, semantic trees, and input transitions. A pinned original
+capture runs against an isolated daemon in the same open-project state. Desktop
+focus semantics match, but desktop RMSE is 0.0464723 and mobile RMSE is
+0.0776069. Offline reload fails. Packaging cases remain open.
+
+The Hub candidate now covers offline billing catalog and conservative
+provisioning rules plus organization-scoped API-key generation, concealment,
+scope authorization, last-use, revocation, and restart. Pinned Hub baseline
+capture passes 29 of 29 tests across embedded persistence, setup, pricing,
+catalog, and provisioning. PGlite, baseline relational schema, invitations,
+API-key transaction races, Stripe operations, and full HTTP differentials remain
+open, so no Hub implementation tool is selected.
 
 ## Executable cases
 

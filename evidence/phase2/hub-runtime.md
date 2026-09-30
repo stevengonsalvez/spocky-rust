@@ -18,7 +18,7 @@ disposable directory, installs from `package-lock.json`, and leaves the baseline
 checkout unchanged. The lockfile SHA-256 is
 `1547348f61e8f305af4c3790b830ee8db120e80628b4de2eaf39254c40d40274`.
 
-Three targeted files passed 15 of 15 tests with no failures or skips:
+Six targeted files passed 29 of 29 tests with no failures or skips:
 
 - `embedded-persistence.integration.test.ts`: PGlite state survives restart and
   a second process cannot open the same data directory.
@@ -28,6 +28,12 @@ Three targeted files passed 15 of 15 tests with no failures or skips:
 - `environment-bootstrap.integration.test.ts`: PostgreSQL bootstrap restart,
   conflicting identity rollback, missing-password rollback, concurrent start
   serialization, password-change authorization, and browser product gating.
+- `plan-prices.test.ts`: exact lookup keys, inactive prices, missing prices, and
+  ambiguity rejection.
+- `public-catalog.test.ts`: active Free and paid plans, public allowance figures,
+  inactive-plan filtering, template concealment, and mismatched price keys.
+- `provisioning-entitlement.test.ts`: active Free stamping and conservative
+  fallback when Free is missing or inactive.
 
 The PostgreSQL tests use a disposable `postgres:17-alpine` container. Ryuk is
 disabled because Docker cannot mount the host Colima socket into its VM. The
@@ -59,6 +65,25 @@ before browser-session fields existed still load with defaults.
 
 This adapter is pilot code. Its deterministic session token is not production
 authentication, and its four routes do not represent the complete Hub API.
+
+## Rust account, API-key, and billing boundary pilots
+
+The candidate now preserves organization role gates for resource management and
+adds an organization-scoped API-key pilot. It generates the baseline
+`paseo_pk_` shape from OS randomness, returns the secret once, stores only a
+SHA-256 verifier, compares verifiers in constant time, serializes the five exact
+colon-delimited scopes, distinguishes unauthorized from forbidden, updates
+last-use state only after successful scope authorization, revokes within an
+organization, and survives snapshot restart. Owner and member behavior, secret
+concealment, malformed credentials, wrong secrets, missing scopes, last-use,
+revocation, and restart pass one targeted integration test.
+
+The billing pilot passes four targeted tests covering active public plans, Free
+and paid presentation values, inactive-plan filtering, exact price lookup keys,
+ambiguity rejection, and conservative Free entitlement fallback. It makes no
+Stripe request and does not claim webhook, checkout, subscription, seat-report,
+or portal parity. API-key timestamps and transaction serialization remain
+database-layer gaps; the snapshot pilot records used and revoked state only.
 
 ## Rust PostgreSQL pilot
 
@@ -107,6 +132,8 @@ sh scripts/phase2/hub-runtime-capture.test.sh
 scripts/phase2/hub-runtime-capture.sh
 cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
 cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
+cargo test -p paseo-hub-pilot --test api_key_boundary
+cargo test -p paseo-hub-pilot --test billing_boundary
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
@@ -132,9 +159,9 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 5,341 | `2f017881500b4b0e974ff765fec33764f7b05d2ed544310df380c346ec39c852` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 4,164 | `8dd2cffb029ad799124345199d235668cc38b2c0f86346b62899e2ea00d0e2fa` |
-| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `5eb36a06d15fab2b18a3bc0bc8b6c9070036b14f91f7915918dac6fa31c45ba2` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,138 | `58c0136983fc11bf693295335448f28fd78aeb53dbc720ad4c4524be7a49aea7` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,337 | `ba186c296b99ea776ea92ce8540dc8ebd472b74bc020fe7c0c2b4e40afa975a0` |
+| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `526d5bbfe377223199d1f68f7fc2da029677bdcc45e43f26a0e7061d538ff69a` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 4,059 | `c6d5c6a538c290920719dd3ab522414a27d0f78c95ef912fa460530ac878a8bf` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 344 | `c9a0d55fbd4d596ea5368d552234049480db9315b1796893cbc401be0bc11a41` |
@@ -157,5 +184,7 @@ times by construction.
   traces do not exist. Candidate-only packet behavior is covered.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Account, organization, invitation, API key, and concealment parity is not
-  demonstrated by the Rust candidate.
+- Invitation flows, API-key relational timestamps and revocation races, complete
+  organization state, and original-versus-Rust API-key HTTP traces remain open.
+- Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
+  boundaries remain open. The current billing pilot is offline and candidate-only.
