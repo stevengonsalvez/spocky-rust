@@ -47,8 +47,9 @@ nine real local acquisition/runtime cases, and five settings lifecycle cases:
    isolate notification values, persist atomically with mode `0600`, and keep
    installation directories separate from definition IDs.
 8. Execute settings and hooks notifications, hook cancellation, usage identify,
-   fetch, and discovery, provider connect, send, event, close, and reconnect,
-   plus daemon-session frame and close messages in one bounded process.
+   fetch, and discovery, provider connect, connection failure, send, rejection,
+   event, close, and reconnect, plus daemon-session frame and close messages in
+   one bounded process.
 9. Recover fixed sibling staging directories left by interrupted Git and npm
    acquisition, validate inside staging, atomically promote, and remove failed
    staging without exposing a partial final installation.
@@ -98,8 +99,7 @@ sources live in disposable temporary directories.
   a bounded bridge. The selected production plugin worker wrapper remains open.
   Major outer request and message families have bounded process sequences,
   including fatal restart, hook cancellation, provider reconnect, and
-  daemon-session frames. Provider connection-failure and rejection messages have
-  shape coverage but no process sequence.
+  daemon-session frames, connection failure, and input rejection.
 - Provider input and event payload schemas remain opaque JSON values.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
