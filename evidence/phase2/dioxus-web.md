@@ -75,5 +75,33 @@ ignored `target/`.
 | matrix mobile screenshot | 27,824 | `011da07fccee978f8df0f9956b65f2ca8debb5aba100f8e1842ea9e7f13b8da5` |
 | matrix server log | 739 | `47e36d832d2f5d31c41c21fb350d51f88f9ed1adc6eb897ebe1050aee29773b6` |
 
-No pinned-baseline screenshot comparison, offline recovery, baseline browser
-packaging, upgrade, rollback, or uninstall evidence exists.
+No accepted pinned-baseline screenshot comparison, offline recovery, baseline
+browser packaging, upgrade, rollback, or uninstall evidence exists.
+
+## Pinned baseline comparison attempt
+
+The bounded comparison harness archived pinned Paseo commit
+`5de45e208690b0efc51c59a585ae9729325a9204`, installed its lockfile, built its
+browser dependencies, built the frozen Dioxus candidate, and launched both on
+random loopback ports in exact named tmux sessions. Google Chrome
+`154.0.8037.59` captured desktop and mobile screenshots. Cleanup stopped both
+exact sessions and left port `6767` untouched.
+
+The capture is not parity evidence. Both original viewports remained on the
+startup spinner without meaningful rendered text. The candidate rendered at
+both viewports and passed keyboard activation. Both runtimes failed offline
+reload. The harness now rejects a capture when either runtime has no meaningful
+rendered text, preventing this partial observation from passing a comparison
+gate.
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `browser-runtime-comparison.json` | 6,856 | `99030d8f8f6175182dc83f1c53b02fb808235ecfa74f5716a66d0ec1f4b217da` |
+| original desktop screenshot | 9,782 | `be29da211fafbed23c602e4919e7a682609bdda6c4aff7b17e028d9719007754` |
+| original mobile screenshot | 7,492 | `92c16e584bbe20a1e26493e0088fcf7638aaa22fd87258921363d72f9f3d8013` |
+| candidate desktop screenshot | 32,873 | `9fb1ee737dcc495a03eb02ebffcbc6d18bb59e3e317aa48a7633ded347486376` |
+| candidate mobile screenshot | 27,824 | `011da07fccee978f8df0f9956b65f2ca8debb5aba100f8e1842ea9e7f13b8da5` |
+
+The next comparison needs an isolated seeded baseline daemon and matching
+candidate state. Electron guest APIs, pixel thresholds, accessibility tree
+diffs, packaging, update, rollback, and uninstall remain open.
