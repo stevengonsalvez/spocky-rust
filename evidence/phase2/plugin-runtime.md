@@ -49,6 +49,9 @@ seven real local acquisition/runtime cases, and five settings lifecycle cases:
 8. Execute settings and hooks notifications, hook cancellation, usage identify,
    fetch, and discovery, provider connect, send, event, close, and reconnect,
    plus daemon-session frame and close messages in one bounded process.
+9. Recover fixed sibling staging directories left by interrupted Git and npm
+   acquisition, validate inside staging, atomically promote, and remove failed
+   staging without exposing a partial final installation.
 
 The manifest case rejects unknown keys and invalid IDs, validates optional
 description, Paseo requirement, and build argv, and infers the pinned
@@ -81,7 +84,7 @@ sources live in disposable temporary directories.
 - Raw traffic SHA-256: `8365f9a4ee81b94f8e02f34c0b2bd4891c3c63a00dcde8d9cb91de1163056bd7`
 - Linux selected tests: 17 passed, 0 failed
 - Linux raw log: 3,949 bytes, SHA-256
-  `ca37d06cee8d053e5729b645ad541051637bbecc0a57983cd19a0bb3d1c44c38`
+  `accb9b37953edddebabd747874b52053e3b3bec6c48a192a36341f8f44f03857`
 - Raw artifacts: ignored `evidence/raw/phase2/plugin-runtime.log` and
   `evidence/raw/phase2/plugin-runtime-traffic.json`
 
@@ -99,8 +102,8 @@ sources live in disposable temporary directories.
   baseline tests. Arbitrary JSON schemas, async refinements, callback error
   reporting, and daemon RPC integration remain open.
 - Windows acquisition, path, process, failure, and restart runs are absent.
-- Managed checkout deletion and recovery after host termination during staging are
-  not exercised against real acquired sources.
+- Stale partial staging recovery is exercised against real Git and npm sources.
+  Forced termination during an active external command remains open.
 - Two parallel-test fixture collisions were confirmed and repaired with atomic
   directory sequences. Lifecycle passed three consecutive runs and settings
   passed three consecutive runs after repair.
