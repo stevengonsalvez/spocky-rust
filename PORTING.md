@@ -63,8 +63,8 @@ Tracked evidence manifests live under `evidence/`. Large raw captures live under
 
 ## Build, test, run, and rollback
 
-- Build with `cargo build --workspace`. Phase 1 contains only the baseline verifier, so no Paseo service binary exists yet.
-- Run the Phase 1 target with `cargo test -p paseo-baseline --test pinned_sources`. Record exact package and target names in each later task before running its tests. Run full platform matrices in CI after their jobs exist.
+- Build current pilot crates with `cargo build --workspace`. No parity-qualified Paseo service binary exists yet.
+- Run only the targeted commands recorded in `porting/tasks.json`. Full platform matrices belong in CI after their jobs exist.
 - Run future services with a disposable home, random non-6767 port, and named tmux session. Record the exact home, port, session, commit, and log path in evidence before launch.
 - Stop only the recorded tmux session. Delete only its exact disposable home after evidence capture.
 - Roll back by checking out the last signed verified checkpoint and restoring the scenario's disposable state snapshot. Never roll back a production instance during parity work.
@@ -82,4 +82,4 @@ Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrati
 
 ## Current boundary
 
-Phase 1 inventory and architecture freeze passed paired adversarial review at signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2 differential harness and pilots are next. No runtime parity milestone is complete. No runtime compatibility exception is accepted.
+Phase 1 inventory and architecture freeze passed paired adversarial review at signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2 differential harness and pilots are implementing. Its first frozen candidate was rejected by paired adversarial review; repairs and runtime evidence continue. Phase 3 remains blocked. No runtime parity milestone is complete. No runtime compatibility exception is accepted.
