@@ -23,6 +23,7 @@ pub mod http;
 mod invitations;
 mod relational_api_keys;
 mod relational_invitations;
+mod relational_sessions;
 
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
 pub use email_delivery::{ResendConfig, ResendEmailDelivery};
@@ -32,6 +33,7 @@ pub use invitations::{
 };
 pub use relational_api_keys::PostgresApiKeyStore;
 pub use relational_invitations::PostgresInvitationStore;
+pub use relational_sessions::PostgresSessionStore;
 
 macro_rules! identifier {
     ($name:ident) => {

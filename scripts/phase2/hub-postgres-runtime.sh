@@ -46,7 +46,8 @@ cd "$repository_root"
 set +e
 PASEO_TEST_POSTGRES_URL="postgres://postgres:paseo-test@127.0.0.1:$port/paseo_hub" \
   gtimeout 120 cargo test -p paseo-hub-pilot \
-    --test postgres_runtime --test relational_api_keys --test relational_invitations -- --nocapture \
+    --test postgres_runtime --test relational_api_keys --test relational_invitations \
+    --test relational_sessions -- --nocapture \
   >"$test_log" 2>&1
 test_status=$?
 set -e
