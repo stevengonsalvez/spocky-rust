@@ -20,12 +20,22 @@ fn event(event: &Value) -> String {
     .to_string()
 }
 
+fn minimal_session_config() -> Value {
+    json!({
+        "cwd": "/work",
+        "env": {},
+        "mcpServers": {},
+        "settings": {},
+        "persist": true
+    })
+}
+
 #[test]
 fn every_provider_input_variant_roundtrips() {
     let inputs = [
         json!({"type":"catalog","requestId":"r","cwd":"/work"}),
         json!({"type":"sessions","requestId":"r","query":"q","cwd":"/work","limit":5}),
-        json!({"type":"session.open","requestId":"r","sessionId":"s","config":{},"persistence":{"version":0,"data":null},"history":"replay"}),
+        json!({"type":"session.open","requestId":"r","sessionId":"s","config":minimal_session_config(),"persistence":{"version":0,"data":null},"history":"replay"}),
         json!({"type":"session.prompt","sessionId":"s","prompt":{"clientMessageId":"m","delivery":"auto","input":{"type":"message","content":[]}}}),
         json!({"type":"session.interrupt","requestId":"r","sessionId":"s"}),
         json!({"type":"session.usage_reference","requestId":"r","sessionId":"s"}),
@@ -47,13 +57,149 @@ fn provider_input_rejects_pinned_boundary_violations() {
     for input in [
         json!({"type":"catalog","requestId":"","cwd":"/work"}),
         json!({"type":"sessions","requestId":"r","limit":0}),
-        json!({"type":"session.open","requestId":"r","sessionId":"s","config":{},"history":"restore"}),
+        json!({"type":"session.open","requestId":"r","sessionId":"s","config":minimal_session_config(),"history":"restore"}),
         json!({"type":"session.revert","requestId":"r","sessionId":"s","token":null,"scope":"workspace"}),
         json!({"type":"session.close","requestId":"r","sessionId":"s","extra":true}),
         json!({"type":"unknown","requestId":"r"}),
     ] {
         assert!(decode_process_request(&request(&input)).is_err());
     }
+}
+
+#[test]
+fn nested_provider_input_matches_pinned_strict_schemas() {
+    let valid = json!({
+        "type": "session.open",
+        "requestId": "open-1",
+        "sessionId": "session-1",
+        "config": {
+            "cwd": "/tmp/project",
+            "env": {"TERM": "xterm-256color"},
+            "systemPrompt": "Be exact",
+            "mcpServers": {
+                "local": {
+                    "type": "stdio",
+                    "command": "node",
+                    "args": ["server.mjs"],
+                    "env": {"MODE": "test"},
+                    "alwaysLoad": true
+                },
+                "remote": {
+                    "type": "http",
+                    "url": "https://example.invalid/mcp",
+                    "headers": {"Authorization": "Bearer test"}
+                }
+            },
+            "toolPolicy": {
+                "preapproved": [{"kind": "mcp", "server": "local", "tool": "read"}]
+            },
+            "settings": {"temperature": 0.2},
+            "providerOptions": {"trace": true},
+            "persist": true
+        },
+        "persistence": {"version": 1, "data": {"thread": "abc"}},
+        "history": "replay"
+    });
+    assert!(decode_process_request(&request(&valid)).is_ok());
+
+    let mut extra_config = valid.clone();
+    extra_config["config"]["unexpected"] = json!(true);
+    assert!(decode_process_request(&request(&extra_config)).is_err());
+
+    let mut extra_mcp = valid.clone();
+    extra_mcp["config"]["mcpServers"]["local"]["unexpected"] = json!(true);
+    assert!(decode_process_request(&request(&extra_mcp)).is_err());
+
+    let prompt = json!({
+        "type": "session.prompt",
+        "sessionId": "session-1",
+        "prompt": {
+            "clientMessageId": "message-1",
+            "delivery": "auto",
+            "input": {
+                "type": "message",
+                "content": [
+                    {"type": "text", "text": "review this"},
+                    {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
+                    {
+                        "type": "review",
+                        "mimeType": "application/paseo-review",
+                        "cwd": "/tmp/project",
+                        "mode": "uncommitted",
+                        "comments": [{
+                            "filePath": "src/lib.rs",
+                            "side": "new",
+                            "lineNumber": 7,
+                            "body": "Check boundary",
+                            "context": {
+                                "hunkHeader": "@@ -1 +1 @@",
+                                "targetLine": {"oldLineNumber": null, "newLineNumber": 7, "type": "add", "content": "+new"},
+                                "lines": [{"oldLineNumber": null, "newLineNumber": 7, "type": "add", "content": "+new"}]
+                            }
+                        }]
+                    }
+                ]
+            },
+            "clearPendingPermissions": true
+        }
+    });
+    assert!(decode_process_request(&request(&prompt)).is_ok());
+
+    let mut extra_prompt = prompt.clone();
+    extra_prompt["prompt"]["input"]["unexpected"] = json!(true);
+    assert!(decode_process_request(&request(&extra_prompt)).is_err());
+}
+
+#[test]
+fn nested_provider_event_matches_pinned_catalog_and_timeline_schemas() {
+    let catalog = json!({
+        "type": "catalog",
+        "requestId": "catalog-1",
+        "catalog": {
+            "models": [{
+                "id": "gpt-5",
+                "label": "GPT-5",
+                "aliases": ["latest"],
+                "thinkingOptions": [{"id": "high", "label": "High"}],
+                "extraStrippedByPinnedSchema": true
+            }],
+            "modes": [{"id": "code", "label": "Code"}],
+            "defaultModel": "gpt-5"
+        }
+    });
+    assert!(decode_process_message(&event(&catalog)).is_ok());
+
+    let mut invalid_catalog = catalog.clone();
+    invalid_catalog["catalog"]["models"][0]
+        .as_object_mut()
+        .expect("model object")
+        .remove("label");
+    assert!(decode_process_message(&event(&invalid_catalog)).is_err());
+
+    let timeline = json!({
+        "type": "timeline.item",
+        "sessionId": "session-1",
+        "item": {
+            "id": "tool-1",
+            "type": "tool_call",
+            "callId": "call-1",
+            "name": "Search",
+            "detail": {
+                "type": "search",
+                "query": "needle",
+                "toolName": "grep",
+                "mode": "content"
+            },
+            "status": "completed",
+            "error": null
+        },
+        "timestamp": "2026-09-30T12:00:00Z"
+    });
+    assert!(decode_process_message(&event(&timeline)).is_ok());
+
+    let mut invalid_timeline = timeline.clone();
+    invalid_timeline["item"]["error"] = json!({"message": "must be null"});
+    assert!(decode_process_message(&event(&invalid_timeline)).is_err());
 }
 
 #[test]

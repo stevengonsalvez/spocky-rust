@@ -555,17 +555,25 @@ impl ProviderInput {
             Self::SessionOpen {
                 request_id,
                 session_id,
+                config,
+                persistence,
                 history,
-                ..
             } => {
                 require_nonempty(request_id, "requestId")?;
                 require_nonempty(session_id, "sessionId")?;
                 if !matches!(history.as_str(), "replay" | "skip") {
                     return Err("history must be replay or skip".into());
                 }
+                validate_session_config(config)?;
+                if let Some(persistence) = persistence {
+                    validate_persistence(persistence)?;
+                }
                 Ok(())
             }
-            Self::SessionPrompt { session_id, .. } => require_nonempty(session_id, "sessionId"),
+            Self::SessionPrompt { session_id, prompt } => {
+                require_nonempty(session_id, "sessionId")?;
+                validate_prompt(prompt)
+            }
             Self::SessionInterrupt {
                 request_id,
                 session_id,
@@ -574,11 +582,6 @@ impl ProviderInput {
                 request_id,
                 session_id,
             }
-            | Self::SessionConfigure {
-                request_id,
-                session_id,
-                ..
-            }
             | Self::SessionClose {
                 request_id,
                 session_id,
@@ -586,13 +589,23 @@ impl ProviderInput {
                 require_nonempty(request_id, "requestId")?;
                 require_nonempty(session_id, "sessionId")
             }
+            Self::SessionConfigure {
+                request_id,
+                session_id,
+                changes,
+            } => {
+                require_nonempty(request_id, "requestId")?;
+                require_nonempty(session_id, "sessionId")?;
+                validate_config_changes(changes)
+            }
             Self::SessionPermission {
                 session_id,
                 permission_id,
-                ..
+                response,
             } => {
                 require_nonempty(session_id, "sessionId")?;
-                require_nonempty(permission_id, "permissionId")
+                require_nonempty(permission_id, "permissionId")?;
+                validate_permission_response(response)
             }
             Self::SessionRevert {
                 request_id,
@@ -607,18 +620,484 @@ impl ProviderInput {
                 }
                 Ok(())
             }
-            Self::SessionArchive { request_id, .. } | Self::SessionUnarchive { request_id, .. } => {
-                require_nonempty(request_id, "requestId")
+            Self::SessionArchive {
+                request_id,
+                persistence,
+            }
+            | Self::SessionUnarchive {
+                request_id,
+                persistence,
+            } => {
+                require_nonempty(request_id, "requestId")?;
+                validate_persistence(persistence)
             }
         }
+    }
+}
+
+fn value_object<'a>(
+    value: &'a Value,
+    label: &str,
+) -> Result<&'a serde_json::Map<String, Value>, String> {
+    value
+        .as_object()
+        .ok_or_else(|| format!("{label} must be an object"))
+}
+
+fn strict_keys(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("unknown {label} field: {key}"));
+    }
+    Ok(())
+}
+
+fn required<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<&'a Value, String> {
+    object
+        .get(key)
+        .ok_or_else(|| format!("{label}.{key} is required"))
+}
+
+fn required_string(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<(), String> {
+    if required(object, key, label)?.is_string() {
+        Ok(())
+    } else {
+        Err(format!("{label}.{key} must be a string"))
+    }
+}
+
+fn optional_string(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<(), String> {
+    if object.get(key).is_none_or(Value::is_string) {
+        Ok(())
+    } else {
+        Err(format!("{label}.{key} must be a string"))
+    }
+}
+
+fn validate_string_map(value: &Value, label: &str) -> Result<(), String> {
+    let object = value_object(value, label)?;
+    if object.values().all(Value::is_string) {
+        Ok(())
+    } else {
+        Err(format!("{label} values must be strings"))
+    }
+}
+
+fn validate_persistence(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "persistence")?;
+    if required(object, "version", "persistence")?
+        .as_u64()
+        .is_none()
+    {
+        return Err("persistence.version must be a nonnegative integer".into());
+    }
+    required(object, "data", "persistence")?;
+    Ok(())
+}
+
+fn validate_mcp_server(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "mcp server")?;
+    let kind = required(object, "type", "mcp server")?
+        .as_str()
+        .ok_or_else(|| "mcp server.type must be a string".to_owned())?;
+    match kind {
+        "stdio" => {
+            strict_keys(
+                object,
+                &["type", "command", "args", "env", "alwaysLoad"],
+                "mcp server",
+            )?;
+            required_string(object, "command", "mcp server")?;
+            if let Some(args) = object.get("args")
+                && !args
+                    .as_array()
+                    .is_some_and(|values| values.iter().all(Value::is_string))
+            {
+                return Err("mcp server.args must be strings".into());
+            }
+            if let Some(env) = object.get("env") {
+                validate_string_map(env, "mcp server.env")?;
+            }
+        }
+        "http" | "sse" => {
+            strict_keys(
+                object,
+                &["type", "url", "headers", "alwaysLoad"],
+                "mcp server",
+            )?;
+            required_string(object, "url", "mcp server")?;
+            if let Some(headers) = object.get("headers") {
+                validate_string_map(headers, "mcp server.headers")?;
+            }
+        }
+        _ => return Err("mcp server.type must be stdio, http, or sse".into()),
+    }
+    if object
+        .get("alwaysLoad")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("mcp server.alwaysLoad must be a boolean".into());
+    }
+    Ok(())
+}
+
+fn validate_session_config(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "config")?;
+    strict_keys(
+        object,
+        &[
+            "cwd",
+            "env",
+            "systemPrompt",
+            "mcpServers",
+            "toolPolicy",
+            "model",
+            "mode",
+            "thinkingOption",
+            "settings",
+            "providerOptions",
+            "title",
+            "persist",
+        ],
+        "config",
+    )?;
+    required_string(object, "cwd", "config")?;
+    validate_string_map(required(object, "env", "config")?, "config.env")?;
+    let servers = value_object(
+        required(object, "mcpServers", "config")?,
+        "config.mcpServers",
+    )?;
+    for server in servers.values() {
+        validate_mcp_server(server)?;
+    }
+    value_object(required(object, "settings", "config")?, "config.settings")?;
+    if let Some(options) = object.get("providerOptions") {
+        value_object(options, "config.providerOptions")?;
+    }
+    for key in ["systemPrompt", "model", "mode", "thinkingOption", "title"] {
+        optional_string(object, key, "config")?;
+    }
+    if !required(object, "persist", "config")?.is_boolean() {
+        return Err("config.persist must be a boolean".into());
+    }
+    if let Some(policy) = object.get("toolPolicy") {
+        let policy = value_object(policy, "config.toolPolicy")?;
+        strict_keys(policy, &["preapproved"], "tool policy")?;
+        let entries = required(policy, "preapproved", "tool policy")?
+            .as_array()
+            .ok_or_else(|| "tool policy.preapproved must be an array".to_owned())?;
+        for entry in entries {
+            let entry = value_object(entry, "preapproved entry")?;
+            strict_keys(entry, &["kind", "server", "tool"], "preapproved entry")?;
+            if required(entry, "kind", "preapproved entry")?.as_str() != Some("mcp") {
+                return Err("preapproved entry.kind must be mcp".into());
+            }
+            required_string(entry, "server", "preapproved entry")?;
+            required_string(entry, "tool", "preapproved entry")?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_prompt_content(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "prompt content")?;
+    let kind = required(object, "type", "prompt content")?
+        .as_str()
+        .ok_or_else(|| "prompt content.type must be a string".to_owned())?;
+    match kind {
+        "text" if object.get("mimeType").is_none() => {
+            strict_keys(object, &["type", "text"], "text content")?;
+            required_string(object, "text", "text content")
+        }
+        "image" => {
+            strict_keys(object, &["type", "data", "mimeType"], "image content")?;
+            required_string(object, "data", "image content")?;
+            required_string(object, "mimeType", "image content")
+        }
+        "forge_change_request"
+        | "forge_issue"
+        | "github_pr"
+        | "github_issue"
+        | "text"
+        | "review"
+        | "uploaded_file" => Ok(()),
+        _ => Err(format!("invalid prompt content type: {kind}")),
+    }
+}
+
+fn validate_prompt(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "prompt")?;
+    strict_keys(
+        object,
+        &[
+            "clientMessageId",
+            "delivery",
+            "input",
+            "outputSchema",
+            "clearPendingPermissions",
+        ],
+        "prompt",
+    )?;
+    required_string(object, "clientMessageId", "prompt")?;
+    if !matches!(
+        required(object, "delivery", "prompt")?.as_str(),
+        Some("auto" | "steer")
+    ) {
+        return Err("prompt.delivery must be auto or steer".into());
+    }
+    if object
+        .get("clearPendingPermissions")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("prompt.clearPendingPermissions must be a boolean".into());
+    }
+    let input = value_object(required(object, "input", "prompt")?, "prompt.input")?;
+    match required(input, "type", "prompt.input")?.as_str() {
+        Some("message") => {
+            strict_keys(input, &["type", "content"], "prompt.input")?;
+            let content = required(input, "content", "prompt.input")?
+                .as_array()
+                .ok_or_else(|| "prompt.input.content must be an array".to_owned())?;
+            for item in content {
+                validate_prompt_content(item)?;
+            }
+            Ok(())
+        }
+        Some("command") => {
+            strict_keys(input, &["type", "name", "arguments"], "prompt.input")?;
+            required_string(input, "name", "prompt.input")?;
+            required_string(input, "arguments", "prompt.input")
+        }
+        _ => Err("prompt.input.type must be message or command".into()),
+    }
+}
+
+fn validate_permission_response(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "permission response")?;
+    match required(object, "behavior", "permission response")?.as_str() {
+        Some("allow") => {
+            if let Some(input) = object.get("updatedInput") {
+                value_object(input, "permission response.updatedInput")?;
+            }
+            if let Some(permissions) = object.get("updatedPermissions")
+                && !permissions
+                    .as_array()
+                    .is_some_and(|items| items.iter().all(Value::is_object))
+            {
+                return Err("permission response.updatedPermissions must be objects".into());
+            }
+            Ok(())
+        }
+        Some("deny") => {
+            if object
+                .get("interrupt")
+                .is_some_and(|value| !value.is_boolean())
+            {
+                return Err("permission response.interrupt must be a boolean".into());
+            }
+            Ok(())
+        }
+        _ => Err("permission response.behavior must be allow or deny".into()),
+    }
+}
+
+fn validate_config_changes(value: &Value) -> Result<(), String> {
+    let object = value_object(value, "changes")?;
+    strict_keys(
+        object,
+        &["model", "mode", "thinkingOption", "settings"],
+        "changes",
+    )?;
+    for key in ["model", "mode", "thinkingOption"] {
+        if object
+            .get(key)
+            .is_some_and(|value| !(value.is_string() || value.is_null()))
+        {
+            return Err(format!("changes.{key} must be a string or null"));
+        }
+    }
+    if let Some(settings) = object.get("settings") {
+        value_object(settings, "changes.settings")?;
+    }
+    Ok(())
+}
+
+fn validate_catalog(value: &Value) -> Result<(), String> {
+    let catalog = value_object(value, "catalog")?;
+    for (field, item_label) in [("models", "model"), ("modes", "mode")] {
+        let items = required(catalog, field, "catalog")?
+            .as_array()
+            .ok_or_else(|| format!("catalog.{field} must be an array"))?;
+        for item in items {
+            let item = value_object(item, item_label)?;
+            let id = required(item, "id", item_label)?
+                .as_str()
+                .ok_or_else(|| format!("{item_label}.id must be a string"))?;
+            require_nonempty(id, &format!("{item_label}.id"))?;
+            required_string(item, "label", item_label)?;
+            if item_label == "model" {
+                if let Some(aliases) = item.get("aliases")
+                    && !aliases
+                        .as_array()
+                        .is_some_and(|values| values.iter().all(Value::is_string))
+                {
+                    return Err("model.aliases must be strings".into());
+                }
+                if let Some(options) = item.get("thinkingOptions") {
+                    validate_select_options(options, "model.thinkingOptions")?;
+                }
+            }
+        }
+    }
+    if let Some(options) = catalog.get("thinkingOptions") {
+        validate_select_options(options, "catalog.thinkingOptions")?;
+    }
+    Ok(())
+}
+
+fn validate_select_options(value: &Value, label: &str) -> Result<(), String> {
+    let options = value
+        .as_array()
+        .ok_or_else(|| format!("{label} must be an array"))?;
+    for option in options {
+        let option = value_object(option, label)?;
+        let id = required(option, "id", label)?
+            .as_str()
+            .ok_or_else(|| format!("{label}.id must be a string"))?;
+        require_nonempty(id, &format!("{label}.id"))?;
+        required_string(option, "label", label)?;
+    }
+    Ok(())
+}
+
+fn validate_tool_call_detail(value: &Value) -> Result<(), String> {
+    let detail = value_object(value, "tool detail")?;
+    let kind = required(detail, "type", "tool detail")?
+        .as_str()
+        .ok_or_else(|| "tool detail.type must be a string".to_owned())?;
+    match kind {
+        "shell" => required_string(detail, "command", "tool detail"),
+        "read" | "edit" | "write" => required_string(detail, "filePath", "tool detail"),
+        "search" => {
+            required_string(detail, "query", "tool detail")?;
+            if let Some(tool) = detail.get("toolName")
+                && !matches!(
+                    tool.as_str(),
+                    Some("search" | "grep" | "glob" | "web_search")
+                )
+            {
+                return Err("invalid search toolName".into());
+            }
+            if let Some(mode) = detail.get("mode")
+                && !matches!(
+                    mode.as_str(),
+                    Some("content" | "files_with_matches" | "count")
+                )
+            {
+                return Err("invalid search mode".into());
+            }
+            Ok(())
+        }
+        "fetch" => required_string(detail, "url", "tool detail"),
+        "worktree_setup" => {
+            required_string(detail, "worktreePath", "tool detail")?;
+            required_string(detail, "branchName", "tool detail")?;
+            required_string(detail, "log", "tool detail")
+        }
+        "sub_agent" => required_string(detail, "log", "tool detail"),
+        "plain_text" | "unknown" => Ok(()),
+        "plan" => required_string(detail, "text", "tool detail"),
+        _ => Err(format!("invalid tool detail type: {kind}")),
+    }
+}
+
+fn validate_timeline_item(value: &Value) -> Result<(), String> {
+    let item = value_object(value, "timeline item")?;
+    let id = required(item, "id", "timeline item")?
+        .as_str()
+        .ok_or_else(|| "timeline item.id must be a string".to_owned())?;
+    require_nonempty(id, "timeline item.id")?;
+    let kind = required(item, "type", "timeline item")?
+        .as_str()
+        .ok_or_else(|| "timeline item.type must be a string".to_owned())?;
+    match kind {
+        "user_message" | "assistant_message" | "reasoning" => {
+            required_string(item, "text", "timeline item")
+        }
+        "tool_call" => {
+            required_string(item, "callId", "timeline item")?;
+            required_string(item, "name", "timeline item")?;
+            validate_tool_call_detail(required(item, "detail", "timeline item")?)?;
+            match required(item, "status", "timeline item")?.as_str() {
+                Some("failed") => required(item, "error", "timeline item").map(drop),
+                Some("running" | "completed" | "canceled") => {
+                    if required(item, "error", "timeline item")?.is_null() {
+                        Ok(())
+                    } else {
+                        Err("non-failed tool call error must be null".into())
+                    }
+                }
+                _ => Err("invalid tool call status".into()),
+            }
+        }
+        "todo" => {
+            if required(item, "items", "timeline item")?.is_array() {
+                Ok(())
+            } else {
+                Err("timeline todo items must be an array".into())
+            }
+        }
+        "error" | "notification" => required_string(item, "message", "timeline item"),
+        "compaction" => {
+            if matches!(
+                required(item, "status", "timeline item")?.as_str(),
+                Some("loading" | "completed")
+            ) {
+                Ok(())
+            } else {
+                Err("invalid compaction status".into())
+            }
+        }
+        "plugin" => {
+            required_string(item, "pluginId", "timeline item")?;
+            required_string(item, "kind", "timeline item")?;
+            if required(item, "version", "timeline item")?.is_number() {
+                required(item, "data", "timeline item")?;
+                Ok(())
+            } else {
+                Err("plugin timeline version must be a number".into())
+            }
+        }
+        _ => Err(format!("invalid timeline item type: {kind}")),
     }
 }
 
 impl ProviderEvent {
     fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Catalog { request_id, .. }
-            | Self::Sessions { request_id, .. }
+            Self::Catalog {
+                request_id,
+                catalog,
+            } => {
+                require_nonempty(request_id, "requestId")?;
+                validate_catalog(catalog)
+            }
+            Self::Sessions { request_id, .. }
             | Self::RequestCompleted { request_id }
             | Self::UsageReference { request_id, .. }
             | Self::RequestFailed { request_id, .. } => require_nonempty(request_id, "requestId"),
@@ -648,13 +1127,24 @@ impl ProviderEvent {
             }
             Self::SessionClosed { session_id, .. }
             | Self::SessionRuntimeFailed { session_id, .. }
-            | Self::SessionPersistence { session_id, .. }
             | Self::SessionUsage { session_id, .. }
             | Self::SessionConfig { session_id, .. }
             | Self::SessionCommands { session_id, .. }
             | Self::SessionPermission { session_id, .. }
-            | Self::SessionNotice { session_id, .. }
-            | Self::TimelineItem { session_id, .. } => require_nonempty(session_id, "sessionId"),
+            | Self::SessionNotice { session_id, .. } => require_nonempty(session_id, "sessionId"),
+            Self::SessionPersistence {
+                session_id,
+                persistence,
+            } => {
+                require_nonempty(session_id, "sessionId")?;
+                validate_persistence(persistence)
+            }
+            Self::TimelineItem {
+                session_id, item, ..
+            } => {
+                require_nonempty(session_id, "sessionId")?;
+                validate_timeline_item(item)
+            }
             Self::SessionPromptResult {
                 session_id,
                 client_message_id,
