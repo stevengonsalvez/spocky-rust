@@ -4,8 +4,9 @@
 
 `P2-HUB-01` and `P2-HUB-02` remain blocked. The pinned original Hub runtime is
 locally executable, but the Rust candidate still uses a single-process JSON
-snapshot. It has no PGlite, PostgreSQL, HTTP server, or direct daemon WebSocket.
-No Hub implementation tool is selected.
+snapshot. It has a bounded packet-level authentication HTTP pilot, but no
+PGlite, PostgreSQL, production HTTP server, or direct daemon WebSocket. No Hub
+implementation tool is selected.
 
 ## Proven original-runtime behavior
 
@@ -46,12 +47,24 @@ same SHA-256.
 This remains a contract model. `EmbeddedFileStore::LIMITATIONS` names the missing
 database semantics, and the trace repeats them instead of claiming parity.
 
+## Rust packet-level authentication pilot
+
+Commit `3bd3b4d` adds a bounded HTTP/1.1 adapter and a real loopback TCP test on a
+random port. The test verifies signed-out state, temporary-password sign-in,
+session cookie issuance, password-change gating, password replacement, app setup,
+and persisted active state after restart. It also verifies that snapshots written
+before browser-session fields existed still load with defaults.
+
+This adapter is pilot code. Its deterministic session token is not production
+authentication, and its four routes do not represent the complete Hub API.
+
 ## Reproduce
 
 ```text
 sh scripts/phase2/hub-runtime-capture.test.sh
 scripts/phase2/hub-runtime-capture.sh
 cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
+cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
 ```
 
@@ -85,8 +98,8 @@ times by construction.
   database fixtures do not exist.
 - Candidate PostgreSQL storage, transactions, advisory locks, concurrency, and
   embedded-versus-PostgreSQL differential results do not exist.
-- Original-versus-Rust HTTP status, body, cookie, and database state traces do
-  not exist.
+- Original-versus-Rust HTTP status, body, cookie, and database state differential
+  traces do not exist. Candidate-only packet behavior is covered.
 - Real daemon outbound registration, permission agreement, reconnect, socket
   supersession, revocation, and bidirectional protocol traces do not exist.
 - Account, organization, invitation, API key, and concealment parity is not
