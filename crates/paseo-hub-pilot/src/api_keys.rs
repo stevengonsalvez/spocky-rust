@@ -1,0 +1,239 @@
+//! Organization-scoped API-key boundary pilot.
+
+use std::collections::BTreeSet;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq as _;
+use uuid::Uuid;
+
+use crate::{AccountId, DurableHubStore, HubError, HubPilot, OrganizationId};
+
+const PREFIX_START: &str = "paseo_pk_";
+const PREFIX_RANDOM_BYTES: usize = 9;
+const PREFIX_RANDOM_LENGTH: usize = 12;
+const SECRET_BYTES: usize = 32;
+const MAX_TOKEN_LENGTH: usize = 200;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum ApiKeyScope {
+    #[serde(rename = "projects:read")]
+    ProjectsRead,
+    #[serde(rename = "configuration:validate")]
+    ConfigurationValidate,
+    #[serde(rename = "configuration:install")]
+    ConfigurationInstall,
+    #[serde(rename = "runs:dispatch")]
+    RunsDispatch,
+    #[serde(rename = "daemons:enroll")]
+    DaemonsEnroll,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApiKeySummary {
+    pub id: String,
+    pub name: String,
+    pub prefix: String,
+    pub scopes: BTreeSet<ApiKeyScope>,
+    pub last_used: bool,
+    pub revoked: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatedApiKey {
+    pub summary: ApiKeySummary,
+    pub secret: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApiKeyAccess {
+    pub credential_id: String,
+    pub organization: OrganizationId,
+    pub scopes: BTreeSet<ApiKeyScope>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ApiKeyAuthorization {
+    Unauthorized,
+    Forbidden,
+    Authorized(ApiKeyAccess),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct StoredApiKey {
+    organization: OrganizationId,
+    name: String,
+    prefix: String,
+    verifier: [u8; 32],
+    scopes: BTreeSet<ApiKeyScope>,
+    sequence: u64,
+    last_used: bool,
+    revoked: bool,
+}
+
+impl<S: DurableHubStore> HubPilot<S> {
+    pub fn create_api_key(
+        &mut self,
+        actor: &AccountId,
+        organization: &OrganizationId,
+        name: &str,
+        scopes: impl IntoIterator<Item = ApiKeyScope>,
+    ) -> Result<CreatedApiKey, HubError> {
+        if !self.authorize(actor, organization)?.can_manage_resources() {
+            return Err(crate::AuthorityError::ManageResourcesRequired.into());
+        }
+        let name = name.trim();
+        let scopes = scopes.into_iter().collect::<BTreeSet<_>>();
+        if name.is_empty() || name.len() > 100 || scopes.is_empty() || scopes.len() > 5 {
+            return Err(HubError::InvalidApiKeyInput);
+        }
+
+        let mut prefix_bytes = [0_u8; PREFIX_RANDOM_BYTES];
+        let mut secret_bytes = [0_u8; SECRET_BYTES];
+        getrandom::fill(&mut prefix_bytes).map_err(|_| HubError::RandomUnavailable)?;
+        getrandom::fill(&mut secret_bytes).map_err(|_| HubError::RandomUnavailable)?;
+        let prefix = format!("{PREFIX_START}{}", URL_SAFE_NO_PAD.encode(prefix_bytes));
+        let secret = format!("{prefix}_{}", URL_SAFE_NO_PAD.encode(secret_bytes));
+        let id = Uuid::new_v4().to_string();
+        self.state.next_api_key_sequence += 1;
+        let stored = StoredApiKey {
+            organization: organization.clone(),
+            name: name.to_owned(),
+            prefix,
+            verifier: Sha256::digest(secret.as_bytes()).into(),
+            scopes,
+            sequence: self.state.next_api_key_sequence,
+            last_used: false,
+            revoked: false,
+        };
+        let summary = summary(&id, &stored);
+        self.state.api_keys.insert(id.clone(), stored);
+        if let Err(error) = self.persist() {
+            self.state.api_keys.remove(&id);
+            self.state.next_api_key_sequence -= 1;
+            return Err(error);
+        }
+        Ok(CreatedApiKey { summary, secret })
+    }
+
+    pub fn list_api_keys(
+        &self,
+        actor: &AccountId,
+        organization: &OrganizationId,
+    ) -> Result<Vec<ApiKeySummary>, HubError> {
+        if !self.authorize(actor, organization)?.can_manage_resources() {
+            return Err(crate::AuthorityError::ManageResourcesRequired.into());
+        }
+        let mut keys = self
+            .state
+            .api_keys
+            .iter()
+            .filter(|(_, key)| &key.organization == organization)
+            .map(|(id, key)| (key.sequence, summary(id, key)))
+            .collect::<Vec<_>>();
+        keys.sort_by(|left, right| right.0.cmp(&left.0));
+        Ok(keys.into_iter().map(|(_, key)| key).collect())
+    }
+
+    pub fn authorize_api_key(
+        &mut self,
+        authorization: &str,
+        required_scope: ApiKeyScope,
+    ) -> Result<ApiKeyAuthorization, HubError> {
+        let Some(token) = bearer_token(authorization) else {
+            return Ok(ApiKeyAuthorization::Unauthorized);
+        };
+        let Some(prefix) = parse_prefix(token) else {
+            return Ok(ApiKeyAuthorization::Unauthorized);
+        };
+        let actual: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let Some((id, key)) = self
+            .state
+            .api_keys
+            .iter_mut()
+            .find(|(_, key)| key.prefix == prefix)
+        else {
+            return Ok(ApiKeyAuthorization::Unauthorized);
+        };
+        if key.revoked || !bool::from(actual.ct_eq(&key.verifier)) {
+            return Ok(ApiKeyAuthorization::Unauthorized);
+        }
+        if !key.scopes.contains(&required_scope) {
+            return Ok(ApiKeyAuthorization::Forbidden);
+        }
+        let access = ApiKeyAccess {
+            credential_id: id.clone(),
+            organization: key.organization.clone(),
+            scopes: key.scopes.clone(),
+        };
+        let was_used = key.last_used;
+        key.last_used = true;
+        if let Err(error) = self.persist() {
+            if let Some(key) = self.state.api_keys.get_mut(&access.credential_id) {
+                key.last_used = was_used;
+            }
+            return Err(error);
+        }
+        Ok(ApiKeyAuthorization::Authorized(access))
+    }
+
+    pub fn revoke_api_key(
+        &mut self,
+        actor: &AccountId,
+        organization: &OrganizationId,
+        id: &str,
+    ) -> Result<bool, HubError> {
+        if !self.authorize(actor, organization)?.can_manage_resources() {
+            return Err(crate::AuthorityError::ManageResourcesRequired.into());
+        }
+        let Some(key) = self.state.api_keys.get_mut(id) else {
+            return Ok(false);
+        };
+        if &key.organization != organization {
+            return Ok(false);
+        }
+        let was_revoked = key.revoked;
+        key.revoked = true;
+        if let Err(error) = self.persist() {
+            if let Some(key) = self.state.api_keys.get_mut(id) {
+                key.revoked = was_revoked;
+            }
+            return Err(error);
+        }
+        Ok(true)
+    }
+}
+
+fn summary(id: &str, key: &StoredApiKey) -> ApiKeySummary {
+    ApiKeySummary {
+        id: id.to_owned(),
+        name: key.name.clone(),
+        prefix: key.prefix.clone(),
+        scopes: key.scopes.clone(),
+        last_used: key.last_used,
+        revoked: key.revoked,
+    }
+}
+
+fn bearer_token(value: &str) -> Option<&str> {
+    let token = value.strip_prefix("Bearer ")?;
+    (!token.is_empty() && token.len() <= MAX_TOKEN_LENGTH).then_some(token)
+}
+
+fn parse_prefix(token: &str) -> Option<&str> {
+    let separator = PREFIX_START.len() + PREFIX_RANDOM_LENGTH;
+    if token.len() <= separator || token.as_bytes().get(separator) != Some(&b'_') {
+        return None;
+    }
+    let prefix = token.get(..separator)?;
+    if !prefix.starts_with(PREFIX_START)
+        || !prefix[PREFIX_START.len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return None;
+    }
+    Some(prefix)
+}
