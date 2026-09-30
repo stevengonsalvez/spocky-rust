@@ -3554,6 +3554,10 @@ dependencies = [
 [[package]]
 name = "paseo-domain"
 version = "0.1.0"
+dependencies = [
+ "paseo-differential",
+ "serde_json",
+]
 
 [[package]]
 name = "paseo-hub-pilot"
