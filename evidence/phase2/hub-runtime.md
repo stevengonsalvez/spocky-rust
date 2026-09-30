@@ -2,12 +2,13 @@
 
 ## Decision
 
-`P2-HUB-01` and `P2-HUB-02` remain blocked. The pinned original Hub runtime is
-locally executable, but the Rust candidate still uses a single-process JSON
-snapshot. It has a bounded packet-level authentication HTTP pilot, but no
-PGlite, baseline relational PostgreSQL schema, production HTTP server, or direct
-daemon WebSocket. A PostgreSQL transactional snapshot pilot now exists. No Hub
-implementation tool is selected.
+`P2-HUB-01` remains blocked. `P2-HUB-02` now has a real loopback WebSocket pilot,
+but remains incomplete until the selected daemon and Hub runtimes own the
+outbound loop and receiving endpoint. The Rust candidate still uses a
+single-process JSON snapshot. It has bounded packet-level authentication HTTP
+and daemon WebSocket pilots, but no PGlite, baseline relational PostgreSQL
+schema, or production HTTP server. A PostgreSQL transactional snapshot pilot
+now exists. No Hub implementation tool is selected.
 
 ## Proven original-runtime behavior
 
@@ -71,6 +72,27 @@ port, and is stopped by exact container and session names. No container or tmux
 session remains after capture. This is not the baseline relational schema and
 does not prove baseline transaction boundaries.
 
+## Rust direct daemon WebSocket pilot
+
+The candidate binds a random loopback port and accepts real WebSocket upgrades.
+Six tests cover SHA-256 verifier-only credential storage, standard protocol
+negotiation, the legacy no-hello path, hello/server_info permission agreement,
+reconnect, generation supersession, rejection of pending requests from the old
+generation, continued use of the replacement socket, current-socket-only
+offline persistence, restart state, invalid credentials, and revocation with
+close code 4403.
+
+The pinned original passed all 16 tests in `src/daemons/registry.test.ts` and
+four selected relationship tests in `src/daemons/daemons.test.ts`. The latter
+covered verifier privacy, legacy scope mapping, invalid and revoked reconnects,
+and current-generation presence. It ran from a disposable archive with Ryuk
+disabled and stopped its exact PostgreSQL containers. No container remained.
+
+Runtime persistence failures close the candidate socket and surface from
+`HubDaemonRuntime::stop`; the pilot does not report durable success after a
+failed write. This is receiving-side Hub pilot code. It does not yet wire the
+production daemon's outbound relationship controller to a selected Hub server.
+
 ## Reproduce
 
 ```text
@@ -78,8 +100,17 @@ sh scripts/phase2/hub-runtime-capture.test.sh
 scripts/phase2/hub-runtime-capture.sh
 cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
 cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
+gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
+```
+
+From a disposable archive of the pinned Hub after a bounded `npm ci`, reproduce
+the original daemon subset with:
+
+```text
+gtimeout 120 ./node_modules/.bin/vitest run src/daemons/registry.test.ts --bail=1
+PORT=38942 TESTCONTAINERS_RYUK_DISABLED=true gtimeout 600 ./node_modules/.bin/vitest run src/daemons/daemons.test.ts --bail=1 -t 'keeps the daemon credential private|maps a legacy enrollment scope|rejects invalid and revoked credentials|replaces generations safely'
 ```
 
 Capture safety bounds:
@@ -117,7 +148,7 @@ times by construction.
   are candidate-only evidence.
 - Original-versus-Rust HTTP status, body, cookie, and database state differential
   traces do not exist. Candidate-only packet behavior is covered.
-- Real daemon outbound registration, permission agreement, reconnect, socket
-  supersession, revocation, and bidirectional protocol traces do not exist.
+- Production daemon outbound-loop integration and selected Hub endpoint wiring
+  do not exist. The loopback pilot covers their relationship contracts.
 - Account, organization, invitation, API key, and concealment parity is not
   demonstrated by the Rust candidate.
