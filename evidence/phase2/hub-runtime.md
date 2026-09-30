@@ -95,9 +95,10 @@ Its rendered email matches baseline text, HTML escaping, subject, destination, a
 idempotency-key shapes. Relational invitation creation and acceptance races now
 pass against disposable PostgreSQL: concurrent creation reuses one live
 credential, concurrent replay accepts once, and one membership remains. HTTP
-cancel and accept HTTP response shapes, external mail delivery behavior, and
+accept HTTP response shapes, external mail delivery behavior, and
 entitlement races remain open. The create-invitation packet path and active
-account-state selection now have pinned differential evidence.
+account-state selection now have pinned differential evidence. Cancellation
+also matches the pinned 200 status, `{canceled:true}` body, and final-state removal.
 
 The pinned and Rust runtimes now produce matching four-state browser account
 payloads. The comparison preserves both raw documents and normalizes generated
@@ -216,12 +217,12 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,581 | `79ca69c64c749664518dadb5f8d1f30b9e50c101a6d26badf8a3dcdfc8f271e6` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `dde5c49d0eb0b9875635a31814f02c8c1d0f2a8c749ec80df3567707eda30996` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,560 | `8c317c286e00311813633ccf077e19ab60f1dad14bc55fb2d2d2160d7fdd4da0` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,635 | `3ab2374a96e7ea91ca4dccfdf43feb1a88e58c7e89e98d8475d30317ea0c1afe` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `68514755e3e70aa5be0bbef7372ba2066f5924d09410849f48da5b90350f84da` |
-| `evidence/raw/phase2/hub-account-state-original.json` | 2,826 | `9889c9d8e0389f8c6967b2f33103a929e2e289346196caa13094c1ca5e70d4d5` |
-| `evidence/raw/phase2/hub-account-state-rust.json` | 2,559 | `31e29a4651cd4b6812f207226af4580caea888829c98dd1a0d0f39d105ba6024` |
-| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,608 | `4f5eaf2e7ee627a45765d7c80531be4a17964357aa738c75dc0eb1ea52033931` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 2,978 | `de52bda7298ec1688a9dcd592c6e5517f93c26d3f1c1eb5c6388375a52ebf0d3` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 2,711 | `51c716f0c7faf47e2663d0d3e1907974977f3b8abdaf23bd35c012a2e2b7096a` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,940 | `920f15abbeb0e710502c94dc77c369e563d4eecc48fbdb85c803639bd7ed9013` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -247,7 +248,7 @@ only; both raw payloads and hashes remain available.
   multi-organization, and database-state differential traces do not exist.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation entitlement races, live provider acceptance, cancel and accept
-  packet traces, and complete organization HTTP traces remain open.
+- Invitation entitlement races, live provider acceptance, accept packet traces,
+  and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
