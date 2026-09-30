@@ -44,14 +44,15 @@ if SPOCKY_BROWSER_EVIDENCE_STEM='../invalid' \
   exit 1
 fi
 
-fixture=$(mktemp /private/tmp/spocky-browser-validation.XXXXXX)
+fixture_dir=$(mktemp -d /private/tmp/spocky-browser-validation.XXXXXX)
 cleanup() {
-  case "$fixture" in
-    /private/tmp/spocky-browser-validation.*) rm -f "$fixture" ;;
-    *) printf 'refusing to remove unexpected fixture: %s\n' "$fixture" >&2 ;;
+  case "$fixture_dir" in
+    /private/tmp/spocky-browser-validation.*) rm -rf "$fixture_dir" ;;
+    *) printf 'refusing to remove unexpected fixture directory: %s\n' "$fixture_dir" >&2 ;;
   esac
 }
 trap cleanup EXIT HUP INT TERM
+fixture="$fixture_dir/incomparable.json"
 printf '%s\n' '{"captures":[{"name":"original","guestStartup":{"visibleText":""}},{"name":"candidate","guestStartup":{"visibleText":"ready"}}]}' >"$fixture"
 set +e
 node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" --validate-result "$fixture" >/dev/null
@@ -61,6 +62,69 @@ if [ "$validation_status" -ne 2 ]; then
   printf 'incomparable browser capture returned %s instead of 2\n' "$validation_status" >&2
   exit 1
 fi
+
+valid_fixture="$fixture_dir/valid.json"
+printf '%s\n' '{
+  "captures": [
+    {"name":"original-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
+    {"name":"original-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
+    {"name":"candidate-desktop","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}},
+    {"name":"candidate-mobile","guestStartup":{"visibleText":"ready"},"reducedMotion":true,"keyboardFocus":[{"tag":"button","label":"Add a project","text":"Add a project"}],"keyboardActivation":{"attempted":true,"changed":true},"offlineReload":{"loaded":false}}
+  ],
+  "comparison": {"visual":{"desktop":{"rmse":0,"passes":true},"mobile":{"rmse":0,"passes":true}}}
+}' >"$valid_fixture"
+valid_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --validate-result "$valid_fixture")
+printf '%s\n' "$valid_output" | grep -F '"accepted":true' >/dev/null
+printf '%s\n' "$valid_output" | grep -F '"classification":"shared-pinned-failure"' >/dev/null
+
+expect_rejected() {
+  label=$1
+  rejected_fixture=$2
+  set +e
+  "$capture" --enforce-result "$rejected_fixture" >/dev/null 2>&1
+  rejected_status=$?
+  set -e
+  if [ "$rejected_status" -ne 2 ]; then
+    printf '%s regression returned %s instead of 2\n' "$label" "$rejected_status" >&2
+    exit 1
+  fi
+}
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.desktop = { rmse: 0.01, passes: false };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/pixel-desktop.json"
+expect_rejected 'desktop pixel' "$fixture_dir/pixel-desktop.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.mobile = { rmse: 0.01, passes: false };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/pixel-mobile.json"
+expect_rejected 'mobile pixel' "$fixture_dir/pixel-mobile.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures.find((capture) => capture.name === "candidate-mobile")
+    .keyboardActivation.changed = false;
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/interaction.json"
+expect_rejected 'interaction' "$fixture_dir/interaction.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures.find((capture) => capture.name === "candidate-desktop")
+    .keyboardFocus[0].label = "Regressed label";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/accessibility.json"
+expect_rejected 'accessibility' "$fixture_dir/accessibility.json"
+
 grep -F 'page.routeWebSocket(/:(6767)' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'sidebar-project-empty-state' \

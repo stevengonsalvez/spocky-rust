@@ -1,22 +1,104 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-function comparisonState(captures) {
+function captureByName(captures, name) {
+  return captures.find((capture) => capture.name === name);
+}
+
+function valuesMatch(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function comparisonState(captures, visual = null) {
   const readiness = captures.map((capture) => ({
     name: capture.name,
-    meaningfulRenderedText: capture.guestStartup.visibleText.trim().length > 0,
+    meaningfulRenderedText: (capture.guestStartup?.visibleText ?? "").trim().length > 0,
   }));
+  const interaction = {};
+  const accessibility = {};
+  const offlineReload = {};
+  for (const viewport of ["desktop", "mobile"]) {
+    const original = captureByName(captures, `original-${viewport}`);
+    const candidate = captureByName(captures, `candidate-${viewport}`);
+    const originalActivation = original?.keyboardActivation ?? null;
+    const candidateActivation = candidate?.keyboardActivation ?? null;
+    const originalActivationResult = originalActivation
+      ? { attempted: originalActivation.attempted, changed: originalActivation.changed }
+      : null;
+    const candidateActivationResult = candidateActivation
+      ? { attempted: candidateActivation.attempted, changed: candidateActivation.changed }
+      : null;
+    interaction[viewport] = {
+      original: originalActivation,
+      candidate: candidateActivation,
+      passes:
+        originalActivation?.attempted === true &&
+        originalActivation.changed === true &&
+        valuesMatch(originalActivationResult, candidateActivationResult),
+    };
+
+    const originalAccessibility = original
+      ? { reducedMotion: original.reducedMotion, keyboardFocus: original.keyboardFocus ?? [] }
+      : null;
+    const candidateAccessibility = candidate
+      ? { reducedMotion: candidate.reducedMotion, keyboardFocus: candidate.keyboardFocus ?? [] }
+      : null;
+    accessibility[viewport] = {
+      original: originalAccessibility,
+      candidate: candidateAccessibility,
+      passes:
+        originalAccessibility?.reducedMotion === true &&
+        candidateAccessibility?.reducedMotion === true &&
+        originalAccessibility.keyboardFocus.length > 0 &&
+        originalAccessibility.keyboardFocus.every(
+          (focus) => focus.tag && (focus.label || focus.text),
+        ) &&
+        valuesMatch(originalAccessibility.keyboardFocus, candidateAccessibility.keyboardFocus),
+    };
+
+    const originalOffline = original?.offlineReload ?? null;
+    const candidateOffline = candidate?.offlineReload ?? null;
+    let classification = "incomplete";
+    if (originalOffline && candidateOffline) {
+      if (!originalOffline.loaded && !candidateOffline.loaded) {
+        classification = "shared-pinned-failure";
+      } else if (originalOffline.loaded && candidateOffline.loaded) {
+        classification = "shared-success";
+      } else {
+        classification = "divergent";
+      }
+    }
+    offlineReload[viewport] = {
+      original: originalOffline,
+      candidate: candidateOffline,
+      classification,
+    };
+  }
+  const comparable = readiness.every((capture) => capture.meaningfulRenderedText);
+  const accepted =
+    comparable &&
+    visual?.desktop?.passes === true &&
+    visual?.mobile?.passes === true &&
+    interaction.desktop.passes &&
+    interaction.mobile.passes &&
+    accessibility.desktop.passes &&
+    accessibility.mobile.passes;
   return {
-    comparable: readiness.every((capture) => capture.meaningfulRenderedText),
+    accepted,
+    comparable,
     readiness,
+    visual,
+    interaction,
+    accessibility,
+    offlineReload,
   };
 }
 
 if (process.argv[2] === "--validate-result") {
   const result = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-  const comparison = comparisonState(result.captures);
+  const comparison = comparisonState(result.captures, result.comparison?.visual);
   process.stdout.write(`${JSON.stringify(comparison)}\n`);
-  process.exit(comparison.comparable ? 0 : 2);
+  process.exit(comparison.accepted ? 0 : 2);
 }
 
 const [baselineUrl, candidateUrl, outputPath, screenshotDir, daemonPort] = process.argv.slice(2);
@@ -83,15 +165,23 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     );
   }
 
-  let keyboardActivation = { attempted: false, changed: false, status: null };
-  if (candidate) {
-    const action = page.getByRole("button", { name: /^Add a project/ });
-    await action.focus();
-    const before = await page.getByRole("status").textContent();
-    await page.keyboard.press("Enter");
-    const after = await page.getByRole("status").textContent();
-    keyboardActivation = { attempted: true, changed: before !== after, status: after };
-  }
+  const action = page.getByRole("button", { name: /^Add a project/ });
+  await action.focus();
+  const beforeActivation = await captureInteractionState(page);
+  const fileChooser = page
+    .waitForEvent("filechooser", { timeout: 750 })
+    .then(() => true)
+    .catch(() => false);
+  await page.keyboard.press("Enter");
+  const fileChooserOpened = await fileChooser;
+  const afterActivation = await captureInteractionState(page);
+  const keyboardActivation = {
+    attempted: true,
+    changed: fileChooserOpened || !valuesMatch(beforeActivation, afterActivation),
+    fileChooserOpened,
+    before: beforeActivation,
+    after: afterActivation,
+  };
 
   const onlineReload = await page
     .reload({ waitUntil: "domcontentloaded", timeout: 120_000 })
@@ -144,6 +234,16 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     },
     consoleErrors,
   };
+}
+
+async function captureInteractionState(page) {
+  return page.evaluate(() => ({
+    url: location.href,
+    dialogs: document.querySelectorAll('[role="dialog"]').length,
+    status: [...document.querySelectorAll('[role="status"], [role="alert"]')]
+      .map((element) => element.textContent?.replace(/\s+/g, " ").trim() ?? "")
+      .filter(Boolean),
+  }));
 }
 
 async function captureLayoutGeometry(page, candidate) {

@@ -36,6 +36,15 @@ if [ "${1:-}" = "--parse-rmse" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--enforce-result" ]; then
+  if [ "$#" -ne 2 ]; then
+    printf 'usage: %s --enforce-result RESULT_JSON\n' "$0" >&2
+    exit 2
+  fi
+  exec node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+    --validate-result "$2"
+fi
+
 actual_baseline=$(git -C "$reference_root" rev-parse HEAD)
 if [ "$actual_baseline" != "$expected_baseline" ]; then
   printf 'Paseo baseline HEAD mismatch: expected %s, got %s\n' \
@@ -73,7 +82,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON]\n' "$0" >&2
   exit 2
 fi
 
@@ -228,6 +237,20 @@ jq \
     }
   }' "$result_file" >"$result_temp"
 mv "$result_temp" "$result_file"
+
+set +e
+comparison=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --validate-result "$result_file")
+acceptance_status=$?
+set -e
+jq --argjson comparison "$comparison" '.comparison = $comparison' \
+  "$result_file" >"$result_temp"
+mv "$result_temp" "$result_file"
+if [ "$acceptance_status" -ne 0 ]; then
+  printf 'Browser runtime comparison rejected by acceptance contract: %s\n' \
+    "$result_file" >&2
+  exit "$acceptance_status"
+fi
 
 printf 'Browser runtime comparison captured: %s\n' "$result_file"
 shasum -a 256 "$result_file" "$screenshot_dir"/*.png
