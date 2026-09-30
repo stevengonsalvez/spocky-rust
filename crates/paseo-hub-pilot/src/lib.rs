@@ -18,12 +18,14 @@ use serde::{Deserialize, Serialize};
 mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
+mod email_delivery;
 pub mod http;
 mod invitations;
 mod relational_api_keys;
 mod relational_invitations;
 
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
+pub use email_delivery::{ResendConfig, ResendEmailDelivery};
 pub use invitations::{
     InvitationEmail, InvitationEmailMessage, InvitationRole, InvitationSummary,
     render_invitation_email,
@@ -646,6 +648,9 @@ pub enum HubError {
     SeatLimitReached,
     AlreadyMember,
     InvitationUnavailable,
+    EmailDeliveryConfig,
+    EmailDeliveryTransport,
+    EmailDeliveryRejected(u16),
     RandomUnavailable,
     IdempotencyConflict,
     Store(StoreError),
@@ -658,6 +663,9 @@ impl PartialEq for HubError {
             && match (self, other) {
                 (Self::Authority(left), Self::Authority(right)) => left == right,
                 (Self::Session(left), Self::Session(right)) => left == right,
+                (Self::EmailDeliveryRejected(left), Self::EmailDeliveryRejected(right)) => {
+                    left == right
+                }
                 _ => true,
             }
     }
