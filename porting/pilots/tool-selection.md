@@ -39,8 +39,8 @@ so Dioxus is not selected.
 Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, a semantic tree, and a touch state transition. Release mode
 removes the debug rebuild overlay and external font request and reduces WASM to
-528,846 bytes. Offline, responsive, keyboard, reduced-motion, and pinned-baseline
-cases remain open.
+528,846 bytes. Desktop and mobile viewport, keyboard, and reduced-motion checks
+pass. Offline reload fails. Pinned-baseline visual and packaging cases remain open.
 
 ## Executable cases
 
