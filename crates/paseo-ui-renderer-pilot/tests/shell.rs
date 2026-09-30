@@ -57,6 +57,8 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("M9 3v18"));
     assert!(first.contains(".sidebar-empty { margin: 14px 8px 0;"));
     assert!(first.contains("font-size: 12px; line-height: normal;"));
+    assert!(first.contains("<div class=\"sidebar-empty-title\">No projects yet</div>"));
+    assert!(first.contains("<div>Add project</div>"));
     assert!(
         first.contains(".sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }")
     );

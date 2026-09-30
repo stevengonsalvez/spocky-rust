@@ -246,11 +246,11 @@ pub fn PaseoShell() -> Element {
                     button { class: "nav-button", aria_label: "Schedules", span { class: "nav-icon", {sidebar_icon(SidebarIcon::CalendarClock)} } "Schedules" }
                 }
                 div { class: "sidebar-empty",
-                    p { class: "sidebar-empty-title", "No projects yet" }
-                    p { class: "sidebar-empty-detail", "Add a project to get started" }
+                    div { class: "sidebar-empty-title", "No projects yet" }
+                    div { class: "sidebar-empty-detail", "Add a project to get started" }
                     div { class: "sidebar-empty-actions",
-                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } "Add project" }
-                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Import)} } "Import session" }
+                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Plus)} } div { "Add project" } }
+                        button { span { class: "nav-icon", {sidebar_icon(SidebarIcon::Import)} } div { "Import session" } }
                     }
                 }
                 div { class: "sidebar-spacer" }
