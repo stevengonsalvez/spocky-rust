@@ -3657,9 +3657,12 @@ dependencies = [
 name = "paseo-hub-pilot"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "postgres",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tungstenite 0.27.0",
 ]
 
 [[package]]

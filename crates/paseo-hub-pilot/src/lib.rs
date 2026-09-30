@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use postgres::{Client, NoTls};
 use serde::{Deserialize, Serialize};
 
+pub mod daemon_socket;
 pub mod http;
 
 macro_rules! identifier {
