@@ -7,8 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use paseo_hub_pilot::daemon_socket::{
-    DaemonEnrollment, DaemonPresence, DaemonRequestError, DaemonStatus, HubDaemonRuntime,
-    credential_verifier,
+    DaemonEnrollment, DaemonOutboundController, DaemonPresence, DaemonRequestError, DaemonStatus,
+    HubDaemonRuntime, credential_verifier,
 };
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -219,6 +219,43 @@ fn invalid_and_revoked_credentials_cannot_reconnect() {
         rejected_status(connect(runtime.address(), CREDENTIAL, true)),
         StatusCode::FORBIDDEN
     );
+}
+
+#[test]
+fn outbound_controller_reconnects_and_serves_direct_hub_requests() {
+    let root = TestDir::new();
+    let runtime = enrolled_runtime(&root.state_path(), &["hub.execute"]);
+    let controller = DaemonOutboundController::start(
+        runtime.address(),
+        DAEMON_ID,
+        CREDENTIAL,
+        ["hub.execute"],
+        |payload| json!({"echo": payload}),
+    );
+    wait_until(|| runtime.is_ready(DAEMON_ID));
+    assert_eq!(controller.successful_connections(), 1);
+
+    let (mut replacement, _) = connect_ready(&runtime, CREDENTIAL);
+    wait_until(|| {
+        runtime
+            .daemon(DAEMON_ID)
+            .is_some_and(|daemon| daemon.generation >= 3)
+            && runtime.is_ready(DAEMON_ID)
+    });
+    assert!(controller.successful_connections() >= 2);
+    assert_eq!(u16::from(wait_for_close(&mut replacement).code), 4001);
+
+    let response = runtime
+        .request(DAEMON_ID, json!({"operation": "direct"}))
+        .expect("send direct request")
+        .wait(DEADLINE)
+        .expect("receive direct response");
+    assert_eq!(response, json!({"echo": {"operation": "direct"}}));
+
+    runtime.revoke(DAEMON_ID).expect("revoke relationship");
+    wait_until(|| controller.connection_attempts() > controller.successful_connections());
+    controller.stop().expect("stop outbound controller");
+    assert!(!controller.is_running());
 }
 
 fn enrolled_runtime(path: &Path, permissions: &[&str]) -> HubDaemonRuntime {

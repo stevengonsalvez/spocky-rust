@@ -10,12 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use tungstenite::client::IntoClientRequest;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{HeaderValue, StatusCode};
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
@@ -116,6 +117,104 @@ pub struct HubDaemonRuntime {
     shared: Arc<Shared>,
     address: SocketAddr,
     listener_worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+struct OutboundShared {
+    running: AtomicBool,
+    ready: AtomicBool,
+    connection_attempts: AtomicU64,
+    successful_connections: AtomicU64,
+}
+
+/// Direct daemon-to-Hub relationship controller for the loopback pilot.
+pub struct DaemonOutboundController {
+    shared: Arc<OutboundShared>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl DaemonOutboundController {
+    #[must_use]
+    pub fn start<I, S, F>(
+        address: SocketAddr,
+        daemon_id: impl Into<String>,
+        credential: impl Into<String>,
+        permissions: I,
+        handler: F,
+    ) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+        F: Fn(Value) -> Value + Send + Sync + 'static,
+    {
+        let shared = Arc::new(OutboundShared {
+            running: AtomicBool::new(true),
+            ready: AtomicBool::new(false),
+            connection_attempts: AtomicU64::new(0),
+            successful_connections: AtomicU64::new(0),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let daemon_id = daemon_id.into();
+        let credential = credential.into();
+        let mut permissions: Vec<String> = permissions.into_iter().map(Into::into).collect();
+        permissions.sort();
+        permissions.dedup();
+        let handler = Arc::new(handler);
+        let worker = thread::spawn(move || {
+            outbound_loop(
+                worker_shared,
+                address,
+                daemon_id,
+                credential,
+                permissions,
+                handler,
+            );
+        });
+        Self {
+            shared,
+            worker: Mutex::new(Some(worker)),
+        }
+    }
+
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.shared.running.load(Ordering::Relaxed)
+    }
+
+    #[must_use]
+    pub fn is_ready(&self) -> bool {
+        self.shared.ready.load(Ordering::Relaxed)
+    }
+
+    #[must_use]
+    pub fn connection_attempts(&self) -> u64 {
+        self.shared.connection_attempts.load(Ordering::Relaxed)
+    }
+
+    #[must_use]
+    pub fn successful_connections(&self) -> u64 {
+        self.shared.successful_connections.load(Ordering::Relaxed)
+    }
+
+    /// Stops this controller and joins only its worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the worker panics.
+    pub fn stop(&self) -> io::Result<()> {
+        self.shared.running.store(false, Ordering::SeqCst);
+        if let Some(worker) = self.worker.lock().unwrap().take() {
+            worker
+                .join()
+                .map_err(|_| io::Error::other("daemon outbound controller panicked"))?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for DaemonOutboundController {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
 }
 
 impl HubDaemonRuntime {
@@ -323,6 +422,176 @@ impl Drop for HubDaemonRuntime {
     fn drop(&mut self) {
         let _ = self.stop();
     }
+}
+
+fn outbound_loop<F>(
+    shared: Arc<OutboundShared>,
+    address: SocketAddr,
+    daemon_id: String,
+    credential: String,
+    permissions: Vec<String>,
+    handler: Arc<F>,
+) where
+    F: Fn(Value) -> Value + Send + Sync + 'static,
+{
+    while shared.running.load(Ordering::Relaxed) {
+        shared.connection_attempts.fetch_add(1, Ordering::Relaxed);
+        if let Some(mut socket) = connect_outbound(address, &daemon_id, &credential) {
+            shared
+                .successful_connections
+                .fetch_add(1, Ordering::Relaxed);
+            run_outbound_session(&shared, &mut socket, &permissions, handler.as_ref());
+        }
+        shared.ready.store(false, Ordering::Relaxed);
+        for _ in 0..5 {
+            if !shared.running.load(Ordering::Relaxed) {
+                return;
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+}
+
+fn connect_outbound(
+    address: SocketAddr,
+    daemon_id: &str,
+    credential: &str,
+) -> Option<tungstenite::WebSocket<TcpStream>> {
+    let stream = TcpStream::connect_timeout(&address, HANDSHAKE_TIMEOUT).ok()?;
+    stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).ok()?;
+    let mut request = format!("ws://{address}/api/daemons/socket")
+        .into_client_request()
+        .ok()?;
+    request.headers_mut().insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {credential}")).ok()?,
+    );
+    request
+        .headers_mut()
+        .insert("x-paseo-daemon-id", HeaderValue::from_str(daemon_id).ok()?);
+    request
+        .headers_mut()
+        .insert("x-paseo-session-protocol", HeaderValue::from_static("1"));
+    let Ok((mut socket, _)) = tungstenite::client(request, stream) else {
+        return None;
+    };
+    socket
+        .get_mut()
+        .set_read_timeout(Some(SOCKET_TIMEOUT))
+        .ok()?;
+    socket
+        .get_mut()
+        .set_write_timeout(Some(SOCKET_TIMEOUT))
+        .ok()?;
+    Some(socket)
+}
+
+fn run_outbound_session<F>(
+    shared: &OutboundShared,
+    socket: &mut tungstenite::WebSocket<TcpStream>,
+    permissions: &[String],
+    handler: &F,
+) where
+    F: Fn(Value) -> Value,
+{
+    let handshake_deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+    loop {
+        if !shared.running.load(Ordering::Relaxed) || Instant::now() >= handshake_deadline {
+            return;
+        }
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let Ok(message) = serde_json::from_str::<Value>(&text) else {
+                    return;
+                };
+                if message.get("type").and_then(Value::as_str) == Some("hello") {
+                    break;
+                }
+            }
+            Ok(Message::Ping(bytes)) => {
+                if socket.send(Message::Pong(bytes)).is_err() {
+                    return;
+                }
+            }
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Ok(Message::Close(_)) | Err(_) => return,
+            Ok(_) => {}
+        }
+    }
+    let server_info = json!({
+        "type": "session",
+        "message": {
+            "type": "status",
+            "payload": {
+                "status": "server_info",
+                "permissions": permissions
+            }
+        }
+    });
+    if socket
+        .send(Message::Text(server_info.to_string().into()))
+        .is_err()
+    {
+        return;
+    }
+    shared.ready.store(true, Ordering::Relaxed);
+
+    while shared.running.load(Ordering::Relaxed) {
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                let Some(message) = value.get("message") else {
+                    continue;
+                };
+                if value.get("type").and_then(Value::as_str) != Some("session")
+                    || message.get("type").and_then(Value::as_str) != Some("request")
+                {
+                    continue;
+                }
+                let Some(request_id) = message.get("requestId").and_then(Value::as_str) else {
+                    continue;
+                };
+                let result = handler(message.get("payload").cloned().unwrap_or(Value::Null));
+                let response = json!({
+                    "type": "session",
+                    "message": {
+                        "type": "response",
+                        "requestId": request_id,
+                        "result": result
+                    }
+                });
+                if socket
+                    .send(Message::Text(response.to_string().into()))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            Ok(Message::Ping(bytes)) => {
+                if socket.send(Message::Pong(bytes)).is_err() {
+                    return;
+                }
+            }
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Ok(Message::Close(_)) | Err(_) => return,
+            Ok(_) => {}
+        }
+    }
+    let _ = socket.close(Some(CloseFrame {
+        code: CloseCode::Away,
+        reason: "daemon shutdown".into(),
+    }));
 }
 
 #[must_use]
