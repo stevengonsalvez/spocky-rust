@@ -39,6 +39,12 @@ node --version
 npm --version
 git --version
 
+PASEO_REFERENCE_ROOT="$baseline_root" \
+PASEO_REFERENCE_COMMIT="$expected_baseline" \
+NODE_OPTIONS=--conditions=source \
+timeout 60 "$baseline_root/node_modules/.bin/tsx" \
+  "$repository_root/scripts/phase2/plugin-protocol-baseline.ts"
+
 timeout 180 "$baseline_root/node_modules/.bin/vitest" run \
   packages/server/src/server/plugins/managed-source.posix.test.ts \
   packages/server/src/server/plugins/settings/index.test.ts \
@@ -53,9 +59,21 @@ timeout 120 cargo test \
   --manifest-path "$repository_root/Cargo.toml" \
   -p paseo-plugin-pilot --test runtime_acquisition \
   -- --nocapture --test-threads=1
+timeout 120 cargo test \
+  --manifest-path "$repository_root/Cargo.toml" \
+  -p paseo-plugin-pilot --test protocol_manifest
 
 assert_clean_pinned_checkout "$baseline_root" "$expected_baseline"
 assert_clean_pinned_checkout "$import_root" "$expected_import"
+
+baseline_protocol=$(sed -n 's/^PLUGIN_BASELINE_PROTOCOL //p' "$raw_log")
+if [[ "$(printf '%s\n' "$baseline_protocol" | jq -s 'length')" != "1" ]]; then
+  printf 'expected one pinned protocol capture\n' >&2
+  exit 1
+fi
+jq -e --argjson actual "$baseline_protocol" \
+  '$actual == .' \
+  "$repository_root/crates/paseo-plugin-pilot/tests/fixtures/pinned_protocol.json" >/dev/null
 
 sed -n 's/^.*PLUGIN_RUNTIME_EVIDENCE //p' "$raw_log" | jq -s \
   --arg baseline "$expected_baseline" \
