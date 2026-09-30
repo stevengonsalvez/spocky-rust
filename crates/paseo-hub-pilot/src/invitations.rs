@@ -34,6 +34,54 @@ pub struct InvitationSummary {
     pub link: String,
 }
 
+pub struct InvitationEmail<'a> {
+    pub id: &'a str,
+    pub email: &'a str,
+    pub inviter_name: &'a str,
+    pub organization_name: &'a str,
+    pub role: InvitationRole,
+    pub link: &'a str,
+    pub expires_at_iso: &'a str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvitationEmailMessage {
+    pub to: String,
+    pub subject: String,
+    pub text: String,
+    pub html: String,
+    pub idempotency_key: String,
+}
+
+#[must_use]
+pub fn render_invitation_email(invitation: &InvitationEmail<'_>) -> InvitationEmailMessage {
+    let role = match invitation.role {
+        InvitationRole::Admin => "an admin",
+        InvitationRole::Member => "a member",
+    };
+    let introduction = format!(
+        "{} invited you to join {} as {role}.",
+        invitation.inviter_name, invitation.organization_name
+    );
+    let expiry = format!("This invitation expires at {}.", invitation.expires_at_iso);
+    InvitationEmailMessage {
+        to: invitation.email.to_owned(),
+        subject: format!("Join {} on Paseo", invitation.organization_name),
+        text: format!(
+            "{introduction}\n\nAccept the invitation: {}\n\n{expiry}",
+            invitation.link
+        ),
+        html: format!(
+            "<p>{}</p><p><a href=\"{}\">Join {}</a></p><p>{}</p>",
+            escape_html(&introduction),
+            escape_html(invitation.link),
+            escape_html(invitation.organization_name),
+            escape_html(&expiry)
+        ),
+        idempotency_key: format!("paseo-invitation-{}", invitation.id),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum InvitationStatus {
     Pending,
@@ -267,6 +315,15 @@ fn normalize_email(email: &str) -> Option<String> {
     let email = email.trim().to_ascii_lowercase();
     let (local, domain) = email.split_once('@')?;
     (!local.is_empty() && domain.contains('.') && !domain.starts_with('.')).then_some(email)
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn now_epoch_seconds() -> u64 {

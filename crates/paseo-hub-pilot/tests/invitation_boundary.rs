@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use paseo_hub_pilot::{
-    AccountId, Bootstrap, EmbeddedFileStore, HubError, HubPilot, InvitationRole, OrganizationId,
-    PasswordChange, Role,
+    AccountId, Bootstrap, EmbeddedFileStore, HubError, HubPilot, InvitationEmail, InvitationRole,
+    OrganizationId, PasswordChange, Role, render_invitation_email,
 };
 
 struct TestDir(PathBuf);
@@ -262,4 +262,28 @@ fn expiration_releases_reserved_seat_and_replaces_the_credential() {
         .create_invitation(&owner, &organization, bob.as_str(), InvitationRole::Member)
         .expect("expired seat is reusable");
     assert_ne!(replacement.id, expired.id);
+}
+
+#[test]
+fn invitation_email_matches_text_html_escaping_and_idempotency_contract() {
+    let message = render_invitation_email(&InvitationEmail {
+        id: "invite-1",
+        email: "person@example.test",
+        inviter_name: "A&B <Owner>",
+        organization_name: "Rock 'n' \"Roll\"",
+        role: InvitationRole::Admin,
+        link: "https://hub.example.test/?invitation=a&next=\"b\"",
+        expires_at_iso: "2026-10-02T12:34:56.000Z",
+    });
+    assert_eq!(message.to, "person@example.test");
+    assert_eq!(message.subject, "Join Rock 'n' \"Roll\" on Paseo");
+    assert_eq!(
+        message.text,
+        "A&B <Owner> invited you to join Rock 'n' \"Roll\" as an admin.\n\nAccept the invitation: https://hub.example.test/?invitation=a&next=\"b\"\n\nThis invitation expires at 2026-10-02T12:34:56.000Z."
+    );
+    assert_eq!(
+        message.html,
+        r#"<p>A&amp;B &lt;Owner&gt; invited you to join Rock &#39;n&#39; &quot;Roll&quot; as an admin.</p><p><a href="https://hub.example.test/?invitation=a&amp;next=&quot;b&quot;">Join Rock &#39;n&#39; &quot;Roll&quot;</a></p><p>This invitation expires at 2026-10-02T12:34:56.000Z.</p>"#
+    );
+    assert_eq!(message.idempotency_key, "paseo-invitation-invite-1");
 }

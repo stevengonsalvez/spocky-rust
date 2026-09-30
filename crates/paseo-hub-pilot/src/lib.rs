@@ -22,7 +22,10 @@ pub mod http;
 mod invitations;
 
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
-pub use invitations::{InvitationRole, InvitationSummary};
+pub use invitations::{
+    InvitationEmail, InvitationEmailMessage, InvitationRole, InvitationSummary,
+    render_invitation_email,
+};
 
 macro_rules! identifier {
     ($name:ident) => {
