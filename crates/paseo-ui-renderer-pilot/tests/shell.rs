@@ -54,6 +54,11 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("width: 16px; height: 12px;"));
     assert!(first.contains(".mobile-menu-line:nth-child(2) { top: 5px; }"));
     assert!(first.contains(".mobile-menu-line.short { top: 10px; width: 8px; height: 1.5px; }"));
+    assert!(first.contains("M9 3v18"));
+    assert!(first.contains(".sidebar-empty { margin: 14px 8px 0;"));
+    assert!(
+        first.contains(".sidebar-empty-actions { display: flex; gap: 8px; margin-top: 14px; }")
+    );
     assert!(!first.contains("content: \"☰\""));
     assert!(first.contains(".action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }"));
     assert!(first.contains(

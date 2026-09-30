@@ -15,10 +15,10 @@ button, a { font: inherit; }
 .nav-list > .nav-button { margin: 0 8px; }
 .nav-icon { display: block; width: 14px; height: 14px; flex: none; color: #71717a; }
 .nav-icon svg, .footer-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.sidebar-empty { margin: 15px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
+.sidebar-empty { margin: 14px 8px 0; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; color: #1a1a1e; }
 .sidebar-empty-title { margin: 0 0 4px; font-size: 12px; line-height: 16px; }
 .sidebar-empty-detail { margin: 0; color: #71717a; font-size: 12px; line-height: 16px; }
-.sidebar-empty-actions { display: flex; gap: 8px; margin-top: 16px; }
+.sidebar-empty-actions { display: flex; gap: 8px; margin-top: 14px; }
 .sidebar-empty-actions button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: #e4e4e7; color: #1a1a1e; font-size: 12px; cursor: pointer; }
 .sidebar-empty-actions button:last-child { border-color: #ececf1; background: transparent; }
 .sidebar-empty-actions .nav-icon { width: 12px; height: 12px; color: currentColor; }
@@ -28,8 +28,9 @@ button, a { font: inherit; }
 .footer-icon { display: block; width: 16px; height: 16px; flex: none; color: #71717a; }
 .sidebar-footer .nav-button:first-child .footer-icon, .sidebar-footer .nav-button:nth-child(2) .footer-icon { width: 14px; height: 14px; }
 .icon-button { width: 28px; min-width: 28px; height: 28px; min-height: 0; justify-content: center; padding: 4px; }
-.mobile-menu { display: none; position: absolute; z-index: 2; top: 20px; left: 8px; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #71717a; cursor: pointer; }
-.mobile-menu-icon { position: relative; width: 16px; height: 12px; display: block; }
+.mobile-menu { display: flex; position: absolute; z-index: 2; top: 4.5px; left: 324px; width: 26px; height: 26px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #71717a; cursor: pointer; }
+.desktop-menu-icon { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.mobile-menu-icon { position: relative; width: 16px; height: 12px; display: none; }
 .mobile-menu-line { position: absolute; top: 0; left: 0; width: 16px; height: 1px; border-radius: 999px; background: currentColor; }
 .mobile-menu-line:nth-child(2) { top: 5px; }
 .mobile-menu-line.short { top: 10px; width: 8px; height: 1.5px; }
@@ -56,7 +57,9 @@ button, a { font: inherit; }
   .shell { display: block; }
   .sidebar { display: none; }
   .sidebar-empty { display: none; }
-  .mobile-menu { display: flex; }
+  .mobile-menu { top: 19.5px; left: 8px; width: 32px; height: 32px; border-radius: 6px; }
+  .desktop-menu-icon { display: none; }
+  .mobile-menu-icon { display: block; }
   .workspace { min-height: 100vh; padding: 114px 24px 92px; }
   .content { width: 100%; }
   .mark { margin-bottom: 58px; }
@@ -261,6 +264,10 @@ pub fn PaseoShell() -> Element {
                 }
             }
             button { class: "mobile-menu", aria_label: "Open menu",
+                svg { class: "desktop-menu-icon", view_box: "0 0 24 24",
+                    rect { width: "18", height: "18", x: "3", y: "3", rx: "2" }
+                    path { d: "M9 3v18" }
+                }
                 span { class: "mobile-menu-icon", aria_hidden: "true",
                     span { class: "mobile-menu-line" }
                     span { class: "mobile-menu-line" }
