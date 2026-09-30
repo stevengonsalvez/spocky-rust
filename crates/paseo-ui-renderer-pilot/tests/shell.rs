@@ -8,14 +8,16 @@ fn shell_renders_deterministic_semantic_html() {
     assert_eq!(first, second);
     assert!(first.contains("<main"));
     assert!(first.contains("<nav"));
-    assert!(first.contains("aria-label=\"Workspaces\""));
+    assert!(first.contains("aria-label=\"Primary navigation\""));
     assert!(first.contains("<button"));
-    assert!(first.contains("aria-pressed=\"true\""));
     assert!(first.contains("role=\"status\""));
     assert!(first.contains("aria-live=\"polite\""));
     assert!(first.contains(APP_TITLE));
-    assert!(first.contains("Implementer"));
-    assert!(first.contains("Reviewer"));
+    assert!(first.contains("New workspace"));
+    assert!(first.contains("Add a project"));
+    assert!(first.contains("Import session"));
+    assert!(first.contains("Setup providers"));
+    assert!(first.contains("Community"));
 }
 
 #[test]
