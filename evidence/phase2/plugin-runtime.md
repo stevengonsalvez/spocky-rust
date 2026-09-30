@@ -22,7 +22,7 @@ revisions, nested source identity, and updates. Six exercise settings validation
 atomic writes, revision conflicts, migration failure, reset, and persistence.
 
 The Rust pilot runs three lifecycle cases, two manifest/client-protocol cases,
-five real local acquisition/runtime cases, and five settings lifecycle cases:
+six real local acquisition/runtime cases, and five settings lifecycle cases:
 
 1. Clone a nested Git plugin at an exact 40-character reviewed commit. Launch its
    Node process, exchange source-shaped initialize/ready/invoke/result/shutdown
@@ -36,7 +36,10 @@ five real local acquisition/runtime cases, and five settings lifecycle cases:
 4. Normalize a Windows-style nested plugin path on macOS, reject a missing nested
    path, and remove the failed Git staging checkout.
 5. Reject a mismatched npm package identity and remove the failed npm staging tree.
-6. Default and validate typed settings, hash exact raw revisions, reject stale
+6. Transport RPC, provider, usage, event-hook, and before-hook contributions from
+   a real ready frame. Surface a fatal invocation as a typed error, terminate the
+   exact child, and start a fresh process successfully from the same package.
+7. Default and validate typed settings, hash exact raw revisions, reject stale
    writes, migrate once, reject newer schemas, preserve corrupt data until reset,
    isolate notification values, persist atomically with mode `0600`, and keep
    installation directories separate from definition IDs.
@@ -62,7 +65,7 @@ sources live in disposable temporary directories.
 - Pinned Paseo: 11 passed, 0 failed
 - Rust lifecycle: 3 passed, 0 failed
 - Rust manifest/client protocol: 2 passed, 0 failed
-- Rust acquisition/runtime: 5 passed, 0 failed
+- Rust acquisition/runtime: 6 passed, 0 failed
 - Rust process envelope: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
@@ -77,8 +80,8 @@ sources live in disposable temporary directories.
 
 - The Rust exchange executes initialize, ready, invoke, result, and shutdown over
   newline stdio instead of Node fork IPC. The full outer envelope is modeled but
-  provider, usage, hook, daemon-session, cancellation, fatal, and reconnect
-  sequences are not executed.
+  provider, usage, hook, daemon-session, cancellation, and reconnect sequences
+  are not executed. Fatal invocation and fresh-process restart now pass.
 - Provider input and event payload schemas remain opaque JSON values.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
