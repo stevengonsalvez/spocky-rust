@@ -90,36 +90,32 @@ blocked before navigation. Google Chrome `154.0.8037.59` captured desktop and
 mobile screenshots. Cleanup stopped all three exact sessions and removed the
 disposable daemon. Port `6767` remained untouched.
 
-Both sides rendered the open-project state, but the capture rejects exact parity.
-Desktop focus order, element types, labels, and text now match for New workspace,
-History, Search, and Schedules. Mobile focus element types and project-action text
-also match; the captured candidate menu still exposed its glyph as text, fixed in
-the next signed source checkpoint. Candidate Enter handling changes its live
+Both sides render the same open-project state. Desktop and mobile focus order,
+element types, labels, and text match. Candidate Enter handling changes its live
 status. Original action behavior is not yet driven by the Rust pilot.
 
-The candidate now uses the pinned logo path, vector action icons, light tokens,
-desktop empty-project card, and matched action-card surfaces. A signed recapture
-after `13ed574` waits for the original sidebar empty state, the candidate main
-action, and stable document bodies before screenshots. The original desktop
-capture now contains the loaded sidebar state, but its PNG still changes by a
-few pixels between otherwise identical pinned runs. Commit `fc464c1` aligns the
-mobile logo geometry exactly. The latest capture still rejects the normalized-
-RMSE threshold of zero: desktop is `0.0504629`, mobile is `0.0548481`. Both
-runtimes fail offline reload. No visual acceptance threshold passes.
+The candidate uses the pinned logo and vector icons, matched light tokens,
+system font stack, antialiasing, layout geometry, desktop sidebar shell, and
+baseline text wrappers. The latest capture still rejects the normalized-RMSE
+threshold of zero: desktop is `0.0000862789` with 854 differing pixels, and
+mobile is `0.00000882431` with 5 differing pixels. The desktop difference is
+confined to the 303 by 112 sidebar empty-state card. Main content, footer, and
+the remaining desktop surface compare exactly. Both runtimes fail offline
+reload. No visual acceptance threshold passes.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `browser-runtime-comparison.json` | 9,045 | `8843cccad7aa8cb9834075ed04672ff9cce56c3ca859eaa7beee8c132e6a0b19` |
+| `browser-runtime-comparison.json` | 128,066 | `d9bf01a18661704073acfe31a9154a2420b68599df945095dc377cd4ab3842e3` |
 | original desktop screenshot | 49,270 | `597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d` |
 | original mobile screenshot | 27,128 | `37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075` |
-| candidate desktop screenshot | 49,199 | `53519099af309237f4bce6506a263e344857b02d9426438114aeeca28f25cda6` |
-| candidate mobile screenshot | 28,557 | `44fb38b66792ab8e734364114fef7ca7bf7584d10101d656370df437c8327064` |
+| candidate desktop screenshot | 49,205 | `f272044d75f33de4ca9372f0e09932905af8216024aeacc72a862865ca35c8f2` |
+| candidate mobile screenshot | 27,132 | `29c5696a5db7239640eba627a05f47a6c010bfb1ecdcf182a28876b537d8765c` |
 | isolated daemon log | 35,901 | `1fdf3d841ae7e74f7080ae34ed8336a6202f6bb7bf0d5205982de2395efd0759` |
 
 This capture's disposable daemon started default local speech-model downloads;
 cleanup removed them with the daemon home. The harness now disables unrelated
-speech paths before launch. The next comparison needs deterministic baseline
-rendering, remaining font and icon matching, and real candidate actions. The
-exact threshold is executable.
+speech paths before launch. The next comparison needs the remaining sidebar
+text rasterization difference explained and real candidate actions. The exact
+threshold is executable.
 Electron guest APIs, accessibility tree diffs, packaging, update, rollback, and
 uninstall remain open.

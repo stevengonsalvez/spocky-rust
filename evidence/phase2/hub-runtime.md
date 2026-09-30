@@ -63,8 +63,12 @@ session cookie issuance, password-change gating, password replacement, app setup
 and persisted active state after restart. It also verifies that snapshots written
 before browser-session fields existed still load with defaults.
 
-This adapter is pilot code. Its deterministic session token is not production
-authentication, and its four routes do not represent the complete Hub API.
+The adapter also selects an active organization through the pinned
+`/api/auth/paseo/select-organization` path. Selection validates current
+membership, conceals foreign organizations with 404, persists across restart,
+and defaults old single-membership snapshots to the bootstrap organization.
+Its deterministic session token is not production authentication, and its five
+routes do not represent the complete Hub API.
 
 ## Rust account, invitation, API-key, and billing boundary pilots
 
@@ -90,7 +94,7 @@ idempotency-key shapes. Relational invitation creation and acceptance races now
 pass against disposable PostgreSQL: concurrent creation reuses one live
 credential, concurrent replay accepts once, and one membership remains. HTTP
 response shapes, external mail delivery behavior, entitlement races, and
-active-session selection remain open.
+complete account-state response selection remain open.
 
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
@@ -118,9 +122,13 @@ contract, per-key transaction advisory locks, row locks, and token invalidation.
 A relational invitation path uses the pinned member and invitation tables,
 partial unique index, organization and invitation transaction locks, row locks,
 normalized identity binding, and one-shot status transition.
+A relational session path uses the pinned session columns and active-organization
+index. Selection requires current membership, updates one live user session,
+conceals foreign organizations, and fails closed after membership removal.
 A disposable `postgres:17-alpine` runtime proves restart state, two concurrent
 snapshot writers, both API-key revocation orderings, one concurrent invitation
-credential, and one concurrent invitation acceptance.
+credential, one concurrent invitation acceptance, and membership-bound session
+selection.
 
 The container runs inside an exact named tmux session, binds a random loopback
 port, and is stopped by exact container and session names. No container or tmux
@@ -162,12 +170,14 @@ sh scripts/phase2/hub-runtime-capture.test.sh
 scripts/phase2/hub-runtime-capture.sh
 cargo test -p paseo-hub-pilot --test runtime_evidence -- --nocapture
 cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
+cargo test -p paseo-hub-pilot --test session_selection
 cargo test -p paseo-hub-pilot --test api_key_boundary
 cargo test -p paseo-hub-pilot --test billing_boundary
 cargo test -p paseo-hub-pilot --test invitation_boundary
 cargo test -p paseo-hub-pilot --test email_delivery
 cargo test -p paseo-hub-pilot --test relational_api_keys
 cargo test -p paseo-hub-pilot --test relational_invitations
+cargo test -p paseo-hub-pilot --test relational_sessions
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
@@ -197,8 +207,8 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-runtime-original.log` | 7,337 | `ba186c296b99ea776ea92ce8540dc8ebd472b74bc020fe7c0c2b4e40afa975a0` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `526d5bbfe377223199d1f68f7fc2da029677bdcc45e43f26a0e7061d538ff69a` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
-| `evidence/raw/phase2/hub-postgres-runtime.log` | 4,060 | `b03c35cf3e8ecb2d2af89d177eb6a2fd82285c02997b3cb0fbf096f79253a690` |
-| `evidence/raw/phase2/hub-postgres-test.log` | 1,176 | `d629596bd61f306892d09ef2d0a4bd6ee173f0b89887d9e5323d7f6467b35cc0` |
+| `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
+| `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
 
 Host: macOS Darwin 24.6.0 x86_64, Rust 1.94.0, Cargo 1.94.0,
 Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
@@ -212,11 +222,12 @@ times by construction.
 - Candidate PGlite storage, migrations, lock behavior, crash recovery, and old
   database fixtures do not exist.
 - Candidate complete baseline-schema PostgreSQL behavior and embedded-versus-
-  PostgreSQL differential results do not exist. API-key and invitation subsets
-  have relational evidence; remaining tables still use candidate-only snapshot
-  evidence.
+  PostgreSQL differential results do not exist. API-key, invitation, and active-
+  session subsets have relational evidence; remaining tables still use
+  candidate-only snapshot evidence.
 - Original-versus-Rust HTTP status, body, cookie, and database state differential
-  traces do not exist. Candidate-only packet behavior is covered.
+  traces do not exist. Candidate-only authentication and organization-selection
+  packet behavior is covered.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation entitlement races, live provider acceptance, HTTP traces, and

@@ -40,19 +40,21 @@ Dioxus browser candidate evidence now includes a frozen release bundle,
 WebAssembly launch, semantic trees, and input transitions. A pinned original
 capture runs against an isolated daemon in the same open-project state. Desktop
 focus semantics match, but the latest exact-threshold capture reports desktop
-RMSE 0.0504629 and mobile RMSE 0.0548481. Product-state readiness includes the
-loaded sidebar, but the pinned original desktop image still changes by a few
-pixels between runs. Offline reload fails. Packaging cases remain open.
+RMSE 0.0000862789 and mobile RMSE 0.00000882431. The remaining 854 desktop
+pixels are confined to the sidebar empty-state card; mobile differs by 5 pixels.
+Offline reload fails. Packaging cases remain open.
 
 The Hub candidate now covers offline billing catalog and conservative
 provisioning rules, invitation authority, lifecycle, expiry, email rendering,
 and bounded Resend packet delivery,
 plus organization-scoped API-key generation, concealment, scope authorization,
 monotonic last-use timestamps, idempotent revocation timestamps, and restart.
+Active organization selection is membership-bound, packet-tested, restart-safe,
+and compatible with old single-membership snapshots.
 Pinned Hub baseline
 capture passes 29 of 29 tests across embedded persistence, setup, pricing,
-catalog, and provisioning. API-key and invitation relational races pass against
-disposable PostgreSQL. PGlite, complete baseline relational schema, invitation
+catalog, and provisioning. API-key, invitation, and active-session relational
+paths pass against disposable PostgreSQL. PGlite, complete baseline relational schema, invitation
 entitlement races and live provider acceptance, remaining relational tables, Stripe operations, and full
 HTTP differentials remain
 open, so no Hub implementation tool is selected.
