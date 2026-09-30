@@ -1,6 +1,6 @@
 //! Contract pilot for Hub authority, daemon registration, and durable restart behavior.
 //!
-//! This crate intentionally does not implement `PGlite` or `PostgreSQL` semantics.
+//! The embedded SQL pilot uses `SQLite` and names its gaps from `PGlite` and `PostgreSQL`.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -20,6 +20,7 @@ mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
 mod email_delivery;
+mod embedded_sql;
 pub mod http;
 mod invitations;
 mod relational_api_keys;
@@ -31,6 +32,7 @@ pub use account_emails::{
 };
 pub use api_keys::{ApiKeyAccess, ApiKeyAuthorization, ApiKeyScope, ApiKeySummary, CreatedApiKey};
 pub use email_delivery::{ResendConfig, ResendEmailDelivery};
+pub use embedded_sql::EmbeddedSqlStore;
 pub use invitations::{
     InvitationEmail, InvitationEmailMessage, InvitationRole, InvitationSummary,
     render_invitation_email,
@@ -145,6 +147,7 @@ pub struct DaemonSession {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StoreSemantics {
     SingleProcessFileSnapshot,
+    EmbeddedSqlTransactionalSnapshot,
     PostgreSqlTransactionalSnapshot,
 }
 
@@ -1297,6 +1300,9 @@ const fn default_true() -> bool {
 pub enum StoreError {
     Io(std::io::Error),
     Postgres(postgres::Error),
+    Sqlite(rusqlite::Error),
+    EmbeddedDirectoryInUse(PathBuf),
+    TransactionAborted,
     Poisoned,
 }
 
@@ -1312,12 +1318,25 @@ impl From<postgres::Error> for StoreError {
     }
 }
 
+impl From<rusqlite::Error> for StoreError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Sqlite(error)
+    }
+}
+
 impl fmt::Display for StoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => error.fmt(formatter),
             Self::Postgres(error) => error.fmt(formatter),
-            Self::Poisoned => formatter.write_str("PostgreSQL client lock poisoned"),
+            Self::Sqlite(error) => error.fmt(formatter),
+            Self::EmbeddedDirectoryInUse(path) => write!(
+                formatter,
+                "embedded database directory is already in use: {}",
+                path.display()
+            ),
+            Self::TransactionAborted => formatter.write_str("embedded transaction aborted"),
+            Self::Poisoned => formatter.write_str("database client lock poisoned"),
         }
     }
 }
