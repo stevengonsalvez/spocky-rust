@@ -10,7 +10,10 @@ log_file="$raw_dir/hub-runtime-original.log"
 install_log="$raw_dir/hub-runtime-npm-ci.log"
 runtime_tests='src/db/runtime/embedded-persistence.integration.test.ts
 src/index.embedded.integration.test.ts
-src/instance-setup/environment-bootstrap.integration.test.ts'
+src/instance-setup/environment-bootstrap.integration.test.ts
+src/billing/plan-prices.test.ts
+src/billing/public-catalog.test.ts
+src/billing/provisioning-entitlement.test.ts'
 
 actual_baseline=$(git -C "$baseline_root" rev-parse HEAD)
 if [ "$actual_baseline" != "$expected_baseline" ]; then
@@ -82,6 +85,9 @@ set +e
     src/db/runtime/embedded-persistence.integration.test.ts \
     src/index.embedded.integration.test.ts \
     src/instance-setup/environment-bootstrap.integration.test.ts \
+    src/billing/plan-prices.test.ts \
+    src/billing/public-catalog.test.ts \
+    src/billing/provisioning-entitlement.test.ts \
     --bail=1 \
     --reporter=verbose \
     --reporter=json \
