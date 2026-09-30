@@ -197,6 +197,7 @@ cargo test -p paseo-hub-pilot --test api_key_boundary
 cargo test -p paseo-hub-pilot --test billing_boundary
 cargo test -p paseo-hub-pilot --test invitation_boundary
 cargo test -p paseo-hub-pilot --test email_delivery
+cargo test -p paseo-hub-pilot --test account_email_payload
 cargo test -p paseo-hub-pilot --test relational_api_keys
 cargo test -p paseo-hub-pilot --test relational_invitations
 cargo test -p paseo-hub-pilot --test relational_sessions
@@ -274,7 +275,9 @@ The pinned and Rust recovery traces match after normalizing only the generated
 verification token, password-reset token, and session-cookie value. Statuses,
 error bodies, URL structure, callback redirects, cookie attributes, reset
 dispatch count, revoked-session body, password results, and replay code remain
-unnormalized. Exact rendered account email payloads remain open.
+unnormalized. The recovery outbox renders the pinned verification and reset
+subjects, text, escaped HTML, and SHA-256 idempotency-key shapes. One targeted
+payload test covers both messages, including all five escaped HTML characters.
 
 ## Remaining evidence blockers
 
@@ -291,7 +294,6 @@ unnormalized. Exact rendered account email payloads remain open.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation entitlement races, live provider acceptance, remaining Better Auth
-  validation errors, rendered account email payloads, and complete organization
-  HTTP traces remain open.
+  validation errors, and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
