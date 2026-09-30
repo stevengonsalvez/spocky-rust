@@ -2,9 +2,9 @@
 
 ## Decision
 
-`P2-HUB-01` remains blocked. `P2-HUB-02` now has a real loopback WebSocket pilot,
-but remains incomplete until the selected daemon and Hub runtimes own the
-outbound loop and receiving endpoint. The Rust candidate still uses a
+`P2-HUB-01` remains blocked. `P2-HUB-02` now has a real loopback WebSocket pilot
+for both outbound daemon and receiving Hub endpoints, but remains incomplete
+until selected production runtimes integrate them. The Rust candidate still uses a
 single-process JSON snapshot. It has bounded packet-level authentication HTTP
 and daemon WebSocket pilots, but no PGlite, baseline relational PostgreSQL
 schema, or production HTTP server. A PostgreSQL transactional snapshot pilot
@@ -91,10 +91,14 @@ disabled and stopped its exact PostgreSQL containers. No container remained.
 
 Runtime persistence failures close the candidate socket and surface from
 `HubDaemonRuntime::stop`; the pilot does not report durable success after a
-failed write. This is receiving-side Hub pilot code. It does not yet wire the
-production daemon's outbound relationship controller to a selected Hub server.
+failed write. `DaemonOutboundController` initiates the separate direct Hub path,
+negotiates `hello` and `server_info`, responds to session requests, reconnects
+after generation supersession, and stops after revocation. It does not use the
+relay path. This remains pilot code, not integration in a selected production
+daemon or Hub server.
 Lead verification repeated the fragmented upgrade and reconnect supersession
-tests 10 times each, then passed all seven socket tests and package clippy.
+tests 10 times each. The outbound controller test also passed 10 times, followed
+by all eight socket tests and package clippy.
 
 ## Reproduce
 
@@ -151,7 +155,7 @@ times by construction.
   are candidate-only evidence.
 - Original-versus-Rust HTTP status, body, cookie, and database state differential
   traces do not exist. Candidate-only packet behavior is covered.
-- Production daemon outbound-loop integration and selected Hub endpoint wiring
-  do not exist. The loopback pilot covers their relationship contracts.
+- Selected production daemon and Hub integration does not exist. The loopback
+  pilot covers both sides of their direct relationship contract.
 - Account, organization, invitation, API key, and concealment parity is not
   demonstrated by the Rust candidate.
