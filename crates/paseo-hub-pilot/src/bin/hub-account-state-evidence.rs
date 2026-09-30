@@ -81,12 +81,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(json!({ "email": "member@example.test", "role": "member" })),
     ));
     require_status(invitation.status, 201)?;
+    let canceled_invitation = service.handle(&request(
+        "POST",
+        "/api/auth/paseo/create-invitation",
+        Some(cookie),
+        Some(json!({ "email": "cancel@example.test", "role": "admin" })),
+    ));
+    require_status(canceled_invitation.status, 201)?;
+    let canceled = service.handle(&request(
+        "POST",
+        "/api/auth/paseo/cancel-invitation",
+        Some(cookie),
+        Some(json!({ "invitationId": "invitation-2" })),
+    ));
+    require_status(canceled.status, 200)?;
+    let canceled_body: Value = serde_json::from_slice(&canceled.body)?;
     let active = state(&mut service, Some(cookie))?;
 
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "schemaVersion": 1,
+            "operations": {
+                "createInvitationStatus": invitation.status,
+                "cancelInvitationStatus": canceled.status,
+                "cancelInvitationBody": canceled_body
+            },
             "states": {
                 "signedOut": signed_out,
                 "passwordChangeRequired": password_change_required,

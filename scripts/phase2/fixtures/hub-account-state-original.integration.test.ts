@@ -78,11 +78,38 @@ it("captures the pinned browser account state sequence", async () => {
     }),
   );
   assert.equal(invitation.status, 201);
+  const canceledInvitation = await runtime.auth(
+    new Request(`${APP_URL}/api/auth/paseo/create-invitation`, {
+      method: "POST",
+      headers: { cookie, origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify({ email: "cancel@example.test", role: "admin" }),
+    }),
+  );
+  assert.equal(canceledInvitation.status, 201);
+  const canceledInvitationBody = (await canceledInvitation.json()) as { id: string };
+  const canceled = await runtime.auth(
+    new Request(`${APP_URL}/api/auth/paseo/cancel-invitation`, {
+      method: "POST",
+      headers: { cookie, origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify({ invitationId: canceledInvitationBody.id }),
+    }),
+  );
+  assert.equal(canceled.status, 200);
+  const canceledBody = await canceled.json();
   states["active"] = await readState(runtime, cookie);
 
   await writeFile(
     output,
-    `${JSON.stringify({ schemaVersion: 1, baseline: process.env["PASEO_HUB_BASELINE"], states }, null, 2)}\n`,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      baseline: process.env["PASEO_HUB_BASELINE"],
+      operations: {
+        createInvitationStatus: invitation.status,
+        cancelInvitationStatus: canceled.status,
+        cancelInvitationBody: canceledBody,
+      },
+      states,
+    }, null, 2)}\n`,
   );
 });
 
