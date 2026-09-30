@@ -89,25 +89,30 @@ The invitation pilot passes six targeted tests covering owner/member authority,
 email normalization, one live credential per organization and email, manager-only
 listing, flag and seat-cap denial, current-member rejection, cancel and replacement,
 email-bound acceptance, one-shot replay rejection, membership creation, and snapshot
-restart. It preserves the first pending role when a reinvite reuses a credential.
+restart. Packet-level signup and acceptance preserve the invited display name,
+select the accepted organization, and omit manager invitations from member state.
+It preserves the first pending role when a reinvite reuses a credential.
 A fixed-clock restart proves exact-expiry rejection, seat release, and replacement.
 Its rendered email matches baseline text, HTML escaping, subject, destination, and
 idempotency-key shapes. Relational invitation creation and acceptance races now
 pass against disposable PostgreSQL: concurrent creation reuses one live
-credential, concurrent replay accepts once, and one membership remains. HTTP
-accept HTTP response shapes, external mail delivery behavior, and
+credential, concurrent replay accepts once, and one membership remains. External
+mail delivery behavior and
 entitlement races remain open. The create-invitation packet path and active
 account-state selection now have pinned differential evidence. Cancellation
 also matches the pinned 200 status, `{canceled:true}` body, and final-state removal.
+Invitation signup and acceptance match pinned 200 statuses, organization response,
+invited-member state, owner team state, and consumed-invitation removal.
 
-The pinned and Rust runtimes now produce matching four-state browser account
+The pinned and Rust runtimes now produce matching six-state browser account
 payloads. The comparison preserves both raw documents and normalizes generated
-account, organization, membership, invitation, organization-slug, invitation-link,
-and invitation-expiry values. All status, registration, account, organization,
-role, capability, operator, creation, member, and pending-invitation semantic
-values match. Candidate packet evidence also matches the pinned 201 creation
-status. This does not cover invited-user admission, multi-membership selection,
-cookies, or database mutations across the complete auth API.
+identity-preserving account, organization, membership, invitation,
+organization-slug, invitation-link, and invitation-expiry values. All status,
+registration, account, organization, role, capability, operator, creation,
+member, and invitation semantic values match. Candidate packet evidence also
+matches pinned creation, cancellation, signup, and acceptance statuses and
+bodies. This does not cover admission error cases, multi-membership selection,
+or database mutations across the complete auth API.
 
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
@@ -217,12 +222,12 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,560 | `8c317c286e00311813633ccf077e19ab60f1dad14bc55fb2d2d2160d7fdd4da0` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,635 | `3ab2374a96e7ea91ca4dccfdf43feb1a88e58c7e89e98d8475d30317ea0c1afe` |
-| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `68514755e3e70aa5be0bbef7372ba2066f5924d09410849f48da5b90350f84da` |
-| `evidence/raw/phase2/hub-account-state-original.json` | 2,978 | `de52bda7298ec1688a9dcd592c6e5517f93c26d3f1c1eb5c6388375a52ebf0d3` |
-| `evidence/raw/phase2/hub-account-state-rust.json` | 2,711 | `51c716f0c7faf47e2663d0d3e1907974977f3b8abdaf23bd35c012a2e2b7096a` |
-| `evidence/raw/phase2/hub-account-state-comparison.json` | 5,940 | `920f15abbeb0e710502c94dc77c369e563d4eecc48fbdb85c803639bd7ed9013` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,570 | `586e62eda2cd34086b1de577c149207c367e44228a73f53baf9ba991c2d2d380` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `909affb53bc34f87bd8e3ddb420f593ffdd8d829a4996ae031b7dd612ee3a631` |
+| `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `238d7cdcf27a6394e287cfcda895e60c22feebbf44763a7a32f04b252af77f28` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 6,241 | `0afadc5d795fdf8a1d8cbd1eaf07640ea2ae69ce8640bda3909d55ef422d2754` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 5,803 | `2e33525089c5d34cf7b531406ca74cb9d5355fae35c6b98fe68b5c78b201a330` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 12,396 | `9d42c4e6993c28e6868ef91a9865c4666110551202e663d248a1c600f4960fd1` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -232,8 +237,9 @@ Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
 
 No normalization is applied to the runtime test report. Original JSON contains
 wall-clock start times, durations, and disposable paths. The account-state
-comparison normalizes generated identifiers, slug, invitation link, and expiry
-only; both raw payloads and hashes remain available.
+comparison normalizes generated identifiers while preserving owner and invited
+identities, plus slug, invitation link, and expiry only. Both raw payloads and
+hashes remain available.
 
 ## Remaining evidence blockers
 
@@ -243,12 +249,13 @@ only; both raw payloads and hashes remain available.
   PostgreSQL differential results do not exist. API-key, invitation, and active-
   session subsets have relational evidence; remaining tables still use
   candidate-only snapshot evidence.
-- Original-versus-Rust account-state bodies match for the four bootstrap states,
-  including one pending team invitation. Broader cookie, admission,
-  multi-organization, and database-state differential traces do not exist.
+- Original-versus-Rust account-state bodies match for six bootstrap and invitation
+  states, including pending, accepted, invited-member, and owner-team views.
+  Admission errors, multi-organization, and database-state differential traces
+  do not exist.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation entitlement races, live provider acceptance, accept packet traces,
+- Invitation entitlement races, live provider acceptance, admission error traces,
   and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
