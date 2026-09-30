@@ -1,0 +1,10 @@
+#!/bin/sh
+# version=1.2.0
+set -eu
+printf 'paseo-version=1.2.0\n'
+printf 'argv=%s\n' "$*"
+printf 'appimage=%s\n' "${APPIMAGE:-}"
+if [ -n "${PASEO_HOME:-}" ] && [ -f "$PASEO_HOME/delivery-state.txt" ]; then
+  cat "$PASEO_HOME/delivery-state.txt"
+fi
+# tampered

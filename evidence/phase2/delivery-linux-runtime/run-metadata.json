@@ -1,0 +1,11 @@
+{
+  "baseline": "paseo@5de45e208690b0efc51c59a585ae9729325a9204",
+  "image": "rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55",
+  "container": "spocky-delivery-linux-1790812637-6056",
+  "command": "gtimeout --kill-after=30 1500 docker run --rm --name spocky-delivery-linux-1790812637-6056 --platform linux/amd64 <repo:/workspace:ro> <output:/output> rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 bash -c <cargo clippy; cargo test linux_delivery_runtime; cargo run spocky-linux-delivery-runtime; cargo test linux_delivery_dpkg --ignored>",
+  "timeoutSeconds": 1500,
+  "started": "2026-09-30T23:57:17Z",
+  "finished": "2026-09-30T23:58:40Z",
+  "exitStatus": 0,
+  "log": "container.log"
+}

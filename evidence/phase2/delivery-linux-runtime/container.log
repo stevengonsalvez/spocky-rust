@@ -1,0 +1,79 @@
+info: syncing channel updates for 1.94.0-x86_64-unknown-linux-gnu
+info: latest update on 2026-03-05 for version 1.94.0 (4a4ef493e 2026-03-02)
+info: downloading 5 components
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+cargo 1.94.0 (85eff7c80 2026-01-15)
++ cargo clippy --locked -p spocky-audio-delivery-pilot --all-targets -- -D warnings
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded itoa v1.0.18
+  Downloaded quote v1.0.47
+  Downloaded serde_derive v1.0.229
+  Downloaded unicode-ident v1.0.26
+  Downloaded ryu v1.0.23
+  Downloaded serde_core v1.0.229
+  Downloaded serde v1.0.229
+  Downloaded memchr v2.8.3
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde_json v1.0.145
+  Downloaded syn v3.0.6
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.145
+    Checking itoa v1.0.18
+    Checking memchr v2.8.3
+    Checking ryu v1.0.23
+   Compiling syn v3.0.6
+   Compiling serde_derive v1.0.229
+    Checking spocky-audio-delivery-pilot v0.1.0 (/workspace/crates/spocky-audio-delivery-pilot)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.07s
++ cargo test --locked -p spocky-audio-delivery-pilot --test linux_delivery_runtime
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling ryu v1.0.23
+   Compiling itoa v1.0.18
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.145
+   Compiling spocky-audio-delivery-pilot v0.1.0 (/workspace/crates/spocky-audio-delivery-pilot)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.87s
+     Running tests/linux_delivery_runtime.rs (/tmp/spocky-target/debug/deps/linux_delivery_runtime-e7818cbce4d39ebe)
+
+running 8 tests
+test appimage_uninstall_retains_state_and_leaves_the_user_owned_cli_link_dangling ... ok
+test appimage_installs_links_cli_to_stable_path_and_launches_through_it ... ok
+test baseline_fixtures_are_pinned_by_digest ... ok
+test deb_lane_refuses_to_run_without_disposable_root_acknowledgement ... ok
+test deb_tree_carries_baseline_launcher_and_substituted_maintainer_scripts ... ok
+test corrupt_appimage_update_is_rejected_without_changing_install_or_state ... ok
+test appimage_update_and_rollback_keep_path_link_and_inode_reachability ... ok
+test appimage_lifecycle_report_records_real_execution_for_every_operation ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
++ cargo run --locked -p spocky-audio-delivery-pilot --bin spocky-linux-delivery-runtime -- /output/run /tmp/spocky-delivery-work
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running `/tmp/spocky-target/debug/spocky-linux-delivery-runtime /output/run /tmp/spocky-delivery-work`
+linux delivery report: /output/run/linux-delivery-report.json
++ cargo test --locked -p spocky-audio-delivery-pilot --test linux_delivery_dpkg -- --ignored
+   Compiling spocky-audio-delivery-pilot v0.1.0 (/workspace/crates/spocky-audio-delivery-pilot)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.11s
+     Running tests/linux_delivery_dpkg.rs (/tmp/spocky-target/debug/deps/linux_delivery_dpkg-42739cdacb1f3897)
+
+running 1 test
+test dpkg_lifecycle_matches_baseline_layout_rejection_and_state_retention ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.34s
+
++ set +x
+e81f3644a06089dbed8835d8f6b0745914b0c517b67b0b407c4d8a691e7a5179  run/linux-delivery-report.json
+5f1fd1a29d10ccc37bb735fd51521bdd31adf2bb5071664181c956819a58c4fc  run/packages/1.0.0-Paseo-x64.AppImage
+5a7867718db62595dcb49e99fe1ed425c39d1eab731a9bfe63833df3e0d494dd  run/packages/1.1.0-Paseo-x64.AppImage
+66763e19095461a49ed0cfa9300de2d6e943cf6be1f9892daf5156a866280573  run/packages/1.2.0-Paseo-x64.AppImage
+e1f608a7e6e593b9f5b659490cf76615360bf8e21fbbf999dc7dc11941995932  run/packages/paseo_1.0.0_amd64.deb
+9311edebfb409976331580f5979862319ad3e8a7b5c5ea2fd12d889de0d52706  run/packages/paseo_1.1.0_amd64.deb
+4b1d9c743e2a567702d29874295ecf4e5f26a250a93e578dfb98ac5f7e5de982  run/packages/paseo_1.2.0_amd64.deb
+670fecf34fc56888d4efc1b25de2d5ece3bf44b636cbb22114ff451f1b49e0c1  run/packages/paseo_1.2.0_corrupt.deb
+LINUX_DELIVERY_OK

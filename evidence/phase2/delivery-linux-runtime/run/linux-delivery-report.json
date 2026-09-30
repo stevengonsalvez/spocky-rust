@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "contractId": "P2-DELIVERY-01",
+  "baseline": "paseo@5de45e208690b0efc51c59a585ae9729325a9204",
+  "host": {
+    "dpkg": "Debian 'dpkg' package management program version 1.21.22 (amd64).",
+    "kernel": "Linux 6.8.0-64-generic x86_64",
+    "osRelease": "Debian GNU/Linux 12 (bookworm)",
+    "setpriv": "setpriv from util-linux 2.38.1"
+  },
+  "baselineFixtures": {
+    "after-install.tpl": "sha512:d5449597197f9c9c68a6d17df421116fa5806ebc3891bacf451eadb809277ec1b3e3f5c5b807bc6505ec57e16ed63a945bc00dd53e4a35e3fec159941f23205e",
+    "after-remove.tpl": "sha512:b64d1b9deeb16b50470155d8299cf189294b39b3a47f2530a3cf38db0a017024658fa3c168f49714a35579c3fefa2b4314638bc39433a176183df88cd939b3b7",
+    "launcher.sh": "sha512:b967b4f77d85fc84f1036fef6ff136030b3d124a36c80380d7f124a2303b27a7f90db0e7af9fe1e34a42c0b1e659e1b9c5c4c6d4a6cf8337555c90e5aa865808"
+  },
+  "appimageCorruptUpdatePreservedInstall": true,
+  "debCorruptUpdatePreservedInstall": true,
+  "steps": [
+    {
+      "lane": "appimage",
+      "operation": "install_launch",
+      "outcome": "supported",
+      "command": null,
+      "exitCode": null,
+      "output": "paseo-version=1.0.0\nargv=launch\nappimage=/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage\nagent-state-a",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:ce0beaf907566adb610dc44247c60bca9174253ac61fc418f131f21136bbfa7823d65cd980273f8f8aaa86a70cb777a6e9518a88b0da3ba50b22b920a6155e8f",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "cliLinkResolves": "true",
+        "cliLinkTarget": "/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage",
+        "retainedVersion": "none"
+      }
+    },
+    {
+      "lane": "appimage",
+      "operation": "corrupt_update_rejected",
+      "outcome": "update size mismatch",
+      "command": null,
+      "exitCode": null,
+      "output": "paseo-version=1.0.0\nargv=launch\nappimage=/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage\nagent-state-a",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:ce0beaf907566adb610dc44247c60bca9174253ac61fc418f131f21136bbfa7823d65cd980273f8f8aaa86a70cb777a6e9518a88b0da3ba50b22b920a6155e8f",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "cliLinkResolves": "true",
+        "cliLinkTarget": "/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage",
+        "retainedVersion": "none"
+      }
+    },
+    {
+      "lane": "appimage",
+      "operation": "valid_update_launch",
+      "outcome": "supported",
+      "command": null,
+      "exitCode": null,
+      "output": "paseo-version=1.1.0\nargv=launch\nappimage=/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage\nagent-state-a",
+      "activeVersion": "1.1.0",
+      "executableDigest": "sha512:90a6688ba74a8c4b168b09ef2830e0753cc261b132c1c066d31c08752f322bd5627cdd9e3e51b0a47bc4813f45530dba8889e2ee7b91a678192a97b6837398ec",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "cliLinkResolves": "true",
+        "cliLinkTarget": "/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage",
+        "retainedVersion": "1.0.0"
+      }
+    },
+    {
+      "lane": "appimage",
+      "operation": "rollback_launch",
+      "outcome": "supported",
+      "command": null,
+      "exitCode": null,
+      "output": "paseo-version=1.0.0\nargv=launch\nappimage=/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage\nagent-state-a",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:ce0beaf907566adb610dc44247c60bca9174253ac61fc418f131f21136bbfa7823d65cd980273f8f8aaa86a70cb777a6e9518a88b0da3ba50b22b920a6155e8f",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "cliLinkResolves": "true",
+        "cliLinkTarget": "/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage",
+        "retainedVersion": "1.1.0"
+      }
+    },
+    {
+      "lane": "appimage",
+      "operation": "uninstall_retain_state",
+      "outcome": "supported",
+      "command": null,
+      "exitCode": null,
+      "output": null,
+      "activeVersion": null,
+      "executableDigest": null,
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "cliLinkResolves": "false",
+        "cliLinkTarget": "/tmp/spocky-delivery-work/appimage-install/Paseo-x64.AppImage",
+        "retainedVersion": "none"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "install",
+      "outcome": "supported",
+      "command": [
+        "dpkg",
+        "-i",
+        "/tmp/spocky-delivery-work/deb-packages/paseo_1.0.0_amd64.deb"
+      ],
+      "exitCode": 0,
+      "output": "Selecting previously unselected package paseo.\n(Reading database ... 23258 files and directories currently installed.)\nPreparing to unpack .../paseo_1.0.0_amd64.deb ...\nUnpacking paseo (1.0.0) ...\nSetting up paseo (1.0.0) ...\nupdate-alternatives: using /opt/Paseo/Paseo to provide /usr/bin/Paseo (Paseo) in auto mode",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "install_launch",
+      "outcome": "supported",
+      "command": [
+        "env",
+        "-i",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME=/home/spocky-delivery",
+        "PASEO_HOME=/home/spocky-delivery/.paseo",
+        "/usr/bin/setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "/usr/bin/Paseo",
+        "launch"
+      ],
+      "exitCode": 0,
+      "output": "paseo-version=1.0.0\nargv=launch\nagent-state-a\n[stderr] [linux-sandbox] enabled: root-owned SUID helper available",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "launcherSandbox": "[linux-sandbox] enabled: root-owned SUID helper available",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "corrupt_update_rejected",
+      "outcome": "rejected",
+      "command": [
+        "dpkg",
+        "-i",
+        "/tmp/spocky-delivery-work/deb-packages/paseo_1.2.0_corrupt.deb"
+      ],
+      "exitCode": 1,
+      "output": "[stderr] dpkg-deb (subprocess): cannot copy archive member from '/tmp/spocky-delivery-work/deb-packages/paseo_1.2.0_corrupt.deb' to decompressor pipe: unexpected end of file or stream\ndpkg-deb (subprocess): decompressing archive '/tmp/spocky-delivery-work/deb-packages/paseo_1.2.0_corrupt.deb' (size=1572) member 'control.tar': lzma error: internal error (bug)\ntar: This does not look like a tar archive\ntar: Exiting with failure status due to previous errors\ndpkg-deb: error: tar subprocess returned error exit status 2\ndpkg: error processing archive /tmp/spocky-delivery-work/deb-packages/paseo_1.2.0_corrupt.deb (--install):\n dpkg-deb --control subprocess returned error exit status 2\nErrors were encountered while processing:\n /tmp/spocky-delivery-work/deb-packages/paseo_1.2.0_corrupt.deb",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "corrupt_update_launch",
+      "outcome": "supported",
+      "command": [
+        "env",
+        "-i",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME=/home/spocky-delivery",
+        "PASEO_HOME=/home/spocky-delivery/.paseo",
+        "/usr/bin/setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "/usr/bin/Paseo",
+        "launch"
+      ],
+      "exitCode": 0,
+      "output": "paseo-version=1.0.0\nargv=launch\nagent-state-a\n[stderr] [linux-sandbox] enabled: root-owned SUID helper available",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "launcherSandbox": "[linux-sandbox] enabled: root-owned SUID helper available",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "valid_update",
+      "outcome": "supported",
+      "command": [
+        "dpkg",
+        "-i",
+        "/tmp/spocky-delivery-work/deb-packages/paseo_1.1.0_amd64.deb"
+      ],
+      "exitCode": 0,
+      "output": "(Reading database ... 23266 files and directories currently installed.)\nPreparing to unpack .../paseo_1.1.0_amd64.deb ...\nUnpacking paseo (1.1.0) over (1.0.0) ...\nSetting up paseo (1.1.0) ...",
+      "activeVersion": "1.1.0",
+      "executableDigest": "sha512:6ad99c0ba592426490e6738228b9b39e00d33d03312e840fda7478bf63924a19f372e2f46cf09305e84e2902398545f5aaa6696f978a2140b001af46bfaebcfd",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.1.0",
+        "installPrefixPresent": "true",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "valid_update_launch",
+      "outcome": "supported",
+      "command": [
+        "env",
+        "-i",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME=/home/spocky-delivery",
+        "PASEO_HOME=/home/spocky-delivery/.paseo",
+        "/usr/bin/setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "/usr/bin/Paseo",
+        "launch"
+      ],
+      "exitCode": 0,
+      "output": "paseo-version=1.1.0\nargv=launch\nagent-state-a\n[stderr] [linux-sandbox] enabled: root-owned SUID helper available",
+      "activeVersion": "1.1.0",
+      "executableDigest": "sha512:6ad99c0ba592426490e6738228b9b39e00d33d03312e840fda7478bf63924a19f372e2f46cf09305e84e2902398545f5aaa6696f978a2140b001af46bfaebcfd",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.1.0",
+        "installPrefixPresent": "true",
+        "launcherSandbox": "[linux-sandbox] enabled: root-owned SUID helper available",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "rollback_by_reinstall",
+      "outcome": "supported",
+      "command": [
+        "dpkg",
+        "-i",
+        "/tmp/spocky-delivery-work/deb-packages/paseo_1.0.0_amd64.deb"
+      ],
+      "exitCode": 0,
+      "output": "(Reading database ... 23266 files and directories currently installed.)\nPreparing to unpack .../paseo_1.0.0_amd64.deb ...\nUnpacking paseo (1.0.0) over (1.1.0) ...\nSetting up paseo (1.0.0) ...\n[stderr] dpkg: warning: downgrading paseo from 1.1.0 to 1.0.0",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "rollback_launch",
+      "outcome": "supported",
+      "command": [
+        "env",
+        "-i",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME=/home/spocky-delivery",
+        "PASEO_HOME=/home/spocky-delivery/.paseo",
+        "/usr/bin/setpriv",
+        "--reuid=1000",
+        "--regid=1000",
+        "--clear-groups",
+        "/usr/bin/Paseo",
+        "launch"
+      ],
+      "exitCode": 0,
+      "output": "paseo-version=1.0.0\nargv=launch\nagent-state-a\n[stderr] [linux-sandbox] enabled: root-owned SUID helper available",
+      "activeVersion": "1.0.0",
+      "executableDigest": "sha512:bf18c8a04d5d2cf22f1d8d0df6c541b74264c863b7710720afae478dd3dc55b56ffbd4fe4976a5d3711f73394180a9be187c4d2bb251c5af4fa6bd4a3ad54617",
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "/opt/Paseo/Paseo",
+        "chromeSandbox": "0:0:4755",
+        "dpkgStatus": "ii |1.0.0",
+        "installPrefixPresent": "true",
+        "launcherSandbox": "[linux-sandbox] enabled: root-owned SUID helper available",
+        "usrBinLink": "/etc/alternatives/Paseo",
+        "usrBinResolves": "true"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "remove_retain_state",
+      "outcome": "supported",
+      "command": [
+        "dpkg",
+        "-r",
+        "paseo"
+      ],
+      "exitCode": 0,
+      "output": "(Reading database ... 23266 files and directories currently installed.)\nRemoving paseo (1.0.0) ...\n[stderr] update-alternatives: warning: alternative /opt/Paseo/Paseo (part of link group Paseo) doesn't exist; removing from list of alternatives\nupdate-alternatives: warning: /etc/alternatives/Paseo is dangling; it will be updated with best choice",
+      "activeVersion": null,
+      "executableDigest": null,
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "absent",
+        "chromeSandbox": "absent",
+        "dpkgStatus": "rc |1.0.0",
+        "installPrefixPresent": "false",
+        "usrBinLink": "absent",
+        "usrBinResolves": "false"
+      }
+    },
+    {
+      "lane": "deb",
+      "operation": "purge_retain_state",
+      "outcome": "supported",
+      "command": [
+        "dpkg",
+        "-P",
+        "paseo"
+      ],
+      "exitCode": 0,
+      "output": "(Reading database ... 23258 files and directories currently installed.)\nPurging configuration files for paseo (1.0.0) ...",
+      "activeVersion": null,
+      "executableDigest": null,
+      "stateDigest": "sha512:19d8f93444c107c0f02214ffd454ecd4d8e9b981d16d6c0ddc77601b3ac72fa797180f0ae71e2b3427a63f5b01856f4a2a95248f6b6ee4a2d0065c0d7022a50c",
+      "observations": {
+        "alternativesLink": "absent",
+        "chromeSandbox": "absent",
+        "dpkgStatus": "not-installed",
+        "installPrefixPresent": "false",
+        "usrBinLink": "absent",
+        "usrBinResolves": "false"
+      }
+    }
+  ],
+  "limitations": [
+    "fixture_payloads_not_electron_builds",
+    "appimage_lane_uses_shell_fixture_not_squashfs_appimage",
+    "no_rpm_or_tar_gz_lane",
+    "no_apparmor_profile_or_user_namespace_enabled_launch",
+    "no_electron_updater_network_download_or_quit_and_install",
+    "no_rollout_admission_or_beta_channel",
+    "no_desktop_entry_mime_or_icon_registration",
+    "no_signing_or_repository_metadata",
+    "rollback_is_pilot_semantics_baseline_has_no_rollback"
+  ]
+}
