@@ -67,8 +67,10 @@ committed fixture emitted through the pinned TypeScript schemas.
 The process-envelope case covers every outer request and message variant in the
 pinned `plugin-process-protocol.ts` union. It roundtrips 15 host request shapes
 and 14 plugin message shapes, rejects unknown fields, and enforces the pinned
-nonempty identifier and positive version boundaries. Provider input and event
-payloads remain opaque JSON pending their separate schema port.
+nonempty identifier and positive version boundaries. Typed provider unions cover
+all 12 input and 19 event discriminants. Input extras are rejected, event extras
+are stripped, and top-level ID, limit, history, scope, restoration, and turn-state
+boundaries match the pinned schemas.
 
 Every Git, npm, and subprocess command has a deadline. The npm case cannot contact
 the network and cannot run package lifecycle scripts. Test fixtures and acquired
@@ -81,6 +83,7 @@ sources live in disposable temporary directories.
 - Rust manifest/client protocol: 2 passed, 0 failed
 - Rust acquisition/runtime: 9 passed, 0 failed, repeated twice
 - Rust process envelope: 2 passed, 0 failed
+- Rust provider payload protocol: 4 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
 - Failed reviewed update: prior revision, `rpc:review.v1`, and `tone=terse` survived restart
@@ -100,7 +103,8 @@ sources live in disposable temporary directories.
   Major outer request and message families have bounded process sequences,
   including fatal restart, hook cancellation, provider reconnect, and
   daemon-session frames, connection failure, and input rejection.
-- Provider input and event payload schemas remain opaque JSON values.
+- Nested provider config, prompt, permission, catalog, timeline, and error payload
+  schemas remain JSON values pending their detailed schema port.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
 - The Rust settings pilot covers the pinned boolean and integer schema used by
