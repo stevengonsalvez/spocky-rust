@@ -86,22 +86,41 @@ email-bound acceptance, one-shot replay rejection, membership creation, and snap
 restart. It preserves the first pending role when a reinvite reuses a credential.
 A fixed-clock restart proves exact-expiry rejection, seat release, and replacement.
 Its rendered email matches baseline text, HTML escaping, subject, destination, and
-idempotency-key shapes. It does not prove PostgreSQL locking races, HTTP response
-shapes, external mail delivery behavior, or active-session selection.
+idempotency-key shapes. Relational invitation creation and acceptance races now
+pass against disposable PostgreSQL: concurrent creation reuses one live
+credential, concurrent replay accepts once, and one membership remains. HTTP
+response shapes, external mail delivery behavior, entitlement races, and
+active-session selection remain open.
+
+The Resend delivery pilot passes two targeted tests. It preserves optional
+configuration, trimmed `re_` key validation, required sender validation, the
+official endpoint, a ten-second request bound, bearer and idempotency headers,
+and the exact JSON message shape. Loopback HTTP proves successful delivery and
+422 rejection without exposing the provider response body. No live Resend
+request is made; provider TLS and acceptance remain open.
 
 The billing pilot passes four targeted tests covering active public plans, Free
 and paid presentation values, inactive-plan filtering, exact price lookup keys,
 ambiguity rejection, and conservative Free entitlement fallback. It makes no
 Stripe request and does not claim webhook, checkout, subscription, seat-report,
 or portal parity. API-key relational transaction serialization and revocation
-races remain database-layer gaps.
+races now pass against disposable PostgreSQL. The candidate uses the pinned
+table columns, constraints, unique prefix, organization ordering index, and
+timestamp behavior. Revoked-first issuance is rejected; issued-first tokens are
+expired by revocation.
 
 ## Rust PostgreSQL pilot
 
 The candidate opens real PostgreSQL 17 storage, creates a namespaced snapshot
 table, serializes same-key writes with `pg_advisory_xact_lock`, and commits each
-write transactionally. A disposable `postgres:17-alpine` runtime proves restart
-state plus two concurrent writers and observes revision 2 after both commits.
+write transactionally. A separate relational API-key path uses the pinned table
+contract, per-key transaction advisory locks, row locks, and token invalidation.
+A relational invitation path uses the pinned member and invitation tables,
+partial unique index, organization and invitation transaction locks, row locks,
+normalized identity binding, and one-shot status transition.
+A disposable `postgres:17-alpine` runtime proves restart state, two concurrent
+snapshot writers, both API-key revocation orderings, one concurrent invitation
+credential, and one concurrent invitation acceptance.
 
 The container runs inside an exact named tmux session, binds a random loopback
 port, and is stopped by exact container and session names. No container or tmux
@@ -146,6 +165,9 @@ cargo test -p paseo-hub-pilot --test http_runtime -- --nocapture
 cargo test -p paseo-hub-pilot --test api_key_boundary
 cargo test -p paseo-hub-pilot --test billing_boundary
 cargo test -p paseo-hub-pilot --test invitation_boundary
+cargo test -p paseo-hub-pilot --test email_delivery
+cargo test -p paseo-hub-pilot --test relational_api_keys
+cargo test -p paseo-hub-pilot --test relational_invitations
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
@@ -175,8 +197,8 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-runtime-original.log` | 7,337 | `ba186c296b99ea776ea92ce8540dc8ebd472b74bc020fe7c0c2b4e40afa975a0` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `526d5bbfe377223199d1f68f7fc2da029677bdcc45e43f26a0e7061d538ff69a` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
-| `evidence/raw/phase2/hub-postgres-runtime.log` | 4,059 | `c6d5c6a538c290920719dd3ab522414a27d0f78c95ef912fa460530ac878a8bf` |
-| `evidence/raw/phase2/hub-postgres-test.log` | 344 | `c9a0d55fbd4d596ea5368d552234049480db9315b1796893cbc401be0bc11a41` |
+| `evidence/raw/phase2/hub-postgres-runtime.log` | 4,060 | `b03c35cf3e8ecb2d2af89d177eb6a2fd82285c02997b3cb0fbf096f79253a690` |
+| `evidence/raw/phase2/hub-postgres-test.log` | 1,176 | `d629596bd61f306892d09ef2d0a4bd6ee173f0b89887d9e5323d7f6467b35cc0` |
 
 Host: macOS Darwin 24.6.0 x86_64, Rust 1.94.0, Cargo 1.94.0,
 Node 26.7.0, npm 11.19.0, Docker client 29.1.3, Docker server 28.4.0.
@@ -189,15 +211,15 @@ times by construction.
 
 - Candidate PGlite storage, migrations, lock behavior, crash recovery, and old
   database fixtures do not exist.
-- Candidate baseline-schema PostgreSQL behavior and embedded-versus-PostgreSQL
-  differential results do not exist. Snapshot transactions and advisory locking
-  are candidate-only evidence.
+- Candidate complete baseline-schema PostgreSQL behavior and embedded-versus-
+  PostgreSQL differential results do not exist. API-key and invitation subsets
+  have relational evidence; remaining tables still use candidate-only snapshot
+  evidence.
 - Original-versus-Rust HTTP status, body, cookie, and database state differential
   traces do not exist. Candidate-only packet behavior is covered.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation PostgreSQL races, external mail delivery, HTTP traces, API-key
-  relational serialization and revocation races, and complete organization state
-  remain open.
+- Invitation entitlement races, live provider acceptance, HTTP traces, and
+  complete organization state remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
