@@ -556,10 +556,16 @@ lines.on("line", (line) => {
   if (message.type === "provider.catalog_key") send({ type: "result", requestId: message.requestId, output: "catalog-v1" });
   if (message.type === "hook.cancel") send({ type: "error", requestId: message.requestId, error: "cancelled" });
   if (message.type.startsWith("usage.")) send({ type: "result", requestId: message.requestId, output: message.type });
-  if (message.type === "provider.connect") send({ type: "provider.connected", connectionId: message.connectionId, version: 2, capabilities: ["sessions"] });
+  if (message.type === "provider.connect") {
+    if (message.connectionId === "connection-failed") send({ type: "provider.connect_failed", connectionId: message.connectionId, error: "unavailable" });
+    else send({ type: "provider.connected", connectionId: message.connectionId, version: 2, capabilities: ["sessions"] });
+  }
   if (message.type === "provider.send") {
-    send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
-    send({ type: "provider.event", connectionId: message.connectionId, event: { type: "sessions", sessions: [] } });
+    if (message.acceptanceId === "acceptance-rejected") send({ type: "provider.rejected", connectionId: message.connectionId, acceptanceId: message.acceptanceId, error: "denied" });
+    else {
+      send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
+      send({ type: "provider.event", connectionId: message.connectionId, event: { type: "sessions", sessions: [] } });
+    }
   }
   if (message.type === "provider.close") send({ type: "provider.closed", connectionId: message.connectionId });
   if (message.type === "paseo_frame") send(message);
@@ -673,6 +679,28 @@ lines.on("line", (line) => {
             connection_id: "connection-1".into(),
             version: 2,
             capabilities: vec!["sessions".into()],
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderConnect {
+            provider_id: "codex".into(),
+            connection_id: "connection-failed".into(),
+            request: ProviderConnectRequest {
+                versions: vec![1, 2],
+                capabilities: vec!["sessions".into()],
+            },
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderConnectFailed {
+            connection_id: "connection-failed".into(),
+            error: "unavailable".into(),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderSend {
+            connection_id: "connection-1".into(),
+            acceptance_id: "acceptance-rejected".into(),
+            input: json!({"type": "sessions"}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderRejected {
+            connection_id: "connection-1".into(),
+            acceptance_id: "acceptance-rejected".into(),
+            error: "denied".into(),
         }),
         RuntimeProtocolStep::Send(PluginProcessRequest::PaseoFrame {
             data: json!("frame"),
