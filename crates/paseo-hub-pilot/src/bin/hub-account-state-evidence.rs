@@ -74,6 +74,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(json!({})),
     ));
     require_status(completed.status, 200)?;
+    let invitation = service.handle(&request(
+        "POST",
+        "/api/auth/paseo/create-invitation",
+        Some(cookie),
+        Some(json!({ "email": "member@example.test", "role": "member" })),
+    ));
+    require_status(invitation.status, 201)?;
     let active = state(&mut service, Some(cookie))?;
 
     println!(

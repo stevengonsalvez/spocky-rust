@@ -8,7 +8,7 @@ rust="$raw_dir/hub-account-state-rust.json"
 comparison="$raw_dir/hub-account-state-comparison.json"
 
 if [ "${1:-}" = "--print-plan" ]; then
-  printf '%s\n' 'normalization: generated account, organization, membership, and slug identifiers only'
+  printf '%s\n' 'normalization: generated account, organization, membership, invitation, slug, link, and expiry values only'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-original.json'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-rust.json'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-comparison.json'
@@ -61,6 +61,11 @@ normalize='def generated_ids:
         | if has("membership") then .membership.id = "<membership-id>" else . end
         | if has("team") then
             .team.members |= map(.id = "<membership-id>" | .userId = "<account-id>")
+            | .team.invitations |= map(
+                .id = "<invitation-id>"
+                | .expiresAt = "<invitation-expiry>"
+                | .link = "<invitation-link>"
+              )
           else . end
       )
     );
@@ -84,7 +89,7 @@ jq -n \
   '{
     schemaVersion: 1,
     matched: $matched,
-    normalization: "generated account, organization, membership, and slug identifiers only",
+    normalization: "generated account, organization, membership, invitation, slug, link, and expiry values only",
     originalRawSha256: $originalSha256,
     rustRawSha256: $rustSha256,
     originalNormalized: $originalNormalized[0],

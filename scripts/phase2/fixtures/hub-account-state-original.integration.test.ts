@@ -70,6 +70,14 @@ it("captures the pinned browser account state sequence", async () => {
       headers: { cookie, origin: APP_URL },
     }),
   );
+  const invitation = await runtime.auth(
+    new Request(`${APP_URL}/api/auth/paseo/create-invitation`, {
+      method: "POST",
+      headers: { cookie, origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify({ email: "member@example.test", role: "member" }),
+    }),
+  );
+  assert.equal(invitation.status, 201);
   states["active"] = await readState(runtime, cookie);
 
   await writeFile(
