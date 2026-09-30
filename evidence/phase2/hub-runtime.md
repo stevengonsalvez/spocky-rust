@@ -203,6 +203,10 @@ cargo test -p paseo-hub-pilot --test relational_sessions
 gtimeout 120 cargo test -p paseo-hub-pilot --test daemon_socket_runtime -- --nocapture
 scripts/phase2/hub-postgres-runtime.sh
 scripts/phase2/hub-account-state-compare.sh
+sh scripts/phase2/hub-account-recovery-capture.test.sh
+scripts/phase2/hub-account-recovery-capture.sh
+sh scripts/phase2/hub-account-recovery-compare.test.sh
+scripts/phase2/hub-account-recovery-compare.sh
 cargo run --quiet -p paseo-hub-pilot --bin hub-runtime-evidence
 ```
 
@@ -232,6 +236,11 @@ Capture safety bounds:
 | `evidence/raw/phase2/hub-account-state-original.json` | 6,744 | `f6ba63031d3dfcbcc8bbeccba4a47c70f661ec31aec5ecb2894bd4807aa0ed6e` |
 | `evidence/raw/phase2/hub-account-state-rust.json` | 6,306 | `7857ba12ca25b155d3e002ea25b1259c0fc7c2abd68581870cbafbaf17f3b531` |
 | `evidence/raw/phase2/hub-account-state-comparison.json` | 13,498 | `2335a8d97477a6c1d5e2abf3b679bccaf2ebc2716db8021ac01da0a9ae8e6b57` |
+| `evidence/raw/phase2/hub-account-recovery-original.json` | 1,727 | `19a464fc6245cf845b43fe40639eba51f53a52c5c60df005fdee2d8ec99595e4` |
+| `evidence/raw/phase2/hub-account-recovery-original.log` | 787 | `5fa5b4b353b684b26cd97c0c6f77c65a45f5cfaea83412fd2a5278cd5eadfb25` |
+| `evidence/raw/phase2/hub-account-recovery-npm-ci.log` | 700 | `ab4e70f21eb1f9a983b556fd462aa3844730d679a7a2970da0416b107ad3fd4f` |
+| `evidence/raw/phase2/hub-account-recovery-rust.json` | 1,329 | `43c65e156bfdb6589afa93ba2d764d1c750143a4117aec3933edf2dc0c209846` |
+| `evidence/raw/phase2/hub-account-recovery-comparison.json` | 3,206 | `83dc601c661975aadf619ac69ff5d65c4c76fe9fb84ad5685c818c49cd81e222` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -259,8 +268,13 @@ session cookie, session lookup, enumeration-resistant reset requests, reset
 callback, session revocation, password replacement, and replay rejection. The
 verification callback also succeeds after the service restarts and loses its
 in-memory email capture. Invite-only registration remains the default, and its
-six HTTP regressions remain clean. Exact email payloads and an
-original-versus-Rust recovery trace remain open.
+six HTTP regressions remain clean.
+
+The pinned and Rust recovery traces match after normalizing only the generated
+verification token, password-reset token, and session-cookie value. Statuses,
+error bodies, URL structure, callback redirects, cookie attributes, reset
+dispatch count, revoked-session body, password results, and replay code remain
+unnormalized. Exact rendered account email payloads remain open.
 
 ## Remaining evidence blockers
 
@@ -277,7 +291,7 @@ original-versus-Rust recovery trace remain open.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
 - Invitation entitlement races, live provider acceptance, remaining Better Auth
-  validation errors, recovery differential evidence, and complete organization
+  validation errors, rendered account email payloads, and complete organization
   HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
