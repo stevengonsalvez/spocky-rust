@@ -15,6 +15,13 @@ use std::time::{Duration, Instant};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+mod settings;
+
+pub use settings::{
+    PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsState,
+    SettingsWriteState,
+};
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct PluginId(String);
 
