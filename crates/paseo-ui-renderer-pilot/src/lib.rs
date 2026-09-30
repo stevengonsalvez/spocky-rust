@@ -41,8 +41,8 @@ button, a { font: inherit; }
 .action:first-child .action-icon { color: #20744a; }
 .action-icon svg { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: 20px; }
-.action-detail { display: block; color: #777983; font-size: 14px; line-height: 18px; }
-.community { position: absolute; right: 0; bottom: 50px; left: 0; display: flex; justify-content: center; gap: 0; color: #72747d; font-size: 14px; }
+.action-detail { display: block; color: #71717a; font-size: 14px; line-height: 18px; }
+.community { position: absolute; right: 0; bottom: 50px; left: 0; display: flex; justify-content: center; gap: 0; color: #71717a; font-size: 14px; }
 .community a { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; color: inherit; text-decoration: none; }
 .community-icon, .community-icon svg { display: block; width: 14px; height: 14px; flex: none; }
 .community-icon-fill svg { fill: currentColor; }

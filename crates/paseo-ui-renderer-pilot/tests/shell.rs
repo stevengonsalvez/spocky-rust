@@ -46,6 +46,10 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("icon-history::before"));
     assert!(!first.contains("icon-project::before"));
     assert!(!first.contains("icon-settings::before"));
+    assert!(first.contains(".action-detail { display: block; color: #71717a;"));
+    assert!(first.contains("gap: 0; color: #71717a; font-size: 14px;"));
+    assert!(!first.contains("#777983"));
+    assert!(!first.contains("#72747d"));
 }
 
 #[test]
