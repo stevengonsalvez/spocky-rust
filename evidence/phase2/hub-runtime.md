@@ -75,12 +75,13 @@ does not prove baseline transaction boundaries.
 ## Rust direct daemon WebSocket pilot
 
 The candidate binds a random loopback port and accepts real WebSocket upgrades.
-Six tests cover SHA-256 verifier-only credential storage, standard protocol
+Seven tests cover SHA-256 verifier-only credential storage, standard protocol
 negotiation, the legacy no-hello path, hello/server_info permission agreement,
 reconnect, generation supersession, rejection of pending requests from the old
 generation, continued use of the replacement socket, current-socket-only
-offline persistence, restart state, invalid credentials, and revocation with
-close code 4403.
+offline persistence, restart state, invalid credentials, revocation with close
+code 4403, and a fragmented HTTP upgrade that waits for complete headers before
+application polling begins.
 
 The pinned original passed all 16 tests in `src/daemons/registry.test.ts` and
 four selected relationship tests in `src/daemons/daemons.test.ts`. The latter
@@ -92,6 +93,8 @@ Runtime persistence failures close the candidate socket and surface from
 `HubDaemonRuntime::stop`; the pilot does not report durable success after a
 failed write. This is receiving-side Hub pilot code. It does not yet wire the
 production daemon's outbound relationship controller to a selected Hub server.
+Lead verification repeated the fragmented upgrade and reconnect supersession
+tests 10 times each, then passed all seven socket tests and package clippy.
 
 ## Reproduce
 
