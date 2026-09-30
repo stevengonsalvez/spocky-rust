@@ -99,6 +99,7 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
     .reload({ waitUntil: "domcontentloaded", timeout: 120_000 })
     .then(() => true)
     .catch(() => false);
+  await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({
     path: path.join(screenshotDir, `${name}.png`),
     fullPage: true,
