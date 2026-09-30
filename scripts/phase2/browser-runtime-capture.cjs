@@ -19,12 +19,14 @@ if (process.argv[2] === "--validate-result") {
   process.exit(comparison.comparable ? 0 : 2);
 }
 
-const [baselineUrl, candidateUrl, outputPath, screenshotDir] = process.argv.slice(2);
-if (!baselineUrl || !candidateUrl || !outputPath || !screenshotDir) {
-  throw new Error("usage: browser-runtime-capture.cjs BASELINE_URL CANDIDATE_URL OUTPUT SCREENSHOTS");
+const [baselineUrl, candidateUrl, outputPath, screenshotDir, daemonPort] = process.argv.slice(2);
+if (!baselineUrl || !candidateUrl || !outputPath || !screenshotDir || !daemonPort) {
+  throw new Error(
+    "usage: browser-runtime-capture.cjs BASELINE_URL CANDIDATE_URL OUTPUT SCREENSHOTS DAEMON_PORT",
+  );
 }
 
-async function capture(browser, name, url, viewport, candidate) {
+async function capture(browser, name, url, viewport, candidate, baselineDaemonPort) {
   const context = await browser.newContext({
     viewport,
     reducedMotion: "reduce",
@@ -39,9 +41,34 @@ async function capture(browser, name, url, viewport, candidate) {
   await page.routeWebSocket(/:(6767)\b/, async (socket) => {
     await socket.close({ code: 1008, reason: "Blocked connection to port 6767 during parity capture." });
   });
-  await page.addInitScript(() => localStorage.clear());
+  await page.addInitScript(
+    ({ port }) => {
+      localStorage.clear();
+      if (!port) return;
+      const now = new Date(0).toISOString();
+      const endpoint = `127.0.0.1:${port}`;
+      const connection = { id: `direct:${endpoint}`, type: "directTcp", endpoint };
+      localStorage.setItem("@paseo:e2e", "1");
+      localStorage.setItem(
+        "@paseo:daemon-registry",
+        JSON.stringify([
+          {
+            serverId: "browser-baseline-daemon",
+            label: "isolated-baseline",
+            connections: [connection],
+            preferredConnectionId: connection.id,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]),
+      );
+    },
+    { port: baselineDaemonPort },
+  );
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120_000 });
-  await page.waitForTimeout(2_000);
+  await page
+    .waitForFunction(() => document.body.innerText.trim().length > 0, null, { timeout: 30_000 })
+    .catch(() => undefined);
 
   const keyboardFocus = [];
   for (let index = 0; index < 4; index += 1) {
@@ -103,7 +130,7 @@ async function capture(browser, name, url, viewport, candidate) {
     keyboardFocus,
     keyboardActivation,
     guestStartup: {
-      storageClearedBeforeNavigation: true,
+      isolatedDaemonSeededBeforeNavigation: Boolean(baselineDaemonPort),
       visibleText: visibleText.replace(/\s+/g, " ").trim().slice(0, 500),
     },
     runtimeBoundary: {
@@ -124,13 +151,15 @@ async function capture(browser, name, url, viewport, candidate) {
   const browser = await chromium.launch({ headless: true, executablePath });
   try {
     const captures = [];
-    for (const [name, url, viewport, candidate] of [
-      ["original-desktop", baselineUrl, { width: 1280, height: 800 }, false],
-      ["original-mobile", baselineUrl, { width: 390, height: 844 }, false],
-      ["candidate-desktop", candidateUrl, { width: 1280, height: 800 }, true],
-      ["candidate-mobile", candidateUrl, { width: 390, height: 844 }, true],
+    for (const [name, url, viewport, candidate, seededDaemonPort] of [
+      ["original-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort],
+      ["original-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort],
+      ["candidate-desktop", candidateUrl, { width: 1280, height: 800 }, true, null],
+      ["candidate-mobile", candidateUrl, { width: 390, height: 844 }, true, null],
     ]) {
-      captures.push(await capture(browser, name, url, viewport, candidate));
+      captures.push(
+        await capture(browser, name, url, viewport, candidate, seededDaemonPort),
+      );
     }
     const comparison = comparisonState(captures);
     const result = {
@@ -140,7 +169,7 @@ async function capture(browser, name, url, viewport, candidate) {
       captures,
       comparison,
       limitations: [
-        "Original capture is guest startup without a seeded daemon.",
+        "Original capture uses an isolated pinned daemon with an empty disposable home.",
         "Chromium does not exercise Electron webview guest APIs.",
         "Screenshots are observations, not pixel-parity acceptance.",
       ],

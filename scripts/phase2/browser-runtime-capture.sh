@@ -35,6 +35,7 @@ if [ "${1:-}" = "--print-plan" ]; then
     'prefers-reduced-motion: reduce' \
     'online reload and offline reload' \
     'guest startup and browser runtime boundary' \
+    'isolated pinned daemon on a random non-6767 port' \
     'exact named tmux sessions with bounded waits' \
     'evidence/raw/phase2/browser-runtime-comparison.json'
   exit 0
@@ -54,12 +55,16 @@ done
 capture_dir=$(mktemp -d /private/tmp/paseo-browser-runtime.XXXXXX)
 baseline_session="paseo-p2-browser-baseline-$$"
 candidate_session="paseo-p2-browser-candidate-$$"
+daemon_session="paseo-p2-browser-daemon-$$"
 cleanup() {
   if tmux has-session -t "$baseline_session" 2>/dev/null; then
     tmux kill-session -t "$baseline_session"
   fi
   if tmux has-session -t "$candidate_session" 2>/dev/null; then
     tmux kill-session -t "$candidate_session"
+  fi
+  if tmux has-session -t "$daemon_session" 2>/dev/null; then
+    tmux kill-session -t "$daemon_session"
   fi
   case "$capture_dir" in
     /private/tmp/paseo-browser-runtime.*) rm -rf "$capture_dir" ;;
@@ -70,7 +75,8 @@ trap cleanup EXIT HUP INT TERM
 
 baseline_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 candidate_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-if [ "$baseline_port" = 6767 ] || [ "$candidate_port" = 6767 ]; then
+daemon_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+if [ "$baseline_port" = 6767 ] || [ "$candidate_port" = 6767 ] || [ "$daemon_port" = 6767 ]; then
   printf 'random port allocator selected forbidden port 6767\n' >&2
   exit 1
 fi
@@ -90,6 +96,7 @@ fi
 (
   cd "$capture_dir/reference"
   PATH="$capture_dir/reference/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
+  gtimeout 900 npm run build:server
   gtimeout 900 npm run build:app-deps
 ) >"$raw_dir/browser-runtime-build.log" 2>&1
 
@@ -103,6 +110,11 @@ fi
 
 baseline_log="$raw_dir/browser-runtime-baseline-server.log"
 candidate_log="$raw_dir/browser-runtime-candidate-server.log"
+daemon_log="$raw_dir/browser-runtime-daemon.log"
+mkdir -p "$capture_dir/daemon-home"
+tmux new-session -d -s "$daemon_session" -n server
+tmux send-keys -t "$daemon_session:server" \
+  "cd '$capture_dir/reference/packages/server' && PASEO_HOME='$capture_dir/daemon-home' PASEO_SERVER_ID='browser-baseline-daemon' PASEO_LISTEN='127.0.0.1:$daemon_port' PASEO_CORS_ORIGINS='http://127.0.0.1:$baseline_port' PASEO_RELAY_ENABLED=0 PASEO_NODE_ENV=development NODE_ENV=development ../../node_modules/.bin/tsx scripts/supervisor-entrypoint.ts --dev 2>&1 | tee '$daemon_log'" C-m
 tmux new-session -d -s "$baseline_session" -n server
 tmux send-keys -t "$baseline_session:server" \
   "cd '$capture_dir/reference/packages/app' && BROWSER=none ../../node_modules/.bin/expo start --web --port '$baseline_port' 2>&1 | tee '$baseline_log'" C-m
@@ -125,6 +137,7 @@ wait_for_url() {
 }
 wait_for_url "http://127.0.0.1:$baseline_port/status" 'baseline Metro'
 wait_for_url "http://127.0.0.1:$candidate_port/" 'candidate server'
+wait_for_url "http://127.0.0.1:$daemon_port/api/health" 'isolated baseline daemon'
 gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
 
 (
@@ -133,7 +146,8 @@ gtimeout 300 curl --silent --fail "http://127.0.0.1:$baseline_port/" >/dev/null
     "http://127.0.0.1:$baseline_port/" \
     "http://127.0.0.1:$candidate_port/" \
     "$result_file" \
-    "$screenshot_dir"
+    "$screenshot_dir" \
+    "$daemon_port"
 ) >"$raw_dir/browser-runtime-capture.log" 2>&1
 
 printf 'Browser runtime comparison captured: %s\n' "$result_file"

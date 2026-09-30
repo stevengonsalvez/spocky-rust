@@ -18,6 +18,7 @@ printf '%s\n' "$plan" | grep -F 'keyboard focus order and activation'
 printf '%s\n' "$plan" | grep -F 'prefers-reduced-motion: reduce'
 printf '%s\n' "$plan" | grep -F 'online reload and offline reload'
 printf '%s\n' "$plan" | grep -F 'guest startup and browser runtime boundary'
+printf '%s\n' "$plan" | grep -F 'isolated pinned daemon on a random non-6767 port'
 printf '%s\n' "$plan" | grep -F 'exact named tmux sessions with bounded waits'
 printf '%s\n' "$plan" | grep -F 'evidence/raw/phase2/browser-runtime-comparison.json'
 
