@@ -337,6 +337,119 @@ lines.on("line", (line) => {
 }
 
 #[test]
+fn runtime_exchanges_messages_through_real_node_fork_ipc() {
+    let root = TestDir::new();
+    let package = root.path().join("package");
+    fs::create_dir_all(&package).expect("create package");
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@acme/ipc","version":"1.0.0","files":["paseo-plugin.json","index.server.ts"]}"#,
+    )
+    .expect("write package manifest");
+    fs::write(package.join("paseo-plugin.json"), r#"{"id":"ipc"}"#).expect("write plugin manifest");
+    fs::write(
+        package.join("index.server.ts"),
+        r#"process.on("message", (message) => {
+  if (message.type === "initialize") process.send({ type: "ready", methods: ["ipc.echo"], providers: [], usageSources: [], hooks: { events: [], before: [] } });
+  if (message.type === "invoke") process.send({ type: "result", requestId: message.requestId, output: { echoed: message.input, ipc: typeof process.send === "function" } });
+  if (message.type === "shutdown") process.exit(0);
+});
+"#,
+    )
+    .expect("write IPC runtime");
+    let archive_name = run(Command::new("npm")
+        .args(["pack", "--silent"])
+        .current_dir(&package));
+    let archive = package.join(archive_name.lines().last().expect("archive name"));
+    let acquired = acquire_npm_tarball(
+        &archive,
+        "@acme/ipc",
+        ".",
+        root.path().join("installation"),
+        Duration::from_secs(15),
+    )
+    .expect("acquire IPC plugin");
+
+    let loaded = acquired
+        .load_via_node_fork_and_invoke("ipc.echo", json!({"value": 7}), Duration::from_secs(5))
+        .expect("load through Node fork IPC");
+    assert_eq!(
+        loaded.invocation_output(),
+        Some(&json!({"echoed":{"value":7},"ipc":true}))
+    );
+    assert_eq!(
+        loaded.contributions(),
+        &[Contribution::Rpc("ipc.echo".into())]
+    );
+    assert_eq!(loaded.traffic().len(), 5);
+}
+
+#[cfg(unix)]
+#[test]
+fn timed_out_node_fork_ipc_reaps_the_plugin_child() {
+    let root = TestDir::new();
+    let package = root.path().join("package");
+    fs::create_dir_all(&package).expect("create package");
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@acme/ipc-hang","version":"1.0.0","files":["paseo-plugin.json","index.server.ts"]}"#,
+    )
+    .expect("write package manifest");
+    fs::write(package.join("paseo-plugin.json"), r#"{"id":"ipc-hang"}"#)
+        .expect("write plugin manifest");
+    fs::write(
+        package.join("index.server.ts"),
+        r#"const fs = require("node:fs");
+const path = require("node:path");
+process.on("message", (message) => {
+  if (message.type === "initialize") {
+    fs.writeFileSync(path.join(message.pluginDirectory, "ipc-child.pid"), String(process.pid));
+    process.send({ type: "ready", methods: ["ipc.hang"], providers: [], usageSources: [], hooks: { events: [], before: [] } });
+  }
+});
+"#,
+    )
+    .expect("write hanging IPC runtime");
+    let archive_name = run(Command::new("npm")
+        .args(["pack", "--silent"])
+        .current_dir(&package));
+    let archive = package.join(archive_name.lines().last().expect("archive name"));
+    let installation = root.path().join("installation");
+    let acquired = acquire_npm_tarball(
+        &archive,
+        "@acme/ipc-hang",
+        ".",
+        &installation,
+        Duration::from_secs(15),
+    )
+    .expect("acquire hanging IPC plugin");
+
+    assert!(matches!(
+        acquired.load_via_node_fork_and_invoke("ipc.hang", json!({}), Duration::from_secs(3),),
+        Err(paseo_plugin_pilot::PluginError::RuntimeTimedOut)
+    ));
+    let pid = fs::read_to_string(
+        installation
+            .join("node_modules")
+            .join("@acme")
+            .join("ipc-hang")
+            .join("ipc-child.pid"),
+    )
+    .expect("child pid")
+    .trim()
+    .to_owned();
+    assert!(
+        !Command::new("kill")
+            .args(["-0", &pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("probe child")
+            .success(),
+        "timed-out IPC child must be reaped"
+    );
+}
+
+#[test]
 fn runtime_exposes_all_ready_contributions_and_recovers_after_fatal_message() {
     let root = TestDir::new();
     let package = root.path().join("package");

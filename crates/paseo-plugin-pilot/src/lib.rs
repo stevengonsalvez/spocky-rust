@@ -380,6 +380,46 @@ pub struct AcquiredPlugin {
     revision: String,
 }
 
+#[derive(Clone, Copy)]
+enum RuntimeTransport {
+    Stdio,
+    NodeForkIpc,
+}
+
+const NODE_FORK_BRIDGE: &str = r#"
+const { fork } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const readline = require("node:readline");
+const entry = process.argv[1];
+const worker = path.join(os.tmpdir(), `paseo-plugin-ipc-${process.pid}.cjs`);
+fs.writeFileSync(worker, fs.readFileSync(entry));
+const child = fork(worker, [], {
+  cwd: path.dirname(entry),
+  serialization: "advanced",
+  stdio: ["ignore", "ignore", "inherit", "ipc"],
+});
+child.on("message", (message) => {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+});
+child.on("error", () => process.exit(1));
+child.on("exit", (code, signal) => {
+  try { fs.unlinkSync(worker); } catch {}
+  process.exit(code ?? (signal ? 1 : 0));
+});
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("close", () => {
+  if (!child.killed) child.kill("SIGKILL");
+});
+lines.on("line", (line) => {
+  if (!child.connected) process.exit(1);
+  child.send(JSON.parse(line), (error) => {
+    if (error) process.exit(1);
+  });
+});
+"#;
+
 impl AcquiredPlugin {
     #[must_use]
     pub const fn identity(&self) -> &PluginSourceIdentity {
@@ -392,7 +432,7 @@ impl AcquiredPlugin {
     }
 
     pub fn load(self, timeout: Duration) -> Result<LoadedPlugin, PluginError> {
-        self.load_inner(None, &[], timeout)
+        self.load_inner(None, &[], timeout, RuntimeTransport::Stdio)
     }
 
     pub fn load_and_invoke(
@@ -404,7 +444,24 @@ impl AcquiredPlugin {
         if method.is_empty() {
             return Err(PluginError::RuntimeProtocol);
         }
-        self.load_inner(Some((method, input)), &[], timeout)
+        self.load_inner(Some((method, input)), &[], timeout, RuntimeTransport::Stdio)
+    }
+
+    pub fn load_via_node_fork_and_invoke(
+        self,
+        method: &str,
+        input: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<LoadedPlugin, PluginError> {
+        if method.is_empty() {
+            return Err(PluginError::RuntimeProtocol);
+        }
+        self.load_inner(
+            Some((method, input)),
+            &[],
+            timeout,
+            RuntimeTransport::NodeForkIpc,
+        )
     }
 
     pub fn load_with_protocol_steps(
@@ -412,7 +469,7 @@ impl AcquiredPlugin {
         steps: &[RuntimeProtocolStep],
         timeout: Duration,
     ) -> Result<LoadedPlugin, PluginError> {
-        self.load_inner(None, steps, timeout)
+        self.load_inner(None, steps, timeout, RuntimeTransport::Stdio)
     }
 
     fn load_inner(
@@ -420,6 +477,7 @@ impl AcquiredPlugin {
         invocation: Option<(&str, serde_json::Value)>,
         protocol_steps: &[RuntimeProtocolStep],
         timeout: Duration,
+        transport: RuntimeTransport,
     ) -> Result<LoadedPlugin, PluginError> {
         let loaded_manifest = load_manifest(&self.directory)?;
         let id = loaded_manifest.manifest.id.clone();
@@ -427,12 +485,23 @@ impl AcquiredPlugin {
             .server_entry
             .ok_or(PluginError::PluginServerEntryMissing)?;
         let bundle = fs::read_to_string(&entry)?;
-        let mut child = Command::new("node")
-            .args(["-e", &bundle])
+        let mut command = Command::new("node");
+        match transport {
+            RuntimeTransport::Stdio => {
+                command.args(["-e", &bundle]).stderr(Stdio::null());
+            }
+            RuntimeTransport::NodeForkIpc => {
+                command
+                    .arg("-e")
+                    .arg(NODE_FORK_BRIDGE)
+                    .arg(&entry)
+                    .stderr(Stdio::null());
+            }
+        }
+        let mut child = command
             .current_dir(&self.directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
             .spawn()?;
         let result = exchange_runtime(
             &mut child,
@@ -447,8 +516,7 @@ impl AcquiredPlugin {
             timeout,
         );
         if result.is_err() {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_runtime(&mut child);
         }
         let (contributions, traffic, invocation_output) = result?;
         Ok(LoadedPlugin {
@@ -464,6 +532,19 @@ impl AcquiredPlugin {
             invocation_output,
         })
     }
+}
+
+fn terminate_runtime(child: &mut Child) {
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if child.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Debug)]
