@@ -241,6 +241,8 @@ impl DurableHubStore for PostgresStore {
 struct Account {
     password_fingerprint: u64,
     must_change_password: bool,
+    #[serde(default)]
+    display_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -362,7 +364,8 @@ pub(crate) struct BrowserMembershipAccess {
 #[derive(Serialize)]
 pub(crate) struct BrowserTeamSummary {
     members: Vec<BrowserTeamMemberSummary>,
-    invitations: Vec<BrowserManagerInvitationSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    invitations: Option<Vec<BrowserManagerInvitationSummary>>,
 }
 
 #[derive(Serialize)]
@@ -437,6 +440,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             Account {
                 password_fingerprint: fingerprint(&input.temporary_password),
                 must_change_password: true,
+                display_name: None,
             },
         );
         self.state
@@ -539,7 +543,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             && let Some(account) = account
         {
             return BrowserAccountState::PasswordChangeRequired {
-                account: browser_account_summary(account),
+                account: browser_account_summary(&self.state, account),
             };
         }
         if status == BrowserAccountStatus::AppSetupRequired
@@ -552,7 +556,7 @@ impl<S: DurableHubStore> HubPilot<S> {
                 .and_then(|members| members.get(account))
         {
             return BrowserAccountState::AppSetupRequired {
-                account: browser_account_summary(account),
+                account: browser_account_summary(&self.state, account),
                 organization: browser_organization_summary(&organization),
                 memberships: browser_memberships(&self.state, account),
                 capabilities: browser_capabilities(*role),
@@ -569,7 +573,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         {
             let membership_id = browser_membership_id(&organization, account);
             return BrowserAccountState::Active {
-                account: browser_account_summary(account),
+                account: browser_account_summary(&self.state, account),
                 memberships: browser_memberships(&self.state, account),
                 organization: browser_organization_summary(&organization),
                 membership: BrowserMembershipAccess {
@@ -579,14 +583,14 @@ impl<S: DurableHubStore> HubPilot<S> {
                 capabilities: browser_capabilities(*role),
                 is_instance_operator: browser_is_instance_operator(&self.state, account),
                 can_create_organization: false,
-                team: browser_team(&self.state, &organization, self.now_epoch_seconds()),
+                team: browser_team(&self.state, &organization, *role, self.now_epoch_seconds()),
             };
         }
         if status == BrowserAccountStatus::OrganizationRequired
             && let Some(account) = account
         {
             return BrowserAccountState::OrganizationRequired {
-                account: browser_account_summary(account),
+                account: browser_account_summary(&self.state, account),
                 memberships: browser_memberships(&self.state, account),
                 can_create_organization: false,
             };
@@ -749,6 +753,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             .or_insert(Account {
                 password_fingerprint: 0,
                 must_change_password: false,
+                display_name: None,
             });
         self.state
             .memberships
@@ -881,11 +886,16 @@ impl<S: DurableHubStore> HubPilot<S> {
     }
 }
 
-fn browser_account_summary(account: &AccountId) -> BrowserAccountSummary {
+fn browser_account_summary(state: &HubState, account: &AccountId) -> BrowserAccountSummary {
     let email = account.as_str().to_owned();
+    let name = state
+        .accounts
+        .get(account)
+        .and_then(|stored| stored.display_name.clone())
+        .unwrap_or_else(|| email.split('@').next().unwrap_or(&email).to_owned());
     BrowserAccountSummary {
         id: email.clone(),
-        name: email.split('@').next().unwrap_or(&email).to_owned(),
+        name,
         email,
     }
 }
@@ -931,6 +941,7 @@ fn browser_is_instance_operator(state: &HubState, account: &AccountId) -> bool {
 fn browser_team(
     state: &HubState,
     organization: &OrganizationId,
+    viewer_role: Role,
     now_epoch_seconds: u64,
 ) -> BrowserTeamSummary {
     let members = state
@@ -939,7 +950,7 @@ fn browser_team(
         .into_iter()
         .flat_map(BTreeMap::iter)
         .map(|(account, role)| {
-            let summary = browser_account_summary(account);
+            let summary = browser_account_summary(state, account);
             BrowserTeamMemberSummary {
                 id: browser_membership_id(organization, account),
                 user_id: summary.id,
@@ -949,19 +960,21 @@ fn browser_team(
             }
         })
         .collect();
-    let invitations = invitations::pending_summaries(state, organization, now_epoch_seconds)
-        .into_iter()
-        .map(|invitation| BrowserManagerInvitationSummary {
-            id: invitation.id,
-            email: invitation.email,
-            role: match invitation.role {
-                InvitationRole::Admin => "admin",
-                InvitationRole::Member => "member",
-            },
-            expires_at: iso_timestamp(invitation.expires_at_epoch_seconds),
-            link: invitation.link,
-        })
-        .collect();
+    let invitations = viewer_role.can_manage_resources().then(|| {
+        invitations::pending_summaries(state, organization, now_epoch_seconds)
+            .into_iter()
+            .map(|invitation| BrowserManagerInvitationSummary {
+                id: invitation.id,
+                email: invitation.email,
+                role: match invitation.role {
+                    InvitationRole::Admin => "admin",
+                    InvitationRole::Member => "member",
+                },
+                expires_at: iso_timestamp(invitation.expires_at_epoch_seconds),
+                link: invitation.link,
+            })
+            .collect()
+    });
     BrowserTeamSummary {
         members,
         invitations,

@@ -29,6 +29,14 @@ impl Drop for TestDir {
     }
 }
 
+struct InvitationAcceptance {
+    signed_up_status: u16,
+    accepted_status: u16,
+    accepted_body: Value,
+    invited_active: Value,
+    owner_after_acceptance: Value,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = TestDir::new()?;
     let mut hub = HubPilot::open(EmbeddedFileStore::open(root.0.join("hub.json"))?)?;
@@ -97,6 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     require_status(canceled.status, 200)?;
     let canceled_body: Value = serde_json::from_slice(&canceled.body)?;
     let active = state(&mut service, Some(cookie))?;
+    let acceptance = accept_invitation(&mut service, cookie)?;
 
     println!(
         "{}",
@@ -105,17 +114,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "operations": {
                 "createInvitationStatus": invitation.status,
                 "cancelInvitationStatus": canceled.status,
-                "cancelInvitationBody": canceled_body
+                "cancelInvitationBody": canceled_body,
+                "signUpInvitedStatus": acceptance.signed_up_status,
+                "acceptInvitationStatus": acceptance.accepted_status,
+                "acceptInvitationBody": acceptance.accepted_body
             },
             "states": {
                 "signedOut": signed_out,
                 "passwordChangeRequired": password_change_required,
                 "appSetupRequired": app_setup_required,
-                "active": active
+                "active": active,
+                "invitedActive": acceptance.invited_active,
+                "ownerAfterAcceptance": acceptance.owner_after_acceptance
             }
         }))?
     );
     Ok(())
+}
+
+fn accept_invitation(
+    service: &mut HubHttpService<EmbeddedFileStore>,
+    owner_cookie: &str,
+) -> Result<InvitationAcceptance, Box<dyn std::error::Error>> {
+    let signed_up = service.handle(&request(
+        "POST",
+        "/api/auth/sign-up/email",
+        None,
+        Some(json!({
+            "name": "Invited Member",
+            "email": "member@example.test",
+            "password": "member-password",
+            "invitation": "invitation-1"
+        })),
+    ));
+    require_status(signed_up.status, 200)?;
+    let invited_sign_in = service.handle(&request(
+        "POST",
+        "/api/auth/sign-in/email",
+        None,
+        Some(json!({
+            "email": "member@example.test",
+            "password": "member-password"
+        })),
+    ));
+    require_status(invited_sign_in.status, 200)?;
+    let invited_cookie = invited_sign_in
+        .headers
+        .get("set-cookie")
+        .and_then(|value| value.split(';').next())
+        .ok_or("invited sign-in did not issue a session cookie")?;
+    let accepted = service.handle(&request(
+        "POST",
+        "/api/auth/paseo/accept-invitation",
+        Some(invited_cookie),
+        Some(json!({ "invitationId": "invitation-1" })),
+    ));
+    require_status(accepted.status, 200)?;
+    Ok(InvitationAcceptance {
+        signed_up_status: signed_up.status,
+        accepted_status: accepted.status,
+        accepted_body: serde_json::from_slice(&accepted.body)?,
+        invited_active: state(service, Some(invited_cookie))?,
+        owner_after_acceptance: state(service, Some(owner_cookie))?,
+    })
 }
 
 fn state(

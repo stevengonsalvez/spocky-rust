@@ -8,7 +8,7 @@ rust="$raw_dir/hub-account-state-rust.json"
 comparison="$raw_dir/hub-account-state-comparison.json"
 
 if [ "${1:-}" = "--print-plan" ]; then
-  printf '%s\n' 'normalization: generated account, organization, membership, invitation, slug, link, and expiry values only'
+  printf '%s\n' 'normalization: generated identity-preserving account, organization, membership, invitation, slug, link, and expiry values only'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-original.json'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-rust.json'
   printf '%s\n' 'evidence/raw/phase2/hub-account-state-comparison.json'
@@ -42,30 +42,46 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-normalize='def generated_ids:
+normalize='def account_id:
+  if . == "owner@example.test" then "<owner-account-id>"
+  elif . == "member@example.test" then "<invited-account-id>"
+  else "<account-id>"
+  end;
+def membership_id:
+  if . == "owner" then "<owner-membership-id>"
+  elif . == "member" then "<invited-membership-id>"
+  else "<membership-id>"
+  end;
+def generated_ids:
   del(.baseline)
+  | .operations.acceptInvitationBody.organizationId = "<organization-id>"
   | .states |= with_entries(
       .value |= (
-        if has("account") then .account.id = "<account-id>" else . end
+        if has("account") then .account.id = (.account.email | account_id) else . end
         | if has("memberships") then
             .memberships |= map(
               .id = "<organization-id>"
               | .slug = "<organization-slug>"
-              | .membershipId = "<membership-id>"
+              | .membershipId = (.role | membership_id)
             )
           else . end
         | if has("organization") then
             .organization.id = "<organization-id>"
             | .organization.slug = "<organization-slug>"
           else . end
-        | if has("membership") then .membership.id = "<membership-id>" else . end
+        | if has("membership") then .membership.id = (.membership.role | membership_id) else . end
         | if has("team") then
-            .team.members |= map(.id = "<membership-id>" | .userId = "<account-id>")
-            | .team.invitations |= map(
-                .id = "<invitation-id>"
-                | .expiresAt = "<invitation-expiry>"
-                | .link = "<invitation-link>"
-              )
+            .team.members |= map(
+              .id = (.role | membership_id)
+              | .userId = (.email | account_id)
+            )
+            | if .team | has("invitations") then
+                .team.invitations |= map(
+                  .id = "<invitation-id>"
+                  | .expiresAt = "<invitation-expiry>"
+                  | .link = "<invitation-link>"
+                )
+              else . end
           else . end
       )
     );
@@ -89,7 +105,7 @@ jq -n \
   '{
     schemaVersion: 1,
     matched: $matched,
-    normalization: "generated account, organization, membership, invitation, slug, link, and expiry values only",
+    normalization: "generated identity-preserving account, organization, membership, invitation, slug, link, and expiry values only",
     originalRawSha256: $originalSha256,
     rustRawSha256: $rustSha256,
     originalNormalized: $originalNormalized[0],

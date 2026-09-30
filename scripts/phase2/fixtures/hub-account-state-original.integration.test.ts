@@ -7,6 +7,7 @@ import { startProductionRuntime, stopProductionRuntime } from "./index.js";
 
 const APP_URL = "http://localhost:3000";
 const EMAIL = "owner@example.test";
+const INVITED_EMAIL = "member@example.test";
 const TEMPORARY_PASSWORD = "temporary-password";
 const REPLACEMENT_PASSWORD = "replacement-password";
 const ENVIRONMENT_NAMES = [
@@ -54,14 +55,14 @@ it("captures the pinned browser account state sequence", async () => {
   const states: Record<string, unknown> = {};
 
   states["signedOut"] = await readState(runtime);
-  let cookie = await signIn(runtime, TEMPORARY_PASSWORD);
+  let cookie = await signIn(runtime, EMAIL, TEMPORARY_PASSWORD);
   states["passwordChangeRequired"] = await readState(runtime, cookie);
 
   await runtime.changePassword!(
     { currentPassword: TEMPORARY_PASSWORD, newPassword: REPLACEMENT_PASSWORD },
     new Headers({ cookie, origin: APP_URL }),
   );
-  cookie = await signIn(runtime, REPLACEMENT_PASSWORD);
+  cookie = await signIn(runtime, EMAIL, REPLACEMENT_PASSWORD);
   states["appSetupRequired"] = await readState(runtime, cookie);
 
   await runtime.completeAppOnboarding!(
@@ -78,6 +79,7 @@ it("captures the pinned browser account state sequence", async () => {
     }),
   );
   assert.equal(invitation.status, 201);
+  const invitationBody = (await invitation.json()) as { id: string };
   const canceledInvitation = await runtime.auth(
     new Request(`${APP_URL}/api/auth/paseo/create-invitation`, {
       method: "POST",
@@ -98,6 +100,32 @@ it("captures the pinned browser account state sequence", async () => {
   const canceledBody = await canceled.json();
   states["active"] = await readState(runtime, cookie);
 
+  const signedUp = await runtime.auth(
+    new Request(`${APP_URL}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Invited Member",
+        email: INVITED_EMAIL,
+        password: "member-password",
+        invitation: invitationBody.id,
+      }),
+    }),
+  );
+  assert.equal(signedUp.status, 200);
+  const invitedCookie = await signIn(runtime, INVITED_EMAIL, "member-password");
+  const accepted = await runtime.auth(
+    new Request(`${APP_URL}/api/auth/paseo/accept-invitation`, {
+      method: "POST",
+      headers: { cookie: invitedCookie, origin: APP_URL, "content-type": "application/json" },
+      body: JSON.stringify({ invitationId: invitationBody.id }),
+    }),
+  );
+  assert.equal(accepted.status, 200);
+  const acceptedBody = await accepted.json();
+  states["invitedActive"] = await readState(runtime, invitedCookie);
+  states["ownerAfterAcceptance"] = await readState(runtime, cookie);
+
   await writeFile(
     output,
     `${JSON.stringify({
@@ -107,6 +135,9 @@ it("captures the pinned browser account state sequence", async () => {
         createInvitationStatus: invitation.status,
         cancelInvitationStatus: canceled.status,
         cancelInvitationBody: canceledBody,
+        signUpInvitedStatus: signedUp.status,
+        acceptInvitationStatus: accepted.status,
+        acceptInvitationBody: acceptedBody,
       },
       states,
     }, null, 2)}\n`,
@@ -124,12 +155,16 @@ async function readState(runtime: Runtime, cookie?: string): Promise<unknown> {
   return response.json();
 }
 
-async function signIn(runtime: Runtime, password: string): Promise<string> {
+async function signIn(
+  runtime: Runtime,
+  email: string,
+  password: string,
+): Promise<string> {
   const response = await runtime.auth(
     new Request(`${APP_URL}/api/auth/sign-in/email`, {
       method: "POST",
       headers: { origin: APP_URL, "content-type": "application/json" },
-      body: JSON.stringify({ email: EMAIL, password }),
+      body: JSON.stringify({ email, password }),
     }),
   );
   assert.equal(response.status, 200);

@@ -105,6 +105,41 @@ pub(crate) struct InvitationEntitlements {
 }
 
 impl<S: DurableHubStore> HubPilot<S> {
+    pub fn register_invited_account(
+        &mut self,
+        account: &AccountId,
+        display_name: &str,
+        password: &str,
+        invitation_id: &str,
+    ) -> Result<(), HubError> {
+        let normalized_account =
+            normalize_email(account.as_str()).ok_or(HubError::InvalidInvitationInput)?;
+        if display_name.trim().is_empty() || password.is_empty() {
+            return Err(HubError::InvalidInvitationInput);
+        }
+        let now = self.now_epoch_seconds();
+        if !self.state.invitations.values().any(|invitation| {
+            invitation.id == invitation_id
+                && invitation.email == normalized_account
+                && invitation.status == InvitationStatus::Pending
+                && invitation.expires_at_epoch_seconds > now
+        }) {
+            return Err(HubError::InvitationUnavailable);
+        }
+        if self.state.accounts.contains_key(account) {
+            return Err(HubError::IdempotencyConflict);
+        }
+        self.state.accounts.insert(
+            account.clone(),
+            Account {
+                password_fingerprint: fingerprint(password),
+                must_change_password: false,
+                display_name: Some(display_name.to_owned()),
+            },
+        );
+        self.persist()
+    }
+
     pub fn set_invitation_entitlements(
         &mut self,
         actor: &AccountId,
@@ -269,6 +304,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             .or_insert(Account {
                 password_fingerprint: fingerprint("invitation-account"),
                 must_change_password: false,
+                display_name: None,
             });
         self.state
             .memberships

@@ -99,6 +99,93 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn packet_level_invitation_accept_activates_the_invited_organization() {
+    let root = TestDir::new();
+    let owner = AccountId::from("owner@example.test");
+    let invited = AccountId::from("member@example.test");
+    let organization = OrganizationId::from("organization-1");
+    let mut hub = HubPilot::open_at(
+        EmbeddedFileStore::open(root.0.join("accept-invitation.json")).unwrap(),
+        1_700_000_000,
+    )
+    .unwrap();
+    hub.bootstrap(Bootstrap {
+        instance_secret: "accept-state-secret-at-least-32-characters".into(),
+        owner: owner.clone(),
+        organization: organization.clone(),
+        temporary_password: "temporary-password".into(),
+    })
+    .unwrap();
+    hub.replace_password(&PasswordChange {
+        account: owner.clone(),
+        current_password: "temporary-password".into(),
+        new_password: "replacement-password".into(),
+    })
+    .unwrap();
+    let owner_session = hub.sign_in(&owner, "replacement-password").unwrap();
+    hub.complete_app_setup(&owner_session).unwrap();
+    let invitation = hub
+        .create_invitation(
+            &owner,
+            &organization,
+            invited.as_str(),
+            InvitationRole::Member,
+        )
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let mut service = HubHttpService::new(hub);
+        for _ in 0..4 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            serve_one(&mut stream, &mut service).unwrap();
+        }
+    });
+    let signup_body = format!(
+        r#"{{"name":"Invited Member","email":"member@example.test","password":"member-password","invitation":"{}"}}"#,
+        invitation.id
+    );
+    let signed_up = request(
+        address,
+        "POST",
+        "/api/auth/sign-up/email",
+        None,
+        Some(&signup_body),
+    );
+    assert!(signed_up.starts_with("HTTP/1.1 200 OK\r\n"));
+    let signed_in = request(
+        address,
+        "POST",
+        "/api/auth/sign-in/email",
+        None,
+        Some(r#"{"email":"member@example.test","password":"member-password"}"#),
+    );
+    assert!(signed_in.starts_with("HTTP/1.1 200 OK\r\n"));
+    let cookie = "paseo_session=hub-session-2";
+    let accepted = request(
+        address,
+        "POST",
+        "/api/auth/paseo/accept-invitation",
+        Some(cookie),
+        Some(r#"{"invitationId":"invitation-1"}"#),
+    );
+    assert!(accepted.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(accepted.ends_with(r#"{"organizationId":"organization-1"}"#));
+    let state = request(address, "GET", "/api/auth/paseo/state", Some(cookie), None);
+    assert!(state.contains(
+        r#""membership":{"id":"membership:organization-1:member@example.test","role":"member"}"#
+    ));
+    assert!(state.contains(
+        r#""account":{"id":"member@example.test","name":"Invited Member","email":"member@example.test"}"#
+    ));
+    assert!(!state.contains(r#""invitations""#));
+    server.join().unwrap();
+}
+
+#[test]
 fn active_account_state_includes_pending_manager_invitations() {
     let root = TestDir::new();
     let owner = AccountId::from("owner@example.test");

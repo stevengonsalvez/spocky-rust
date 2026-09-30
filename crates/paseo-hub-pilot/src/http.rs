@@ -42,11 +42,13 @@ impl<S: DurableHubStore> HubHttpService<S> {
     pub fn handle(&mut self, request: &HttpRequest) -> HttpResponse {
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/api/auth/paseo/state") => self.state(request),
+            ("POST", "/api/auth/sign-up/email") => self.sign_up(request),
             ("POST", "/api/auth/sign-in/email") => self.sign_in(request),
             ("POST", "/api/auth/paseo/change-password") => self.change_password(request),
             ("POST", "/api/auth/paseo/complete-app-setup") => self.complete_setup(request),
             ("POST", "/api/auth/paseo/create-invitation") => self.create_invitation(request),
             ("POST", "/api/auth/paseo/cancel-invitation") => self.cancel_invitation(request),
+            ("POST", "/api/auth/paseo/accept-invitation") => self.accept_invitation(request),
             ("POST", "/api/auth/paseo/select-organization") => self.select_organization(request),
             _ => json_response(404, &ErrorBody { error: "not_found" }),
         }
@@ -55,6 +57,56 @@ impl<S: DurableHubStore> HubHttpService<S> {
     fn state(&self, request: &HttpRequest) -> HttpResponse {
         let token = session_token(request);
         json_response(200, &self.hub.browser_account_state(token.as_ref()))
+    }
+
+    fn sign_up(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Ok(input) = serde_json::from_slice::<SignUpBody>(&request.body) else {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        };
+        if input.name.trim().is_empty() {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        }
+        match self.hub.register_invited_account(
+            &AccountId::from(input.email.as_str()),
+            &input.name,
+            &input.password,
+            &input.invitation,
+        ) {
+            Ok(()) => json_response(
+                200,
+                &StateBody {
+                    status: BrowserAccountStatus::AppSetupRequired,
+                },
+            ),
+            Err(HubError::InvitationUnavailable) => json_response(
+                404,
+                &ErrorBody {
+                    error: "invitation_unavailable",
+                },
+            ),
+            Err(HubError::InvalidInvitationInput | HubError::IdempotencyConflict) => json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
     }
 
     fn sign_in(&mut self, request: &HttpRequest) -> HttpResponse {
@@ -325,7 +377,7 @@ impl<S: DurableHubStore> HubHttpService<S> {
                 },
             );
         };
-        let Ok(input) = serde_json::from_slice::<CancelInvitationBody>(&request.body) else {
+        let Ok(input) = serde_json::from_slice::<InvitationIdBody>(&request.body) else {
             return json_response(
                 400,
                 &ErrorBody {
@@ -355,6 +407,63 @@ impl<S: DurableHubStore> HubHttpService<S> {
             ),
         }
     }
+
+    fn accept_invitation(&mut self, request: &HttpRequest) -> HttpResponse {
+        let Some(token) = session_token(request) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Some(account) = self.hub.account_for_session(&token) else {
+            return json_response(
+                401,
+                &ErrorBody {
+                    error: "unauthorized",
+                },
+            );
+        };
+        let Ok(input) = serde_json::from_slice::<InvitationIdBody>(&request.body) else {
+            return json_response(
+                400,
+                &ErrorBody {
+                    error: "invalid_body",
+                },
+            );
+        };
+        match self.hub.accept_invitation(&account, &input.invitation_id) {
+            Ok(organization) => {
+                if self.hub.select_organization(&token, &organization).is_err() {
+                    return json_response(
+                        500,
+                        &ErrorBody {
+                            error: "internal_error",
+                        },
+                    );
+                }
+                json_response(
+                    200,
+                    &OrganizationBody {
+                        organization_id: organization.as_str().to_owned(),
+                    },
+                )
+            }
+            Err(HubError::InvitationUnavailable) => json_response(
+                404,
+                &ErrorBody {
+                    error: "invitation_unavailable",
+                },
+            ),
+            Err(_) => json_response(
+                500,
+                &ErrorBody {
+                    error: "internal_error",
+                },
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -362,6 +471,14 @@ impl<S: DurableHubStore> HubHttpService<S> {
 struct SignInBody {
     email: String,
     password: String,
+}
+
+#[derive(Deserialize)]
+struct SignUpBody {
+    name: String,
+    email: String,
+    password: String,
+    invitation: String,
 }
 
 #[derive(Deserialize)]
@@ -385,7 +502,7 @@ struct CreateInvitationBody {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CancelInvitationBody {
+struct InvitationIdBody {
     invitation_id: String,
 }
 
