@@ -18,6 +18,11 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("Import session"));
     assert!(first.contains("Setup providers"));
     assert!(first.contains("Community"));
+    assert!(first.contains("No projects yet"));
+    assert!(first.contains("Add a project to get started"));
+    assert!(first.contains("<svg"));
+    assert!(first.contains("viewBox=\"0 0 700 700\""));
+    assert!(!first.contains("icon-folder::before"));
 }
 
 #[test]
