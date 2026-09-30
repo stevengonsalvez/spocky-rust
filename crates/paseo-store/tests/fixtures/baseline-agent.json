@@ -48,7 +48,14 @@
       }
     }
   },
-  "features": ["session_persistence"],
+  "features": [
+    {
+      "type": "toggle",
+      "id": "fast_mode",
+      "label": "Fast mode",
+      "value": true
+    }
+  ],
   "persistence": {
     "provider": "codex",
     "sessionId": "session-contract",
@@ -68,6 +75,8 @@
   "internal": false,
   "archivedAt": null,
   "owner": {
-    "kind": "user"
+    "kind": "daemon",
+    "daemonId": "daemon-contract",
+    "executionId": "execution-contract"
   }
 }

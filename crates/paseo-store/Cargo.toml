@@ -6,7 +6,10 @@ license = "Apache-2.0"
 rust-version = "1.94"
 
 [dependencies]
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+paseo-differential = { path = "../paseo-differential" }
 
 [lints.rust]
 unsafe_code = "forbid"
