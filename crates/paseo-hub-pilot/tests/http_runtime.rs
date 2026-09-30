@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -13,14 +14,19 @@ use paseo_hub_pilot::{
 
 struct TestDir(PathBuf);
 
+static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 impl TestDir {
     fn new() -> Self {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("paseo-hub-http-{}-{nonce}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "paseo-hub-http-{}-{nonce}-{}",
+            std::process::id(),
+            TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir_all(&path).expect("create test directory");
         Self(path)
     }
@@ -94,7 +100,11 @@ fn packet_level_organization_selection_is_membership_bound_and_durable() {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).expect("remove test directory");
+        match fs::remove_dir_all(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("remove test directory: {error}"),
+        }
     }
 }
 
