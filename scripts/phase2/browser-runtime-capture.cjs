@@ -285,6 +285,8 @@ async function waitForProductState(page, candidate) {
     for (const [name, url, viewport, candidate, seededDaemonPort] of [
       ["original-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort],
       ["original-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort],
+      ["original-repeat-desktop", baselineUrl, { width: 1280, height: 800 }, false, daemonPort],
+      ["original-repeat-mobile", baselineUrl, { width: 390, height: 844 }, false, daemonPort],
       ["candidate-desktop", candidateUrl, { width: 1280, height: 800 }, true, null],
       ["candidate-mobile", candidateUrl, { width: 390, height: 844 }, true, null],
     ]) {

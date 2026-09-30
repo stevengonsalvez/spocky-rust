@@ -18,6 +18,7 @@ printf '%s\n' "$preflight" | grep -F 'port 6767 excluded'
 plan=$($capture --print-plan)
 printf '%s\n' "$plan" | grep -F 'original desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'original mobile 390x844'
+printf '%s\n' "$plan" | grep -F 'original repeat desktop and mobile stability captures'
 printf '%s\n' "$plan" | grep -F 'candidate desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'candidate mobile 390x844'
 printf '%s\n' "$plan" | grep -F 'exact-pixel threshold: normalized RMSE 0'

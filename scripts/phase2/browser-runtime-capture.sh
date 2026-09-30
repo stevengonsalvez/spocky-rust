@@ -48,6 +48,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   printf '%s\n' \
     'original desktop 1280x800' \
     'original mobile 390x844' \
+    'original repeat desktop and mobile stability captures' \
     'candidate desktop 1280x800' \
     'candidate mobile 390x844' \
     'exact-pixel threshold: normalized RMSE 0' \
@@ -192,14 +193,26 @@ desktop_rmse=$(normalized_rmse \
 mobile_rmse=$(normalized_rmse \
   "$screenshot_dir/original-mobile.png" \
   "$screenshot_dir/candidate-mobile.png")
+original_desktop_rmse=$(normalized_rmse \
+  "$screenshot_dir/original-desktop.png" \
+  "$screenshot_dir/original-repeat-desktop.png")
+original_mobile_rmse=$(normalized_rmse \
+  "$screenshot_dir/original-mobile.png" \
+  "$screenshot_dir/original-repeat-mobile.png")
 result_temp="$result_file.tmp"
 jq \
   --arg desktop "$desktop_rmse" \
   --arg mobile "$mobile_rmse" \
+  --arg originalDesktop "$original_desktop_rmse" \
+  --arg originalMobile "$original_mobile_rmse" \
   '.comparison.visual = {
     threshold: { metric: "normalized RMSE", maximum: 0 },
     desktop: { rmse: ($desktop | tonumber), passes: (($desktop | tonumber) == 0) },
-    mobile: { rmse: ($mobile | tonumber), passes: (($mobile | tonumber) == 0) }
+    mobile: { rmse: ($mobile | tonumber), passes: (($mobile | tonumber) == 0) },
+    originalStability: {
+      desktop: { rmse: ($originalDesktop | tonumber), passes: (($originalDesktop | tonumber) == 0) },
+      mobile: { rmse: ($originalMobile | tonumber), passes: (($originalMobile | tonumber) == 0) }
+    }
   }' "$result_file" >"$result_temp"
 mv "$result_temp" "$result_file"
 
