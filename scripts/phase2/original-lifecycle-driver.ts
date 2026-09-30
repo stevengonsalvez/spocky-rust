@@ -67,10 +67,7 @@ async function main(): Promise<void> {
         ok: false,
         cancelled: false,
         lifecycle: agent.lifecycle,
-        error:
-          error instanceof Error && error.name === "AgentRunCancellationError"
-            ? "provider refused cancellation"
-            : String(error),
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -78,7 +75,10 @@ async function main(): Promise<void> {
   const outputRoot = path.join(stateRoot, "output");
   await mkdir(outputRoot, { recursive: true });
   await writeFile(path.join(outputRoot, "structured.json"), JSON.stringify(results));
-  await writeFile(path.join(outputRoot, "counts.json"), '{"fixtures":4,"assertions":16}');
+  await writeFile(
+    path.join(outputRoot, "counts.json"),
+    JSON.stringify({ fixtures: results.length, assertions: results.length * 4 }),
+  );
   process.stdout.write(`lifecycle cases ${results.length}\n`);
 }
 

@@ -22,7 +22,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     fs::write(
         output_root.join("counts.json"),
-        br#"{"fixtures":4,"assertions":16}"#,
+        serde_json::to_vec(&json!({
+            "fixtures": results.len(),
+            "assertions": results.len() * 4,
+        }))?,
     )?;
     println!("lifecycle cases {}", results.len());
     Ok(())

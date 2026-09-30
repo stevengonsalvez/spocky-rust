@@ -76,7 +76,9 @@ fn cancellation_distinguishes_not_running_race_and_refusal() {
     agent.send().expect("start second turn");
     assert_eq!(
         agent.cancel(CancellationOutcome::Refused),
-        Err(DomainError::CancellationRefused)
+        Err(DomainError::CancellationRefused {
+            agent_id: "agent-contract".into()
+        })
     );
     assert_eq!(agent.lifecycle(), AgentLifecycle::Running);
 }

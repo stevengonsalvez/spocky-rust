@@ -26,7 +26,7 @@ Each side emits acceptance, cancellation, resulting lifecycle, and semantic erro
 - Rust exit: `0`
 - Expected counts: four fixtures, sixteen assertions
 - Differences: none
-- Raw manifest SHA-256: `39ee2790bd7e978f165e5607dc40fcea7fff1b748409f7e754c5baca8a5135df`
+- Raw manifest SHA-256: `3dfb3b3928fcd23aa67f37a39ac66e64515d76bd91023d35a9c2fdee32b3f616`
 - Raw manifest: ignored local artifact at `evidence/raw/phase2/lifecycle-differential.json`
 
 ## Reproduction
@@ -37,3 +37,4 @@ cargo run -p paseo-domain --example lifecycle_differential
 ```
 
 The example rejects the run unless the disposable baseline clone is clean and exactly at the pinned Paseo commit.
+The provider-refusal error is compared verbatim. Both drivers derive assertion counts from emitted cases.

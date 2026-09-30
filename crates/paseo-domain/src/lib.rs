@@ -93,7 +93,7 @@ pub enum DomainError {
     Archived,
     InvalidTransition,
     PermissionRequestNotFound,
-    CancellationRefused,
+    CancellationRefused { agent_id: String },
     EmptyIdentifier,
 }
 
@@ -103,7 +103,12 @@ impl Display for DomainError {
             Self::Archived => "agent is archived",
             Self::InvalidTransition => "invalid agent lifecycle transition",
             Self::PermissionRequestNotFound => "permission request not found",
-            Self::CancellationRefused => "provider refused cancellation",
+            Self::CancellationRefused { agent_id } => {
+                return write!(
+                    formatter,
+                    "Cannot stop agent {agent_id} because its active run cancellation was not acknowledged"
+                );
+            }
             Self::EmptyIdentifier => "identifier must not be empty",
         };
         formatter.write_str(message)
@@ -269,7 +274,9 @@ impl AgentLifecycleMachine {
                 self.finish_cancellation();
                 Ok(false)
             }
-            CancellationOutcome::Refused => Err(DomainError::CancellationRefused),
+            CancellationOutcome::Refused => Err(DomainError::CancellationRefused {
+                agent_id: self.id.0.clone(),
+            }),
         }
     }
 
