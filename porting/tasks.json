@@ -142,6 +142,7 @@
         "scripts/phase2/hub-account-state-compare.sh",
         "cargo test -p paseo-plugin-pilot --test plugin_lifecycle",
         "cargo test -p paseo-plugin-pilot --test protocol_manifest",
+        "cargo test -p paseo-plugin-pilot --test process_protocol",
         "cargo test -p paseo-plugin-pilot --test runtime_acquisition",
         "cargo test -p paseo-plugin-pilot --test settings_lifecycle",
         "scripts/phase2/plugin-runtime-capture.sh",
@@ -188,6 +189,7 @@
         ,{ "commit": "b6a64a0", "model": "gpt-5.6-sol", "effort": "medium", "result": "four invite-only admission failures match pinned status and body; HTTP 6/6; clippy clean", "remaining": "remaining Better Auth errors, broader database differential, remaining relational tables" }
         ,{ "commit": "2338f45", "model": "gpt-5.6-sol", "effort": "medium", "result": "pinned Rust 1.94 Linux x86_64 build and 10-second Xvfb launch pass with zero runtime output", "remaining": "Linux visual, accessibility, interactions, delivery, and pinned-original comparison" }
         ,{ "commit": "c93aa82", "model": "gpt-5.6-sol", "effort": "medium", "result": "locked Windows MSVC Dioxus desktop cross-check passes through cargo-xwin 0.23.1", "remaining": "Windows launch, visual, accessibility, interactions, delivery, and pinned-original comparison" }
+        ,{ "commit": "f84b1ad", "model": "gpt-5.6-sol", "effort": "medium", "result": "complete outer plugin process envelope covers 15 request and 14 message shapes with strict boundary checks", "remaining": "provider payload schemas and runtime provider, usage, hook, session, cancellation, fatal, and reconnect sequences" }
       ],
       "evidence": ["evidence/phase2/baseline-captures.md", "evidence/phase2/platform-target-checks.md", "evidence/phase2/audio-native-delivery.md", "evidence/phase2/browser-contract.md", "evidence/phase2/dioxus-renderer.md", "evidence/phase2/dioxus-android.md", "evidence/phase2/dioxus-web.md", "evidence/phase2/dioxus-macos.md", "evidence/phase2/dioxus-linux.md", "evidence/phase2/dioxus-windows.md", "evidence/phase2/store-differential.md", "evidence/phase2/lifecycle-differential.md", "evidence/phase2/relay-runtime.md", "evidence/phase2/plugin-runtime.md", "evidence/phase2/hub-runtime.md", "evidence/phase2/review-a.md", "evidence/phase2/review-b.md", "evidence/phase2/review-c.md", "evidence/phase2/review-d.md", "porting/pilots/tool-selection.md", "porting/pilots/ui-renderer-candidates.md"],
       "resources": ["isolated Git worktrees", "read-only four pinned baselines", "disposable fixture directories", "repository-local Rust target toolchains", "repository-local Dioxus CLI 0.7.0", "repository-local cargo-xwin 0.23.1", "Android AVD ainb-api35 stopped after capture", "browser tab and exact tmux server stopped after capture", "port 6767 untouched"],

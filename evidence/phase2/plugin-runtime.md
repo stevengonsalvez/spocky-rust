@@ -47,6 +47,12 @@ description, Paseo requirement, and build argv, and infers the pinned
 case compares Rust catalog, RPC, and settings notification JSON against a
 committed fixture emitted through the pinned TypeScript schemas.
 
+The process-envelope case covers every outer request and message variant in the
+pinned `plugin-process-protocol.ts` union. It roundtrips 15 host request shapes
+and 14 plugin message shapes, rejects unknown fields, and enforces the pinned
+nonempty identifier and positive version boundaries. Provider input and event
+payloads remain opaque JSON pending their separate schema port.
+
 Every Git, npm, and subprocess command has a deadline. The npm case cannot contact
 the network and cannot run package lifecycle scripts. Test fixtures and acquired
 sources live in disposable temporary directories.
@@ -57,6 +63,7 @@ sources live in disposable temporary directories.
 - Rust lifecycle: 3 passed, 0 failed
 - Rust manifest/client protocol: 2 passed, 0 failed
 - Rust acquisition/runtime: 5 passed, 0 failed
+- Rust process envelope: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
 - Failed reviewed update: prior revision, `rpc:review.v1`, and `tone=terse` survived restart
@@ -68,9 +75,11 @@ sources live in disposable temporary directories.
 
 ## Remaining blockers
 
-- The Rust exchange covers initialize, ready, invoke, result, and shutdown shapes,
-  but uses newline stdio instead of Node fork IPC and omits providers, usage,
-  hooks, daemon-session frames, cancellation, fatal messages, and reconnect.
+- The Rust exchange executes initialize, ready, invoke, result, and shutdown over
+  newline stdio instead of Node fork IPC. The full outer envelope is modeled but
+  provider, usage, hook, daemon-session, cancellation, fatal, and reconnect
+  sequences are not executed.
+- Provider input and event payload schemas remain opaque JSON values.
 - Client source is transported but not compiled with Paseo's esbuild boundary or
   evaluated through the iOS, Android, browser, or desktop contribution runtime.
 - The Rust settings pilot covers the pinned boolean and integer schema used by
@@ -87,6 +96,7 @@ sources live in disposable temporary directories.
 ```sh
 scripts/phase2/plugin-runtime-capture.sh
 cargo test -p paseo-plugin-pilot --test settings_lifecycle
+cargo test -p paseo-plugin-pilot --test process_protocol
 cargo fmt --package paseo-plugin-pilot -- --check
 cargo clippy -p paseo-plugin-pilot --all-targets -- -D warnings
 ```
