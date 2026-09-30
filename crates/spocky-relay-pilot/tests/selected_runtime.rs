@@ -3,6 +3,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+use spocky_crypto::{export_public_key, key_pair_from_secret};
 use spocky_relay_pilot::{NetworkConfig, NetworkNode, NodeId, TopologyState};
 use tungstenite::client;
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
@@ -89,12 +90,128 @@ fn selected_pre_attach_queue_fails_closed_at_bound() {
 }
 
 #[test]
+fn selected_runtime_rejects_invalid_client_handshake_keys() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let mut daemon = versioned_websocket(address, "handshake", "server", "1", "");
+    let mut client = versioned_websocket(address, "handshake", "client", "1", "");
+    let valid_key = export_public_key(&key_pair_from_secret([7; 32]).public_key).unwrap();
+    let valid = format!(r#"{{"type":"e2ee_hello","key":"{valid_key}"}}"#);
+
+    client.send(Message::Text(valid.clone().into())).unwrap();
+    assert_eq!(daemon.read().unwrap(), Message::Text(valid.into()));
+
+    let invalid_key = export_public_key(&[0; 32]).unwrap();
+    let nested = format!(r#"{{"nested":{{"type":"hello","key":"{invalid_key}"}}}}"#);
+    client.send(Message::Text(nested.clone().into())).unwrap();
+    assert_eq!(daemon.read().unwrap(), Message::Text(nested.into()));
+
+    client
+        .send(Message::Text(
+            format!(r#"{{"type":"hello","key":"{invalid_key}"}}"#).into(),
+        ))
+        .unwrap();
+    let close = wait_for_close(&mut client);
+    assert_eq!(close.code, CloseCode::Policy);
+    assert_eq!(close.reason, "Invalid handshake key");
+}
+
+#[test]
+fn selected_runtime_closes_oversized_data_and_control_frames() {
+    let node = NetworkNode::bind_with_config(
+        NodeId::from("alpha"),
+        NetworkConfig {
+            max_frame_payload_bytes: 8,
+            max_control_payload_bytes: 4,
+            ..NetworkConfig::default()
+        },
+    )
+    .unwrap();
+    let address = node.websocket_address();
+    let mut client = websocket(address, "frame-limit", "client", "client-1");
+    client.send(Message::Binary(vec![0xa5; 9].into())).unwrap();
+    assert_eq!(wait_for_close(&mut client).code, CloseCode::Size);
+
+    let mut control = websocket(address, "control-limit", "server", "");
+    let _sync = control.read().unwrap();
+    control.send(Message::Text("12345".into())).unwrap();
+    assert_eq!(wait_for_close(&mut control).code, CloseCode::Size);
+}
+
+#[test]
+fn selected_runtime_closes_unresponsive_control() {
+    let node = NetworkNode::bind_with_config(
+        NodeId::from("alpha"),
+        NetworkConfig {
+            control_heartbeat_timeout: Duration::from_millis(120),
+            ..NetworkConfig::default()
+        },
+    )
+    .unwrap();
+    let address = node.websocket_address();
+    let mut control = websocket(address, "watchdog", "server", "");
+    let _sync = control.read().unwrap();
+    let _client = websocket(address, "watchdog", "client", "waiting");
+    let _connected = control.read().unwrap();
+
+    let close = wait_for_close(&mut control);
+    assert_eq!(close.code, CloseCode::Error);
+    assert_eq!(close.reason, "Control unresponsive");
+}
+
+#[test]
+fn selected_runtime_accounts_ingress_bytes_and_reconciles_on_close() {
+    let node = NetworkNode::bind_with_config(
+        NodeId::from("alpha"),
+        NetworkConfig {
+            ingress_budget_bytes: 4,
+            ..NetworkConfig::default()
+        },
+    )
+    .unwrap();
+    let address = node.websocket_address();
+    let mut client = websocket(address, "ingress", "client", "waiting");
+    client
+        .send(Message::Binary(vec![1, 2, 3, 4].into()))
+        .unwrap();
+    wait_until(|| http_get(address, "/metrics").contains("spocky_relay_ingress_reserved_bytes 4"));
+    client.send(Message::Binary(vec![5].into())).unwrap();
+    let close = wait_for_close(&mut client);
+    assert_eq!(close.code, CloseCode::Again);
+    assert_eq!(close.reason, "Relay ingress capacity");
+    wait_until(|| http_get(address, "/metrics").contains("spocky_relay_ingress_reserved_bytes 0"));
+}
+
+#[test]
+fn selected_runtime_drains_new_work_without_closing_established_links() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let mut client = websocket(address, "drain-existing", "client", "client-1");
+    let mut data = websocket(address, "drain-existing", "server", "client-1");
+
+    node.begin_drain();
+    assert!(http_get(address, "/ready").starts_with("HTTP/1.1 503"));
+    assert!(http_get(address, "/metrics").contains("spocky_relay_draining 1"));
+    let rejected = websocket_error(address, "drain-new", "client", "client-2");
+    assert_eq!(rejected.status(), 503);
+    assert_eq!(rejected.body().as_deref(), Some(b"draining".as_slice()));
+
+    client.send(Message::Text("still-live".into())).unwrap();
+    assert_eq!(data.read().unwrap(), Message::Text("still-live".into()));
+
+    node.cancel_drain();
+    assert!(http_get(address, "/ready").starts_with("HTTP/1.1 200"));
+    let _new = websocket(address, "drain-new", "client", "client-2");
+}
+
+#[test]
 fn selected_runtime_bounds_identifiers_and_tracks_admission() {
     let node = NetworkNode::bind_with_config(
         NodeId::from("alpha"),
         NetworkConfig {
             minimum_cluster_size: 1,
             max_websockets: 2,
+            ..NetworkConfig::default()
         },
     )
     .unwrap();
@@ -141,6 +258,7 @@ fn selected_discovery_traces_node_loss_under_bounded_load() {
         NetworkConfig {
             minimum_cluster_size: 2,
             max_websockets: 32,
+            ..NetworkConfig::default()
         },
     )
     .unwrap();
@@ -154,6 +272,14 @@ fn selected_discovery_traces_node_loss_under_bounded_load() {
     wait_until(|| {
         (0..16).all(|index| alpha.owner(&format!("load-{index}")) == Some(NodeId::from("beta")))
     });
+    assert_eq!(
+        alpha
+            .topology_events()
+            .iter()
+            .map(|event| event.state)
+            .collect::<Vec<_>>(),
+        vec![TopologyState::Discovered, TopologyState::Available]
+    );
 
     beta.stop();
     wait_until(|| (0..16).all(|index| alpha.owner(&format!("load-{index}")).is_none()));
@@ -244,10 +370,20 @@ fn websocket(
     role: &str,
     connection_id: &str,
 ) -> tungstenite::WebSocket<TcpStream> {
+    versioned_websocket(address, server_id, role, "2", connection_id)
+}
+
+fn versioned_websocket(
+    address: SocketAddr,
+    server_id: &str,
+    role: &str,
+    version: &str,
+    connection_id: &str,
+) -> tungstenite::WebSocket<TcpStream> {
     let stream = TcpStream::connect(address).unwrap();
     stream.set_read_timeout(Some(DEADLINE)).unwrap();
     let url = format!(
-        "ws://{address}/ws?serverId={server_id}&role={role}&v=2&connectionId={connection_id}"
+        "ws://{address}/ws?serverId={server_id}&role={role}&v={version}&connectionId={connection_id}"
     );
     match client(url, stream) {
         Ok((socket, _)) => socket,

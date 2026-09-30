@@ -11,6 +11,7 @@ fn main() {
     let config = NetworkConfig {
         minimum_cluster_size: environment_usize("SPOCKY_RELAY_MIN_CLUSTER_SIZE", 1),
         max_websockets: environment_usize("SPOCKY_RELAY_MAX_WEBSOCKETS", 1_024),
+        ..NetworkConfig::default()
     };
     let node = NetworkNode::bind_with_config(NodeId::from(local_node.as_str()), config)
         .expect("bind relay peer and websocket listeners");

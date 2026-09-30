@@ -9,6 +9,8 @@ use std::time::Duration;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
 
+use spocky_crypto::{derive_shared_key, import_public_key};
+
 use crate::NodeId;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -20,6 +22,10 @@ const FAILURE_THRESHOLD: u8 = 3;
 pub struct NetworkConfig {
     pub minimum_cluster_size: usize,
     pub max_websockets: usize,
+    pub max_frame_payload_bytes: usize,
+    pub max_control_payload_bytes: usize,
+    pub control_heartbeat_timeout: Duration,
+    pub ingress_budget_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +47,10 @@ impl Default for NetworkConfig {
         Self {
             minimum_cluster_size: 1,
             max_websockets: 1_024,
+            max_frame_payload_bytes: 32 * 1024 * 1024 - 14,
+            max_control_payload_bytes: 64 * 1024,
+            control_heartbeat_timeout: Duration::from_secs(15),
+            ingress_budget_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -64,6 +74,10 @@ enum SocketClose {
     OwnerMoved,
     SlowConsumer,
     DataRouteUnavailable,
+    InvalidHandshake,
+    MessageTooLarge,
+    ControlUnresponsive,
+    RelayIngressCapacity,
     ClientDisconnected,
     Replaced,
 }
@@ -80,7 +94,14 @@ enum ConnectionKind {
 struct AcceptedConnection {
     session: String,
     kind: ConnectionKind,
+    client: bool,
     admitted: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PendingFrames {
+    frames: VecDeque<Message>,
+    bytes: usize,
 }
 
 struct Shared {
@@ -89,7 +110,7 @@ struct Shared {
     owners: Mutex<BTreeMap<String, NodeId>>,
     sockets: Mutex<BTreeMap<String, BTreeMap<u64, SocketSender>>>,
     connections: Mutex<BTreeMap<u64, AcceptedConnection>>,
-    pending: Mutex<BTreeMap<(String, String), VecDeque<Message>>>,
+    pending: Mutex<BTreeMap<(String, String), PendingFrames>>,
     config: NetworkConfig,
     admissions: Mutex<usize>,
     draining: AtomicBool,
@@ -99,6 +120,7 @@ struct Shared {
     bytes_forwarded: AtomicU64,
     peer_losses: AtomicU64,
     topology: Mutex<Vec<TopologyEvent>>,
+    ingress_reserved_bytes: Mutex<usize>,
     next_socket: AtomicU64,
     running: AtomicBool,
 }
@@ -149,6 +171,7 @@ impl NetworkNode {
             bytes_forwarded: AtomicU64::new(0),
             peer_losses: AtomicU64::new(0),
             topology: Mutex::new(Vec::new()),
+            ingress_reserved_bytes: Mutex::new(0),
             next_socket: AtomicU64::new(0),
             running: AtomicBool::new(true),
         });
@@ -442,25 +465,14 @@ fn spawn_websocket_listener(shared: Arc<Shared>, listener: TcpListener) -> JoinH
 
 #[allow(clippy::result_large_err)]
 fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
-    let _ = stream.set_nonblocking(false);
-    let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
+    configure_websocket_stream(&stream);
     if serve_operation(shared, &mut stream) {
         return;
     }
-    let accepted_connection = Arc::new(Mutex::new(None));
-    let callback_connection = Arc::clone(&accepted_connection);
-    let callback_shared = Arc::clone(shared);
-    let accepted = tungstenite::accept_hdr(stream, move |request: &Request, response: Response| {
-        authorize_upgrade(&callback_shared, request, response, &callback_connection)
-    });
-    let Ok(mut socket) = accepted else {
+    let Some((mut socket, connection)) = accept_connection(shared, stream) else {
         return;
     };
     let _ = socket.get_mut().set_read_timeout(Some(POLL_INTERVAL));
-    let Some(connection) = accepted_connection.lock().unwrap().clone() else {
-        return;
-    };
     let session = connection.session.clone();
     let socket_id = shared.next_socket.fetch_add(1, Ordering::Relaxed);
     let (frame_sender, frame_receiver) = mpsc::sync_channel(32);
@@ -474,6 +486,7 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
             control: control_sender,
         },
     );
+    let mut control_wait_started = None;
 
     while shared.running.load(Ordering::Relaxed) {
         match control_receiver.try_recv() {
@@ -482,6 +495,17 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
                 break;
             }
             Err(mpsc::TryRecvError::Disconnected | mpsc::TryRecvError::Empty) => {}
+        }
+        if connection.kind == ConnectionKind::Control {
+            if has_unattached_client(shared, &session) {
+                let started = control_wait_started.get_or_insert_with(std::time::Instant::now);
+                if started.elapsed() >= shared.config.control_heartbeat_timeout {
+                    close_socket(&mut socket, &SocketClose::ControlUnresponsive);
+                    break;
+                }
+            } else {
+                control_wait_started = None;
+            }
         }
         match frame_receiver.try_recv() {
             Ok(frame) => {
@@ -497,10 +521,31 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
         }
         match socket.read() {
             Ok(Message::Text(text)) => {
-                broadcast(shared, &connection, socket_id, &Message::Text(text));
+                let frame = Message::Text(text);
+                if connection.kind == ConnectionKind::Control {
+                    control_wait_started = Some(std::time::Instant::now());
+                }
+                if frame_exceeds_limit(shared, &connection, &frame) {
+                    close_socket(&mut socket, &SocketClose::MessageTooLarge);
+                    break;
+                }
+                if rejects_client_handshake(&connection, &frame) {
+                    close_socket(&mut socket, &SocketClose::InvalidHandshake);
+                    break;
+                }
+                broadcast(shared, &connection, socket_id, &frame);
             }
             Ok(Message::Binary(bytes)) => {
-                broadcast(shared, &connection, socket_id, &Message::Binary(bytes));
+                let frame = Message::Binary(bytes);
+                if frame_exceeds_limit(shared, &connection, &frame) {
+                    close_socket(&mut socket, &SocketClose::MessageTooLarge);
+                    break;
+                }
+                if rejects_client_handshake(&connection, &frame) {
+                    close_socket(&mut socket, &SocketClose::InvalidHandshake);
+                    break;
+                }
+                broadcast(shared, &connection, socket_id, &frame);
             }
             Ok(Message::Close(_)) => break,
             Ok(Message::Ping(bytes)) => {
@@ -512,10 +557,164 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
                     error.kind(),
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) => {}
+            Err(tungstenite::Error::Capacity(_)) => {
+                close_socket(&mut socket, &SocketClose::MessageTooLarge);
+                break;
+            }
             Err(_) => break,
         }
     }
     unregister_socket(shared, &session, socket_id);
+}
+
+fn configure_websocket_stream(stream: &TcpStream) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
+}
+
+#[allow(clippy::result_large_err)]
+fn accept_connection(
+    shared: &Arc<Shared>,
+    stream: TcpStream,
+) -> Option<(tungstenite::WebSocket<TcpStream>, AcceptedConnection)> {
+    let accepted_connection = Arc::new(Mutex::new(None));
+    let callback_connection = Arc::clone(&accepted_connection);
+    let callback_shared = Arc::clone(shared);
+    let websocket_config = tungstenite::protocol::WebSocketConfig::default()
+        .max_frame_size(Some(shared.config.max_frame_payload_bytes))
+        .max_message_size(Some(shared.config.max_frame_payload_bytes));
+    let socket = tungstenite::accept_hdr_with_config(
+        stream,
+        move |request: &Request, response: Response| {
+            authorize_upgrade(&callback_shared, request, response, &callback_connection)
+        },
+        Some(websocket_config),
+    )
+    .ok()?;
+    let connection = accepted_connection.lock().unwrap().clone()?;
+    Some((socket, connection))
+}
+
+fn has_unattached_client(shared: &Shared, session: &str) -> bool {
+    let connections = locked(&shared.connections);
+    connections.values().any(|candidate| {
+        let ConnectionKind::Client(connection_id) = &candidate.kind else {
+            return false;
+        };
+        candidate.session == session
+            && !connections.values().any(|data| {
+                data.session == session && data.kind == ConnectionKind::Data(connection_id.clone())
+            })
+    })
+}
+
+fn frame_exceeds_limit(shared: &Shared, connection: &AcceptedConnection, frame: &Message) -> bool {
+    let limit = if connection.kind == ConnectionKind::Control {
+        shared.config.max_control_payload_bytes
+    } else {
+        shared.config.max_frame_payload_bytes
+    };
+    match frame {
+        Message::Text(text) => text.len() > limit,
+        Message::Binary(bytes) => bytes.len() > limit,
+        _ => false,
+    }
+}
+
+fn rejects_client_handshake(connection: &AcceptedConnection, frame: &Message) -> bool {
+    if !connection.client {
+        return false;
+    }
+    let payload = match frame {
+        Message::Text(text) => text.as_bytes(),
+        Message::Binary(bytes) => bytes.as_ref(),
+        _ => return false,
+    };
+    let Ok(payload) = std::str::from_utf8(payload) else {
+        return false;
+    };
+    let Some(handshake_type) = json_string_field(payload, "type") else {
+        return false;
+    };
+    if !matches!(handshake_type, "hello" | "e2ee_hello") {
+        return false;
+    }
+    json_string_field(payload, "key").is_none_or(|encoded| match import_public_key(encoded) {
+        Ok(key) => !canonical_x25519_coordinate(&key) || derive_shared_key(&[7; 32], &key).is_err(),
+        Err(_) => true,
+    })
+}
+
+fn json_string_field<'a>(payload: &'a str, field: &str) -> Option<&'a str> {
+    let payload = payload.trim();
+    let inner = payload.strip_prefix('{')?.strip_suffix('}')?;
+    let bytes = inner.as_bytes();
+    let mut index = 0;
+    let mut depth = 0_usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            b'"' => {
+                let end = json_string_end(bytes, index + 1)?;
+                if depth == 0 && json_key_position(bytes, index) && &inner[index + 1..end] == field
+                {
+                    let mut value = end + 1;
+                    while bytes.get(value).is_some_and(u8::is_ascii_whitespace) {
+                        value += 1;
+                    }
+                    if bytes.get(value) != Some(&b':') {
+                        return None;
+                    }
+                    value += 1;
+                    while bytes.get(value).is_some_and(u8::is_ascii_whitespace) {
+                        value += 1;
+                    }
+                    if bytes.get(value) != Some(&b'"') {
+                        return None;
+                    }
+                    let value_end = json_string_end(bytes, value + 1)?;
+                    return Some(&inner[value + 1..value_end]);
+                }
+                index = end;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn json_string_end(bytes: &[u8], mut index: usize) -> Option<usize> {
+    let mut escaped = false;
+    while let Some(byte) = bytes.get(index) {
+        if escaped {
+            escaped = false;
+        } else if *byte == b'\\' {
+            escaped = true;
+        } else if *byte == b'"' {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn json_key_position(bytes: &[u8], index: usize) -> bool {
+    let prefix = &bytes[..index];
+    let Some(previous) = prefix.iter().rfind(|byte| !byte.is_ascii_whitespace()) else {
+        return true;
+    };
+    if *previous != b',' {
+        return false;
+    }
+    true
+}
+
+fn canonical_x25519_coordinate(key: &[u8; 32]) -> bool {
+    key[31] < 0x7f
+        || (key[31] == 0x7f && (key[1..31].iter().any(|byte| *byte != 0xff) || key[0] < 0xed))
 }
 
 fn serve_operation(shared: &Shared, stream: &mut TcpStream) -> bool {
@@ -590,9 +789,15 @@ fn authorize_upgrade(
             .body(Some("Session owned elsewhere".to_owned()))
             .unwrap());
     }
+    if shared.draining.load(Ordering::Relaxed) {
+        if claimed_here {
+            locked(&shared.owners).remove(session);
+        }
+        return handshake_error(503, "draining");
+    }
     {
         let mut admissions = locked(&shared.admissions);
-        if shared.draining.load(Ordering::Relaxed) || *admissions >= shared.config.max_websockets {
+        if *admissions >= shared.config.max_websockets {
             shared.connection_rejections.fetch_add(1, Ordering::Relaxed);
             if claimed_here {
                 locked(&shared.owners).remove(session);
@@ -681,7 +886,9 @@ fn render_metrics(shared: &Shared) -> String {
             "# TYPE spocky_relay_bytes_forwarded_total counter\n",
             "spocky_relay_bytes_forwarded_total {}\n",
             "# TYPE spocky_relay_peer_losses_total counter\n",
-            "spocky_relay_peer_losses_total {}\n"
+            "spocky_relay_peer_losses_total {}\n",
+            "# TYPE spocky_relay_ingress_reserved_bytes gauge\n",
+            "spocky_relay_ingress_reserved_bytes {}\n"
         ),
         usize::from(ready(shared)),
         usize::from(shared.draining.load(Ordering::Relaxed)),
@@ -692,6 +899,7 @@ fn render_metrics(shared: &Shared) -> String {
         shared.frames_forwarded.load(Ordering::Relaxed),
         shared.bytes_forwarded.load(Ordering::Relaxed),
         shared.peer_losses.load(Ordering::Relaxed),
+        *locked(&shared.ingress_reserved_bytes),
     )
 }
 
@@ -711,6 +919,7 @@ fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorRespon
         return Ok(AcceptedConnection {
             session: (*session).to_owned(),
             kind: ConnectionKind::Legacy,
+            client: false,
             admitted: false,
         });
     }
@@ -736,6 +945,7 @@ fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorRespon
         return Ok(AcceptedConnection {
             session: server_id.to_owned(),
             kind: ConnectionKind::Legacy,
+            client: role == "client",
             admitted: false,
         });
     }
@@ -763,6 +973,7 @@ fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorRespon
     Ok(AcceptedConnection {
         session: server_id.to_owned(),
         kind,
+        client: role == "client",
         admitted: false,
     })
 }
@@ -824,7 +1035,8 @@ fn register_socket(
             if let Some(mut pending) =
                 locked(&shared.pending).remove(&(session.clone(), connection_id.clone()))
             {
-                while let Some(frame) = pending.pop_front() {
+                release_ingress(shared, pending.bytes);
+                while let Some(frame) = pending.frames.pop_front() {
                     let _ = sender.frames.try_send(frame);
                 }
             }
@@ -920,19 +1132,22 @@ fn broadcast(shared: &Shared, connection: &AcceptedConnection, source: u64, fram
             let queue = pending
                 .entry((session.to_owned(), connection_id.clone()))
                 .or_default();
-            if queue.len() < 32 {
-                queue.push_back(frame.clone());
-                false
+            if queue.frames.len() >= 32 {
+                Some(SocketClose::DataRouteUnavailable)
+            } else if reserve_ingress(shared, frame_bytes) {
+                queue.frames.push_back(frame.clone());
+                queue.bytes += frame_bytes;
+                None
             } else {
-                true
+                Some(SocketClose::RelayIngressCapacity)
             }
         };
-        if overflow
+        if let Some(reason) = overflow
             && let Some(sender) = locked(&shared.sockets)
                 .get(session)
                 .and_then(|sockets| sockets.get(&source))
         {
-            let _ = sender.control.send(SocketClose::DataRouteUnavailable);
+            let _ = sender.control.send(reason);
         }
         return;
     }
@@ -976,6 +1191,10 @@ fn close_socket(socket: &mut tungstenite::WebSocket<TcpStream>, reason: &SocketC
         SocketClose::OwnerMoved => (CloseCode::Restart, "Session owner moved"),
         SocketClose::SlowConsumer => (CloseCode::Again, "Slow consumer"),
         SocketClose::DataRouteUnavailable => (CloseCode::Again, "Data route unavailable"),
+        SocketClose::InvalidHandshake => (CloseCode::Policy, "Invalid handshake key"),
+        SocketClose::MessageTooLarge => (CloseCode::Size, "Message too large"),
+        SocketClose::ControlUnresponsive => (CloseCode::Error, "Control unresponsive"),
+        SocketClose::RelayIngressCapacity => (CloseCode::Again, "Relay ingress capacity"),
         SocketClose::ClientDisconnected => (CloseCode::Away, "Client disconnected"),
         SocketClose::Replaced => (CloseCode::Policy, "Replaced by new connection"),
     };
@@ -1019,7 +1238,10 @@ fn unregister_socket(shared: &Shared, session: &str, socket_id: u64) {
                 format!(r#"{{"type":"disconnected","connectionId":"{connection_id}"}}"#).into(),
             ),
         );
-        locked(&shared.pending).remove(&(session.to_owned(), connection_id));
+        if let Some(pending) = locked(&shared.pending).remove(&(session.to_owned(), connection_id))
+        {
+            release_ingress(shared, pending.bytes);
+        }
     }
     let mut sessions = shared.sockets.lock().unwrap();
     if let Some(sockets) = sessions.get_mut(session) {
@@ -1035,4 +1257,19 @@ fn release_admission(shared: &Shared, connection: Option<&AcceptedConnection>) {
         let mut admissions = locked(&shared.admissions);
         *admissions = admissions.saturating_sub(1);
     }
+}
+
+fn reserve_ingress(shared: &Shared, bytes: usize) -> bool {
+    let mut reserved = locked(&shared.ingress_reserved_bytes);
+    if reserved.saturating_add(bytes) > shared.config.ingress_budget_bytes {
+        false
+    } else {
+        *reserved += bytes;
+        true
+    }
+}
+
+fn release_ingress(shared: &Shared, bytes: usize) {
+    let mut reserved = locked(&shared.ingress_reserved_bytes);
+    *reserved = reserved.saturating_sub(bytes);
 }
