@@ -51,7 +51,7 @@ fn feasibility_report_has_explicit_evidence_states() {
         assert!(
             matches!(
                 state,
-                "passed" | "failed" | "blocked" | "unsupported" | "unproven"
+                "passed" | "partial" | "failed" | "blocked" | "unsupported" | "unproven"
             ),
             "invalid evidence state for {required}: {state}"
         );
