@@ -157,6 +157,11 @@ async function captureLayoutGeometry(page, candidate) {
         communityStar: ".community a:nth-child(1)",
         communitySponsor: ".community a:nth-child(2)",
         communityChat: ".community a:nth-child(3)",
+        sidebarEmpty: ".sidebar-empty",
+        sidebarEmptyTitle: ".sidebar-empty-title",
+        sidebarEmptyDetail: ".sidebar-empty-detail",
+        sidebarAddProject: ".sidebar-empty-actions button:nth-child(1)",
+        sidebarImportSession: ".sidebar-empty-actions button:nth-child(2)",
       }
     : {
         menu: '[data-testid="menu-button"]',
@@ -167,6 +172,11 @@ async function captureLayoutGeometry(page, candidate) {
         communityStar: '[data-testid="community-links-github-star"]',
         communitySponsor: '[data-testid="community-links-sponsor"]',
         communityChat: '[data-testid="community-links-discord"]',
+        sidebarEmpty: '[data-testid="sidebar-project-empty-state"]',
+        sidebarEmptyTitle: '[data-testid="sidebar-project-empty-state"] div:first-child > div:nth-child(1)',
+        sidebarEmptyDetail: '[data-testid="sidebar-project-empty-state"] div:first-child > div:nth-child(2)',
+        sidebarAddProject: '[data-testid="sidebar-project-empty-state"] button:nth-of-type(1)',
+        sidebarImportSession: '[data-testid="sidebar-project-empty-state"] button:nth-of-type(2)',
       };
   return page.evaluate((entries) => {
     function snapshot(element) {
@@ -184,6 +194,9 @@ async function captureLayoutGeometry(page, candidate) {
           display: style.display,
           fontFamily: style.fontFamily,
           fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          letterSpacing: style.letterSpacing,
+          webkitFontSmoothing: style.webkitFontSmoothing,
           lineHeight: style.lineHeight,
           color: style.color,
           backgroundColor: style.backgroundColor,
@@ -215,6 +228,10 @@ async function captureLayoutGeometry(page, candidate) {
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         style: {
           fontSize: style.fontSize,
+          fontFamily: style.fontFamily,
+          fontWeight: style.fontWeight,
+          letterSpacing: style.letterSpacing,
+          webkitFontSmoothing: style.webkitFontSmoothing,
           lineHeight: style.lineHeight,
           color: style.color,
           margin: style.margin,

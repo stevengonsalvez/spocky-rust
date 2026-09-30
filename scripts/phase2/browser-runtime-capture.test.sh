@@ -54,3 +54,7 @@ grep -F 'sidebar-project-empty-state' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'layoutGeometry' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'fontWeight: style.fontWeight' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'sidebarEmptyDetail' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
