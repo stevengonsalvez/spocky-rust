@@ -111,8 +111,9 @@ organization-slug, invitation-link, and invitation-expiry values. All status,
 registration, account, organization, role, capability, operator, creation,
 member, and invitation semantic values match. Candidate packet evidence also
 matches pinned creation, cancellation, signup, and acceptance statuses and
-bodies. This does not cover admission error cases, multi-membership selection,
-or database mutations across the complete auth API.
+bodies. Invite-only admission also matches missing, unknown, wrong-email, and
+invalid-email status and error bodies. This does not cover multi-membership
+selection or database mutations across the complete auth API.
 
 The Resend delivery pilot passes two targeted tests. It preserves optional
 configuration, trimmed `re_` key validation, required sender validation, the
@@ -222,12 +223,12 @@ Capture safety bounds:
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `evidence/raw/phase2/hub-runtime-original.json` | 10,570 | `586e62eda2cd34086b1de577c149207c367e44228a73f53baf9ba991c2d2d380` |
-| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `909affb53bc34f87bd8e3ddb420f593ffdd8d829a4996ae031b7dd612ee3a631` |
+| `evidence/raw/phase2/hub-runtime-original.json` | 10,562 | `7d998c6b39533c9eec031041d4e805eec80d4bb0d997d069151bbd108192d4c8` |
+| `evidence/raw/phase2/hub-runtime-original.log` | 7,634 | `f05c5c2e058066fa10878d2cf2e9c0af53e553ded402d9de08247a6fb90e2af5` |
 | `evidence/raw/phase2/hub-runtime-npm-ci.log` | 700 | `238d7cdcf27a6394e287cfcda895e60c22feebbf44763a7a32f04b252af77f28` |
-| `evidence/raw/phase2/hub-account-state-original.json` | 6,241 | `0afadc5d795fdf8a1d8cbd1eaf07640ea2ae69ce8640bda3909d55ef422d2754` |
-| `evidence/raw/phase2/hub-account-state-rust.json` | 5,803 | `2e33525089c5d34cf7b531406ca74cb9d5355fae35c6b98fe68b5c78b201a330` |
-| `evidence/raw/phase2/hub-account-state-comparison.json` | 12,396 | `9d42c4e6993c28e6868ef91a9865c4666110551202e663d248a1c600f4960fd1` |
+| `evidence/raw/phase2/hub-account-state-original.json` | 6,744 | `3b80f759e56dcb9894c69e9325b969d31c6c79e6eac0b1e85e326421f8d27b7d` |
+| `evidence/raw/phase2/hub-account-state-rust.json` | 6,306 | `7857ba12ca25b155d3e002ea25b1259c0fc7c2abd68581870cbafbaf17f3b531` |
+| `evidence/raw/phase2/hub-account-state-comparison.json` | 13,498 | `2335a8d97477a6c1d5e2abf3b679bccaf2ebc2716db8021ac01da0a9ae8e6b57` |
 | `evidence/raw/phase2/hub-runtime-rust.json` | 769 | `bc766a54fe52d1cab828122fb4a5fd8e4036eeea6cac5204b4d8f5941b337e6d` |
 | `evidence/raw/phase2/hub-postgres-runtime.log` | 3,982 | `569f8bb19e84687470a52e7126d7c9af51bce7d40a7fff8514d357b20888e6ee` |
 | `evidence/raw/phase2/hub-postgres-test.log` | 1,540 | `688ae8f25bdfc0edbcb122fb4838380bba1e84ec999aad6a727ba51c1491a751` |
@@ -251,11 +252,11 @@ hashes remain available.
   candidate-only snapshot evidence.
 - Original-versus-Rust account-state bodies match for six bootstrap and invitation
   states, including pending, accepted, invited-member, and owner-team views.
-  Admission errors, multi-organization, and database-state differential traces
-  do not exist.
+  Missing, unknown, wrong-email, and invalid-email admission failures also match.
+  Multi-organization and database-state differential traces do not exist.
 - Selected production daemon and Hub integration does not exist. The loopback
   pilot covers both sides of their direct relationship contract.
-- Invitation entitlement races, live provider acceptance, admission error traces,
-  and complete organization HTTP traces remain open.
+- Invitation entitlement races, live provider acceptance, remaining Better Auth
+  validation errors, and complete organization HTTP traces remain open.
 - Stripe catalog sync, webhook, checkout, subscription, seat-report, and portal
   boundaries remain open. The current billing pilot is offline and candidate-only.
