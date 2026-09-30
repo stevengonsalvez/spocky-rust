@@ -21,7 +21,7 @@ mod settings;
 pub use protocol::{
     HookKind, PluginProcessMessage, PluginProcessRequest, ProcessHooks, ProcessProviderMetadata,
     ProcessUsageSourceMetadata, ProviderCatalogOptions, ProviderConnectRequest,
-    decode_process_message, decode_process_request,
+    RuntimeProtocolStep, decode_process_message, decode_process_request,
 };
 pub use settings::{
     PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsState,
@@ -391,7 +391,7 @@ impl AcquiredPlugin {
     }
 
     pub fn load(self, timeout: Duration) -> Result<LoadedPlugin, PluginError> {
-        self.load_inner(None, timeout)
+        self.load_inner(None, &[], timeout)
     }
 
     pub fn load_and_invoke(
@@ -403,12 +403,21 @@ impl AcquiredPlugin {
         if method.is_empty() {
             return Err(PluginError::RuntimeProtocol);
         }
-        self.load_inner(Some((method, input)), timeout)
+        self.load_inner(Some((method, input)), &[], timeout)
+    }
+
+    pub fn load_with_protocol_steps(
+        self,
+        steps: &[RuntimeProtocolStep],
+        timeout: Duration,
+    ) -> Result<LoadedPlugin, PluginError> {
+        self.load_inner(None, steps, timeout)
     }
 
     fn load_inner(
         self,
         invocation: Option<(&str, serde_json::Value)>,
+        protocol_steps: &[RuntimeProtocolStep],
         timeout: Duration,
     ) -> Result<LoadedPlugin, PluginError> {
         let loaded_manifest = load_manifest(&self.directory)?;
@@ -433,6 +442,7 @@ impl AcquiredPlugin {
                 &self.directory.to_string_lossy(),
             ),
             invocation,
+            protocol_steps,
             timeout,
         );
         if result.is_err() {
@@ -822,6 +832,7 @@ fn exchange_runtime(
     child: &mut Child,
     initialize: &RuntimeInitialize<'_>,
     invocation: Option<(&str, serde_json::Value)>,
+    protocol_steps: &[RuntimeProtocolStep],
     timeout: Duration,
 ) -> Result<RuntimeExchange, PluginError> {
     let stdout = child.stdout.take().ok_or(PluginError::RuntimeProtocol)?;
@@ -882,6 +893,7 @@ fn exchange_runtime(
         timeout,
         &mut traffic,
     )?;
+    perform_protocol_steps(stdin, &receiver, protocol_steps, timeout, &mut traffic)?;
     let shutdown = r#"{"type":"shutdown"}"#;
     writeln!(stdin, "{shutdown}")?;
     stdin.flush()?;
@@ -905,6 +917,55 @@ fn exchange_runtime(
         message: shutdown.to_owned(),
     });
     Ok((contributions, traffic, invocation_output))
+}
+
+fn perform_protocol_steps(
+    stdin: &mut impl Write,
+    receiver: &RuntimeLineReceiver,
+    steps: &[RuntimeProtocolStep],
+    timeout: Duration,
+    traffic: &mut Vec<RuntimeTraffic>,
+) -> Result<(), PluginError> {
+    for step in steps {
+        match step {
+            RuntimeProtocolStep::Send(request) => {
+                if matches!(
+                    request,
+                    PluginProcessRequest::Initialize { .. } | PluginProcessRequest::Shutdown {}
+                ) {
+                    return Err(PluginError::RuntimeProtocol);
+                }
+                let encoded = serde_json::to_string(request)?;
+                decode_process_request(&encoded).map_err(|_| PluginError::RuntimeProtocol)?;
+                writeln!(stdin, "{encoded}")?;
+                stdin.flush()?;
+                traffic.push(RuntimeTraffic {
+                    direction: "host_to_plugin",
+                    message: encoded,
+                });
+            }
+            RuntimeProtocolStep::Receive(expected) => {
+                let encoded = receiver
+                    .recv_timeout(timeout)
+                    .map_err(|_| PluginError::RuntimeTimedOut)??;
+                let actual =
+                    decode_process_message(&encoded).map_err(|_| PluginError::RuntimeProtocol)?;
+                traffic.push(RuntimeTraffic {
+                    direction: "plugin_to_host",
+                    message: encoded,
+                });
+                if &actual != expected {
+                    return match actual {
+                        PluginProcessMessage::Fatal { error } => {
+                            Err(PluginError::RuntimeFatal(error))
+                        }
+                        _ => Err(PluginError::RuntimeProtocol),
+                    };
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 type RuntimeLineReceiver = mpsc::Receiver<Result<String, std::io::Error>>;

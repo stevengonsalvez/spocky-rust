@@ -20,8 +20,8 @@ pub enum ProviderCatalogOptions {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConnectRequest {
-    versions: Vec<u64>,
-    capabilities: Vec<String>,
+    pub versions: Vec<u64>,
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -34,8 +34,8 @@ pub enum HookKind {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessHooks {
-    events: Vec<String>,
-    before: Vec<String>,
+    pub events: Vec<String>,
+    pub before: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -254,6 +254,12 @@ pub enum PluginProcessMessage {
     },
     #[serde(rename = "paseo_close")]
     PaseoClose {},
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeProtocolStep {
+    Send(PluginProcessRequest),
+    Receive(PluginProcessMessage),
 }
 
 pub fn decode_process_request(encoded: &str) -> Result<PluginProcessRequest, String> {

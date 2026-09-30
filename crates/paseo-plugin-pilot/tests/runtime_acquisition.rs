@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use paseo_plugin_pilot::{
-    Contribution, PluginHost, PluginSourceIdentity, acquire_git, acquire_npm_tarball,
+    Contribution, HookKind, PluginHost, PluginProcessMessage, PluginProcessRequest,
+    PluginSourceIdentity, ProcessHooks, ProviderCatalogOptions, ProviderConnectRequest,
+    RuntimeProtocolStep, acquire_git, acquire_npm_tarball,
 };
 use serde_json::json;
 
@@ -399,6 +401,169 @@ lines.on("line", (line) => {
             .contributions(),
         loaded.contributions()
     );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn runtime_executes_hooks_usage_provider_reconnect_and_session_frames() {
+    let root = TestDir::new();
+    let package = root.path().join("package");
+    fs::create_dir_all(&package).expect("create package");
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@acme/protocol","version":"1.0.0","files":["paseo-plugin.json","index.server.ts"]}"#,
+    )
+    .expect("write package manifest");
+    fs::write(package.join("paseo-plugin.json"), r#"{"id":"protocol"}"#)
+        .expect("write plugin manifest");
+    fs::write(
+        package.join("index.server.ts"),
+        r#"const readline = require("node:readline");
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  const send = (value) => console.log(JSON.stringify(value));
+  if (message.type === "initialize") {
+    send({ type: "ready", methods: [], providers: [{ id: "codex", label: "Codex" }], usageSources: [{ id: "credits", label: "Credits", discover: true }], hooks: { events: ["session.created"], before: ["session.prompt"] } });
+    send({ type: "settings.changed", settingsId: "display" });
+    send({ type: "hooks.changed", hooks: { events: ["session.updated"], before: [] } });
+  }
+  if (message.type === "provider.catalog_key") send({ type: "result", requestId: message.requestId, output: "catalog-v1" });
+  if (message.type === "hook.cancel") send({ type: "error", requestId: message.requestId, error: "cancelled" });
+  if (message.type.startsWith("usage.")) send({ type: "result", requestId: message.requestId, output: message.type });
+  if (message.type === "provider.connect") send({ type: "provider.connected", connectionId: message.connectionId, version: 2, capabilities: ["sessions"] });
+  if (message.type === "provider.send") {
+    send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
+    send({ type: "provider.event", connectionId: message.connectionId, event: { type: "sessions", sessions: [] } });
+  }
+  if (message.type === "provider.close") send({ type: "provider.closed", connectionId: message.connectionId });
+  if (message.type === "paseo_frame") send(message);
+  if (message.type === "paseo_close") send({ type: "paseo_close" });
+  if (message.type === "shutdown") process.exit(0);
+});
+"#,
+    )
+    .expect("write runtime");
+    let archive_name = run(Command::new("npm")
+        .args(["pack", "--silent"])
+        .current_dir(&package));
+    let archive = package.join(archive_name.lines().last().expect("archive name"));
+    let acquired = acquire_npm_tarball(
+        &archive,
+        "@acme/protocol",
+        ".",
+        root.path().join("installation"),
+        Duration::from_secs(15),
+    )
+    .expect("acquire protocol plugin");
+
+    let result = |request_id: &str, output: serde_json::Value| {
+        RuntimeProtocolStep::Receive(PluginProcessMessage::Result {
+            request_id: request_id.into(),
+            output,
+        })
+    };
+    let connection = || PluginProcessRequest::ProviderConnect {
+        provider_id: "codex".into(),
+        connection_id: "connection-1".into(),
+        request: ProviderConnectRequest {
+            versions: vec![1, 2],
+            capabilities: vec!["sessions".into()],
+        },
+    };
+    let steps = vec![
+        RuntimeProtocolStep::Receive(PluginProcessMessage::SettingsChanged {
+            settings_id: "display".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::HooksChanged {
+            hooks: ProcessHooks {
+                events: vec!["session.updated".into()],
+                before: vec![],
+            },
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderCatalogKey {
+            request_id: "catalog-1".into(),
+            provider_id: "codex".into(),
+            options: ProviderCatalogOptions::Global { force: Some(true) },
+        }),
+        result("catalog-1", json!("catalog-v1")),
+        RuntimeProtocolStep::Send(PluginProcessRequest::Hook {
+            request_id: "hook-1".into(),
+            kind: HookKind::Event,
+            name: "session.created".into(),
+            input: json!({"id": 1}),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::HookCancel {
+            request_id: "hook-1".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::Error {
+            request_id: "hook-1".into(),
+            error: "cancelled".into(),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageIdentify {
+            request_id: "usage-1".into(),
+            source_id: "credits".into(),
+            input: json!({"token": "a"}),
+        }),
+        result("usage-1", json!("usage.identify")),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageFetch {
+            request_id: "usage-2".into(),
+            source_id: "credits".into(),
+            input: json!({"account": "a"}),
+        }),
+        result("usage-2", json!("usage.fetch")),
+        RuntimeProtocolStep::Send(PluginProcessRequest::UsageDiscover {
+            request_id: "usage-3".into(),
+            source_id: "credits".into(),
+        }),
+        result("usage-3", json!("usage.discover")),
+        RuntimeProtocolStep::Send(connection()),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderConnected {
+            connection_id: "connection-1".into(),
+            version: 2,
+            capabilities: vec!["sessions".into()],
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderSend {
+            connection_id: "connection-1".into(),
+            acceptance_id: "accept-1".into(),
+            input: json!({"type": "sessions"}),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderAccepted {
+            connection_id: "connection-1".into(),
+            acceptance_id: "accept-1".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderEvent {
+            connection_id: "connection-1".into(),
+            event: json!({"type": "sessions", "sessions": []}),
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::ProviderClose {
+            connection_id: "connection-1".into(),
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderClosed {
+            connection_id: "connection-1".into(),
+            error: None,
+        }),
+        RuntimeProtocolStep::Send(connection()),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::ProviderConnected {
+            connection_id: "connection-1".into(),
+            version: 2,
+            capabilities: vec!["sessions".into()],
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::PaseoFrame {
+            data: json!("frame"),
+            is_binary: false,
+        }),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::PaseoFrame {
+            data: json!("frame"),
+            is_binary: false,
+        }),
+        RuntimeProtocolStep::Send(PluginProcessRequest::PaseoClose {}),
+        RuntimeProtocolStep::Receive(PluginProcessMessage::PaseoClose {}),
+    ];
+    let loaded = acquired
+        .load_with_protocol_steps(&steps, Duration::from_secs(5))
+        .expect("execute process envelope");
+    assert_eq!(loaded.traffic().len(), 2 + steps.len() + 1);
 }
 
 #[test]
