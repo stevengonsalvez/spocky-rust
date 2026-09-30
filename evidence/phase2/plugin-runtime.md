@@ -87,6 +87,7 @@ sources live in disposable temporary directories.
 - Rust acquisition/runtime: 9 passed, 0 failed, repeated twice
 - Rust process envelope: 2 passed, 0 failed
 - Rust provider payload protocol: 4 passed, 0 failed
+- Rust client compile and evaluator runtime: 2 passed, 0 failed
 - Rust bounded-command unit cases: 2 passed, 0 failed
 - Rust settings lifecycle: 5 passed, 0 failed
 - Successful process exchanges: Git 5 frames, npm 3 frames
@@ -109,8 +110,11 @@ sources live in disposable temporary directories.
   daemon-session frames, connection failure, and input rejection.
 - Nested provider config, prompt, permission, catalog, timeline, and error payload
   schemas remain JSON values pending their detailed schema port.
-- Client source is transported but not compiled with Paseo's esbuild boundary or
-  evaluated through the iOS, Android, browser, or desktop contribution runtime.
+- Client source now compiles through the pinned esbuild binary and runs in a
+  bounded Node evaluator. Representative surface, sidebar, and Command Center
+  contributions register; compile and setup failures recover; host disconnect,
+  reconnect generation, cleanup, and evaluator restart execute. iOS, Android,
+  browser, desktop, and the complete client API surface remain open.
 - The Rust settings pilot covers the pinned boolean and integer schema used by
   baseline tests. Arbitrary JSON schemas, async refinements, callback error
   reporting, and daemon RPC integration remain open.
@@ -131,6 +135,7 @@ scripts/phase2/plugin-runtime-capture.sh
 scripts/phase2/plugin-linux-runtime.sh
 cargo test -p paseo-plugin-pilot --test settings_lifecycle
 cargo test -p paseo-plugin-pilot --test process_protocol
+cargo test -p paseo-plugin-pilot --test client_runtime
 cargo fmt --package paseo-plugin-pilot -- --check
 cargo clippy -p paseo-plugin-pilot --all-targets -- -D warnings
 ```

@@ -283,10 +283,24 @@ unnormalized. The recovery outbox renders the pinned verification and reset
 subjects, text, escaped HTML, and SHA-256 idempotency-key shapes. One targeted
 payload test covers both messages, including all five escaped HTML characters.
 
+## Embedded SQL candidate pilot
+
+The Rust candidate opens a real bundled SQLite database, creates a constrained
+schema, commits and rolls back arbitrary SQL transactions, persists Hub state
+across runtime reconstruction, rejects a second live owner of the same data
+directory, and serializes concurrent saves. Four embedded runtime tests and five
+Hub contract tests pass. Crate clippy passes with warnings denied.
+
+This is feasibility evidence, not embedded database parity. SQLite differs from
+the pinned PGlite/PostgreSQL dialect and storage engine. The pilot persists one
+transactional whole-state row rather than the baseline relational schema and
+does not reproduce PostgreSQL advisory locks.
+
 ## Remaining evidence blockers
 
-- Candidate PGlite storage, migrations, lock behavior, crash recovery, and old
-  database fixtures do not exist.
+- Exact PGlite-compatible schema, migrations, keyed lock behavior, crash
+  recovery, and old database fixtures do not exist. The SQLite candidate proves
+  executable embedded SQL and exclusive directory ownership only.
 - Candidate complete baseline-schema PostgreSQL behavior and embedded-versus-
   PostgreSQL differential results do not exist. API-key, invitation, and active-
   session subsets have relational evidence; remaining tables still use
