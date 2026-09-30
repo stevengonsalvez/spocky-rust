@@ -58,6 +58,8 @@ fn shell_renders_deterministic_semantic_html() {
         "font-family: system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;"
     ));
     assert!(!first.contains("font-family: Inter"));
+    assert!(first.contains("-webkit-font-smoothing: antialiased"));
+    assert!(first.contains("-moz-osx-font-smoothing: grayscale"));
     assert!(first.contains(".mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }"));
     assert!(first.contains(".community { bottom: 72px; }"));
 }
