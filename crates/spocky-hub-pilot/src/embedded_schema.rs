@@ -788,6 +788,7 @@ CREATE INDEX IF NOT EXISTS "workflow_step_runs_trigger_status_idx" ON "workflow_
 CREATE INDEX IF NOT EXISTS "workflow_wakeups_available_lease_idx" ON "workflow_wakeups" ("available_at", "lease_expires_at");
 "#;
 
+#[allow(dead_code)]
 pub const BASELINE_TABLES: &[&str] = &[
     "account",
     "agent_executions",
@@ -840,6 +841,7 @@ pub const BASELINE_TABLES: &[&str] = &[
     "workflow_wakeups",
 ];
 
+#[allow(dead_code)]
 pub const BASELINE_CONSTRAINT_NAMES: &[&str] = &[
     "account_user_id_user_id_fk",
     "agent_executions_agent_session_id_agent_sessions_id_fk",

@@ -1303,6 +1303,7 @@ pub enum StoreError {
     Postgres(postgres::Error),
     Sqlite(rusqlite::Error),
     EmbeddedDirectoryInUse(PathBuf),
+    MigrationJournalMismatch(String),
     TransactionAborted,
     Poisoned,
 }
@@ -1336,6 +1337,9 @@ impl fmt::Display for StoreError {
                 "embedded database directory is already in use: {}",
                 path.display()
             ),
+            Self::MigrationJournalMismatch(detail) => {
+                write!(formatter, "embedded migration journal mismatch: {detail}")
+            }
             Self::TransactionAborted => formatter.write_str("embedded transaction aborted"),
             Self::Poisoned => formatter.write_str("database client lock poisoned"),
         }

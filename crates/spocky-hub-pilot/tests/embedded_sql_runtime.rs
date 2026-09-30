@@ -246,8 +246,34 @@ fn embedded_sql_installs_relational_hub_tables_and_constraints() {
             .schema_constraints()
             .expect("schema constraints")
             .len(),
-        208
+        209
     );
+}
+
+#[test]
+fn embedded_sql_schema_inventory_comes_from_installed_objects() {
+    let root = TestDir::new();
+    let store = EmbeddedSqlStore::open(&root.0).expect("open embedded SQL");
+    store
+        .execute_batch(
+            "CREATE TABLE installed_probe (
+                id INTEGER PRIMARY KEY,
+                value TEXT NOT NULL,
+                CONSTRAINT installed_probe_value_check CHECK (length(value) > 0)
+            );
+            CREATE UNIQUE INDEX installed_probe_value_unique ON installed_probe (value);",
+        )
+        .expect("install probe schema");
+
+    assert!(
+        store
+            .baseline_tables()
+            .expect("installed tables")
+            .contains(&"public.installed_probe".to_owned())
+    );
+    let constraints = store.schema_constraints().expect("installed constraints");
+    assert!(constraints.contains(&"installed_probe_value_check".to_owned()));
+    assert!(constraints.contains(&"installed_probe_value_unique".to_owned()));
 }
 
 #[test]
@@ -313,6 +339,97 @@ fn embedded_sql_resumes_an_interrupted_schema_install() {
     assert_eq!(store.relational_tables().expect("tables").len(), 50);
     let schema = store.schema_observation().expect("schema");
     assert!(schema.contains("workflow_step_runs_trigger_step_unique"));
+}
+
+#[test]
+fn embedded_sql_rejects_non_prefix_migration_history_without_rewriting_it() {
+    let root = TestDir::new();
+    let database = root.0.join("hub.sqlite3");
+    let connection = Connection::open(&database).expect("open malformed migration database");
+    connection
+        .execute_batch(
+            "CREATE TABLE paseo_hub_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO paseo_hub_migrations (version, name, applied_at)
+            VALUES (1, '0001_charming_sabretooth', 1784401968975);",
+        )
+        .expect("create malformed migration history");
+    drop(connection);
+
+    let Err(error) = EmbeddedSqlStore::open(&root.0) else {
+        panic!("accepted non-prefix journal");
+    };
+    assert!(error.to_string().contains("migration journal mismatch"));
+
+    let connection = Connection::open(&database).expect("reopen malformed migration database");
+    let row = connection
+        .query_row(
+            "SELECT version, name, applied_at FROM paseo_hub_migrations",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .expect("preserved malformed row");
+    assert_eq!(
+        row,
+        (1, "0001_charming_sabretooth".into(), 1_784_401_968_975)
+    );
+}
+
+#[test]
+fn embedded_sql_rolls_back_an_interrupted_migration_transaction() {
+    let root = TestDir::new();
+    let database = root.0.join("hub.sqlite3");
+    let connection = Connection::open(&database).expect("open conflicting database");
+    connection
+        .execute_batch(
+            "CREATE TABLE paseo_hub_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at INTEGER NOT NULL
+            );
+            CREATE TRIGGER interrupt_migration
+            BEFORE INSERT ON paseo_hub_migrations
+            WHEN NEW.version = 2
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated migration interruption');
+            END;",
+        )
+        .expect("create migration interruption trigger");
+    drop(connection);
+
+    assert!(EmbeddedSqlStore::open(&root.0).is_err());
+
+    let connection = Connection::open(&database).expect("reopen conflicting database");
+    let objects = connection
+        .prepare("SELECT type || ':' || name FROM sqlite_master ORDER BY type, name")
+        .expect("prepare object inventory")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query object inventory")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect object inventory");
+    assert_eq!(
+        objects,
+        [
+            "index:sqlite_autoindex_paseo_hub_migrations_1",
+            "table:paseo_hub_migrations",
+            "trigger:interrupt_migration"
+        ]
+    );
+    let journal_rows = connection
+        .query_row("SELECT count(*) FROM paseo_hub_migrations", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .expect("count rolled-back journal");
+    assert_eq!(journal_rows, 0);
 }
 
 #[test]

@@ -76,33 +76,23 @@ async function capture(directory) {
     select constraint_name as name
     from information_schema.table_constraints
     where table_schema = 'public'
+      and constraint_type <> 'PRIMARY KEY'
     order by constraint_name
   `);
   const indexes = await bundle.runtime.query(`
     select indexname as name
     from pg_indexes
     where schemaname = 'public'
+      and indexname not like '%_pkey'
     order by indexname
   `);
-  const snapshot = JSON.parse(
-    await readFile(join(sourceRoot, "drizzle/meta/0048_snapshot.json"), "utf8"),
-  );
-  const canonicalTables = Object.values(snapshot.tables)
-    .map((table) => `public.${table.name}`)
-    .sort();
-  const installedNames = new Set([
+  const schemaTables = tables.rows
+    .map((row) => row.name)
+    .filter((name) => name.startsWith("public.") && name !== "public.differential_probe");
+  const schemaConstraints = [...new Set([
     ...constraints.rows.map((row) => row.name),
     ...indexes.rows.map((row) => row.name),
-  ]);
-  const canonicalConstraints = Object.values(snapshot.tables)
-    .flatMap((table) => [
-      ...Object.keys(table.indexes ?? {}),
-      ...Object.keys(table.foreignKeys ?? {}),
-      ...Object.keys(table.uniqueConstraints ?? {}),
-      ...Object.keys(table.checkConstraints ?? {}),
-    ])
-    .filter((name) => installedNames.has(name))
-    .sort();
+  ])].sort();
   const migrationJournal = await bundle.runtime.query(`
     select hash, created_at as "createdAt"
     from drizzle.__drizzle_migrations
@@ -139,8 +129,9 @@ async function capture(directory) {
     observations: {
       tables: tables.rows.map((row) => row.name),
       constraints: constraints.rows.map((row) => row.name),
-      canonicalTables,
-      canonicalConstraints,
+      schemaTables,
+      schemaConstraints,
+      schemaSource: "installed database catalog",
       migrationJournal: migrationJournal.rows,
       migrationReopenStable:
         JSON.stringify(migrationJournal.rows) === JSON.stringify(reopenedJournal.rows),

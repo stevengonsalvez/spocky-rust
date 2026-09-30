@@ -70,8 +70,8 @@ fn capture(data_directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let same_key_serialization = capture_same_key_serialization(&store)?;
     let tables = store.relational_tables()?;
     let constraints = store.schema_constraints()?;
-    let canonical_tables = store.baseline_tables()?;
-    let canonical_constraints = constraints.clone();
+    let schema_tables = store.baseline_tables()?;
+    let schema_constraints = constraints.clone();
     let migration_journal = store
         .migration_journal()?
         .into_iter()
@@ -112,8 +112,9 @@ fn capture(data_directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
         "observations": {
             "tables": tables,
             "constraints": constraints,
-            "canonicalTables": canonical_tables,
-            "canonicalConstraints": canonical_constraints,
+            "schemaTables": schema_tables,
+            "schemaConstraints": schema_constraints,
+            "schemaSource": "installed database catalog",
             "migrationJournal": migration_journal,
             "migrationReopenStable": migration_journal == reopened_journal,
             "lockOwnerKeys": lock_owner_keys,
@@ -122,7 +123,7 @@ fn capture(data_directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "engine": "SQLite",
             "schema": "baseline-owned relational schema plus snapshot compatibility shim",
             "dialect": "SQLite",
-            "migrations": "baseline journal representation over idempotent final schema",
+            "migrations": "ordered compatibility replay of pinned identities over SQLite translation",
         },
     });
     println!("{output}");

@@ -8,7 +8,7 @@ plan=$($runner --print-plan)
 printf '%s\n' "$plan" | grep -F 'Hub baseline: 28f6c78833065fd282f9064f92a9aa61875dd359'
 printf '%s\n' "$plan" | grep -F 'PGlite package: 0.5.4'
 printf '%s\n' "$plan" | grep -F 'operations: restart, cross-process rejection, transaction rollback, same-key serialization, stale-owner recovery'
-printf '%s\n' "$plan" | grep -F 'observations: tables, constraints, canonical schema inventory, migration journal, lock owner record'
+printf '%s\n' "$plan" | grep -F 'observations: installed database catalog, migration journal, lock owner record'
 printf '%s\n' "$plan" | grep -F 'expected mismatch: engine, schema, dialect, migrations'
 
 $runner --preflight-only
@@ -16,10 +16,10 @@ $runner --preflight-only
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/hub-embedded-compare.XXXXXX")
 trap 'rm -rf "$fixture_root"' EXIT HUP INT TERM
 cat >"$fixture_root/pglite.json" <<'JSON'
-{"operations":{"restart":true,"crossProcessRejection":true,"transactionRollback":true,"sameKeySerialization":["first:start","first:end","second:start","second:end"],"staleOwnerRecovery":true},"observations":{"tables":["drizzle.__drizzle_migrations","public.user"],"constraints":["user_email_unique"],"canonicalTables":["public.user"],"canonicalConstraints":["user_email_unique"],"migrationJournal":[{"hash":"baseline-hash","createdAt":1}],"migrationReopenStable":true,"lockOwnerKeys":["pid","token"]},"boundary":{"engine":"PGlite","schema":"baseline relational","dialect":"PostgreSQL","migrations":"baseline journal"}}
+{"operations":{"restart":true,"crossProcessRejection":true,"transactionRollback":true,"sameKeySerialization":["first:start","first:end","second:start","second:end"],"staleOwnerRecovery":true},"observations":{"tables":["drizzle.__drizzle_migrations","public.user"],"constraints":["user_email_unique"],"schemaTables":["public.user"],"schemaConstraints":["user_email_unique"],"schemaSource":"installed database catalog","migrationJournal":[{"hash":"baseline-hash","createdAt":1}],"migrationReopenStable":true,"lockOwnerKeys":["pid","token"]},"boundary":{"engine":"PGlite","schema":"baseline relational","dialect":"PostgreSQL","migrations":"baseline journal"}}
 JSON
 cat >"$fixture_root/rust.json" <<'JSON'
-{"operations":{"restart":true,"crossProcessRejection":true,"transactionRollback":true,"sameKeySerialization":["first:start","first:end","second:start","second:end"],"staleOwnerRecovery":true},"observations":{"tables":["hub_state","user"],"constraints":["user_email_unique"],"canonicalTables":["public.user"],"canonicalConstraints":["user_email_unique"],"migrationJournal":[{"version":0,"name":"0000_phase_0_spine"}],"migrationReopenStable":true,"lockOwnerKeys":["pid","token"]},"boundary":{"engine":"SQLite","schema":"baseline-owned relational schema plus snapshot compatibility shim","dialect":"SQLite","migrations":"baseline journal representation over idempotent final schema"}}
+{"operations":{"restart":true,"crossProcessRejection":true,"transactionRollback":true,"sameKeySerialization":["first:start","first:end","second:start","second:end"],"staleOwnerRecovery":true},"observations":{"tables":["hub_state","user"],"constraints":["user_email_unique"],"schemaTables":["public.user"],"schemaConstraints":["user_email_unique"],"schemaSource":"installed database catalog","migrationJournal":[{"version":0,"name":"0000_phase_0_spine"}],"migrationReopenStable":true,"lockOwnerKeys":["pid","token"]},"boundary":{"engine":"SQLite","schema":"baseline-owned relational schema plus snapshot compatibility shim","dialect":"SQLite","migrations":"ordered compatibility replay of pinned identities over SQLite translation"}}
 JSON
 
 $runner --compare-json "$fixture_root/pglite.json" "$fixture_root/rust.json" \
@@ -36,3 +36,8 @@ jq -e '.observations.pglite.lockOwnerKeys == .observations.rust.lockOwnerKeys' \
   "$fixture_root/comparison.json" >/dev/null
 jq -e '.operations.pglite.staleOwnerRecovery == true' \
   "$fixture_root/comparison.json" >/dev/null
+
+if grep -F '0048_snapshot.json' "$repository_root/scripts/phase2/hub-embedded-pglite.mjs"; then
+  printf 'PGlite schema evidence still reads snapshot metadata\n' >&2
+  exit 1
+fi

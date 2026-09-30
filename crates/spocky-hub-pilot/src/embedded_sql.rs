@@ -14,9 +14,7 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::embedded_schema::{
-    BASELINE_CONSTRAINT_NAMES, BASELINE_JOURNAL, BASELINE_SCHEMA_SQL, BASELINE_TABLES,
-};
+use crate::embedded_schema::{BASELINE_JOURNAL, BASELINE_SCHEMA_SQL};
 use crate::{DurableHubStore, StoreError, StoreSemantics};
 
 const DATABASE_FILE: &str = "hub.sqlite3";
@@ -92,21 +90,39 @@ impl EmbeddedSqlStore {
     }
 
     pub fn schema_constraints(&self) -> Result<Vec<String>, StoreError> {
-        let schema = self.schema_observation()?;
-        Ok(BASELINE_CONSTRAINT_NAMES
-            .iter()
-            .filter(|name| schema.contains(*name))
-            .map(ToString::to_string)
-            .collect())
+        let connection = self.connection.lock().map_err(|_| StoreError::Poisoned)?;
+        let mut names = query_text_column(
+            &connection,
+            "SELECT name FROM sqlite_master
+             WHERE type = 'index' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )?;
+        let table_sql = query_text_column(
+            &connection,
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )?;
+        for sql in table_sql {
+            names.extend(named_constraints(&sql));
+        }
+        names.sort();
+        names.dedup();
+        Ok(names)
     }
 
     pub fn baseline_tables(&self) -> Result<Vec<String>, StoreError> {
-        let installed = self.relational_tables()?;
-        Ok(BASELINE_TABLES
-            .iter()
-            .filter(|name| installed.iter().any(|installed| installed == **name))
-            .map(|name| format!("public.{name}"))
-            .collect())
+        let connection = self.connection.lock().map_err(|_| StoreError::Poisoned)?;
+        Ok(query_text_column(
+            &connection,
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )?
+        .into_iter()
+        .filter(|name| name != "hub_state" && name != "differential_probe")
+        .map(|name| format!("public.{name}"))
+        .collect())
     }
 
     pub fn migration_journal(&self) -> Result<Vec<(u32, String)>, StoreError> {
@@ -145,9 +161,7 @@ impl EmbeddedSqlStore {
 
     pub fn query_text_column(&self, sql: &str) -> Result<Vec<String>, StoreError> {
         let connection = self.connection.lock().map_err(|_| StoreError::Poisoned)?;
-        let mut statement = connection.prepare(sql)?;
-        let rows = statement.query_map([], |row| row.get(0))?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+        query_text_column(&connection, sql)
     }
 
     pub fn transaction<T>(
@@ -193,21 +207,75 @@ fn apply_migrations(connection: &Connection) -> Result<(), StoreError> {
             applied_at INTEGER NOT NULL DEFAULT (unixepoch())
         )",
     )?;
-    // COMPAT(snapshot-state): retained until HubPilot no longer serializes whole state.
-    connection.execute_batch(SNAPSHOT_SCHEMA_SQL)?;
-    connection.execute_batch(BASELINE_SCHEMA_SQL)?;
-    for &(version, name, applied_at) in BASELINE_JOURNAL {
+    let applied = migration_journal(connection)?;
+    if applied.len() > BASELINE_JOURNAL.len() {
+        return Err(StoreError::MigrationJournalMismatch(format!(
+            "contains {} rows, expected at most {}",
+            applied.len(),
+            BASELINE_JOURNAL.len()
+        )));
+    }
+    for (index, actual) in applied.iter().enumerate() {
+        let expected = BASELINE_JOURNAL[index];
+        if actual != &(expected.0, expected.1.to_owned(), expected.2) {
+            return Err(StoreError::MigrationJournalMismatch(format!(
+                "row {index} is {actual:?}, expected {expected:?}"
+            )));
+        }
+    }
+    for &(version, name, applied_at) in &BASELINE_JOURNAL[applied.len()..] {
+        // COMPAT(sqlite-schema): each pinned historical identity advances the
+        // idempotent SQLite translation. PostgreSQL SQL is not executed here.
+        connection.execute_batch(BASELINE_SCHEMA_SQL)?;
+        // COMPAT(snapshot-state): retained until HubPilot no longer serializes whole state.
+        connection.execute_batch(SNAPSHOT_SCHEMA_SQL)?;
         connection.execute(
             "INSERT INTO paseo_hub_migrations (version, name, applied_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(version) DO UPDATE SET
-                 name = excluded.name,
-                 applied_at = excluded.applied_at",
+             VALUES (?1, ?2, ?3)",
             (version, name, applied_at),
         )?;
     }
-    connection.execute("DELETE FROM paseo_hub_migrations WHERE version > 48", [])?;
     Ok(())
+}
+
+fn migration_journal(connection: &Connection) -> Result<Vec<(u32, String, i64)>, StoreError> {
+    let mut statement = connection
+        .prepare("SELECT version, name, applied_at FROM paseo_hub_migrations ORDER BY version")?;
+    let rows = statement.query_map([], |row| {
+        let raw_version = row.get::<_, i64>(0)?;
+        let version = u32::try_from(raw_version)
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, raw_version))?;
+        Ok((version, row.get(1)?, row.get(2)?))
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn query_text_column(connection: &Connection, sql: &str) -> Result<Vec<String>, StoreError> {
+    let mut statement = connection.prepare(sql)?;
+    let rows = statement.query_map([], |row| row.get(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn named_constraints(sql: &str) -> Vec<String> {
+    let mut remaining = sql;
+    let mut names = Vec::new();
+    while let Some(position) = remaining.to_ascii_uppercase().find("CONSTRAINT ") {
+        let after_keyword = remaining[position + "CONSTRAINT ".len()..].trim_start();
+        let (name, after_name) = if let Some(quoted) = after_keyword.strip_prefix('"') {
+            let Some((name, after_name)) = quoted.split_once('"') else {
+                break;
+            };
+            (name, after_name)
+        } else {
+            let end = after_keyword
+                .find(char::is_whitespace)
+                .unwrap_or(after_keyword.len());
+            (&after_keyword[..end], &after_keyword[end..])
+        };
+        names.push(name.to_owned());
+        remaining = after_name;
+    }
+    names
 }
 
 #[derive(Deserialize, Serialize)]

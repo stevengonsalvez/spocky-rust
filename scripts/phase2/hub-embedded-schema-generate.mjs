@@ -109,6 +109,6 @@ process.stdout.write(`// Generated from pinned Hub Drizzle snapshot 0048 and jou
 process.stdout.write(`// Regenerate with scripts/phase2/hub-embedded-schema-generate.mjs.\n\n`);
 process.stdout.write(`#![allow(clippy::unreadable_literal)]\n\n`);
 process.stdout.write(`pub const BASELINE_SCHEMA_SQL: &str = r#"\n${statements.join("\n")}\n"#;\n\n`);
-process.stdout.write(`pub const BASELINE_TABLES: &[&str] = &[\n${rustStrings(tables.map((table) => table.name))}\n];\n\n`);
-process.stdout.write(`pub const BASELINE_CONSTRAINT_NAMES: &[&str] = &[\n${rustStrings(constraintNames)}\n];\n\n`);
+process.stdout.write(`#[allow(dead_code)]\npub const BASELINE_TABLES: &[&str] = &[\n${rustStrings(tables.map((table) => table.name))}\n];\n\n`);
+process.stdout.write(`#[allow(dead_code)]\npub const BASELINE_CONSTRAINT_NAMES: &[&str] = &[\n${rustStrings(constraintNames)}\n];\n\n`);
 process.stdout.write(`pub const BASELINE_JOURNAL: &[(u32, &str, i64)] = &[\n${journalRows}\n];\n`);
