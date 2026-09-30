@@ -12,6 +12,7 @@ plan=$("$repository_root/scripts/phase2/hub-runtime-capture.sh" --print-plan)
 printf '%s\n' "$plan" | grep -F 'src/db/runtime/embedded-persistence.integration.test.ts'
 printf '%s\n' "$plan" | grep -F 'src/index.embedded.integration.test.ts'
 printf '%s\n' "$plan" | grep -F 'src/instance-setup/environment-bootstrap.integration.test.ts'
+printf '%s\n' "$plan" | grep -F 'src/auth/account-recovery.integration.test.ts'
 printf '%s\n' "$plan" | grep -F 'src/billing/plan-prices.test.ts'
 printf '%s\n' "$plan" | grep -F 'src/billing/public-catalog.test.ts'
 printf '%s\n' "$plan" | grep -F 'src/billing/provisioning-entitlement.test.ts'
