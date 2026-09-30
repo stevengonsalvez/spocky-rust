@@ -8,6 +8,25 @@ raw_dir="$repository_root/evidence/raw/phase2"
 result_file="$raw_dir/browser-runtime-comparison.json"
 screenshot_dir="$raw_dir/browser-runtime-comparison"
 
+parse_normalized_rmse() {
+  metric=$1
+  value=$(printf '%s\n' "$metric" | sed -n 's/.*(\([-+0-9.eE][^)]*\)).*/\1/p')
+  if [ -z "$value" ]; then
+    printf 'could not parse normalized RMSE: %s\n' "$metric" >&2
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+
+if [ "${1:-}" = "--parse-rmse" ]; then
+  if [ "$#" -ne 2 ]; then
+    printf 'usage: %s --parse-rmse IMAGE_MAGICK_METRIC\n' "$0" >&2
+    exit 2
+  fi
+  parse_normalized_rmse "$2"
+  exit 0
+fi
+
 actual_baseline=$(git -C "$reference_root" rev-parse HEAD)
 if [ "$actual_baseline" != "$expected_baseline" ]; then
   printf 'Paseo baseline HEAD mismatch: expected %s, got %s\n' \
@@ -44,7 +63,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-rmse IMAGE_MAGICK_METRIC]\n' "$0" >&2
   exit 2
 fi
 
@@ -164,12 +183,7 @@ normalized_rmse() {
     printf 'ImageMagick comparison failed with status %s: %s\n' "$status" "$metric" >&2
     return "$status"
   fi
-  value=$(printf '%s\n' "$metric" | sed -n 's/.*(\([0-9.][0-9.]*\)).*/\1/p')
-  if [ -z "$value" ]; then
-    printf 'could not parse normalized RMSE: %s\n' "$metric" >&2
-    return 1
-  fi
-  printf '%s\n' "$value"
+  parse_normalized_rmse "$metric"
 }
 
 desktop_rmse=$(normalized_rmse \

@@ -4,6 +4,12 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 capture="$repository_root/scripts/phase2/browser-runtime-capture.sh"
 
+parsed_rmse=$($capture --parse-rmse '5.65429 (8.62789e-05)')
+if [ "$parsed_rmse" != "8.62789e-05" ]; then
+  printf 'scientific normalized RMSE parsed as %s\n' "$parsed_rmse" >&2
+  exit 1
+fi
+
 preflight=$($capture --preflight-only)
 printf '%s\n' "$preflight" | grep -F \
   'Paseo baseline preflight passed: 5de45e208690b0efc51c59a585ae9729325a9204'
