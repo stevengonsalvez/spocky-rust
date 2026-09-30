@@ -323,6 +323,85 @@ lines.on("line", (line) => {
 }
 
 #[test]
+fn runtime_exposes_all_ready_contributions_and_recovers_after_fatal_message() {
+    let root = TestDir::new();
+    let package = root.path().join("package");
+    fs::create_dir_all(&package).expect("create package");
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@acme/full","version":"1.0.0","files":["paseo-plugin.json","index.server.ts"]}"#,
+    )
+    .expect("write package manifest");
+    fs::write(package.join("paseo-plugin.json"), r#"{"id":"full"}"#)
+        .expect("write plugin manifest");
+    fs::write(
+        package.join("index.server.ts"),
+        r#"const readline = require("node:readline");
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.type === "initialize") console.log(JSON.stringify({
+    type: "ready",
+    methods: ["review.start"],
+    providers: [{ id: "codex", label: "Codex" }],
+    usageSources: [{ id: "credits", label: "Credits", discover: true }],
+    hooks: { events: ["session.created"], before: ["session.prompt"] }
+  }));
+  if (message.type === "invoke") console.log(JSON.stringify({ type: "fatal", error: "boom" }));
+  if (message.type === "shutdown") process.exit(0);
+});
+"#,
+    )
+    .expect("write runtime");
+    let archive_name = run(Command::new("npm")
+        .args(["pack", "--silent"])
+        .current_dir(&package));
+    let archive = package.join(archive_name.lines().last().expect("archive name"));
+
+    let load = |directory: &str| {
+        acquire_npm_tarball(
+            &archive,
+            "@acme/full",
+            ".",
+            root.path().join(directory),
+            Duration::from_secs(15),
+        )
+        .expect("acquire full plugin")
+    };
+    let loaded = load("first")
+        .load(Duration::from_secs(5))
+        .expect("load complete metadata");
+    assert_eq!(
+        loaded.contributions(),
+        &[
+            Contribution::Rpc("review.start".into()),
+            Contribution::Provider("codex".into()),
+            Contribution::UsageSource("credits".into()),
+            Contribution::HookEvent("session.created".into()),
+            Contribution::HookBefore("session.prompt".into()),
+        ]
+    );
+
+    assert!(matches!(
+        load("fatal").load_and_invoke(
+            "review.start",
+            json!({"change": 7}),
+            Duration::from_secs(5),
+        ),
+        Err(paseo_plugin_pilot::PluginError::RuntimeFatal(
+            error
+        )) if error == "boom"
+    ));
+    assert_eq!(
+        load("restart")
+            .load(Duration::from_secs(5))
+            .expect("restart after fatal")
+            .contributions(),
+        loaded.contributions()
+    );
+}
+
+#[test]
 fn failed_reviewed_runtime_update_preserves_active_state_after_restart() {
     let root = TestDir::new();
     let repository = root.path().join("repository");

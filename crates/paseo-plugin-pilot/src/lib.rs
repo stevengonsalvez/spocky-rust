@@ -85,6 +85,8 @@ pub enum Contribution {
     SettingsScreen(String),
     Provider(String),
     UsageSource(String),
+    HookEvent(String),
+    HookBefore(String),
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -504,7 +506,7 @@ struct ReadyMessage {
     #[serde(default, rename = "usageSources")]
     usage_sources: Vec<UsageSourceMetadata>,
     #[serde(default, rename = "hooks")]
-    _hooks: HooksMetadata,
+    hooks: HooksMetadata,
 }
 
 #[derive(Deserialize)]
@@ -537,9 +539,9 @@ struct UsageSourceMetadata {
 #[serde(deny_unknown_fields)]
 struct HooksMetadata {
     #[serde(default, rename = "events")]
-    _events: Vec<String>,
+    events: Vec<String>,
     #[serde(default, rename = "before")]
-    _before: Vec<String>,
+    before: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -860,6 +862,8 @@ fn exchange_runtime(
             .into_iter()
             .map(|source| Contribution::UsageSource(source.id)),
     );
+    contributions.extend(ready.hooks.events.into_iter().map(Contribution::HookEvent));
+    contributions.extend(ready.hooks.before.into_iter().map(Contribution::HookBefore));
     let mut traffic = vec![
         RuntimeTraffic {
             direction: "host_to_plugin",
@@ -939,24 +943,20 @@ fn perform_invocation(
     let response_line = receiver
         .recv_timeout(timeout)
         .map_err(|_| PluginError::RuntimeTimedOut)??;
-    let response: RuntimeResult = serde_json::from_str(&response_line)?;
-    if response.r#type != "result" || response.request_id != "pilot-1" {
-        return Err(PluginError::RuntimeProtocol);
+    match decode_process_message(&response_line).map_err(|_| PluginError::RuntimeProtocol)? {
+        PluginProcessMessage::Result { request_id, output } if request_id == "pilot-1" => {
+            traffic.push(RuntimeTraffic {
+                direction: "plugin_to_host",
+                message: response_line,
+            });
+            Ok(Some(output))
+        }
+        PluginProcessMessage::Error { request_id, error } if request_id == "pilot-1" => {
+            Err(PluginError::RuntimeRequest(error))
+        }
+        PluginProcessMessage::Fatal { error } => Err(PluginError::RuntimeFatal(error)),
+        _ => Err(PluginError::RuntimeProtocol),
     }
-    traffic.push(RuntimeTraffic {
-        direction: "plugin_to_host",
-        message: response_line,
-    });
-    Ok(Some(response.output))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RuntimeResult {
-    r#type: String,
-    #[serde(rename = "requestId")]
-    request_id: String,
-    output: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -1192,6 +1192,8 @@ pub enum PluginError {
     CommandTimedOut,
     RuntimeProtocol,
     RuntimeTimedOut,
+    RuntimeRequest(String),
+    RuntimeFatal(String),
     ReviewedRevisionMismatch { expected: String, actual: String },
     Io(std::io::Error),
     Json(serde_json::Error),
