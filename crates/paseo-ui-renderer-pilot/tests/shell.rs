@@ -50,6 +50,9 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(first.contains("gap: 0; color: #71717a; font-size: 14px;"));
     assert!(!first.contains("#777983"));
     assert!(!first.contains("#72747d"));
+    assert!(first.contains("mobile-menu-line short"));
+    assert!(first.contains("width: 16px; height: 12px;"));
+    assert!(!first.contains("content: \"☰\""));
 }
 
 #[test]

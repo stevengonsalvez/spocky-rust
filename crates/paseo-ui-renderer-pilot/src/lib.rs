@@ -28,8 +28,10 @@ button, a { font: inherit; }
 .footer-icon { display: block; width: 16px; height: 16px; flex: none; color: #71717a; }
 .sidebar-footer .nav-button:first-child .footer-icon, .sidebar-footer .nav-button:nth-child(2) .footer-icon { width: 14px; height: 14px; }
 .icon-button { width: 28px; min-width: 28px; height: 28px; min-height: 0; justify-content: center; padding: 4px; }
-.mobile-menu { display: none; position: absolute; z-index: 2; top: 24px; left: 16px; width: 28px; height: 28px; border: 0; background: transparent; color: #666873; font-size: 20px; cursor: pointer; }
-.mobile-menu::before { content: "☰"; }
+.mobile-menu { display: none; position: absolute; z-index: 2; top: 20px; left: 8px; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #71717a; cursor: pointer; }
+.mobile-menu-icon { width: 16px; height: 12px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; }
+.mobile-menu-line { width: 16px; height: 1.5px; border-radius: 999px; background: currentColor; }
+.mobile-menu-line.short { width: 8px; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
 .content { width: min(452px, 100%); margin: 0 auto; }
 .mark { width: 52px; height: 52px; margin: 0 auto 76px; }
@@ -258,7 +260,13 @@ pub fn PaseoShell() -> Element {
                     button { class: "nav-button icon-button", aria_label: "Settings", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Settings)} } }
                 }
             }
-            button { class: "mobile-menu", aria_label: "Open menu" }
+            button { class: "mobile-menu", aria_label: "Open menu",
+                span { class: "mobile-menu-icon", aria_hidden: "true",
+                    span { class: "mobile-menu-line" }
+                    span { class: "mobile-menu-line" }
+                    span { class: "mobile-menu-line short" }
+                }
+            }
             section { class: "workspace", aria_label: "Open project",
                 div { class: "content",
                     div { class: "mark", aria_hidden: "true",
