@@ -87,8 +87,8 @@ async function capture(browser, name, url, viewport, candidate, baselineDaemonPo
 
   let keyboardActivation = { attempted: false, changed: false, status: null };
   if (candidate) {
-    const reviewer = page.getByRole("button", { name: /Reviewer/ });
-    await reviewer.focus();
+    const action = page.getByRole("button", { name: /^Add a project/ });
+    await action.focus();
     const before = await page.getByRole("status").textContent();
     await page.keyboard.press("Enter");
     const after = await page.getByRole("status").textContent();
