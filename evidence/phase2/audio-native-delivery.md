@@ -35,7 +35,13 @@ It records these observed outcomes:
 - Explicitly unsigned packages exercised install, checksum-rejected update, valid
   update, rollback, uninstall, and retained-state bytes on the real filesystem.
 
-Eleven default integration tests and the isolated AVD integration test pass.
+`ProcessCommand` now defaults to a 30-second deadline, drains stdout and stderr
+concurrently, and returns a deterministic timed-out error. Its Unix path creates
+and kills an isolated process group. A real shell regression proves a timed-out
+child is reaped, and a 256 KiB dual-stream regression proves pipe buffers cannot
+deadlock the adapter. Windows descendant cleanup remains unproven.
+
+Thirteen default integration tests and the isolated AVD integration test pass.
 Formatting and clippy pass. The local evidence strengthens `P2-AUDIO-01`,
 `P2-NATIVE-01`, and `P2-DELIVERY-01`, but does not complete them. Real microphone
 capture, audible playback assertion, speech services, app-level native adapter
