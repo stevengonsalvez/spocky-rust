@@ -29,9 +29,10 @@ button, a { font: inherit; }
 .sidebar-footer .nav-button:first-child .footer-icon, .sidebar-footer .nav-button:nth-child(2) .footer-icon { width: 14px; height: 14px; }
 .icon-button { width: 28px; min-width: 28px; height: 28px; min-height: 0; justify-content: center; padding: 4px; }
 .mobile-menu { display: none; position: absolute; z-index: 2; top: 20px; left: 8px; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #71717a; cursor: pointer; }
-.mobile-menu-icon { width: 16px; height: 12px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; }
-.mobile-menu-line { width: 16px; height: 1.5px; border-radius: 999px; background: currentColor; }
-.mobile-menu-line.short { width: 8px; }
+.mobile-menu-icon { position: relative; width: 16px; height: 12px; display: block; }
+.mobile-menu-line { position: absolute; top: 0; left: 0; width: 16px; height: 1px; border-radius: 999px; background: currentColor; }
+.mobile-menu-line:nth-child(2) { top: 5px; }
+.mobile-menu-line.short { top: 10px; width: 8px; height: 1.5px; }
 .workspace { position: relative; min-width: 0; min-height: 100vh; padding: 198px 24px 72px; }
 .content { width: min(452px, 100%); margin: 0 auto; }
 .mark { width: 52px; height: 52px; margin: 0 auto 73.5px; }

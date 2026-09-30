@@ -52,6 +52,8 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("#72747d"));
     assert!(first.contains("mobile-menu-line short"));
     assert!(first.contains("width: 16px; height: 12px;"));
+    assert!(first.contains(".mobile-menu-line:nth-child(2) { top: 5px; }"));
+    assert!(first.contains(".mobile-menu-line.short { top: 10px; width: 8px; height: 1.5px; }"));
     assert!(!first.contains("content: \"☰\""));
     assert!(first.contains(".action-title { display: block; margin-bottom: 4px; font-size: 14px; line-height: normal; }"));
     assert!(first.contains(
