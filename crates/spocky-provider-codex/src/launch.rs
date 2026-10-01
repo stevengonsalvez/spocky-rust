@@ -17,6 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+use spocky_contracts::text::js_trim;
 
 pub const CODEX_PROVIDER: &str = "codex";
 pub const CODEX_NOT_FOUND_MESSAGE: &str = "Codex binary not found. Install the Codex CLI (https://github.com/openai/codex) and ensure it is available in your shell PATH.";
@@ -125,7 +126,7 @@ fn resolve_launch_path(command: &str, base_env: &[(OsString, OsString)]) -> Opti
 /// `findExecutable(name)` on POSIX.
 #[must_use]
 pub fn find_executable(name: &str, base_env: &[(OsString, OsString)]) -> Option<String> {
-    let trimmed = crate::transport::js_trim(name);
+    let trimmed = js_trim(name);
     if trimmed.is_empty() {
         return None;
     }
@@ -147,7 +148,7 @@ fn which_all(name: &str, base_env: &[(OsString, OsString)]) -> Vec<String> {
         return Vec::new();
     }
     let mut seen = HashSet::new();
-    crate::transport::js_trim(&outcome.stdout)
+    js_trim(&outcome.stdout)
         .split('\n')
         .filter(|line| !line.is_empty())
         .filter(|line| seen.insert((*line).to_owned()))
@@ -173,7 +174,7 @@ pub fn resolve_binary_version(binary: &str, base_env: &[(OsString, OsString)]) -
     command.arg("--version");
     match run_bounded(command, base_env, VERSION_TIMEOUT, 1024 * 1024) {
         Ok(outcome) if outcome.status_code == Some(0) && !outcome.timed_out => {
-            let trimmed = crate::transport::js_trim(&outcome.stdout);
+            let trimmed = js_trim(&outcome.stdout);
             if trimmed.is_empty() {
                 "unknown".to_owned()
             } else {
@@ -374,7 +375,7 @@ pub fn initialize_params() -> Value {
 /// `normalizeOpenAICompatibleBaseUrl`.
 #[must_use]
 pub fn normalize_openai_compatible_base_url(value: &str) -> Option<String> {
-    let trimmed = crate::transport::js_trim(value);
+    let trimmed = js_trim(value);
     if trimmed.is_empty() {
         return None;
     }
@@ -403,7 +404,7 @@ pub fn custom_provider_config(
     provider.insert("wire_api".to_owned(), json!("responses"));
     let has_key = env
         .and_then(|env| env.get("OPENAI_API_KEY"))
-        .is_some_and(|key| !crate::transport::js_trim(key).is_empty());
+        .is_some_and(|key| !js_trim(key).is_empty());
     if has_key {
         provider.insert("env_key".to_owned(), json!("OPENAI_API_KEY"));
         provider.insert("requires_openai_auth".to_owned(), json!(false));
