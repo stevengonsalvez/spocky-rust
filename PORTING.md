@@ -151,7 +151,14 @@ baseline marker. Publication derives both observed journal counts, requires zero
 candidate migrations, and rejects unclean owner shutdown. Signal cancellation
 shares bounded detached-group cleanup across readiness rejection. Read-only
 review accepts this narrow macOS x64 ordered-start checkpoint. Simultaneous
-pre-record races and schema downgrade remain unqualified.
+pre-record races now have a narrow source-and-evidence checkpoint. Exclusive
+candidate creation prevents replacement of a completed live legacy owner, and
+the canonical harness passes strict signal cleanup, baseline integrity, and
+bounded execution gates. A paused incomplete legacy writer and a stale-unlink
+TOCTOU still permit dual live owners in deterministic operation models. Both
+remain unaccepted compatibility-exception candidates. Windows, pinned database
+runtime for these two races, schema downgrade, and full parity remain
+unqualified.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC

@@ -280,7 +280,7 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "disabled/unrestricted",
-          "status": "implementing; fresh worktree and permission preflight verified",
+          "status": "done; narrow source/evidence checkpoint accepted; two compatibility-exception candidates retained",
           "permissionPreflight": {
             "reportedBy": "/root/p2_relay_frame_parity",
             "approvalPolicy": "never",
@@ -289,11 +289,15 @@
           },
           "baseCommit": "5610a5c9801c9e40858e97f0d0e3ed39c4e1e622",
           "dependencies": ["p2_hub_mixed_ownership"],
+          "commits": ["2ad4d5ebbce3ae1bc3d3c195f2a73317ae412f14", "0579a5317ba798fbd63cd152d8744c9f08a9b521", "021b88546e9c0e1f47f09bbced4d251860f1f080", "8f68fcf5eb052c5081dbeb6c99a77a8468ff89d9", "64fdd3d49d30a72f5a274903c200fd91f5c4f052", "5d29c4a5b1fe68498f43f7e6b3d61d74e76b533f"],
           "acceptanceCommands": [
-            "targeted directory-lock and retained-host tests only",
-            "bounded pinned baseline versus candidate simultaneous-start harness",
+            "gtimeout --kill-after=30 1500 scripts/phase2/hub-simultaneous-ownership.test.sh",
+            "cargo test --locked -p spocky-hub-pilot directory_lock::tests::completed_legacy_owner_wins_while_candidate_is_paused_after_guard -- --exact",
+            "cargo test --locked -p spocky-hub-pilot --test hub_embedded_sql -- --test-threads=1",
+            "cargo test --locked -p spocky-hub-pilot --test retained_host -- --test-threads=1",
             "cargo clippy --locked -p spocky-hub-pilot --all-targets -- -D warnings",
-            "cargo fmt --package spocky-hub-pilot -- --check"
+            "cargo fmt --package spocky-hub-pilot -- --check",
+            "shasum -a 256 -c evidence/phase2/hub-simultaneous-ownership-sha256.txt from evidence/phase2"
           ],
           "acceptanceCases": [
             "candidate pre-owner pause and pinned baseline start produce exactly one owner",
@@ -304,6 +308,13 @@
             "all processes and commands have forced-kill deadlines",
             "baseline checkout stays clean and port 6767 stays untouched"
           ],
+          "leadVerification": "canonical default harness exits zero; actual candidate after-guard test passes; embedded SQL 14/14 and retained host 17/17 pass; strict HUP 129 and TERM 143 cleanup rejects fallback and validates distinct fixture PIDs; source spelling, pinned commit, clean baseline, canonical/worktree discovery, missing/ambiguous failure, all-target clippy, package format, shell and Node syntax, diff, hashes, signatures, and survivor scans pass",
+          "reviews": [
+            {"thread": "/root/p2_hub_mixed_review", "model": "gpt-6-astra", "effort": "xhigh", "mode": "read-only", "frozenCommit": "5d29c4a5b1fe68498f43f7e6b3d61d74e76b533f", "verdict": "narrow source/evidence acceptance; no scoped P0/P1/P2; two documented simultaneous races remain compatibility-exception candidates only; Windows and full parity excluded"}
+          ],
+          "evidence": ["evidence/phase2/hub-simultaneous-ownership.md", "evidence/phase2/hub-simultaneous-ownership-report.json", "evidence/phase2/hub-simultaneous-ownership-sha256.txt"],
+          "evidenceSha256": {"report": "5ad0975b6e3a56d80d3c587f620bf7a67c667eb08294dd31b1156ff92b0a7493", "markdown": "183c621f3a53a0a51ab7250aa8ce4eb2900c6e8040dc8f4354627ebf235ad453"},
+          "limitations": ["handwritten pinned lock-operation models for the two residual races", "pinned database runtime not executed for those residuals", "paused incomplete legacy writer can be replaced", "stale path unlink can delete a newly completed live legacy owner record", "macOS x64 only", "Windows unqualified", "schema downgrade unqualified", "full parity not claimed"],
           "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-simultaneous-ownership",
           "branch": "phase2/hub-simultaneous-ownership",
           "delegation": "forbidden",
