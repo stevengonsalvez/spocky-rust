@@ -3,9 +3,10 @@
 
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize, Serializer};
-use serde_json::Value;
 
 use crate::field::{Nullable, optional};
+use crate::js_value::JsValue;
+use crate::json::{JsValueDeserializer, JsonValue, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::{NonNegativeInt, PositiveInt};
 
@@ -268,7 +269,7 @@ pub struct UploadedFileAttachment {
 }
 
 /// `AgentAttachmentSchema`, discriminated by `type`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum AgentAttachment {
     #[serde(rename = "forge_change_request")]
@@ -287,6 +288,22 @@ pub enum AgentAttachment {
     UploadedFile(UploadedFileAttachment),
 }
 
+deserialize_tagged!(AgentAttachment, "type", {
+    "forge_change_request" => |input| {
+        ForgeChangeRequestAttachment::deserialize(input).map(AgentAttachment::ForgeChangeRequest)
+    },
+    "forge_issue" => |input| ForgeIssueAttachment::deserialize(input).map(AgentAttachment::ForgeIssue),
+    "github_pr" => |input| GitHubPrAttachment::deserialize(input).map(AgentAttachment::GitHubPr),
+    "github_issue" => |input| {
+        GitHubIssueAttachment::deserialize(input).map(AgentAttachment::GitHubIssue)
+    },
+    "text" => |input| TextAttachment::deserialize(input).map(AgentAttachment::Text),
+    "review" => |input| ReviewAttachment::deserialize(input).map(AgentAttachment::Review),
+    "uploaded_file" => |input| {
+        UploadedFileAttachment::deserialize(input).map(AgentAttachment::UploadedFile)
+    },
+});
+
 /// `AgentAttachmentsSchema`: any present value becomes an array of the
 /// items that parse as [`AgentAttachment`]; a non-array becomes `[]`.
 /// Use with [`optional`] so a missing key stays missing.
@@ -301,10 +318,11 @@ impl Serialize for LenientAttachments {
 
 impl<'de> Deserialize<'de> for LenientAttachments {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let items = match Value::deserialize(deserializer)? {
-            Value::Array(items) => items
-                .into_iter()
-                .filter_map(|item| AgentAttachment::deserialize(item).ok())
+        let value = JsonValue::deserialize(deserializer)?;
+        let items = match value.as_value() {
+            JsValue::Array(items) => items
+                .iter()
+                .filter_map(|item| AgentAttachment::deserialize(JsValueDeserializer(item)).ok())
                 .collect(),
             _ => Vec::new(),
         };
