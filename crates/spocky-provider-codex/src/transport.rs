@@ -1,7 +1,8 @@
 //! Newline-delimited JSON-RPC client for a spawned `codex app-server` child.
 //!
-//! Port of pinned Paseo `codex/app-server-transport.ts` (`CodexAppServerClient`)
-//! and the process-tree shutdown of `utils/tree-kill.ts`. Requests carry
+//! Port of pinned Paseo `codex/app-server-transport.ts` (`CodexAppServerClient`).
+//! Shutdown signals the child's process group instead of Paseo's
+//! `utils/tree-kill.ts` descendant walk (see `signal_process_group`). Requests carry
 //! increasing numeric ids starting at 1, responses resolve the matching pending
 //! request, server-initiated requests go to registered handlers (unhandled
 //! methods answer `{}`), and notifications go to one notification handler in
@@ -268,7 +269,8 @@ impl AppServerClient {
     }
 
     /// Closes the client: rejects pending requests, closes stdin, then sends
-    /// SIGTERM to the process tree, waits 2 s, sends SIGKILL, waits 1 s.
+    /// SIGTERM to the child's process group, waits 2 s, sends SIGKILL, waits
+    /// 1 s.
     ///
     /// # Errors
     /// Returns `Codex app-server did not report exit after SIGKILL` when the
@@ -285,11 +287,11 @@ impl AppServerClient {
         if self.shared.has_exited() {
             return Ok(());
         }
-        signal_process_tree(self.pid, "TERM");
+        signal_process_group(self.pid, "TERM");
         if self.shared.wait_for_exit(GRACEFUL_SHUTDOWN_TIMEOUT) {
             return Ok(());
         }
-        signal_process_tree(self.pid, "KILL");
+        signal_process_group(self.pid, "KILL");
         if self.shared.wait_for_exit(FORCE_SHUTDOWN_TIMEOUT) {
             return Ok(());
         }
@@ -626,49 +628,20 @@ pub fn signal_name(signal: i32) -> &'static str {
     }
 }
 
-/// `tree-kill` on macOS: walk descendants with `pgrep -P`, then signal each
-/// parent's children before the parent. Exited processes are ignored.
-fn signal_process_tree(root: u32, signal: &str) {
-    let mut order: Vec<(u32, Vec<u32>)> = Vec::new();
-    let mut queue = vec![root];
-    while let Some(parent) = queue.pop() {
-        let children = child_pids(parent);
-        queue.extend(children.iter().copied());
-        order.push((parent, children));
-    }
-    order.sort_by_key(|(pid, _)| *pid);
-    let mut killed = std::collections::HashSet::new();
-    for (parent, children) in order {
-        for child in children {
-            if killed.insert(child) {
-                send_signal(child, signal);
-            }
-        }
-        if killed.insert(parent) {
-            send_signal(parent, signal);
-        }
-    }
-}
-
-fn child_pids(parent: u32) -> Vec<u32> {
-    let Ok(output) = Command::new("pgrep")
-        .arg("-P")
-        .arg(parent.to_string())
-        .output()
-    else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
-        .split_whitespace()
-        .filter_map(|pid| pid.parse().ok())
-        .collect()
-}
-
-fn send_signal(pid: u32, signal: &str) {
-    let _ = Command::new("kill")
+/// Paseo kills the app-server with `tree-kill`, which walks descendants with
+/// `pgrep -P` and signals each one. Signalling processes this code never
+/// recorded is not allowed here, so the signal goes only to the recorded
+/// child pid and to the process group it leads (`spawn_app_server` makes it a
+/// group leader). Descendants that moved to another process group are not
+/// signalled. A missing group is ignored.
+fn signal_process_group(pid: u32, signal: &str) {
+    let _ = Command::new("/bin/kill")
         .arg("-s")
         .arg(signal)
+        .arg("--")
+        .arg(format!("-{pid}"))
         .arg(pid.to_string())
+        .stderr(std::process::Stdio::null())
         .output();
 }
 
@@ -710,6 +683,102 @@ mod tests {
             client.request("late", None, Duration::from_secs(1)),
             Err(ClientError::plain(CLIENT_CLOSED_MESSAGE))
         );
+    }
+
+    /// Spawns `script` as a process group leader, as `spawn_app_server` does,
+    /// with `$1` set to a scratch file the script writes a grandchild pid to.
+    fn spawn_group_leader(script: &str) -> (AppServerClient, u32, std::path::PathBuf) {
+        use std::os::unix::process::CommandExt;
+        let file = std::env::temp_dir().join(format!(
+            "spocky-p3-transport-{}-{}",
+            std::process::id(),
+            NEXT_SCRATCH.fetch_add(1, Ordering::SeqCst)
+        ));
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .arg("sh")
+            .arg(&file)
+            .process_group(0)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn group leader");
+        let client = AppServerClient::new(child).expect("client");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let grandchild = loop {
+            if let Some(pid) = std::fs::read_to_string(&file)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "grandchild pid not written");
+            thread::sleep(Duration::from_millis(20));
+        };
+        (client, grandchild, file)
+    }
+
+    static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
+
+    fn alive(pid: u32) -> bool {
+        Command::new("/bin/kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    fn gone_within(pid: u32, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while alive(pid) {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
+    #[test]
+    fn dispose_signals_the_recorded_process_group() {
+        let (client, grandchild, file) =
+            spawn_group_leader("sleep 30 & echo $! > \"$1\"; exec cat");
+        client.dispose().expect("dispose");
+        let _ = std::fs::remove_file(&file);
+        assert!(
+            gone_within(grandchild, Duration::from_secs(3)),
+            "a process in the child's group is signalled"
+        );
+    }
+
+    #[test]
+    fn dispose_leaves_processes_outside_the_group_alone() {
+        // The grandchild leaves the group, so only a pid walk could reach it.
+        let (client, grandchild, file) = spawn_group_leader(
+            "/usr/bin/perl -e 'setpgrp(0, 0); sleep 30' & echo $! > \"$1\"; exec cat",
+        );
+        // Wait until perl has moved to its own group.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Command::new("/bin/ps")
+            .args(["-o", "pgid=", "-p", &grandchild.to_string()])
+            .output()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim() != grandchild.to_string())
+            .unwrap_or(true)
+        {
+            assert!(Instant::now() < deadline, "grandchild never left the group");
+            thread::sleep(Duration::from_millis(20));
+        }
+        client.dispose().expect("dispose");
+        let _ = std::fs::remove_file(&file);
+        let survived = alive(grandchild);
+        // Clean up by the exact pid this test recorded.
+        let _ = Command::new("/bin/kill")
+            .args(["-s", "KILL", &grandchild.to_string()])
+            .output();
+        assert!(survived, "no descendant walk outside the group");
     }
 
     #[test]
