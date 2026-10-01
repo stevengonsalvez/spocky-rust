@@ -15,19 +15,6 @@
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
   "activeChildren": [
     {
-      "id": "p2_plugin_daemon_rpc",
-      "terminal": "term_3022569d",
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
-      "approvalPolicy": "never",
-      "sandbox": "danger-full-access/unrestricted",
-      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-daemon-rpc",
-      "branch": "phase2-plugin-daemon-rpc",
-      "paths": ["crates/spocky-plugin-pilot/", "scripts/phase2/plugin-daemon-rpc*", "evidence/phase2/plugin-daemon-rpc*"],
-      "delegation": "forbidden",
-      "state": "running"
-    },
-    {
       "id": "p2_relay_ops",
       "terminal": "term_fae96698",
       "model": "gpt-5.6-sol",
@@ -39,6 +26,19 @@
       "paths": ["crates/spocky-relay-pilot/", "scripts/phase2/relay-ops*", "evidence/phase2/relay-ops*"],
       "delegation": "forbidden",
       "state": "running; local TLS, non-loopback, bounded load, and gauges only"
+    },
+    {
+      "id": "p2_hub_triggers",
+      "terminal": "term_55ec76a2",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "approvalPolicy": "never",
+      "sandbox": "danger-full-access/unrestricted",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-triggers",
+      "branch": "phase2-hub-triggers",
+      "paths": ["crates/spocky-hub-pilot/src/triggers/ (new files only)", "crates/spocky-hub-pilot/tests/hub_triggers*.rs", "scripts/phase2/hub-triggers*", "evidence/phase2/hub-triggers*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"],
+      "delegation": "forbidden",
+      "state": "running; offline loopback trigger and execution parity only"
     }
   ],
     "retiredWorkers": [
@@ -411,10 +411,17 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "danger-full-access/unrestricted",
-          "status": "implementing",
+          "status": "done; 42 byte-identical differential cases and 15 lead-targeted tests passed",
           "baseCommit": "42a2519316d4e08ec827061c8efe4ffc54f24a8d",
+          "sourceCommits": ["0889f672d7157a3853200419a9c7c5e2dc44aafc", "446191d7b88815798d366dd8e539c8bc97dcb42f"],
+          "integrationCommits": ["e7f4ff925c067a77267f7218c626297d1edaaf59", "655a99afaf3d07d5012f60a8338c588a219ae085"],
           "dependencies": ["p2_plugin_hook_runtime"],
           "acceptanceCases": ["selected daemon RPC integration uses the compiled plugin runtime", "pinned baseline and candidate messages match without normalization", "failures, restart, cancellation, and cleanup stay bounded", "port 6767 remains untouched"],
+          "workerVerification": "42 differential cases matched with 0 mismatches; 31 targeted tests, package format, and all-target clippy passed",
+          "leadVerification": "plugin_daemon_rpc 3/3, settings_lifecycle 10/10, hook_usage_runtime 2/2, package format, and all-target clippy passed on main",
+          "evidence": ["evidence/phase2/plugin-daemon-rpc.md", "evidence/phase2/plugin-daemon-rpc-raw.log", "evidence/phase2/plugin-daemon-rpc-verification.log"],
+          "evidenceSha256": {"markdown": "6d40418957be164468a6b979b51b767e1bb8eb9a1ac4ddfac7a99c449be8f317", "raw": "fef3051575dfda93900c6b99af0fb894c2fabc017d32a99ea17600fa8d713b53", "verification": "bae75cbaf77de4b2de2a4676185d76d6fb7cb81e9f21d3e9abb807fc54461be5"},
+          "limitations": ["native UI rendering remains platform qualification work", "generated activity-log IDs and timestamps are documented normalization fields"],
           "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-daemon-rpc",
           "branch": "phase2-plugin-daemon-rpc",
           "delegation": "forbidden",
@@ -437,6 +444,23 @@
           "branch": "phase2-relay-ops",
           "delegation": "forbidden",
           "permittedPaths": ["crates/spocky-relay-pilot/", "scripts/phase2/relay-ops*", "evidence/phase2/relay-ops*"]
+        },
+        {
+          "task": "p2_hub_triggers",
+          "canonicalThread": "external-codex/p2_hub_triggers",
+          "terminal": "term_55ec76a2",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "approvalPolicy": "never",
+          "sandbox": "danger-full-access/unrestricted",
+          "status": "implementing",
+          "dependencies": ["p2_hub_schema_downgrade"],
+          "capabilities": ["CLOUD-HUB-TRIGGERS-016", "CLOUD-HUB-EXEC-002"],
+          "acceptanceCases": ["qualify verified GitHub webhook trigger handling", "qualify execution behavior offline on loopback", "avoid deployment and production services", "port 6767 remains untouched"],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-triggers",
+          "branch": "phase2-hub-triggers",
+          "delegation": "forbidden",
+          "permittedPaths": ["crates/spocky-hub-pilot/src/triggers/ (new files only)", "crates/spocky-hub-pilot/tests/hub_triggers*.rs", "scripts/phase2/hub-triggers*", "evidence/phase2/hub-triggers*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"]
         }
       ],
       "blockedBy": null
