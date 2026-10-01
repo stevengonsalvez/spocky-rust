@@ -596,7 +596,7 @@ async function publicManualRunTrace() {
       { status: "enabled", authenticator: authenticator(outcome) as never },
       operations(result),
     );
-    const headers = new Headers({ authorization: "Bearer valid" });
+    const headers = new Headers({ authorization: "Bearer valid", "x-request-id": "request-1" });
     if (options.contentType !== null) {
       headers.set("content-type", options.contentType ?? "application/json");
     }
@@ -607,13 +607,11 @@ async function publicManualRunTrace() {
         body: options.body ?? manualBody,
       }),
     );
-    const parsed = (await response.json()) as Record<string, unknown>;
     return {
       status: response.status,
-      code: parsed["code"] ?? null,
       contentType: response.headers.get("content-type"),
       wwwAuthenticate: response.headers.get("www-authenticate"),
-      body: response.status === 200 ? parsed : null,
+      body: await response.text(),
     };
   };
   const mapped: Record<string, unknown> = {};
