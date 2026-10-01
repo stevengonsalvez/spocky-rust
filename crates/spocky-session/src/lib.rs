@@ -14,7 +14,6 @@ pub mod clock;
 pub mod external_state;
 pub mod git;
 pub mod git_remote;
-pub mod js;
 pub mod paths;
 pub mod project_key;
 pub mod provider_subagents;
