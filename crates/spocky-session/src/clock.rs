@@ -2,13 +2,19 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// `new Date().toISOString()` for the current time.
+/// `Date.now()`: epoch milliseconds.
 #[must_use]
-pub fn now_iso() -> String {
+pub fn now_millis() -> i64 {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis());
-    iso_from_millis(i64::try_from(millis).unwrap_or(i64::MAX))
+    i64::try_from(millis).unwrap_or(i64::MAX)
+}
+
+/// `new Date().toISOString()` for the current time.
+#[must_use]
+pub fn now_iso() -> String {
+    iso_from_millis(now_millis())
 }
 
 /// `new Date(millis).toISOString()` within the four-digit year range.
