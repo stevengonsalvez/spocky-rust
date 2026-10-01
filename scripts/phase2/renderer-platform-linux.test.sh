@@ -25,13 +25,33 @@ grep -F 'docker rm -f "$container_name"' "$runner"
 grep -F "trap cleanup EXIT" "$runner"
 grep -F "trap 'cleanup; exit 143' TERM" "$runner"
 
+# Dialog detection reads the AT-SPI role, never a substring of the whole tree.
+python3 - "$repository_root/scripts/phase2/renderer-platform-linux-tree.py" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("tree", sys.argv[1])
+tree = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tree)
+dialog = {"role": "frame", "name": None, "children": [{"role": "dialog", "name": "Add project", "children": []}]}
+decoy = {"role": "frame", "name": "dialog", "children": [{"role": "push button", "name": "Open dialog", "children": []}]}
+assert tree.contains_role(dialog, "dialog")
+assert not tree.contains_role(decoy, "dialog")
+assert not tree.contains_role({"role": "frame", "children": []}, "dialog")
+PY
+if grep -F 'json.dumps(tree_after_plus)' "$repository_root/scripts/phase2/renderer-platform-linux-atspi.py"; then
+  printf '%s\n' 'atspi script detects dialogs by substring instead of role' >&2
+  exit 1
+fi
+
 if rg -n '\x{2014}' \
   "$repository_root/scripts/phase2/renderer-platform-linux.sh" \
   "$repository_root/scripts/phase2/renderer-platform-linux.test.sh" \
   "$repository_root/scripts/phase2/renderer-platform-linux-atspi.py" \
-  "$repository_root/scripts/phase2/renderer-platform-linux-compare.py"; then
+  "$repository_root/scripts/phase2/renderer-platform-linux-compare.py" \
+  "$repository_root/scripts/phase2/renderer-platform-linux-tree.py"; then
   printf '%s\n' 'renderer Linux scripts contain forbidden em dash' >&2
   exit 1
 fi
 
-printf '%s\n' '14 renderer platform script assertions passed'
+printf '%s\n' '18 renderer platform script assertions passed'
