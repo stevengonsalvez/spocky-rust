@@ -7,6 +7,7 @@
 //! items by identity and adjacent assistant and reasoning chunks, as rows
 //! arrive and again when a page is selected.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use spocky_store::js_value::{JsObject, JsValue, js_number};
@@ -350,14 +351,17 @@ fn merge_adjacent(
     })
 }
 
-fn merge_chunks(entries: Vec<ProjectedRow>, assistant: bool) -> Vec<ProjectedRow> {
-    let mut output: Vec<ProjectedRow> = Vec::with_capacity(entries.len());
+fn merge_chunks(
+    entries: Vec<Cow<'_, ProjectedRow>>,
+    assistant: bool,
+) -> Vec<Cow<'_, ProjectedRow>> {
+    let mut output: Vec<Cow<'_, ProjectedRow>> = Vec::with_capacity(entries.len());
     for entry in entries {
         let merged = output
             .last()
             .and_then(|previous| merge_adjacent(previous, &entry, assistant));
         if let (Some(merged), Some(last)) = (merged, output.last_mut()) {
-            *last = merged;
+            *last = Cow::Owned(merged);
             continue;
         }
         output.push(entry);
@@ -366,8 +370,8 @@ fn merge_chunks(entries: Vec<ProjectedRow>, assistant: bool) -> Vec<ProjectedRow
 }
 
 /// `collapseByIdentity`.
-fn collapse_by_identity(entries: Vec<ProjectedRow>) -> Vec<ProjectedRow> {
-    let mut output: Vec<ProjectedRow> = Vec::with_capacity(entries.len());
+fn collapse_by_identity(entries: Vec<Cow<'_, ProjectedRow>>) -> Vec<Cow<'_, ProjectedRow>> {
+    let mut output: Vec<Cow<'_, ProjectedRow>> = Vec::with_capacity(entries.len());
     let mut index_by_identity: HashMap<String, usize> = HashMap::new();
     for entry in entries {
         let Some(identity) = item_identity(&entry.item) else {
@@ -378,7 +382,7 @@ fn collapse_by_identity(entries: Vec<ProjectedRow>) -> Vec<ProjectedRow> {
             merge_identity_entries(&output[*index], &entry).map(|merged| (*index, merged))
         });
         if let Some((index, merged)) = merged {
-            output[index] = merged;
+            output[index] = Cow::Owned(merged);
         } else {
             index_by_identity.insert(identity, output.len());
             output.push(entry);
@@ -388,9 +392,10 @@ fn collapse_by_identity(entries: Vec<ProjectedRow>) -> Vec<ProjectedRow> {
 }
 
 /// `projectTimelineRows({ mode: "projected" })` over already projected rows.
+/// Rows no merge touches are borrowed, not copied.
 #[must_use]
-pub fn project_rows(rows: &[ProjectedRow]) -> Vec<ProjectedRow> {
-    let collapsed = collapse_by_identity(rows.to_vec());
+pub fn project_rows(rows: &[ProjectedRow]) -> Vec<Cow<'_, ProjectedRow>> {
+    let collapsed = collapse_by_identity(rows.iter().map(Cow::Borrowed).collect());
     merge_chunks(merge_chunks(collapsed, true), false)
 }
 
@@ -499,7 +504,7 @@ fn first_source_seq_in_range(entry: &ProjectedRow, start_seq: i64, end_seq: i64)
 }
 
 fn select_after(
-    entries: &[ProjectedRow],
+    entries: &[Cow<'_, ProjectedRow>],
     start_seq: i64,
     max_seq: i64,
     limit: usize,
@@ -518,7 +523,7 @@ fn select_after(
     eligible.sort_by_key(|(index, _)| *index);
     let selected: Vec<ProjectedRow> = eligible
         .iter()
-        .map(|(index, _)| entries[*index].clone())
+        .map(|(index, _)| ProjectedRow::clone(&entries[*index]))
         .collect();
     if selected.is_empty() {
         return (selected, None);
@@ -588,7 +593,10 @@ pub fn select_page(
                     start = index;
                 }
             }
-            let entries = all[start..].to_vec();
+            let entries: Vec<ProjectedRow> = all[start..]
+                .iter()
+                .map(|entry| ProjectedRow::clone(entry))
+                .collect();
             PageSelection {
                 start_seq: entries.first().map(|entry| entry.seq_start),
                 end_seq: Some(bounds.max_seq),
@@ -617,16 +625,19 @@ pub fn select_page(
             if end_seq < bounds.min_seq {
                 return empty(false, end_seq < bounds.max_seq);
             }
-            let eligible: Vec<&ProjectedRow> = all
+            let eligible: Vec<&Cow<'_, ProjectedRow>> = all
                 .iter()
                 .filter(|entry| entry.seq_start <= end_seq)
                 .collect();
             let selected: Vec<ProjectedRow> = if limit == 0 || limit >= eligible.len() {
-                eligible.iter().map(|entry| (*entry).clone()).collect()
+                eligible
+                    .iter()
+                    .map(|entry| ProjectedRow::clone(entry))
+                    .collect()
             } else {
                 eligible[eligible.len() - limit..]
                     .iter()
-                    .map(|entry| (*entry).clone())
+                    .map(|entry| ProjectedRow::clone(entry))
                     .collect()
             };
             PageSelection {
@@ -988,8 +999,28 @@ impl TimelineStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{FetchDirection, TimelineCursor, TimelineStore};
+    use std::borrow::Cow;
+
+    use super::{FetchDirection, TimelineCursor, TimelineStore, project_rows};
     use spocky_store::js_value::parse;
+
+    #[test]
+    fn page_projection_borrows_rows_no_merge_touches() {
+        let mut store = TimelineStore::default();
+        let items = [
+            r#"{"type":"user_message","text":"q"}"#,
+            r#"{"type":"assistant_message","text":"a"}"#,
+        ];
+        let items = items
+            .iter()
+            .map(|item| parse(item).expect("item"))
+            .collect();
+        store.initialize("a", items, Some("E".to_owned()), None, Some("T".to_owned()));
+        let rows = store.rows("a").expect("timeline");
+        let projected = project_rows(rows);
+        assert_eq!(projected.len(), 2);
+        assert!(projected.iter().all(|row| matches!(row, Cow::Borrowed(_))));
+    }
 
     #[test]
     fn extreme_cursors_select_nothing_without_overflow() {
