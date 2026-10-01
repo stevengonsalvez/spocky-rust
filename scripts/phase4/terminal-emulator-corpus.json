@@ -1,0 +1,185 @@
+{
+  "description": "Terminal emulator scenario corpus for the spocky-terminal emulator decision. Each scenario feeds PTY output bytes into an emulator sized rows x cols with 1000 lines of scrollback. Ops: text (UTF-8 bytes of the string), hex (raw bytes), repeat (text with %d replaced by the zero-based index, count times, as one chunk), resize (cols, rows). Bytes reach the emulator chunk by chunk exactly as listed.",
+  "scenarios": [
+    {
+      "name": "plain-text",
+      "rows": 6,
+      "cols": 20,
+      "ops": [
+        { "text": "hello world\r\nsecond line\r\n$ " },
+        { "text": "echo hi\r\nhi\r\n$ " }
+      ]
+    },
+    {
+      "name": "wide-chars",
+      "rows": 6,
+      "cols": 20,
+      "ops": [
+        { "text": "中文字符测试\r\n" },
+        { "text": "ab😀cd\r\n" },
+        { "text": "1234567890123456789中\r\n" },
+        { "text": "é ä é\r\n" },
+        { "text": "❤️​|\r\n" }
+      ]
+    },
+    {
+      "name": "sgr-colors",
+      "rows": 8,
+      "cols": 24,
+      "ops": [
+        { "text": "\u001b[31mred\u001b[0m \u001b[92mbri\u001b[0m \u001b[38;5;1midx1\u001b[0m\r\n" },
+        { "text": "\u001b[38;5;200mp256\u001b[48;5;17mbg\u001b[0m \u001b[38;2;1;2;3mrgb\u001b[0m\r\n" },
+        { "text": "\u001b[1;3;4;2;7;9mall\u001b[22;23;24;27;29mnone\u001b[0m\r\n" },
+        { "text": "\u001b[38:2::10:20:30mcolon\u001b[39m \u001b[44mblue\u001b[49m \u001b[107mwbg\u001b[0m\r\n" },
+        { "text": "\u001b[1;31mbr\u001b[21mdu\u001b[4:3mcu\u001b[53mov\u001b[8mhid\u001b[0m\r\n" },
+        { "text": "\u001b[41m\u001b[K\u001b[0mafter-bce" }
+      ]
+    },
+    {
+      "name": "cursor-moves",
+      "rows": 8,
+      "cols": 20,
+      "ops": [
+        { "text": "AAAAAAAAAA\r\nBBBBBBBBBB\r\nCCCCCCCCCC\r\nDDDDDDDDDD" },
+        { "text": "\u001b[2;3Hx\u001b[Ay\u001b[2Bz\u001b[3Cw\u001b[4Dv" },
+        { "text": "\u001b[1;5H\u001b[K\u001b[3;1H\u001b[1K\u001b[4;4H\u001b[2@\u001b[4;8H\u001b[2P" },
+        { "text": "\u001b7\u001b[6;1Hsaved\u001b8S\u001b[s\u001b[7;10Hu\u001b[uT" },
+        { "text": "\r\n\ta\tb\u0008\u0008c\u001b[5;1H\u001b[L\u001b[1;1H\u001b[M" },
+        { "text": "\u001b[3;6r\u001b[6;1H\r\nscroll\u001bM\u001bD\u001b[r\u001b[8;20H" }
+      ]
+    },
+    {
+      "name": "alternate-screen-active",
+      "rows": 6,
+      "cols": 20,
+      "ops": [
+        { "text": "main line 1\r\nmain line 2\r\n" },
+        { "text": "\u001b[?1049h\u001b[H\u001b[2Jalt screen\r\n\u001b[32mgreen\u001b[0m" }
+      ]
+    },
+    {
+      "name": "alternate-screen-exited",
+      "rows": 6,
+      "cols": 20,
+      "ops": [
+        { "text": "main line 1\r\nmain line 2\r\n" },
+        { "text": "\u001b[?1049h\u001b[H\u001b[2Jalt screen\r\nmore" },
+        { "text": "\u001b[?1049lback" }
+      ]
+    },
+    {
+      "name": "scrollback-overflow",
+      "rows": 5,
+      "cols": 20,
+      "ops": [
+        { "repeat": { "text": "line %d\r\n", "count": 1010 } },
+        { "text": "\u001b[33mtail\u001b[0m" }
+      ]
+    },
+    {
+      "name": "resize-reflow",
+      "rows": 6,
+      "cols": 20,
+      "ops": [
+        { "text": "abcdefghijklmnopqrstuvwxyz0123456789\r\nshort\r\n" },
+        { "text": "\u001b[34m0123456789012345678901234567890123456789\u001b[0m\r\n$ " },
+        { "resize": [10, 6] },
+        { "text": "x" },
+        { "resize": [30, 4] },
+        { "text": "y" },
+        { "resize": [25, 8] }
+      ]
+    },
+    {
+      "name": "partial-utf8",
+      "rows": 4,
+      "cols": 20,
+      "ops": [
+        { "hex": "e4b8" },
+        { "hex": "ad" },
+        { "hex": "e6" },
+        { "hex": "96875f" },
+        { "hex": "f09f" },
+        { "hex": "98" },
+        { "hex": "800d0a" },
+        { "hex": "41ff42c3" },
+        { "hex": "28430d0a" },
+        { "hex": "ed" },
+        { "hex": "a080" },
+        { "hex": "44" }
+      ]
+    },
+    {
+      "name": "title-and-queries",
+      "rows": 4,
+      "cols": 20,
+      "ops": [
+        { "text": "\u001b]0;first title\u0007a" },
+        { "text": "\u001b]2;second title\u001b\\b" },
+        { "text": "\u001b[c\u001b[0c\u001b[>c\u001b[5n\u001b[6n\u001b[?6n" },
+        { "text": "\u001b]10;?\u0007\u001b]11;?\u001b\\\u001b]12;?\u0007\u001b]10;rgb:0/0/0\u0007" },
+        { "text": "\u001b]633;D;0\u0007\u001b]633;D\u0007\u001b]633;D;x\u0007c" },
+        { "text": "\u001b]0;   \u0007\u001b[2;5Hd" }
+      ]
+    },
+    {
+      "name": "cursor-style",
+      "rows": 4,
+      "cols": 20,
+      "ops": [
+        { "text": "\u001b[4 qunder" },
+        { "text": "\u001b[?25l\u001b[?12hhidden" }
+      ]
+    },
+    {
+      "name": "cursor-style-bar",
+      "rows": 4,
+      "cols": 20,
+      "ops": [
+        { "text": "\u001b[5 q\u001b[?12lbar" }
+      ]
+    },
+    {
+      "name": "autowrap-edges",
+      "rows": 6,
+      "cols": 10,
+      "ops": [
+        { "text": "0123456789" },
+        { "text": "\r\nABCDEFGHIJK" },
+        { "text": "\r\n\u001b[?7lNOWRAPPING-HERE\u001b[?7h\r\n" },
+        { "text": "0123456789\u0008x" }
+      ]
+    },
+    {
+      "name": "insert-and-charset",
+      "rows": 4,
+      "cols": 20,
+      "ops": [
+        { "text": "abcdef\r\u001b[4hXY\u001b[4l\r\n" },
+        { "text": "\u001b(0lqqk\u001b(B x\r\n" },
+        { "text": "\u001b[3g\u001b[1;4H\u001bH\u001b[3;1H\tT" }
+      ]
+    },
+    {
+      "name": "erase-display",
+      "rows": 5,
+      "cols": 12,
+      "ops": [
+        { "text": "111111\r\n222222\r\n333333\r\n444444" },
+        { "text": "\u001b[2;3H\u001b[0J\u001b[1;3H\u001b[1J" },
+        { "text": "\u001b[45m\u001b[5;1H\u001b[2Jz\u001b[0m" }
+      ]
+    },
+    {
+      "name": "resize-shrink-rows",
+      "rows": 6,
+      "cols": 12,
+      "ops": [
+        { "text": "r1\r\nr2\r\nr3\r\nr4\r\nr5\r\nr6" },
+        { "resize": [12, 3] },
+        { "text": "!" },
+        { "resize": [12, 7] }
+      ]
+    }
+  ]
+}
