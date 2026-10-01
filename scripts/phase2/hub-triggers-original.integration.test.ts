@@ -126,6 +126,26 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
     providerEventReceiptId: otherEvent.providerEventReceiptId,
   });
 
+  // Execution deadline before the run deadline before the idle deadline: idle follows the execution.
+  const cappedRun = await database.createAcceptedTriggerRun({
+    ...runInput,
+    configuredTriggerName: "capped",
+    stepIds: ["capped-step"],
+  });
+  const cappedExecutionId = durableExecutionId({
+    triggerRunId: cappedRun.run.id,
+    configurationRevisionId: orgA.revisionId,
+    triggerName: "capped",
+    workflowStepRunId: await onlyStepRunId(database, cappedRun.run.id),
+  });
+  const cappedExecution = await database.createWorkflowStepExecution({
+    triggerRunId: cappedRun.run.id,
+    stepId: "capped-step",
+    ordinal: 0,
+    executionId: cappedExecutionId,
+    execution: executionInput(orgA, cappedExecutionId, 1_000, 5_000, 20_000),
+  });
+
   const running = await database.transitionAgentExecution(
     firstExecution.execution!.id,
     "running",
@@ -143,7 +163,7 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
   const runSucceeded = await database.succeedTriggerRun(firstRun.run.id);
   const runSucceededAgain = await database.succeedTriggerRun(firstRun.run.id);
   const finalRun = await database.findTriggerRunById(firstRun.run.id);
-  const runIds = new Set([firstRun.run.id, fanOutRun.run.id, otherRun.run.id]);
+  const runIds = new Set([firstRun.run.id, fanOutRun.run.id, otherRun.run.id, cappedRun.run.id]);
 
   const output = {
     schemaVersion: 1,
@@ -184,12 +204,17 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
         succeeded.execution.completedAt?.getTime(),
       idleDeadlineAtMs: firstExecution.execution!.idleDeadlineAt?.getTime(),
       idleDeadlineCleared: conflicting.execution.idleDeadlineAt === null,
+      executionBeforeRunBeforeIdle: {
+        deadlineAtMs: cappedExecution.execution!.deadlineAt.getTime(),
+        idleDeadlineAtMs: cappedExecution.execution!.idleDeadlineAt?.getTime(),
+      },
       runStatus: finalRun?.status,
       runSucceededTransition: runSucceeded?.transitioned,
       runSucceededAgainTransition: runSucceededAgain?.transitioned,
     },
     identity: {
       localOffsetMinutes: -new Date(2026, 7, 6).getTimezoneOffset(),
+      januaryOffsetMinutes: -new Date(2026, 0, 15).getTimezoneOffset(),
       firstRun: {
         runId: firstRun.run.id,
         revisionId: orgA.revisionId,
@@ -231,7 +256,7 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
     github: await githubTrace(),
   };
   assert.equal(output.manual.receiptCount, 2);
-  assert.equal(output.manual.runCount, 3);
+  assert.equal(output.manual.runCount, 4);
   const outputPath = process.env["SPOCKY_HUB_TRIGGERS_OUTPUT"];
   if (!outputPath) throw new Error("SPOCKY_HUB_TRIGGERS_OUTPUT is required");
   await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`);
@@ -517,6 +542,11 @@ export const RECEIVED_AT_GRID = [
   "2026-08-06T12:00:00.Z", "2026-02-32", "2026-13-01", "2026-00-10", "2026-08-00",
   "-000000-01-01T00:00:00Z", "275760-09-13T00:00:00Z", "+275760-09-13T00:00:00.001Z",
   "2026-08-06T12:00:00 Z", "2026-08-06T12:00:00+24:00", "26-08-06", "", "not-a-date",
+  // Local date-times around the Europe/London daylight saving transitions of 2026 and one before
+  // standard time existed there; they are plain wall-clock times in a UTC capture.
+  "2026-01-15T12:00:00", "2026-03-29T00:59:59", "2026-03-29T01:00:00", "2026-03-29T01:30:00",
+  "2026-03-29T02:00:00", "2026-10-25T00:59:59", "2026-10-25T01:00:00", "2026-10-25T01:30:00",
+  "2026-10-25T02:00:00", "1800-01-01T00:00:00",
 ];
 
 async function manualRunMatchTrace() {
