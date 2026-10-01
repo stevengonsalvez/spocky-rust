@@ -450,7 +450,8 @@ pub fn js_wire_text(serialized: &str) -> String {
     out
 }
 
-/// `z.record(z.string(), V)`: string keys in JavaScript property order. An
+/// `z.record(z.string(), V)`: keys are JavaScript text (see
+/// [`crate::text::JsText`]) in JavaScript property order. An
 /// own `__proto__` key is dropped unvalidated, as zod 4 drops it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsRecord<V> {
