@@ -5,12 +5,12 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Number, Value, json};
 use spocky_hub_pilot::triggers::{
-    AcceptFailure, AcceptedRunInput, AuthOutcome, ExecutionReservation, ExecutionStatus,
-    GitHubWebhook, GitHubWebhookRequest, ManualRunPayload, ManualRunResult, ManualSource,
-    RunConfiguration, RunTrigger, TriggerStore, durable_execution_id, github_signature,
-    hash_signature, match_manual_run, public_manual_run,
+    AcceptFailure, AcceptedRunInput, AuthOutcome, DispatchedRun, ExecutionReservation,
+    ExecutionStatus, GitHubWebhook, GitHubWebhookRequest, ManualRunPayload, ManualRunResult,
+    ManualSource, RunConfiguration, RunTrigger, TriggerStore, durable_execution_id,
+    github_signature, hash_signature, match_manual_run, public_manual_run,
 };
 
 const PROJECT_A: &str = "11111111-1111-4111-8111-111111111111";
@@ -57,35 +57,138 @@ const RECEIVED_AT_GRID: [&str; 37] = [
     "not-a-date",
 ];
 
+/// Ordered JSON: object keys keep insertion order, as `JSON.stringify` does in the baseline capture.
+#[derive(Clone)]
+enum J {
+    Null,
+    Bool(bool),
+    Number(String),
+    Str(String),
+    Arr(Vec<J>),
+    Obj(Vec<(String, J)>),
+}
+
+macro_rules! obj {
+    ($($key:expr => $value:expr),* $(,)?) => {
+        J::Obj(vec![$(($key.to_string(), J::from($value))),*])
+    };
+}
+
+impl J {
+    fn render(&self, depth: usize, out: &mut String) {
+        let pad = |level: usize| "  ".repeat(level);
+        match self {
+            Self::Null => out.push_str("null"),
+            Self::Bool(value) => out.push_str(&value.to_string()),
+            Self::Number(text) => out.push_str(text),
+            Self::Str(text) => out.push_str(&serde_json::to_string(text).expect("string")),
+            Self::Arr(items) if items.is_empty() => out.push_str("[]"),
+            Self::Arr(items) => {
+                out.push_str("[\n");
+                for (index, item) in items.iter().enumerate() {
+                    out.push_str(&pad(depth + 1));
+                    item.render(depth + 1, out);
+                    out.push_str(if index + 1 == items.len() {
+                        "\n"
+                    } else {
+                        ",\n"
+                    });
+                }
+                out.push_str(&pad(depth));
+                out.push(']');
+            }
+            Self::Obj(fields) if fields.is_empty() => out.push_str("{}"),
+            Self::Obj(fields) => {
+                out.push_str("{\n");
+                for (index, (key, value)) in fields.iter().enumerate() {
+                    out.push_str(&pad(depth + 1));
+                    out.push_str(&serde_json::to_string(key).expect("key"));
+                    out.push_str(": ");
+                    value.render(depth + 1, out);
+                    out.push_str(if index + 1 == fields.len() {
+                        "\n"
+                    } else {
+                        ",\n"
+                    });
+                }
+                out.push_str(&pad(depth));
+                out.push('}');
+            }
+        }
+    }
+}
+
+impl From<bool> for J {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+impl From<&str> for J {
+    fn from(value: &str) -> Self {
+        Self::Str(value.to_owned())
+    }
+}
+impl From<String> for J {
+    fn from(value: String) -> Self {
+        Self::Str(value)
+    }
+}
+impl From<&String> for J {
+    fn from(value: &String) -> Self {
+        Self::Str(value.clone())
+    }
+}
+impl From<usize> for J {
+    fn from(value: usize) -> Self {
+        Self::Number(value.to_string())
+    }
+}
+impl From<u16> for J {
+    fn from(value: u16) -> Self {
+        Self::Number(value.to_string())
+    }
+}
+impl From<Number> for J {
+    fn from(value: Number) -> Self {
+        Self::Number(value.to_string())
+    }
+}
+impl From<Vec<J>> for J {
+    fn from(value: Vec<J>) -> Self {
+        Self::Arr(value)
+    }
+}
+impl<T: Into<J>> From<Option<T>> for J {
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Self::Null, Into::into)
+    }
+}
+
 #[test]
 fn writes_candidate_trace_when_requested() {
     let Some(output_path) = std::env::var_os("SPOCKY_HUB_TRIGGERS_OUTPUT") else {
         return;
     };
     let (manual, lease, execution) = store_trace();
-    let trace = json!({
-        "schemaVersion": 1,
-        "manual": manual,
-        "lease": lease,
-        "execution": execution,
-        "durableExecutionId": {
-            "fixed": durable_execution_id("run-1", "revision-1", "deploy", Some("step-run-1")),
-            "noStep": durable_execution_id("run-1", "revision-1", "deploy", None),
-            "otherTrigger": durable_execution_id("run-1", "revision-1", "rollback", Some("step-run-1")),
+    let trace = obj! {
+        "schemaVersion" => 1_usize,
+        "manual" => manual,
+        "lease" => lease,
+        "execution" => execution,
+        "durableExecutionId" => obj! {
+            "fixed" => durable_execution_id("run-1", "revision-1", "deploy", Some("step-run-1")),
+            "noStep" => durable_execution_id("run-1", "revision-1", "deploy", None),
+            "otherTrigger" => durable_execution_id("run-1", "revision-1", "rollback", Some("step-run-1")),
         },
-        "manualRequests": manual_request_trace(),
-        "manualRunMatch": manual_run_match_trace(),
-        "publicManualRun": public_manual_run_trace(),
-        "github": github_trace(),
-    });
-    fs::write(
-        output_path,
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&trace).expect("serialize trace")
-        ),
-    )
-    .expect("write trace");
+        "manualRequests" => manual_request_trace(),
+        "manualRunMatch" => manual_run_match_trace(),
+        "publicManualRun" => public_manual_run_trace(),
+        "github" => github_trace(),
+    };
+    let mut text = String::new();
+    trace.render(0, &mut text);
+    text.push('\n');
+    fs::write(output_path, text).expect("write trace");
 }
 
 fn manual_body(org: &str, project: &str, delivery: &str) -> Vec<u8> {
@@ -101,7 +204,7 @@ fn manual_body(org: &str, project: &str, delivery: &str) -> Vec<u8> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn store_trace() -> (Value, Value, Value) {
+fn store_trace() -> (J, J, J) {
     let mut store = TriggerStore::default();
     store.register_project("org-a", PROJECT_A, "revision-a");
     store.register_project("org-b", PROJECT_B, "revision-b");
@@ -186,41 +289,41 @@ fn store_trace() -> (Value, Value, Value) {
     let run_succeeded = store.succeed_run(&first_run.run_id).expect("run");
     let run_succeeded_again = store.succeed_run(&first_run.run_id).expect("run");
 
-    let manual = json!({
-        "firstCreated": first_run.created,
-        "replayCreated": replay_run.created,
-        "sameReceipt": receipt_of(1) == receipt_of(0),
-        "crossOrgDistinct": receipt_of(2) != receipt_of(0),
-        "receiptCount": store.receipt_count(),
-        "runCount": store.run_count(),
-        "fanOutDistinct": fan_out.run_id != first_run.run_id,
-        "fanOutCreated": fan_out.created,
-        "fanOutReplayCreated": fan_out_replay.created,
-        "fanOutReplaySameRun": fan_out_replay.run_id == fan_out.run_id,
-    });
-    let lease = json!({
-        "blockedBeforeExpiry": blocked_before_expiry,
-        "recoveredAfterExpiry": recovery_lease.run_id == first_run.run_id,
-        "leasedBeforeClaim": recovery_lease.leased_before_claim,
-        "sameExecution": recovered_execution.id == first_execution.id,
-        "executionIdIsDurable": first_execution.id == stable_id,
-        "executionCount": store.execution_count(),
-        "staleReleaseRejected": stale_release_rejected,
-        "currentReleaseAccepted": current_release_accepted,
-    });
-    let execution = json!({
-        "initial": first_execution.status.name(),
-        "runningTransition": running.transitioned,
-        "firstTerminal": succeeded.execution.status.name(),
-        "conflictingTerminalTransition": conflicting.transitioned,
-        "finalStatus": conflicting.execution.status.name(),
-        "completedAtKept": conflicting.execution.completed_at_ms == succeeded.execution.completed_at_ms,
-        "idleDeadlineSet": first_execution.idle_deadline_at_ms == Some(10_000),
-        "idleDeadlineCleared": conflicting.execution.idle_deadline_at_ms.is_none(),
-        "runStatus": store.run(&first_run.run_id).expect("run").status,
-        "runSucceededTransition": run_succeeded.transitioned,
-        "runSucceededAgainTransition": run_succeeded_again.transitioned,
-    });
+    let manual = obj! {
+        "firstCreated" => first_run.created,
+        "replayCreated" => replay_run.created,
+        "sameReceipt" => receipt_of(1) == receipt_of(0),
+        "crossOrgDistinct" => receipt_of(2) != receipt_of(0),
+        "receiptCount" => store.receipt_count(),
+        "runCount" => store.run_count(),
+        "fanOutDistinct" => fan_out.run_id != first_run.run_id,
+        "fanOutCreated" => fan_out.created,
+        "fanOutReplayCreated" => fan_out_replay.created,
+        "fanOutReplaySameRun" => fan_out_replay.run_id == fan_out.run_id,
+    };
+    let lease = obj! {
+        "blockedBeforeExpiry" => blocked_before_expiry,
+        "recoveredAfterExpiry" => recovery_lease.run_id == first_run.run_id,
+        "leasedBeforeClaim" => recovery_lease.leased_before_claim,
+        "sameExecution" => recovered_execution.id == first_execution.id,
+        "executionIdIsDurable" => first_execution.id == stable_id,
+        "executionCount" => store.execution_count(),
+        "staleReleaseRejected" => stale_release_rejected,
+        "currentReleaseAccepted" => current_release_accepted,
+    };
+    let execution = obj! {
+        "initial" => first_execution.status.name(),
+        "runningTransition" => running.transitioned,
+        "firstTerminal" => succeeded.execution.status.name(),
+        "conflictingTerminalTransition" => conflicting.transitioned,
+        "finalStatus" => conflicting.execution.status.name(),
+        "completedAtKept" => conflicting.execution.completed_at_ms == succeeded.execution.completed_at_ms,
+        "idleDeadlineSet" => first_execution.idle_deadline_at_ms == Some(10_000),
+        "idleDeadlineCleared" => conflicting.execution.idle_deadline_at_ms.is_none(),
+        "runStatus" => store.run(&first_run.run_id).expect("run").status,
+        "runSucceededTransition" => run_succeeded.transitioned,
+        "runSucceededAgainTransition" => run_succeeded_again.transitioned,
+    };
     (manual, lease, execution)
 }
 
@@ -238,36 +341,36 @@ fn delivery(project: &str, org: &str, overrides: &[(&str, Value)]) -> Vec<u8> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn manual_request_trace() -> Value {
+fn manual_request_trace() -> J {
     let mut store = TriggerStore::default();
     store.register_project("org_1", PROJECT_A, "revision-1");
     store.register_project("org_2", PROJECT_B, "revision-2");
     let mut recording = ManualSource::default();
     recording.start();
     let mut idle = ManualSource::default();
-    let mut cases = Map::new();
+    let mut cases: Vec<(String, J)> = Vec::new();
     let mut record =
         |store: &mut TriggerStore, name: &str, source: &mut ManualSource, body: &[u8]| {
             let outcome = match store.handle_manual_request(source, body) {
-                Ok(response) => json!({"status": response.status, "body": response.body}),
-                Err(error) => json!({"status": 0, "body": format!("threw: {error}")}),
+                Ok(response) => obj! {"status" => response.status, "body" => response.body},
+                Err(error) => obj! {"status" => 0_u16, "body" => format!("threw: {error}")},
             };
-            cases.insert(name.to_owned(), outcome);
+            cases.push((name.to_owned(), outcome));
         };
     let a = |overrides: &[(&str, Value)]| delivery(PROJECT_A, "org_1", overrides);
     let uuid_nine = "7f1b0c1e-2d3a-9b5c-8d6e-9f0a1b2c3d4e";
 
     record(&mut store, "accepted", &mut recording, &a(&[]));
-    let accepted_evidence: Vec<Value> = recording
+    let accepted_evidence: Vec<J> = recording
         .handled()
         .iter()
         .map(|event| {
-            json!({
-                "connectionId": event.connection_id,
-                "resourceId": event.resource_id,
-                "source": event.source,
-                "deliveryId": event.delivery_id,
-            })
+            obj! {
+                "connectionId" => event.connection_id.clone(),
+                "resourceId" => event.resource_id.clone(),
+                "source" => &event.source,
+                "deliveryId" => &event.delivery_id,
+            }
         })
         .collect();
     record(
@@ -304,26 +407,25 @@ fn manual_request_trace() -> Value {
         ]),
     );
     let last = recording.handled().last().expect("handled event");
-    let connection_evidence =
-        json!({"connectionId": last.connection_id, "resourceId": last.resource_id});
+    let connection_evidence = obj! {"connectionId" => last.connection_id.clone(), "resourceId" => last.resource_id.clone()};
     let receipt_of = |store: &TriggerStore, org: &str, delivery: &str| {
-        store.receipt(org, delivery).map_or(Value::Null, |receipt| {
-            json!({
-                "provider": receipt.provider,
-                "source": receipt.source,
-                "droppedReason": receipt.dropped_reason,
-                "connectionId": receipt.connection_id,
-                "resourceId": receipt.resource_id,
-            })
+        store.receipt(org, delivery).map_or(J::Null, |receipt| {
+            obj! {
+                "provider" => receipt.provider,
+                "source" => &receipt.source,
+                "droppedReason" => receipt.dropped_reason,
+                "connectionId" => receipt.connection_id.clone(),
+                "resourceId" => receipt.resource_id.clone(),
+            }
         })
     };
-    let receipts = json!({
-        "accepted": receipt_of(&store, "org_1", "manual-1"),
-        "idle": receipt_of(&store, "org_1", "manual-idle"),
-        "otherOrganization": receipt_of(&store, "org_2", "manual-1"),
-        "distinctReceiptIds": store.receipt("org_1", "manual-1").map(|r| &r.id)
+    let receipts = obj! {
+        "accepted" => receipt_of(&store, "org_1", "manual-1"),
+        "idle" => receipt_of(&store, "org_1", "manual-idle"),
+        "otherOrganization" => receipt_of(&store, "org_2", "manual-1"),
+        "distinctReceiptIds" => store.receipt("org_1", "manual-1").map(|r| &r.id)
             != store.receipt("org_2", "manual-1").map(|r| &r.id),
-    });
+    };
 
     let simple: Vec<(&str, Vec<u8>)> = vec![
         ("nonNamespacedSource", a(&[("source", json!("manual"))])),
@@ -429,7 +531,7 @@ fn manual_request_trace() -> Value {
     record(&mut store, "invalidJson", &mut recording, b"{not json");
     record(&mut store, "arrayBody", &mut recording, b"[]");
 
-    let mut grid = Map::new();
+    let mut grid: Vec<(String, J)> = Vec::new();
     for (index, received_at) in RECEIVED_AT_GRID.iter().enumerate() {
         let body = a(&[
             ("deliveryId", json!(format!("manual-grid-{index}"))),
@@ -439,20 +541,20 @@ fn manual_request_trace() -> Value {
             .handle_manual_request(&mut recording, &body)
             .expect("grid intake")
             .status;
-        grid.insert((*received_at).to_owned(), json!(status));
+        grid.push(((*received_at).to_owned(), J::from(status)));
     }
-    json!({
-        "cases": cases,
-        "receivedAtGrid": grid,
-        "handledAfterDuplicate": handled_after_duplicate,
-        "handledAfterOtherOrganization": handled_after_other,
-        "receipts": receipts,
-        "acceptedEvidence": accepted_evidence,
-        "connectionEvidence": connection_evidence,
-    })
+    obj! {
+        "cases" => J::Obj(cases),
+        "receivedAtGrid" => J::Obj(grid),
+        "handledAfterDuplicate" => handled_after_duplicate,
+        "handledAfterOtherOrganization" => handled_after_other,
+        "receipts" => receipts,
+        "acceptedEvidence" => accepted_evidence,
+        "connectionEvidence" => connection_evidence,
+    }
 }
 
-fn manual_run_match_trace() -> Value {
+fn manual_run_match_trace() -> J {
     let current = "11111111-1111-4111-8111-111111111111";
     let stale = "22222222-2222-4222-8222-222222222222";
     let trigger = |name: &str, users: &[&str]| RunTrigger {
@@ -490,48 +592,47 @@ fn manual_run_match_trace() -> Value {
                 public_delivery_key: key.map(str::to_owned),
             };
             match match_manual_run(&revisions, revision, "delivery-1", &payload) {
-                Ok(found) => json!({
-                    "outcome": "matched",
-                    "triggers": [found.trigger_name],
-                    "deliveryId": found.delivery_id,
-                    "configurationRevisionIsCurrent": found.configuration_revision_id == current,
-                }),
-                Err(rejection) => json!({"outcome": "rejected", "code": rejection.code()}),
+                Ok(found) => obj! {
+                    "outcome" => "matched",
+                    "triggers" => vec![J::from(found.trigger_name)],
+                    "deliveryId" => found.delivery_id,
+                    "configurationRevisionIsCurrent" => found.configuration_revision_id == current,
+                },
+                Err(rejection) => obj! {"outcome" => "rejected", "code" => rejection.code()},
             }
         };
-    json!({
-        "matched": run(current, "deploy", "anyone", None, None),
-        "publicDeliveryKey": run(current, "deploy", "anyone", None, Some("public-key")),
-        "expectedCurrent": run(current, "deploy", "anyone", Some(current), None),
-        "expectedStale": run(current, "deploy", "anyone", Some(stale), None),
-        "revisionMissing": run(stale, "deploy", "anyone", None, None),
-        "triggerMissing": run(current, "absent", "anyone", None, None),
-        "actorForbidden": run(current, "rollback", "mallory", None, None),
-        "actorAllowed": run(current, "rollback", "alice", None, None),
-        "noUserFilter": run(current, "open", "alice", None, None),
-        "wrongEventTrigger": run(current, "cron", "alice", None, None),
-    })
+    obj! {
+        "matched" => run(current, "deploy", "anyone", None, None),
+        "publicDeliveryKey" => run(current, "deploy", "anyone", None, Some("public-key")),
+        "expectedCurrent" => run(current, "deploy", "anyone", Some(current), None),
+        "expectedStale" => run(current, "deploy", "anyone", Some(stale), None),
+        "revisionMissing" => run(stale, "deploy", "anyone", None, None),
+        "triggerMissing" => run(current, "absent", "anyone", None, None),
+        "actorForbidden" => run(current, "rollback", "mallory", None, None),
+        "actorAllowed" => run(current, "rollback", "alice", None, None),
+        "noUserFilter" => run(current, "open", "alice", None, None),
+        "wrongEventTrigger" => run(current, "cron", "alice", None, None),
+    }
 }
 
-fn public_manual_run_trace() -> Value {
-    let dispatched = json!({
-        "deliveryKey": "delivery-1",
-        "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
-        "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
-        "configuredTriggerName": "deploy",
-        "workflowStatus": "running",
-    });
+fn public_manual_run_trace() -> J {
+    let dispatched = DispatchedRun {
+        delivery_key: "delivery-1".to_owned(),
+        provider_event_receipt_id: "845e9d26-7977-45e1-bc69-d80a7b55a9cc".to_owned(),
+        trigger_run_id: "f83dc934-02a0-4849-8de7-699110be24ed".to_owned(),
+        configured_trigger_name: "deploy".to_owned(),
+        workflow_status: "running".to_owned(),
+    };
     let body = br#"{"projectSlug":"project","trigger":"deploy","actor":"alice","deliveryKey":"delivery-1","input":{}}"#;
     let call =
         |auth: AuthOutcome, result: &ManualRunResult, content_type: Option<&str>, body: &[u8]| {
-            let response = public_manual_run(auth, content_type, body, result);
-            json!({
-                "status": response.status,
-                "code": response.code,
-                "contentType": response.content_type,
-                "wwwAuthenticate": response.www_authenticate,
-                "body": response.body,
-            })
+            let response = public_manual_run(auth, "request-1", content_type, body, result);
+            obj! {
+                "status" => response.status,
+                "contentType" => response.content_type,
+                "wwwAuthenticate" => response.www_authenticate,
+                "body" => response.body,
+            }
         };
     let ok = |result: &ManualRunResult| {
         call(
@@ -542,26 +643,28 @@ fn public_manual_run_trace() -> Value {
         )
     };
     let dispatched_result = ManualRunResult::Dispatched(dispatched);
-    json!({
-        "results": {
-            "dispatched": ok(&dispatched_result),
-            "project_not_found": ok(&ManualRunResult::ProjectNotFound),
-            "actor_forbidden": ok(&ManualRunResult::ActorForbidden),
-            "daemon_offline": ok(&ManualRunResult::DaemonOffline),
-            "expected_configuration_not_current": ok(&ManualRunResult::ExpectedConfigurationNotCurrent),
-            "configuration_not_found": ok(&ManualRunResult::ConfigurationNotFound),
-            "trigger_not_found": ok(&ManualRunResult::TriggerNotFound),
-            "dispatch_conflict": ok(&ManualRunResult::DispatchConflict),
-            "invalid_input": ok(&ManualRunResult::InvalidInput),
-            "infrastructure_unavailable": ok(&ManualRunResult::InfrastructureUnavailable),
+    obj! {
+        "results" => obj! {
+            "dispatched" => ok(&dispatched_result),
+            "project_not_found" => ok(&ManualRunResult::ProjectNotFound),
+            "actor_forbidden" => ok(&ManualRunResult::ActorForbidden),
+            "daemon_offline" => ok(&ManualRunResult::DaemonOffline),
+            "expected_configuration_not_current" => ok(&ManualRunResult::ExpectedConfigurationNotCurrent),
+            "configuration_not_found" => ok(&ManualRunResult::ConfigurationNotFound),
+            "trigger_not_found" => ok(&ManualRunResult::TriggerNotFound),
+            "dispatch_conflict" => ok(&ManualRunResult::DispatchConflict),
+            "invalid_input" => ok(&ManualRunResult::InvalidInput {
+                trigger_run_id: "f83dc934-02a0-4849-8de7-699110be24ed".to_owned(),
+            }),
+            "infrastructure_unavailable" => ok(&ManualRunResult::InfrastructureUnavailable),
         },
-        "unauthorized": call(AuthOutcome::Unauthorized, &dispatched_result, Some("application/json"), body),
-        "forbidden": call(AuthOutcome::Forbidden, &dispatched_result, Some("application/json"), body),
-        "authenticationUnavailable": call(AuthOutcome::Unavailable, &dispatched_result, Some("application/json"), body),
-        "invalidJson": call(AuthOutcome::Authorized, &dispatched_result, Some("application/json"), b"{not json"),
-        "wrongContentType": call(AuthOutcome::Authorized, &dispatched_result, Some("text/plain"), body),
-        "missingContentType": call(AuthOutcome::Authorized, &dispatched_result, None, body),
-    })
+        "unauthorized" => call(AuthOutcome::Unauthorized, &dispatched_result, Some("application/json"), body),
+        "forbidden" => call(AuthOutcome::Forbidden, &dispatched_result, Some("application/json"), body),
+        "authenticationUnavailable" => call(AuthOutcome::Unavailable, &dispatched_result, Some("application/json"), body),
+        "invalidJson" => call(AuthOutcome::Authorized, &dispatched_result, Some("application/json"), b"{not json"),
+        "wrongContentType" => call(AuthOutcome::Authorized, &dispatched_result, Some("text/plain"), body),
+        "missingContentType" => call(AuthOutcome::Authorized, &dispatched_result, None, body),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -783,8 +886,8 @@ fn signature_for(signature: Signature, secret: &str, body: &[u8]) -> Option<Stri
     }
 }
 
-fn github_trace() -> Value {
-    let mut cases = Map::new();
+fn github_trace() -> J {
+    let mut cases: Vec<(String, J)> = Vec::new();
     for spec in webhook_cases() {
         let mut endpoint = GitHubWebhook::new(spec.secret.as_deref());
         for _ in 0..spec.handlers {
@@ -792,7 +895,7 @@ fn github_trace() -> Value {
         }
         endpoint.set_events_per_acceptance(spec.events_per_acceptance);
         endpoint.set_accept_failure(spec.failure);
-        let responses: Vec<Value> = spec
+        let responses: Vec<J> = spec
             .deliveries
             .iter()
             .map(|delivery| {
@@ -807,47 +910,47 @@ fn github_trace() -> Value {
                     signature: signature.as_deref(),
                     body: &delivery.body,
                 });
-                json!({"status": response.status, "body": response.body})
+                obj! {"status" => response.status, "body" => response.body}
             })
             .collect();
-        let accepts: Vec<Value> = endpoint
+        let accepts: Vec<J> = endpoint
             .accepts()
             .iter()
             .map(|call| {
-                json!({
-                    "source": call.source,
-                    "dropReason": call.drop_reason,
-                    "installationId": call.installation_id,
-                    "repositoryId": call.repository_id,
-                    "repo": call.repo,
-                    "signatureHash": call.signature_hash,
-                })
+                obj! {
+                    "source" => &call.source,
+                    "dropReason" => call.drop_reason,
+                    "installationId" => call.installation_id.clone(),
+                    "repositoryId" => call.repository_id.clone(),
+                    "repo" => call.repo.clone(),
+                    "signatureHash" => &call.signature_hash,
+                }
             })
             .collect();
-        let lifecycles: Vec<Value> = endpoint
+        let lifecycles: Vec<J> = endpoint
             .lifecycles()
             .iter()
             .map(|call| {
-                json!({
-                    "event": call.event,
-                    "source": call.source,
-                    "installationId": call.installation_id,
-                    "signatureHash": call.signature_hash,
-                })
+                obj! {
+                    "event" => &call.event,
+                    "source" => &call.source,
+                    "installationId" => call.installation_id.clone(),
+                    "signatureHash" => &call.signature_hash,
+                }
             })
             .collect();
-        cases.insert(
+        cases.push((
             spec.name.to_owned(),
-            json!({
-                "responses": responses,
-                "accepts": accepts,
-                "lifecycles": lifecycles,
-                "dispatchCount": endpoint.dispatch_count(),
-            }),
-        );
+            obj! {
+                "responses" => responses,
+                "accepts" => accepts,
+                "lifecycles" => lifecycles,
+                "dispatchCount" => endpoint.dispatch_count(),
+            },
+        ));
     }
-    json!({
-        "signatureHashSample": hash_signature(&github_signature(GITHUB_SECRET, b"{}")),
-        "cases": cases,
-    })
+    obj! {
+        "signatureHashSample" => hash_signature(&github_signature(GITHUB_SECRET, b"{}")),
+        "cases" => J::Obj(cases),
+    }
 }
