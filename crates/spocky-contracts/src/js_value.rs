@@ -890,6 +890,7 @@ mod tests {
         let copy = parsed.clone();
         assert!(copy == parsed);
         assert_eq!(stringify(&copy), text);
+        assert_eq!(format!("{copy:?}"), text, "Debug writes JSON iteratively");
         let objects = format!("{}1{}", "{\"a\":".repeat(depth), "}".repeat(depth));
         let nested = parse(&objects).expect("deep objects parse");
         assert_eq!(stringify(&nested.clone()), objects);
