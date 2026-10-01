@@ -1,7 +1,10 @@
 //! G2 provider behavior against the real pinned `codex app-server` (0.159.0):
 //! `--mode auto` with a scripted shell call that needs approval, answered
-//! allow, deny, or left pending while the turn is interrupted. Expected events
-//! follow pinned Paseo's command approval and `commandExecution` mapping.
+//! allow, deny, deny with interrupt, or left pending while the turn is
+//! interrupted, plus an `apply_patch` file change outside the writable roots.
+//! Expected events follow pinned Paseo's approval and `commandExecution`
+//! mapping; the wire decision (`decline` or `cancel`) is observed through what
+//! Codex does next.
 
 mod support;
 
@@ -41,7 +44,7 @@ struct Turn {
     session: CodexSession,
     events: Events,
     thread_id: String,
-    _stub: ResponsesStub,
+    stub: ResponsesStub,
     root: DisposableRoot,
 }
 
@@ -63,7 +66,7 @@ fn start_turn(label: &str, replies: Vec<Reply>, codex: &str) -> Turn {
         session,
         events,
         thread_id,
-        _stub: stub,
+        stub,
         root,
     }
 }
@@ -205,6 +208,14 @@ fn denied_command_emits_the_failed_tool_call_and_declines() {
                 .to_owned()
         )
     );
+    // Paseo answers `decline`: Codex hands the rejection to the model and
+    // continues the turn with a second model request.
+    let requests = turn.stub.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[1].body.to_string().contains("rejected by user"),
+        "decline reaches the model as a rejection"
+    );
     assert_eq!(turn.session.unported(), Vec::<String>::new());
     turn.session.close().expect("close");
 }
@@ -227,4 +238,88 @@ fn interrupting_a_turn_waiting_on_approval_cancels_it() {
     assert_eq!(turn.session.unported(), Vec::<String>::new());
     turn.session.close().expect("close");
     assert!(turn.session.pending_permissions().is_empty());
+}
+
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn deny_with_interrupt_sends_cancel_and_ends_the_turn() {
+    let codex = support::real_codex();
+    let turn = start_turn("cancel-wire", vec![escalated_echo(), done()], &codex);
+    turn.session
+        .respond_to_permission(
+            "permission-call_echo",
+            &json!({"behavior": "deny", "message": "Stop", "interrupt": true}),
+        )
+        .expect("deny with interrupt");
+    let canceled = turn.events.wait_for("turn_canceled", WAIT);
+    assert_eq!(canceled["reason"], json!("interrupted"));
+    // Paseo answers `cancel`: Codex interrupts the turn instead of telling the
+    // model, so no second model request is made.
+    assert_eq!(turn.stub.requests().len(), 1);
+    assert!(
+        turn.events
+            .snapshot()
+            .iter()
+            .all(|event| event["type"] != "turn_completed")
+    );
+    turn.session.close().expect("close");
+}
+
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn file_change_approval_matches_paseo_and_applies_on_allow() {
+    let codex = support::real_codex();
+    let root = DisposableRoot::new("patch");
+    // Outside the project and every writable root, so Codex asks first.
+    let target = root.join("outside.txt");
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {}\n+hi\n*** End Patch\n",
+        target.display()
+    );
+    let stub = ResponsesStub::start(vec![
+        Reply::CustomToolCall {
+            call_id: "call_patch".to_owned(),
+            name: "apply_patch".to_owned(),
+            input: patch,
+        },
+        done(),
+    ]);
+    let provider = stub_provider(&root, &stub, &codex);
+    let session = provider
+        .create_session(manager_auto_config(&root, &provider), None, false)
+        .expect("create session");
+    let events = Events::attach(&session);
+    session.runtime_info().expect("runtime info");
+    let thread_id = session.id().expect("thread");
+    session
+        .start_turn(&Prompt::Text("Write it".to_owned()), &RunOptions::default())
+        .expect("start turn");
+    let requested = events.wait_for("permission_requested", WAIT);
+    let request = &requested["request"];
+    assert_eq!(
+        compact(request),
+        compact(&json!({
+            "id": "permission-call_patch",
+            "provider": "codex",
+            "name": "CodexFileChange",
+            "kind": "tool",
+            "title": "Apply file changes",
+            "detail": {"type": "unknown", "input": {"reason": null}, "output": null},
+            "metadata": {"itemId": "call_patch", "threadId": thread_id, "turnId": request["metadata"]["turnId"]},
+        }))
+    );
+    session
+        .respond_to_permission("permission-call_patch", &json!({"behavior": "allow"}))
+        .expect("allow");
+    events.wait_for("turn_completed", WAIT);
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("patched file"),
+        "hi\n"
+    );
+    // The fileChange item mapping is a recorded gap, not a silent divergence.
+    assert_eq!(
+        session.unported(),
+        ["item/started fileChange", "item/completed fileChange"]
+    );
+    session.close().expect("close");
 }
