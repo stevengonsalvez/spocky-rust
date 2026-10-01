@@ -5652,6 +5652,14 @@ dependencies = [
 [[package]]
 name = "spocky-provider-claude"
 version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "spocky-contracts",
+ "spocky-provider-codex",
+ "spocky-session",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "spocky-provider-codex"
