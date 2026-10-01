@@ -185,7 +185,6 @@ pub struct Pglite {
     pub interrupted: bool,
 }
 
-/// True when Wasm stopped because the epoch deadline passed.
 /// Advances the engine's epoch every `EPOCH_TICK`. Holds the engine weakly
 /// and stops once the last `Compiled` using it is dropped.
 fn spawn_epoch_ticker(
@@ -204,6 +203,7 @@ fn spawn_epoch_ticker(
         })
 }
 
+/// True when Wasm stopped because the epoch deadline passed.
 #[must_use]
 pub fn is_interrupt(error: &wasmtime::Error) -> bool {
     error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::Interrupt)
