@@ -30,13 +30,13 @@ spike_marker`, a parameterized insert of `(1, 'spike marker')`, a settings
 query, close. The Rust host then reopens its own directory and the copy of the
 Node-made directory.
 
-## Results (measured, 2026-10-01)
+## Results (measured, 2026-10-01, rerun after the lint commits)
 
 | Check | Node host | Rust host |
 | --- | --- | --- |
 | initdb | exit 0 | exit 0, empty stderr, 996 entries handed to the data directory |
-| Open to ready | not timed | 6,693 ms (includes initdb) |
-| Compile `pglite.wasm` and `initdb.wasm` | not applicable | 13,262 ms, release build, loaded host, no compilation cache |
+| Open to ready | not timed | 7,677 ms (includes initdb) |
+| Compile `pglite.wasm` and `initdb.wasm` | not applicable | 9,316 ms, release build, loaded host, no compilation cache |
 | `select 1 as one` | `[{"one":1}]` | one row, text `1` |
 | PL/pgSQL `EXCEPTION` block | 1 `_emscripten_throw_longjmp` call | 1 `_emscripten_throw_longjmp` call, caught by an `invoke_*` wrapper (`setThrew`), `NOTICE caught 22012` |
 | `missing_table` error | `42P01`, `ERROR`, `relation "missing_table" does not exist` | same code, severity and message; reached through `exit(100)` and `PostgresMainLongJmp` |
@@ -97,12 +97,21 @@ probed.
   without the `ws` module; none is reached by PostgreSQL in single-user mode.
 - Not yet run: the 49 migrations, catalog parity (50 tables, 537 names, 49
   journal rows), the 17 retained-host cases, JavaScript typed-value mapping,
-  `cargo clippy` with the workspace pedantic lints, crash survival.
+  crash survival.
+
+## Checks
+
+`cargo clippy --locked -p spocky-pglite-host --all-targets -- -D warnings`
+passes with the workspace `all` and `pedantic` lints denied; remaining
+allowances are item-level with a stated reason (decimal glue constants,
+Date-range casts, single-port functions over 100 lines).
+`cargo test --locked -p spocky-pglite-host --release --lib`: 6 passed, 0
+failed. `cargo fmt -p spocky-pglite-host --check` passes.
 
 ## Raw artifacts (untracked, `evidence/raw/pglite-rust-host-spike/`)
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `node.json` | 216,896 | `18c99a6d50b36c79e5e4cfc8591ca9b27c9cef62617f44b5db41d27614d43ab4` |
-| `rust.json` | 433,801 | `05dc17e09ec2d03cf4872575301a0f0c43f0ff163d71f879ba4a5dd2bb944baa` |
-| `comparison.json` | 2,476 | `c9202453ef8834fb53362ffd4bd83d59ddaf0acc960c16aef1d1a5a46dd84739` |
+| `node.json` | 216,896 | `c792aee1ad343dccbd9b89c4a0cb70f823be046d732c091a493ebb8a56cf62dc` |
+| `rust.json` | 433,800 | `13e10a98dad96fb51487d8192b00cac94ba0f044b69bf1938ac53bfaabc6eb48` |
+| `comparison.json` | 2,475 | `e88a60bb11a4faf0931484816d9c2e96dfe92f153924cca7a971267615159f9f` |
