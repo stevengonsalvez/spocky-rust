@@ -11,15 +11,14 @@ main_root=$(CDPATH='' cd -- "$(dirname "$common_git_dir")" && pwd)
 reference_root=${PASEO_REFERENCE_ROOT:-/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rewrite}
 expected_reference=5de45e208690b0efc51c59a585ae9729325a9204
 image_digest=sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
-docker_image="rust@$image_digest"
+image_tag=spocky-renderer-linux-image:pinned
+image_pin_file="$repository_root/scripts/phase2/renderer-platform-linux.image-id"
+dockerfile="$repository_root/scripts/phase2/renderer-platform-linux.Dockerfile"
 baseline_dir="$main_root/evidence/raw/phase2/browser-runtime-comparison"
 baseline_a="$baseline_dir/original-desktop.png"
 baseline_b="$baseline_dir/original-repeat-desktop.png"
 baseline_json="$main_root/evidence/raw/phase2/browser-runtime-comparison.json"
 output_dir="$repository_root/evidence/phase2/renderer-platform-linux"
-# Colima shares only $HOME with the VM, so caches live in named Docker volumes.
-target_volume=spocky-renderer-linux-target
-cargo_volume=spocky-renderer-linux-cargo-home
 build_gate=/private/tmp/spocky-targets/build-gate.sh
 container_name="spocky-renderer-linux-$(date +%s)-$$"
 # One source for the limits so the printed plan cannot drift from the docker run.
@@ -29,6 +28,8 @@ limit_seconds=1200
 
 if [ "${1:-}" = "--print-plan" ]; then
   printf 'rust image digest: %s\n' "$image_digest"
+  printf '%s\n' 'derived image: pinned by local image ID in renderer-platform-linux.image-id'
+  printf '%s\n' 'network: none at run time, dependencies baked into the derived image'
   printf 'container limits: %s CPUs, %s GB memory, %s seconds\n' "$limit_cpus" "$limit_memory_gb" "$limit_seconds"
   printf 'memory swap: %sg total, no swap beyond memory\n' "$limit_memory_gb"
   printf '%s\n' 'viewport: 1280x800, scale 1, light theme, en-US, DejaVu Sans'
@@ -38,8 +39,13 @@ if [ "${1:-}" = "--print-plan" ]; then
   printf '%s\n' 'evidence/phase2/renderer-platform-linux/'
   exit 0
 fi
+build_image=0
+if [ "${1:-}" = "--build-image" ]; then
+  build_image=1
+  shift
+fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--print-plan]\n' "$0" >&2
+  printf 'usage: %s [--print-plan | --build-image]\n' "$0" >&2
   exit 2
 fi
 if ! command -v gtimeout >/dev/null 2>&1; then
@@ -63,6 +69,32 @@ for baseline in "$baseline_a" "$baseline_b" "$baseline_json"; do
 done
 
 mkdir -p "$output_dir"
+gate=
+if [ -x "$build_gate" ]; then gate=$build_gate; fi
+if [ "$build_image" -eq 1 ]; then
+  # The only networked step: apt packages and locked crates are baked into the image.
+  $gate gtimeout --kill-after=30 2400 docker build --platform linux/amd64 \
+    --file "$dockerfile" --tag "$image_tag" "$repository_root"
+  image_id=$(docker image inspect "$image_tag" --format '{{.Id}}')
+  printf '%s\n' "$image_id" >"$image_pin_file"
+  {
+    printf 'image: %s\nimage id: %s\nbase: rust@%s\n' "$image_tag" "$image_id" "$image_digest"
+    docker run --rm --name "spocky-renderer-linux-image-inspect-$$" --network none "$image_tag" \
+      sh -c 'rustc --version; cargo --version; dpkg-query -W | sort'
+  } >"$output_dir/image-packages.txt"
+  printf 'pinned %s in %s\n' "$image_id" "$image_pin_file"
+  exit 0
+fi
+if [ ! -f "$image_pin_file" ]; then
+  printf '%s\n' 'No pinned image ID. Run with --build-image first.' >&2
+  exit 1
+fi
+pinned_id=$(cat "$image_pin_file")
+actual_id=$(docker image inspect "$image_tag" --format '{{.Id}}' 2>/dev/null || true)
+if [ "$actual_id" != "$pinned_id" ]; then
+  printf 'Derived image mismatch: pinned %s, local %s. Run with --build-image.\n' "$pinned_id" "$actual_id" >&2
+  exit 1
+fi
 linux_command='set -eu
 export PATH=/usr/local/cargo/bin:$PATH
 export LANG=en_US.UTF-8
@@ -73,15 +105,11 @@ export GDK_DPI_SCALE=1
 export NO_AT_BRIDGE=0
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
-apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libxdo-dev librsvg2-dev xvfb xauth x11-utils xdotool imagemagick at-spi2-core python3-pyatspi python3-pil dbus-x11 locales fonts-dejavu-core >/tmp/apt.log
-sed -i "s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
-locale-gen en_US.UTF-8 >/tmp/locale.log
 rustc --version
 cargo --version
 dpkg-query -W xvfb x11-utils xdotool imagemagick at-spi2-core python3-pyatspi python3-pil fonts-dejavu-core
-cargo build --locked -p spocky-ui-renderer-pilot --bin spocky-ui-desktop --no-default-features --features desktop
-sha256sum /target/debug/spocky-ui-desktop
+cargo build --locked --offline -p spocky-ui-renderer-pilot --bin spocky-ui-desktop --no-default-features --features desktop
+sha256sum /opt/target/debug/spocky-ui-desktop
 dbus-run-session -- sh -eu -c '\''
   export DISPLAY=:99
   export GTK_MODULES=gail:atk-bridge
@@ -90,7 +118,7 @@ dbus-run-session -- sh -eu -c '\''
   trap "kill $xvfb_pid 2>/dev/null || true; wait $xvfb_pid 2>/dev/null || true" EXIT HUP INT TERM
   n=0
   until xdpyinfo -display :99 >/dev/null 2>&1; do n=$((n + 1)); [ "$n" -lt 100 ] || exit 1; sleep 0.1; done
-  /target/debug/spocky-ui-desktop >/output/application.log 2>&1 &
+  /opt/target/debug/spocky-ui-desktop >/output/application.log 2>&1 &
   app_pid=$!
   trap "kill $app_pid 2>/dev/null || true; wait $app_pid 2>/dev/null || true; kill $xvfb_pid 2>/dev/null || true; wait $xvfb_pid 2>/dev/null || true" EXIT HUP INT TERM
   n=0
@@ -113,8 +141,6 @@ dbus-run-session -- sh -eu -c '\''
 '\''
 printf "%s\\n" RENDERER_PLATFORM_LINUX_OK'
 
-gate=
-if [ -x "$build_gate" ]; then gate=$build_gate; fi
 # Remove only this exact container name when the runner is interrupted or exits.
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -131,12 +157,8 @@ $gate gtimeout --kill-after=30 "$limit_seconds" docker run --name "$container_na
   --mount "type=bind,src=$baseline_json,dst=/baseline/browser-runtime-comparison.json,readonly" \
   --mount "type=bind,src=$output_dir,dst=/output" \
   --workdir /workspace \
-  --mount "type=volume,src=$target_volume,dst=/target" \
-  --mount "type=volume,src=$cargo_volume,dst=/cargo-home" \
-  --env CARGO_TARGET_DIR=/target \
-  --env CARGO_HOME=/cargo-home \
-  --env CARGO_BUILD_JOBS=2 \
-  "$docker_image" bash -c "$linux_command" >"$output_dir/container.log" 2>&1
+  --network none \
+  "$image_tag" bash -c "$linux_command" >"$output_dir/container.log" 2>&1
 status=$?
 inspect=$(docker inspect "$container_name" --format '{{json .State}}' 2>/dev/null || true)
 if [ -n "$inspect" ]; then
