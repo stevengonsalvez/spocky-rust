@@ -550,11 +550,10 @@ impl Server {
             stop: AtomicBool::new(false),
             listen: Mutex::new((String::new(), true)),
         });
-        let server = Self {
-            shared: Arc::clone(&shared),
+        Self {
+            shared,
             threads: Arc::new(Mutex::new(Vec::new())),
-        };
-        server
+        }
     }
 
     /// Starts the grace-period cleanup thread once; the first listener does it.
@@ -1638,13 +1637,11 @@ mod tests {
         let _client = UnixStream::connect(&path).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         let accepted = loop {
-            match listener.accept() {
-                Ok((accepted, _)) => break accepted,
-                Err(_) => {
-                    assert!(Instant::now() < deadline, "no connection accepted");
-                    thread::sleep(Duration::from_millis(5));
-                }
+            if let Ok((accepted, _)) = listener.accept() {
+                break accepted;
             }
+            assert!(Instant::now() < deadline, "no connection accepted");
+            thread::sleep(Duration::from_millis(5));
         };
         configure_accepted(&accepted).unwrap();
         let mut reader = &accepted;
