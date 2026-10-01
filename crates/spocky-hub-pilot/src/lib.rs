@@ -29,6 +29,7 @@ mod relational_api_keys;
 mod relational_invitations;
 mod relational_sessions;
 mod retained_pglite;
+pub mod triggers;
 
 pub use account_emails::{
     AccountEmailMessage, render_password_reset_email, render_verification_email,
