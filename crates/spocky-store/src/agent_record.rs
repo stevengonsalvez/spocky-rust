@@ -582,11 +582,26 @@ impl AgentRecordStore {
         let id = record
             .get("id")
             .and_then(JsValue::as_str)
-            .ok_or(StoreError::MissingString("id"))?
-            .to_owned();
-        if self.deleting.contains(&id) {
+            .ok_or(StoreError::MissingString("id"))?;
+        if self.deleting.contains(id) {
             return Ok(None);
         }
+        self.write_record(record).map(Some)
+    }
+
+    /// `writeRecord`: writes, re-indexes, and unlinks the previous file of
+    /// the same id when its path changed. Ignores the delete tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the record lacks `id` or `cwd` strings, or the write fails.
+    pub(crate) fn write_record(&mut self, record: JsValue) -> Result<PathBuf, StoreError> {
+        self.initialize();
+        let id = record
+            .get("id")
+            .and_then(JsValue::as_str)
+            .ok_or(StoreError::MissingString("id"))?
+            .to_owned();
         let next = write_record_file(&self.base, &record)?;
         let previous = self.records.get(&id).map(|loaded| loaded.path.clone());
         self.index(&id, record, next.clone());
@@ -596,7 +611,7 @@ impl AgentRecordStore {
                 paths.retain(|path| *path != previous);
             }
         }
-        Ok(Some(next))
+        Ok(next)
     }
 
     /// `beginDelete`: every later write for `id` is skipped for the life of
