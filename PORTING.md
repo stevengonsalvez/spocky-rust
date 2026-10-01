@@ -131,6 +131,12 @@ main at every verified checkpoint, not only at lane end. Lead ledger and docs
 commits follow the same one-file rule. The objective is exact like-for-like
 parity with Paseo, nothing more.
 
+Green-commit rule, 2026-10-01: every commit must be green: it compiles, its
+tests pass, and `cargo clippy -D warnings` is clean. One file per commit stays
+the default. When a one-file split would leave a red intermediate commit, make
+one atomic commit with the fewest files possible and state the reason in the
+commit body. Never commit a red intermediate state.
+
 ## Task states
 
 Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrating`, and `done`. A blocked task names its exact unmet dependency and evidence. The durable ledger is [`porting/tasks.json`](porting/tasks.json).
