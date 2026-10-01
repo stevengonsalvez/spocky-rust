@@ -14,6 +14,14 @@
 //! Links run as spawned tasks that start as [`Gate`] describes, so a
 //! dropped caller does not cancel a queued write, as a JS promise is not
 //! cancelled. File work runs on the blocking pool.
+//!
+//! Known ceiling: a link starts when its caller first polls or drops the
+//! returned future (or something waits on it), not after the caller's
+//! synchronous turn as a JS microtask would. A caller that holds a returned
+//! future unpolled while it awaits something else delays that link. No port
+//! caller does: `AgentManager::persist_snapshot` (`agent_manager/
+//! lifecycle.rs`) awaits `apply_snapshot` at once, and nothing else in the
+//! workspace calls `upsert`, `apply_snapshot` or `remove`.
 
 use std::collections::HashMap;
 use std::future::Future;
