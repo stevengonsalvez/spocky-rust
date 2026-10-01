@@ -2,12 +2,44 @@
 //!
 //! Header values are strings of Latin-1 characters, like the fetch `Headers` the Hub reads.
 
+use std::fmt;
+
 use reqwest::Url;
 
 /// Case-insensitive header list. Equal names are combined with `, ` when read.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+///
+/// `Debug` prints credential-bearing headers as `<redacted>`.
+#[derive(Clone, Default, Eq, PartialEq)]
 pub struct Headers {
     entries: Vec<(String, String)>,
+}
+
+const REDACTED: &str = "<redacted>";
+
+/// Headers whose values are credentials and never reach `Debug` output.
+fn credential_header(name: &str) -> bool {
+    matches!(
+        name,
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
+    )
+}
+
+impl fmt::Debug for Headers {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_list()
+            .entries(self.entries.iter().map(|(name, value)| {
+                (
+                    name.as_str(),
+                    if credential_header(name) {
+                        REDACTED
+                    } else {
+                        value.as_str()
+                    },
+                )
+            }))
+            .finish()
+    }
 }
 
 fn http_whitespace(ch: char) -> bool {
@@ -62,12 +94,29 @@ impl Headers {
 }
 
 /// An incoming request. The URL is absolute, as `Request.url` always is.
-#[derive(Clone, Debug)]
+///
+/// `Debug` omits the body, which can carry credentials, and redacts credential headers.
+#[derive(Clone)]
 pub struct ApiRequest {
     pub method: String,
     pub url: Url,
     pub headers: Headers,
     pub body: Vec<u8>,
+}
+
+impl fmt::Debug for ApiRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ApiRequest")
+            .field("method", &self.method)
+            .field("url", &self.url.as_str())
+            .field("headers", &self.headers)
+            .field(
+                "body",
+                &format_args!("<{} bytes redacted>", self.body.len()),
+            )
+            .finish()
+    }
 }
 
 /// The request URL was not an absolute URL.
@@ -94,11 +143,27 @@ impl ApiRequest {
 }
 
 /// An outgoing response. Header names are lower case.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// `Debug` omits the body, which can carry a disclosed credential.
+#[derive(Clone, Eq, PartialEq)]
 pub struct ApiResponse {
     pub status: u16,
     pub headers: Headers,
     pub body: Vec<u8>,
+}
+
+impl fmt::Debug for ApiResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ApiResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field(
+                "body",
+                &format_args!("<{} bytes redacted>", self.body.len()),
+            )
+            .finish()
+    }
 }
 
 impl ApiResponse {
@@ -125,7 +190,34 @@ impl ApiResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::Headers;
+    use super::{ApiRequest, ApiResponse, Headers};
+
+    #[test]
+    fn debug_output_never_contains_credentials_or_bodies() {
+        let mut headers = Headers::new();
+        headers.append("Authorization", "Bearer paseo_pk_secret-token");
+        headers.append("Cookie", "session=secret-cookie");
+        headers.append("x-request-id", "visible-id");
+        let request = ApiRequest::new(
+            "POST",
+            "https://hub.test/api/v1/manual-runs",
+            headers,
+            b"{\"credential\":\"secret-body\"}".to_vec(),
+        )
+        .expect("absolute URL");
+        let response = ApiResponse::json(200, "{\"credential\":\"secret-response\"}", &[]);
+        let printed = format!("{request:?} {response:?} {:?}", request.headers);
+        for secret in [
+            "secret-token",
+            "secret-cookie",
+            "secret-body",
+            "secret-response",
+        ] {
+            assert!(!printed.contains(secret), "{secret} leaked in {printed}");
+        }
+        assert!(printed.contains("visible-id"));
+        assert!(printed.contains("<redacted>"));
+    }
 
     #[test]
     fn headers_combine_trim_and_sort() {
