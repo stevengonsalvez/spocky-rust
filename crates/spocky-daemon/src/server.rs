@@ -221,6 +221,10 @@ struct Shared {
     deps: ServerDeps,
     lifecycle: Mutex<ConnectionLifecycle>,
     next_socket: AtomicU64,
+    /// Connections being served, and the most the process may hold.
+    active_connections: AtomicUsize,
+    max_connections: AtomicUsize,
+    janitor_started: AtomicBool,
     registry: Mutex<Registry>,
     stop: AtomicBool,
     /// `formatListenTarget(boundListenTarget)` and whether it is TCP.
@@ -510,6 +514,9 @@ impl Server {
             deps,
             lifecycle: Mutex::new(lifecycle),
             next_socket: AtomicU64::new(0),
+            active_connections: AtomicUsize::new(0),
+            max_connections: AtomicUsize::new(default_max_connections()),
+            janitor_started: AtomicBool::new(false),
             registry: Mutex::new(Registry::default()),
             stop: AtomicBool::new(false),
             listen: Mutex::new((String::new(), true)),
@@ -518,26 +525,45 @@ impl Server {
             shared: Arc::clone(&shared),
             threads: Arc::new(Mutex::new(Vec::new())),
         };
-        let janitor = thread::spawn(move || {
-            while !shared.stop.load(Ordering::SeqCst) {
-                thread::sleep(CLEANUP_POLL);
-                let due: Vec<Arc<SessionConnection>> = lock(&shared.registry)
-                    .by_key
-                    .values()
-                    .filter(|connection| {
-                        let state = lock(&connection.state);
-                        state.sockets.is_empty()
-                            && state.cleanup_at.is_some_and(|at| at <= Instant::now())
-                    })
-                    .cloned()
-                    .collect();
-                for connection in due {
-                    shared.cleanup_connection(&connection, "Client disconnected (grace timeout)");
-                }
-            }
-        });
-        lock(&server.threads).push(janitor);
         server
+    }
+
+    /// Starts the grace-period cleanup thread once; the first listener does it.
+    fn start_janitor(&self) -> io::Result<()> {
+        if self.shared.janitor_started.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        let shared = Arc::clone(&self.shared);
+        let janitor = thread::Builder::new()
+            .name("spocky-cleanup".to_owned())
+            .spawn(move || {
+                while !shared.stop.load(Ordering::SeqCst) {
+                    thread::sleep(CLEANUP_POLL);
+                    let due: Vec<Arc<SessionConnection>> = lock(&shared.registry)
+                        .by_key
+                        .values()
+                        .filter(|connection| {
+                            let state = lock(&connection.state);
+                            state.sockets.is_empty()
+                                && state.cleanup_at.is_some_and(|at| at <= Instant::now())
+                        })
+                        .cloned()
+                        .collect();
+                    for connection in due {
+                        shared
+                            .cleanup_connection(&connection, "Client disconnected (grace timeout)");
+                    }
+                }
+            })
+            .inspect_err(|_| self.shared.janitor_started.store(false, Ordering::SeqCst))?;
+        lock(&self.threads).push(janitor);
+        Ok(())
+    }
+
+    /// Caps concurrent connections. The default is the process's open-file limit
+    /// less a reserve, which is the cap Node meets when `accept` hits `EMFILE`.
+    pub fn set_max_connections(&self, max: usize) {
+        self.shared.max_connections.store(max, Ordering::SeqCst);
     }
 
     /// Records the address plain HTTP reports under `/api/status`.
@@ -564,21 +590,24 @@ impl Server {
     ///
     /// Any error from reading the local address or setting non-blocking mode.
     pub fn serve_tcp(&self, listener: TcpListener) -> io::Result<ListenHandle> {
+        self.start_janitor()?;
         listener.set_nonblocking(true)?;
         let local_addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
         let (server, flag) = (self.clone(), Arc::clone(&stop));
-        let thread = thread::spawn(move || {
-            while !flag.load(Ordering::SeqCst) && !server.shared.stop.load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((stream, _)) => server.spawn_connection(stream),
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5));
+        let thread = thread::Builder::new()
+            .name("spocky-accept".to_owned())
+            .spawn(move || {
+                while !flag.load(Ordering::SeqCst) && !server.shared.stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((stream, _)) => server.spawn_connection(stream),
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => thread::sleep(Duration::from_millis(5)),
                     }
-                    Err(_) => thread::sleep(Duration::from_millis(5)),
                 }
-            }
-        });
+            })?;
         Ok(ListenHandle {
             local_addr: Some(local_addr),
             stop,
@@ -593,17 +622,20 @@ impl Server {
     /// Any error from setting non-blocking mode.
     #[cfg(unix)]
     pub fn serve_unix(&self, listener: UnixListener) -> io::Result<ListenHandle> {
+        self.start_janitor()?;
         listener.set_nonblocking(true)?;
         let stop = Arc::new(AtomicBool::new(false));
         let (server, flag) = (self.clone(), Arc::clone(&stop));
-        let thread = thread::spawn(move || {
-            while !flag.load(Ordering::SeqCst) && !server.shared.stop.load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((stream, _)) => server.spawn_connection(stream),
-                    Err(_) => thread::sleep(Duration::from_millis(5)),
+        let thread = thread::Builder::new()
+            .name("spocky-accept".to_owned())
+            .spawn(move || {
+                while !flag.load(Ordering::SeqCst) && !server.shared.stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((stream, _)) => server.spawn_connection(stream),
+                        Err(_) => thread::sleep(Duration::from_millis(5)),
+                    }
                 }
-            }
-        });
+            })?;
         Ok(ListenHandle {
             local_addr: None,
             stop,
@@ -611,9 +643,35 @@ impl Server {
         })
     }
 
+    /// Serves an accepted connection on its own thread. Past the connection cap,
+    /// or when no thread can be started, the connection is closed at once, as
+    /// libuv closes a connection it accepts after `EMFILE`.
     fn spawn_connection<C: Connection>(&self, stream: C) {
         let shared = Arc::clone(&self.shared);
-        thread::spawn(move || serve_connection(&shared, Box::new(stream)));
+        let active = shared.active_connections.fetch_add(1, Ordering::SeqCst) + 1;
+        let guard = ConnectionGuard(Arc::clone(&shared));
+        if active > shared.max_connections.load(Ordering::SeqCst) {
+            shared.deps.logger.warn(
+                &[(
+                    "maxConnections",
+                    &shared.max_connections.load(Ordering::SeqCst).to_string(),
+                )],
+                "Connection limit reached; closing the new connection",
+            );
+            return;
+        }
+        let spawned = thread::Builder::new()
+            .name("spocky-connection".to_owned())
+            .spawn(move || {
+                let _guard = guard;
+                serve_connection(&shared, Box::new(stream));
+            });
+        if let Err(error) = spawned {
+            self.shared.deps.logger.warn(
+                &[("err", &error.to_string())],
+                "Failed to start a connection thread",
+            );
+        }
     }
 
     /// `close`: stop accepting, close every socket, clean up every session.
@@ -650,6 +708,28 @@ impl Server {
         registry.attached.clear();
         registry.by_key.clear();
     }
+}
+
+/// Counts a connection while its thread is alive.
+struct ConnectionGuard(Arc<Shared>);
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.0.active_connections.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The open-file limit less a reserve for the daemon's own files and pipes.
+fn default_max_connections() -> usize {
+    use rustix::process::{Resource, getrlimit};
+    getrlimit(Resource::Nofile)
+        .current
+        .map_or(usize::MAX, |limit| {
+            usize::try_from(limit)
+                .unwrap_or(usize::MAX)
+                .saturating_sub(64)
+        })
+        .max(16)
 }
 
 /// Puts an accepted socket in blocking mode with the polling read timeout. The
