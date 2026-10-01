@@ -5,12 +5,12 @@
 //! Emscripten JavaScript glue that the retained Node host uses.
 
 mod dylink;
-pub mod jsdate;
+mod jsdate;
 mod netdb;
 pub mod package;
 pub mod pglite;
 pub mod protocol;
-pub mod runtime;
+mod runtime;
 mod shell;
 mod syscalls;
-pub mod vfs;
+mod vfs;
