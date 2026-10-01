@@ -117,6 +117,44 @@ fn selected_runtime_rejects_invalid_client_handshake_keys() {
 }
 
 #[test]
+fn selected_runtime_accepts_escaped_handshake_spellings() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let mut daemon = versioned_websocket(address, "escaped-valid", "server", "1", "");
+    let mut client = versioned_websocket(address, "escaped-valid", "client", "1", "");
+    let valid_key = export_public_key(&key_pair_from_secret([7; 32]).public_key).unwrap();
+    let escaped_key = escape_first_ascii(&valid_key);
+    let payload = format!(r#"{{"t\u0079pe":"e2ee_\u0068ello","k\u0065y":"{escaped_key}"}}"#);
+
+    client.send(Message::Text(payload.clone().into())).unwrap();
+    assert_eq!(daemon.read().unwrap(), Message::Text(payload.into()));
+}
+
+#[test]
+fn selected_runtime_rejects_invalid_keys_with_escaped_handshake_spellings() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let invalid_key = export_public_key(&[0; 32]).unwrap();
+    let escaped_key = escape_first_ascii(&invalid_key);
+    let cases = [
+        format!(r#"{{"type":"h\u0065llo","key":"{invalid_key}"}}"#),
+        format!(r#"{{"t\u0079pe":"hello","key":"{invalid_key}"}}"#),
+        format!(r#"{{"type":"hello","k\u0065y":"{invalid_key}"}}"#),
+        format!(r#"{{"type":"hello","key":"{escaped_key}"}}"#),
+    ];
+
+    for (index, payload) in cases.into_iter().enumerate() {
+        let session = format!("escaped-invalid-{index}");
+        let _daemon = versioned_websocket(address, &session, "server", "1", "");
+        let mut client = versioned_websocket(address, &session, "client", "1", "");
+        client.send(Message::Text(payload.into())).unwrap();
+        let close = wait_for_close(&mut client);
+        assert_eq!(close.code, CloseCode::Policy);
+        assert_eq!(close.reason, "Invalid handshake key");
+    }
+}
+
+#[test]
 fn selected_runtime_closes_oversized_data_and_control_frames() {
     let node = NetworkNode::bind_with_config(
         NodeId::from("alpha"),
@@ -130,12 +168,16 @@ fn selected_runtime_closes_oversized_data_and_control_frames() {
     let address = node.websocket_address();
     let mut client = websocket(address, "frame-limit", "client", "client-1");
     client.send(Message::Binary(vec![0xa5; 9].into())).unwrap();
-    assert_eq!(wait_for_close(&mut client).code, CloseCode::Size);
+    let close = wait_for_close(&mut client);
+    assert_eq!(close.code, CloseCode::Size);
+    assert_eq!(close.reason, "");
 
     let mut control = websocket(address, "control-limit", "server", "");
     let _sync = control.read().unwrap();
     control.send(Message::Text("12345".into())).unwrap();
-    assert_eq!(wait_for_close(&mut control).code, CloseCode::Size);
+    let close = wait_for_close(&mut control);
+    assert_eq!(close.code, CloseCode::Size);
+    assert_eq!(close.reason, "");
 }
 
 #[test]
@@ -448,4 +490,9 @@ fn wait_for_close(socket: &mut tungstenite::WebSocket<TcpStream>) -> CloseFrame 
             result => panic!("expected close frame, got {result:?}"),
         }
     }
+}
+
+fn escape_first_ascii(value: &str) -> String {
+    let first = value.as_bytes()[0];
+    format!(r"\u{first:04x}{}", &value[1..])
 }
