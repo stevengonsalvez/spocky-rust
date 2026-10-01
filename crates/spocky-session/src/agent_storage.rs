@@ -11,21 +11,24 @@
 //!
 //! A snapshot reads the live agent when its turn comes, not when it is
 //! queued, as the baseline's queued closure reads the agent object then.
-//! Links run as spawned tasks, so a dropped caller does not cancel a queued
-//! write, as a JS promise is not cancelled. File work runs on the blocking
-//! pool.
+//! Links run as spawned tasks that start as [`Gate`] describes, so a
+//! dropped caller does not cancel a queued write, as a JS promise is not
+//! cancelled. File work runs on the blocking pool.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll};
 
 use spocky_store::StoreError;
 use spocky_store::agent_record::AgentRecordStore;
 use spocky_store::js_value::JsValue;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
+use tokio::task::JoinHandle;
 
 use crate::agent_projection::{ManagedAgentRecordView, SnapshotOverrides, apply_snapshot_record};
 use crate::timeline::JsTypeError;
@@ -55,10 +58,89 @@ impl std::error::Error for StorageError {}
 /// A link's outcome: `None` until it settles.
 type Settled = Option<Result<(), StorageError>>;
 
-/// The `tracked` promise of the newest link in one agent's chain.
+/// When a queued call may start its work. The baseline runs a link in a
+/// later microtask, after the synchronous code that queued it; here a link
+/// starts once its caller first polls or drops the returned future, or
+/// once something waits on it (a later link of the same agent, `remove`,
+/// `flush`). Calls made before the caller's first `await` are therefore
+/// all queued before any of them runs, on any runtime.
+// ponytail: a caller that holds a returned future unpolled while it awaits
+// something else delays that link; the port's callers await at once.
+#[derive(Default)]
+struct Gate {
+    open: AtomicBool,
+    notify: Notify,
+}
+
+impl Gate {
+    fn open(&self) {
+        if !self.open.swap(true, Ordering::SeqCst) {
+            self.notify.notify_waiters();
+        }
+    }
+
+    async fn wait(&self) {
+        loop {
+            let opened = self.notify.notified();
+            if self.open.load(Ordering::SeqCst) {
+                return;
+            }
+            opened.await;
+        }
+    }
+}
+
+/// A queued call's task, started by its [`Gate`].
+struct Queued<T> {
+    task: JoinHandle<T>,
+    gate: Arc<Gate>,
+}
+
+impl<T> Queued<T> {
+    fn spawn(gate: Arc<Gate>, work: impl Future<Output = T> + Send + 'static) -> Self
+    where
+        T: Send + 'static,
+    {
+        let start = Arc::clone(&gate);
+        let task = tokio::spawn(async move {
+            start.wait().await;
+            work.await
+        });
+        Self { task, gate }
+    }
+}
+
+impl<T> Future for Queued<T> {
+    type Output = T;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<T> {
+        let queued = self.get_mut();
+        queued.gate.open();
+        Pin::new(&mut queued.task).poll(context).map(|joined| {
+            joined.unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+        })
+    }
+}
+
+impl<T> Drop for Queued<T> {
+    /// A JS call runs whether or not it is awaited.
+    fn drop(&mut self) {
+        self.gate.open();
+    }
+}
+
+/// The `tracked` promise of a link: its outcome, and the gate that starts
+/// it when something waits on it.
+#[derive(Clone)]
+struct Tracked {
+    settled: watch::Receiver<Settled>,
+    gate: Arc<Gate>,
+}
+
+/// The newest link in one agent's chain.
 struct Link {
     id: u64,
-    settled: watch::Receiver<Settled>,
+    tracked: Tracked,
 }
 
 struct Inner {
@@ -78,11 +160,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Waits for a link to settle and returns its outcome.
-async fn settled(mut link: watch::Receiver<Settled>) -> Result<(), StorageError> {
+/// Starts a link if it has not started, waits for it to settle and
+/// returns its outcome.
+async fn settled(link: Tracked) -> Result<(), StorageError> {
+    link.gate.open();
+    let mut settled = link.settled;
     // The sender only drops unsettled when the link task panicked, and that
     // panic already reaches the link's own caller.
-    let outcome = link.wait_for(Option::is_some).await.map_or_else(
+    let outcome = settled.wait_for(Option::is_some).await.map_or_else(
         |_| panic!("an earlier agent record write panicked"),
         |outcome| outcome.clone(),
     );
@@ -139,10 +224,10 @@ impl AgentStorage {
     }
 
     /// The newest link of `agent_id`'s chain, if one is pending.
-    fn tail(&self, agent_id: &str) -> Option<watch::Receiver<Settled>> {
+    fn tail(&self, agent_id: &str) -> Option<Tracked> {
         lock(&self.inner.pending_writes)
             .get(agent_id)
-            .map(|link| link.settled.clone())
+            .map(|link| link.tracked.clone())
     }
 
     /// `queueRecordMutation`: chains `mutate` behind `agent_id`'s pending
@@ -162,18 +247,22 @@ impl AgentStorage {
     {
         let id = self.inner.next_link.fetch_add(1, Ordering::Relaxed);
         let (settle, settled_link) = watch::channel(None);
+        let gate = Arc::new(Gate::default());
         let prev = lock(&self.inner.pending_writes)
             .insert(
                 agent_id.to_owned(),
                 Link {
                     id,
-                    settled: settled_link,
+                    tracked: Tracked {
+                        settled: settled_link,
+                        gate: Arc::clone(&gate),
+                    },
                 },
             )
-            .map(|link| link.settled);
+            .map(|link| link.tracked);
         let storage = self.clone();
         let agent_id = agent_id.to_owned();
-        let link = tokio::spawn(async move {
+        Queued::spawn(gate, async move {
             storage.initialize().await;
             let outcome = match prev {
                 Some(prev) => settled(prev).await,
@@ -191,11 +280,7 @@ impl AgentStorage {
             }
             settle.send_replace(Some(outcome.clone()));
             outcome
-        });
-        async move {
-            link.await
-                .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
-        }
+        })
     }
 
     /// The body of one link: the delete check and the projection run
@@ -288,7 +373,7 @@ impl AgentStorage {
         let tail = self.tail(agent_id);
         let storage = self.clone();
         let agent_id = agent_id.to_owned();
-        async move {
+        Queued::spawn(Arc::new(Gate::default()), async move {
             storage.initialize().await;
             if let Some(tail) = tail {
                 settled(tail).await?;
@@ -296,7 +381,7 @@ impl AgentStorage {
             Ok(storage
                 .blocking(move |inner| lock(&inner.store).remove(&agent_id))
                 .await)
-        }
+        })
     }
 
     /// `flush()`: loads, then resolves once every write pending when it
@@ -305,7 +390,7 @@ impl AgentStorage {
         self.initialize().await;
         let tails: Vec<_> = lock(&self.inner.pending_writes)
             .values()
-            .map(|link| link.settled.clone())
+            .map(|link| link.tracked.clone())
             .collect();
         for tail in tails {
             let _ = settled(tail).await;
@@ -492,9 +577,15 @@ mod tests {
         let (gate, agent) = gated("a1", FAILING);
         let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
         let upsert = storage.upsert(record("a1", "queued"));
+        // Awaiting elsewhere first: the snapshot starts when its task polls it.
+        let snapshot = tokio::spawn(snapshot);
         gate.wait_entered().await.send(()).expect("open");
         assert_eq!(
-            snapshot.await.expect_err("projection").to_string(),
+            snapshot
+                .await
+                .expect("join")
+                .expect_err("projection")
+                .to_string(),
             MAP_ERROR
         );
         // The upsert never ran: it fails with the snapshot's error.
@@ -526,12 +617,17 @@ mod tests {
             .await
             .expect("first write");
         let (gate, agent) = gated("a1", FAILING);
-        let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
+        let snapshot =
+            tokio::spawn(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
         let open = gate.wait_entered().await;
         let remove = storage.remove("a1");
         open.send(()).expect("open");
         assert_eq!(
-            snapshot.await.expect_err("projection").to_string(),
+            snapshot
+                .await
+                .expect("join")
+                .expect_err("projection")
+                .to_string(),
             MAP_ERROR
         );
         assert_eq!(remove.await.expect_err("remove").to_string(), MAP_ERROR);
@@ -567,7 +663,7 @@ mod tests {
         let storage = AgentStorage::new(&home.0);
         storage.upsert(record("a1", "a")).await.expect("a1 write");
         let (gate, agent) = gated("b1", r#"{"provider":"codex","cwd":"/w"}"#);
-        let other = storage.apply_snapshot("b1", agent, SnapshotOverrides::default());
+        let other = tokio::spawn(storage.apply_snapshot("b1", agent, SnapshotOverrides::default()));
         let open = gate.wait_entered().await;
         // b1's write is held open; removing a1 still finishes.
         let removed = tokio::time::timeout(Duration::from_secs(30), storage.remove("a1"))
@@ -576,8 +672,67 @@ mod tests {
         assert!(removed.expect("remove").is_empty());
         assert_eq!(storage.get("a1").await, None);
         open.send(()).expect("open");
-        other.await.expect("b1 snapshot");
+        other.await.expect("join").expect("b1 snapshot");
         storage.flush().await;
         assert_eq!(status(storage.get("b1").await), Some("idle".to_owned()));
+    }
+
+    /// The baseline queues an `upsert` and a `remove` made in one
+    /// synchronous turn before either runs, so the delete has always begun
+    /// when the write's turn comes and the write is skipped. Worker threads
+    /// must not let the write start early.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn same_turn_remove_always_skips_the_queued_write() {
+        let home = home("same-turn");
+        let storage = AgentStorage::new(&home.0);
+        storage.initialize().await;
+        for round in 0..100 {
+            let id = format!("r{round}");
+            let upsert = storage.upsert(record(&id, "queued"));
+            // Still the same synchronous turn: no await before remove().
+            std::thread::sleep(Duration::from_millis(2));
+            let remove = storage.remove(&id);
+            let (written, removed) = tokio::join!(upsert, remove);
+            written.expect("skipped write");
+            assert!(removed.expect("remove").is_empty());
+            assert_eq!(storage.get(&id).await, None, "round {round}");
+        }
+        // A skipped write never creates the home or project directory.
+        assert!(
+            std::fs::read_dir(&home.0).map_or(true, |mut entries| entries.next().is_none()),
+            "a queued write ran before the same-turn remove"
+        );
+    }
+
+    /// The baseline's `remove` and `upsert` both wait one microtask on
+    /// `load()`, so a `remove` then an `upsert` in one synchronous turn
+    /// mark the agent deleting before the write is queued: the write is
+    /// skipped, and the stored record goes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn same_turn_upsert_after_remove_is_skipped() {
+        let home = home("remove-then-upsert");
+        let storage = AgentStorage::new(&home.0);
+        for round in 0..100 {
+            let id = format!("r{round}");
+            storage.upsert(record(&id, "kept")).await.expect("kept");
+            let remove = storage.remove(&id);
+            std::thread::sleep(Duration::from_millis(2));
+            let upsert = storage.upsert(record(&id, "after"));
+            let (removed, written) = tokio::join!(remove, upsert);
+            assert!(removed.expect("remove").is_empty());
+            written.expect("skipped write");
+            assert_eq!(storage.get(&id).await, None, "round {round}");
+        }
+        let project = std::fs::read_dir(&home.0)
+            .expect("home")
+            .next()
+            .expect("project directory")
+            .expect("entry")
+            .path();
+        assert_eq!(
+            std::fs::read_dir(project).expect("project").count(),
+            0,
+            "no record file is left"
+        );
     }
 }
