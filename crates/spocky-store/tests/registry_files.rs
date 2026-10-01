@@ -6,8 +6,8 @@ use spocky_store::StoreError;
 use spocky_store::js_value::{JsValue, parse};
 use spocky_store::registry::{
     PersistedProjectRecord, PersistedWorkspaceRecord, ProjectAllocation, ProjectKind,
-    ProjectRegistry, ProjectRootInput, WorkspaceKind, WorkspaceRegistry, parse_registry_file,
-    render_registry_file,
+    ProjectRegistry, ProjectRootInput, UntrustedWorkspaceSource, WorkspaceKind, WorkspaceRegistry,
+    parse_registry_file, render_registry_file,
 };
 
 struct TestDir(PathBuf);
@@ -540,4 +540,31 @@ fn equal_created_at_ties_break_by_locale_compare() {
         .expect("allocate");
     // Byte order puts "prj_B" first; `"prj_a".localeCompare("prj_B")` is -1.
     assert_eq!(chosen.record().project_id, "prj_a");
+}
+
+#[test]
+fn writes_reject_records_the_schema_rejects() {
+    let home = TestDir::new("registry-schema-parse");
+    let path = home.path().join("workspaces.json");
+    let mut registry = WorkspaceRegistry::new(&path);
+    registry
+        .upsert(directory_workspace("wks_a", "prj", "/tmp/x"))
+        .expect("valid upsert");
+    let before = fs::read_to_string(&path).expect("read registry");
+    let mut invalid = directory_workspace("wks_b", "prj", "/tmp/y");
+    invalid.untrusted_source = Some(UntrustedWorkspaceSource {
+        forge: "github".to_owned(),
+        number: 0,
+        head_repository: "o/r".to_owned(),
+    });
+    assert!(matches!(
+        registry.upsert(invalid.clone()),
+        Err(StoreError::InvalidRecord(_))
+    ));
+    assert!(matches!(
+        registry.update("wks_a", |_| invalid.clone()),
+        Err(StoreError::InvalidRecord(_))
+    ));
+    assert_eq!(fs::read_to_string(&path).expect("read registry"), before);
+    assert_eq!(registry.list().len(), 1);
 }
