@@ -77,7 +77,9 @@ IPC. A dedicated writer bounds request delivery when the child stops reading.
 It also bounds response waits, owns the database directory through an OS file
 lock, kills the child after timeout or lost reply, and never retries a write.
 Normal close is acknowledged only after PGlite closes, then releases the OS
-lock. The compatibility lock path remains on disk and keeps owner metadata.
+lock. Node inherits a duplicate guard handle, so abrupt parent death cannot
+release exclusion before the database child exits. The compatibility lock path
+remains on disk and keeps the database child PID in owner metadata.
 Typed values keep SQL null, binary, timestamp, numeric, boolean, string, JSON and
 JSONB values, column order, and structured PostgreSQL errors. JSON null,
 boolean, number, string, object, and array values keep the JSON tag. SQL NULL
@@ -88,9 +90,10 @@ one-migration historical database reopening into the remaining 48 migrations,
 preserved historical user data, future and partial journal outcomes, rollback
 after an earlier migration step executes, transaction rollback, concurrent
 callers, partial legacy live-owner grace, concurrent stale-owner recovery, a
-forced eight-contender check that preserves the live lock inode and owner bytes,
-exclusive ownership, data-bearing child crash, committed-write lost reply,
-parent death, graceful close, injected failure after durable close, bounded frames, bounded delivery,
+forced eight sequential-contender check that preserves the live lock inode and
+owner bytes, exclusive ownership, data-bearing child crash, committed-write
+lost reply, stopped-child exclusion after parent death, graceful close,
+injected failure after durable close, bounded frames, bounded delivery,
 response timeout, and lost-reply ambiguity.
 
 Original and retained-host captures match 50 installed catalog tables, 537
@@ -110,8 +113,10 @@ preserved beside the raw captures.
 This is a candidate, not an accepted compatibility exception. Node packaging
 and platform availability, IPC performance, and retained JavaScript delivery
 and support ownership remain unqualified. Callback transactions and keyed
-application locks are neither ported nor qualified. The exception record
-remains `required-not-accepted`.
+application locks are neither ported nor qualified. Simultaneous participation
+by the pinned legacy pathname-only reclaimer and the new OS-guard protocol is
+not qualified. Sequential legacy state import remains covered. The exception
+record remains `required-not-accepted`.
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -121,5 +126,5 @@ remains `required-not-accepted`.
 | `hub-embedded-retained-dependency-graph.json` | 526 | `f55c0095950994ea6ecb8358b879d5e44297c1dd9a2b1cf5b982255fdcc623b2` |
 | `hub-embedded-retained-package-sha256.txt` | 28,332 | `ba5a5bbbd4e82f994a3503066ce69a6a970f416108041ad427e314aeeb337850` |
 | `hub-embedded-retained-migrations-sha256.txt` | 9,131 | `a345dc1c2f48e67b921eb84cbe25f24bdb5bfdd68b39c71d170334ba9337bf38` |
-| `hub-embedded-retained-evidence.log` | 4,702 | `50e4f09a6781139a9f4f9288ecc70207302abda895711cf866eed141c1455f30` |
-| `hub-embedded-retained-tests.log` | 1,673 | `6800baf25ec6d3eedabec9657569fa96580bba00c9ff7a3c9332f9b390b5adf9` |
+| `hub-embedded-retained-evidence.log` | 4,702 | `56cd814e8d7d0051b83d37448c3ac4c8563cf34d3c698479d39d62d7cbeb536e` |
+| `hub-embedded-retained-tests.log` | 1,618 | `2df338a3500c28326fb26f668f237d01ecd327dd7785da73ef6cf74597f9261c` |

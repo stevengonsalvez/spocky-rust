@@ -1,4 +1,4 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.32s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
 {
   "baseline": "28f6c78833065fd282f9064f92a9aa61875dd359",
   "exactEngineRuntime": true,
