@@ -10,9 +10,10 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use spocky_store::js_value::{JsObject, JsValue, js_number};
+use spocky_store::js_value::{JsObject, JsValue};
 
 use crate::clock::{now_iso, random_uuid};
+use crate::js::{js_string, spread_into, truthy};
 
 /// `AgentTimelineRow`.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,66 +83,13 @@ fn item_type(item: &JsValue) -> Option<&str> {
 /// `timelineItemIdentity` from `protocol/timeline-identity.ts`.
 fn item_identity(item: &JsValue) -> Option<String> {
     match item_type(item) {
-        Some("tool_call") => Some(js_to_string(item.get("callId"))),
+        Some("tool_call") => Some(js_string(item.get("callId"))),
         Some("plugin") => Some(format!(
             "{}/{}",
-            js_to_string(item.get("pluginId")),
-            js_to_string(item.get("id"))
+            js_string(item.get("pluginId")),
+            js_string(item.get("id"))
         )),
         _ => None,
-    }
-}
-
-/// JavaScript `String(value)` as template literals use it.
-fn js_to_string(value: Option<&JsValue>) -> String {
-    match value {
-        None | Some(JsValue::Undefined) => "undefined".to_owned(),
-        Some(JsValue::Null) => "null".to_owned(),
-        Some(JsValue::Bool(flag)) => flag.to_string(),
-        Some(JsValue::Number(number)) => {
-            if number.is_nan() {
-                "NaN".to_owned()
-            } else if number.is_infinite() {
-                if *number > 0.0 {
-                    "Infinity"
-                } else {
-                    "-Infinity"
-                }
-                .to_owned()
-            } else {
-                js_number(*number)
-            }
-        }
-        Some(JsValue::String(text)) => text.clone(),
-        Some(JsValue::Array(items)) => items
-            .iter()
-            .map(|item| match item {
-                JsValue::Undefined | JsValue::Null => String::new(),
-                other => js_to_string(Some(other)),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(JsValue::Object(_)) => "[object Object]".to_owned(),
-    }
-}
-
-/// JavaScript truthiness.
-fn truthy(value: Option<&JsValue>) -> bool {
-    match value {
-        None | Some(JsValue::Undefined | JsValue::Null) => false,
-        Some(JsValue::Bool(flag)) => *flag,
-        Some(JsValue::Number(number)) => *number != 0.0 && !number.is_nan(),
-        Some(JsValue::String(text)) => !text.is_empty(),
-        Some(JsValue::Array(_) | JsValue::Object(_)) => true,
-    }
-}
-
-/// `{ ...a, ...b }` for object values; other values spread no keys.
-fn spread(into: &mut JsObject, value: Option<&JsValue>) {
-    if let Some(JsValue::Object(object)) = value {
-        for (key, item) in object.iter() {
-            into.insert(key, item.clone());
-        }
     }
 }
 
@@ -191,15 +139,15 @@ fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> Result<JsVal
     let detail = merge_tool_detail(existing.get("detail"), incoming.get("detail"))?;
     let metadata = if truthy(existing.get("metadata")) || truthy(incoming.get("metadata")) {
         let mut merged = JsObject::new();
-        spread(&mut merged, existing.get("metadata"));
-        spread(&mut merged, incoming.get("metadata"));
+        spread_into(&mut merged, existing.get("metadata"));
+        spread_into(&mut merged, incoming.get("metadata"));
         JsValue::Object(merged)
     } else {
         JsValue::Undefined
     };
     let mut merged = JsObject::new();
-    spread(&mut merged, Some(existing));
-    spread(&mut merged, Some(incoming));
+    spread_into(&mut merged, Some(existing));
+    spread_into(&mut merged, Some(incoming));
     merged.insert("detail", detail);
     merged.insert("metadata", metadata);
     match incoming.get("status").and_then(JsValue::as_str) {
@@ -343,8 +291,8 @@ fn merge_adjacent(
         "text",
         JsValue::String(format!(
             "{}{}",
-            js_to_string(previous.item.get("text")),
-            js_to_string(entry.item.get("text"))
+            js_string(previous.item.get("text")),
+            js_string(entry.item.get("text"))
         )),
     );
     let collapse = if assistant {
@@ -1057,7 +1005,7 @@ impl TimelineStore {
             .iter()
             .rev()
             .find(|row| item_type(&row.item) == Some("assistant_message"))
-            .map(|row| js_to_string(row.item.get("text"))))
+            .map(|row| js_string(row.item.get("text"))))
     }
 
     /// `getSubmittedUserMessage`.
