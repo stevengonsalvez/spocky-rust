@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::field::{Nullable, optional};
-use crate::json::{JsRecord, JsonValue, ZodJson};
+use crate::json::{JsRecord, JsonValue, ZodJson, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::PositiveInt;
 use crate::text::{NonEmptyString, TrimmedString};
@@ -49,7 +49,7 @@ pub struct McpRemoteServerConfig {
 }
 
 /// `McpServerConfigSchema`, discriminated by `type`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum McpServerConfig {
     #[serde(rename = "stdio")]
@@ -59,6 +59,12 @@ pub enum McpServerConfig {
     #[serde(rename = "sse")]
     Sse(McpRemoteServerConfig),
 }
+
+deserialize_tagged!(McpServerConfig, "type", {
+    "stdio" => |input| McpStdioServerConfig::deserialize(input).map(McpServerConfig::Stdio),
+    "http" => |input| McpRemoteServerConfig::deserialize(input).map(McpServerConfig::Http),
+    "sse" => |input| McpRemoteServerConfig::deserialize(input).map(McpServerConfig::Sse),
+});
 
 string_literal!(McpKind = "mcp");
 
@@ -229,7 +235,7 @@ pub struct GitSetupOptions {
 }
 
 /// `CreateAgentWorktreeTargetSchema`, discriminated by `mode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "mode")]
 pub enum CreateAgentWorktreeTarget {
     #[serde(rename = "branch-off")]
@@ -247,3 +253,38 @@ pub enum CreateAgentWorktreeTarget {
         pr_number: PositiveInt,
     },
 }
+
+deserialize_tagged!(CreateAgentWorktreeTarget, "mode", {
+    "branch-off" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            #[serde(rename = "newBranch")]
+            new_branch: NonEmptyString,
+            #[serde(default, with = "optional")]
+            base: Option<NonEmptyString>,
+        }
+        Fields::deserialize(input).map(|fields| CreateAgentWorktreeTarget::BranchOff {
+            new_branch: fields.new_branch,
+            base: fields.base,
+        })
+    },
+    "checkout-branch" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            branch: NonEmptyString,
+        }
+        Fields::deserialize(input).map(|fields| CreateAgentWorktreeTarget::CheckoutBranch {
+            branch: fields.branch,
+        })
+    },
+    "checkout-pr" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            #[serde(rename = "prNumber")]
+            pr_number: PositiveInt,
+        }
+        Fields::deserialize(input).map(|fields| CreateAgentWorktreeTarget::CheckoutPr {
+            pr_number: fields.pr_number,
+        })
+    },
+});
