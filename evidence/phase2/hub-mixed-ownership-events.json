@@ -1,0 +1,24 @@
+[
+  {
+    "operation": "baseline-hold",
+    "event": "ready",
+    "journalRows": 49,
+    "marker": "pinned-baseline-live-owner"
+  },
+  {
+    "error": "directory-in-use",
+    "opened": false,
+    "operation": "candidate-try-open"
+  },
+  {
+    "baselineMarkerPayload": "pinned-baseline-live-owner",
+    "event": "ready",
+    "journalRows": 49,
+    "operation": "candidate-hold"
+  },
+  {
+    "operation": "baseline-try-open",
+    "opened": false,
+    "error": "Embedded database directory is already in use by another Paseo Hub process (PID 74416): /var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-hub-mixed-ownership.y6k8L9/database. Embedded mode supports one process per data directory."
+  }
+]

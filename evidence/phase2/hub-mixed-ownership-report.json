@@ -1,0 +1,34 @@
+{
+  "baseline": {
+    "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "sourceTreeMutated": false
+  },
+  "storage": {
+    "disposableCopy": true,
+    "sameSchemaJournalRows": 49
+  },
+  "forwardExclusion": {
+    "baselineReady": true,
+    "candidateExcluded": true,
+    "candidateError": "directory-in-use"
+  },
+  "handoff": {
+    "baselineExit": "bounded-clean",
+    "directoryRecreated": false,
+    "candidateOpenedUnchangedDirectory": true,
+    "baselineMarkerPayload": "pinned-baseline-live-owner"
+  },
+  "reverseExclusion": {
+    "candidateReady": true,
+    "baselineExcluded": true,
+    "baselineErrorContains": "already in use"
+  },
+  "compatibilityMechanism": {
+    "status": "not-required",
+    "reason": "shared live PID owner record excludes ordered mixed starts"
+  },
+  "rawEvidence": [
+    "hub-mixed-ownership-events.json",
+    "hub-mixed-ownership-processes.json"
+  ]
+}
