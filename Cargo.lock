@@ -5653,10 +5653,12 @@ dependencies = [
 name = "spocky-provider-claude"
 version = "0.1.0"
 dependencies = [
+ "sha1",
  "sha2 0.10.9",
  "spocky-contracts",
  "spocky-provider-codex",
  "spocky-session",
+ "spocky-store",
  "tokio",
  "uuid",
 ]
