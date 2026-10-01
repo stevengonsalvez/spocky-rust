@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use spocky_contracts::js::strict_equals;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
@@ -71,21 +72,6 @@ pub(crate) fn raw_turn_id(event: &JsValue) -> Option<JsValue> {
         .get("turnId")
         .filter(|turn| !matches!(turn, JsValue::Undefined))
         .cloned()
-}
-
-/// `===` on the primitive values turn ids and statuses hold.
-pub(crate) fn strict_equals(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
-    fn defined(value: Option<&JsValue>) -> Option<&JsValue> {
-        value.filter(|value| !matches!(value, JsValue::Undefined))
-    }
-    match (defined(left), defined(right)) {
-        (None, None) | (Some(JsValue::Null), Some(JsValue::Null)) => true,
-        (Some(JsValue::Bool(a)), Some(JsValue::Bool(b))) => a == b,
-        #[allow(clippy::float_cmp, reason = "JavaScript === on numbers")]
-        (Some(JsValue::Number(a)), Some(JsValue::Number(b))) => a == b,
-        (Some(JsValue::String(a)), Some(JsValue::String(b))) => a == b,
-        _ => false,
-    }
 }
 
 fn type_error(error: &crate::timeline::JsTypeError) -> AgentError {
