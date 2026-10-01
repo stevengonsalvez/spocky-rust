@@ -143,7 +143,12 @@ Real pinned-baseline forward handoff and same-schema baseline reopen pass with
 exact marker payloads and no journal change. The hardened harness enforces those
 values before publication and bounds long commands with forced-kill fallbacks.
 Read-only review accepts this same-schema handoff checkpoint. Schema downgrade,
-mixed ownership, and the retained compatibility exception remain open.
+simultaneous mixed-owner races, and the retained compatibility exception remain
+open.
+Ordered mixed legacy/candidate starts now exclude the second owner in both
+directions, and clean handoff preserves the same directory, 49-row journal, and
+baseline marker. Simultaneous pre-record races and schema downgrade remain
+unqualified; read-only review is pending.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
