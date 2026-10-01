@@ -16,15 +16,15 @@
 //! | `sha256-<kind>-of-<id class>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of a paired generated id |
 //! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
-//! | `wall-clock-<format>` | wall clock | instants of one format inside the side's run window (never paired: same-millisecond collisions differ between identical runs) |
+//! | `wall-clock-<format>-<n>` | wall clock | the n-th group of instants of one format inside the run window, paired by occurrence position; a group may merge distinct literals only within the format's resolution (same millisecond for `iso-frac3` and `epoch-ms`) |
 //!
 //! A class whose left and right values are identical emits no rule: the value
 //! is not generated per run and must match exactly.
 //!
 //! Discovery fails, which fails the gate, when the sides differ in generated
 //! id count, in the shape at any pairing position, in which derived digests
-//! or short prefixes exist, in which wall-clock formats occur, or in which
-//! extracted secrets exist. Any other 64-hex value (for example a content
+//! or short prefixes exist, in wall-clock occurrence count or equality
+//! structure per format, or in which extracted secrets exist. Any other 64-hex value (for example a content
 //! hash) is never normalized and must match exactly. Wall-clock values outside
 //! the run window (for example fixed fixture dates) also stay literal.
 
@@ -326,35 +326,47 @@ fn is_word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
 }
 
-/// A wall-clock literal and its format name (`iso-frac3`, `iso-frac0`,
-/// `epoch-ms`, `epoch-s`, ...).
+/// One wall-clock literal occurrence: its format name (`iso-frac3`,
+/// `iso-frac0`, `epoch-ms`, `epoch-s`, ...), text, and instant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instant {
     pub format: String,
     pub value: String,
+    pub unix_ms: u64,
 }
 
-/// Lists distinct wall-clock literals inside `[start_ms, end_ms]`, in first
-/// appearance order: ISO-8601 UTC instants, 13-digit epoch milliseconds, and
-/// 10-digit epoch seconds. Digit runs of any other length are never touched.
+impl Instant {
+    /// The format's resolution in milliseconds: two instants closer than
+    /// this can print identically on one side and differently on the other.
+    #[must_use]
+    pub fn resolution_ms(&self) -> u64 {
+        match self.format.as_str() {
+            "epoch-s" | "iso-frac0" => 1000,
+            "iso-frac1" => 100,
+            "iso-frac2" => 10,
+            _ => 1,
+        }
+    }
+}
+
+/// Lists every wall-clock literal occurrence inside `[start_ms, end_ms]`, in
+/// scan order with repeats: ISO-8601 UTC instants, 13-digit epoch
+/// milliseconds, and 10-digit epoch seconds. Digit runs of any other length
+/// are never touched.
 #[must_use]
 pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Instant> {
     let mut found: Vec<Instant> = Vec::new();
-    let mut push = |format: String, value: &str| {
-        if !found.iter().any(|known| known.value == value) {
-            found.push(Instant {
-                format,
-                value: value.to_owned(),
-            });
-        }
-    };
     for text in texts {
         let bytes = text.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
             if let Some((end, unix_ms, fraction)) = iso_at(bytes, index) {
                 if (start_ms..=end_ms).contains(&unix_ms) {
-                    push(format!("iso-frac{fraction}"), &text[index..end]);
+                    found.push(Instant {
+                        format: format!("iso-frac{fraction}"),
+                        value: text[index..end].to_owned(),
+                        unix_ms,
+                    });
                 }
                 index = end;
                 continue;
@@ -366,23 +378,24 @@ pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Inst
                 }
                 if stop == bytes.len() || !is_word(bytes[stop]) {
                     let run = &text[index..stop];
-                    let format = match run.len() {
-                        13 if run
-                            .parse::<u64>()
-                            .is_ok_and(|ms| (start_ms..=end_ms).contains(&ms)) =>
-                        {
-                            Some("epoch-ms")
+                    let number = run.parse::<u64>().ok();
+                    let parsed = match (run.len(), number) {
+                        (13, Some(ms)) if (start_ms..=end_ms).contains(&ms) => {
+                            Some(("epoch-ms", ms))
                         }
-                        10 if run.parse::<u64>().is_ok_and(|seconds| {
-                            (start_ms / 1000..=end_ms / 1000).contains(&seconds)
-                        }) =>
+                        (10, Some(seconds))
+                            if (start_ms / 1000..=end_ms / 1000).contains(&seconds) =>
                         {
-                            Some("epoch-s")
+                            Some(("epoch-s", seconds * 1000))
                         }
                         _ => None,
                     };
-                    if let Some(format) = format {
-                        push(format.to_owned(), run);
+                    if let Some((format, unix_ms)) = parsed {
+                        found.push(Instant {
+                            format: format.to_owned(),
+                            value: run.to_owned(),
+                            unix_ms,
+                        });
                     }
                 }
                 index = stop;
@@ -392,6 +405,117 @@ pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Inst
         }
     }
     found
+}
+
+/// The index of a literal on one side, adding it on first sight.
+fn node_index<'a>(
+    nodes: &mut Vec<(bool, &'a Instant)>,
+    is_right: bool,
+    instant: &'a Instant,
+) -> usize {
+    nodes
+        .iter()
+        .position(|(side, known)| *side == is_right && known.value == instant.value)
+        .unwrap_or_else(|| {
+            nodes.push((is_right, instant));
+            nodes.len() - 1
+        })
+}
+
+/// One format's occurrences, in scan order.
+fn of_format<'a>(instants: &'a [Instant], format: &str) -> Vec<&'a Instant> {
+    instants
+        .iter()
+        .filter(|instant| instant.format == format)
+        .collect()
+}
+
+/// Pairs one format's occurrences by position and returns one class per
+/// connected group of literals, in first-appearance order.
+///
+/// Equality structure is kept: two occurrences that share a literal on one
+/// side must also share a group on the other. The only tolerated difference
+/// is a merge within the format's resolution (two instants in the same
+/// millisecond print identically on one side), so every group's distinct
+/// values on each side must lie within one resolution unit.
+fn wall_clock_classes(
+    format: &str,
+    left: &[&Instant],
+    right: &[&Instant],
+) -> Result<Vec<ValueClass>, String> {
+    if left.len() != right.len() {
+        return Err(format!(
+            "wall-clock format {format} occurrence count differs: left {} right {}",
+            left.len(),
+            right.len()
+        ));
+    }
+    // Union-find over literals; left nodes first, right nodes after.
+    let mut nodes: Vec<(bool, &Instant)> = Vec::new();
+    let mut parent: Vec<usize> = Vec::new();
+    let find = |parent: &mut Vec<usize>, mut index: usize| {
+        while parent[index] != index {
+            parent[index] = parent[parent[index]];
+            index = parent[index];
+        }
+        index
+    };
+    for (left_instant, right_instant) in left.iter().zip(right) {
+        let a = node_index(&mut nodes, false, left_instant);
+        let b = node_index(&mut nodes, true, right_instant);
+        while parent.len() < nodes.len() {
+            parent.push(parent.len());
+        }
+        let (root_a, root_b) = (find(&mut parent, a), find(&mut parent, b));
+        parent[root_b] = root_a;
+    }
+    let mut groups: Vec<(usize, Vec<&Instant>, Vec<&Instant>)> = Vec::new();
+    for (index, (is_right, instant)) in nodes.iter().enumerate() {
+        let root = find(&mut parent, index);
+        let position =
+            if let Some(position) = groups.iter().position(|(known, _, _)| *known == root) {
+                position
+            } else {
+                groups.push((root, Vec::new(), Vec::new()));
+                groups.len() - 1
+            };
+        if *is_right {
+            groups[position].2.push(instant);
+        } else {
+            groups[position].1.push(instant);
+        }
+    }
+    let mut classes = Vec::new();
+    for (number, (_, left_values, right_values)) in groups.into_iter().enumerate() {
+        for values in [&left_values, &right_values] {
+            let low = values
+                .iter()
+                .map(|instant| instant.unix_ms)
+                .min()
+                .unwrap_or(0);
+            let high = values
+                .iter()
+                .map(|instant| instant.unix_ms)
+                .max()
+                .unwrap_or(0);
+            let resolution = values.first().map_or(1, |instant| instant.resolution_ms());
+            if high - low > resolution {
+                return Err(format!(
+                    "wall-clock format {format} equality structure differs: instants {} ms apart \
+                     share one literal on the other side",
+                    high - low
+                ));
+            }
+        }
+        classes.push(ValueClass {
+            id: format!("wall-clock-{format}-{}", number + 1),
+            category: NormalizationCategory::WallClock,
+            reason: "wall-clock instant inside the run window, paired by position; merges only within the format's resolution".into(),
+            left: left_values.iter().map(|instant| instant.value.clone()).collect(),
+            right: right_values.iter().map(|instant| instant.value.clone()).collect(),
+        });
+    }
+    Ok(classes)
 }
 
 /// The `/tmp` alias of a `/private/tmp` root, if it has one.
@@ -775,33 +899,11 @@ pub fn value_classes(
         }
     }
     for format in formats {
-        let of = |instants: &[Instant]| -> Vec<String> {
-            instants
-                .iter()
-                .filter(|instant| instant.format == format)
-                .map(|instant| instant.value.clone())
-                .collect()
-        };
-        let (left_values, right_values) = (of(&left_clock), of(&right_clock));
-        // One class per format, not per instant: two original runs differ in
-        // how many instants share a millisecond (G1 self-checks
-        // g1-20261001T161513Z, 8 against 6, and g1-20261001T161957Z, 6
-        // against 7), so pairing instants by appearance fails identical
-        // daemons. A format present on one side only still fails discovery.
-        if left_values.is_empty() || right_values.is_empty() {
-            return Err(format!(
-                "wall-clock format {format} occurs on one side only: left {} right {}",
-                left_values.len(),
-                right_values.len()
-            ));
-        }
-        classes.push(ValueClass {
-            id: format!("wall-clock-{format}"),
-            category: NormalizationCategory::WallClock,
-            reason: "wall-clock instant of one format inside the run window".into(),
-            left: left_values,
-            right: right_values,
-        });
+        classes.extend(wall_clock_classes(
+            format,
+            &of_format(&left_clock, format),
+            &of_format(&right_clock, format),
+        )?);
     }
     Ok(classes)
 }
@@ -1108,19 +1210,27 @@ mod tests {
     fn wall_clock_only_inside_window_with_format() {
         // 2026-10-01T13:51:43.463Z == 1790862703463 ms.
         let text = "2026-10-01T13:51:43.463Z 2020-01-02T03:04:05Z 1790862703463 1790862703 \
-                    179086270346 17908627034630 x1790862703463 2026-10-01T13:51:44Z";
+                    179086270346 17908627034630 x1790862703463 2026-10-01T13:51:44Z \
+                    2026-10-01T13:51:43.463Z";
         let found = wall_clock_values(&[text], 1_790_862_700_000, 1_790_862_710_000);
-        let pairs: Vec<(&str, &str)> = found
+        let triples: Vec<(&str, &str, u64)> = found
             .iter()
-            .map(|instant| (instant.format.as_str(), instant.value.as_str()))
+            .map(|instant| {
+                (
+                    instant.format.as_str(),
+                    instant.value.as_str(),
+                    instant.unix_ms,
+                )
+            })
             .collect();
         assert_eq!(
-            pairs,
+            triples,
             vec![
-                ("iso-frac3", "2026-10-01T13:51:43.463Z"),
-                ("epoch-ms", "1790862703463"),
-                ("epoch-s", "1790862703"),
-                ("iso-frac0", "2026-10-01T13:51:44Z"),
+                ("iso-frac3", "2026-10-01T13:51:43.463Z", 1_790_862_703_463),
+                ("epoch-ms", "1790862703463", 1_790_862_703_463),
+                ("epoch-s", "1790862703", 1_790_862_703_000),
+                ("iso-frac0", "2026-10-01T13:51:44Z", 1_790_862_704_000),
+                ("iso-frac3", "2026-10-01T13:51:43.463Z", 1_790_862_703_463),
             ]
         );
         assert!(wall_clock_values(&[text], 1_800_000_000_000, 1_800_000_001_000).is_empty());
@@ -1352,19 +1462,29 @@ mod tests {
     }
 
     #[test]
-    fn wall_clock_instants_share_one_class_per_format() {
+    fn wall_clock_pairs_instants_and_keeps_equality_structure() {
         let early = "2026-10-01T13:51:43.463Z";
         let late = "2026-10-01T13:51:44.001Z";
         let left = one(format!("c={early} u={late}"));
-        // Same-millisecond collisions on one side only must not fail.
-        let collided = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:45.100Z".into());
-        assert_eq!(equivalent(&left, &collided), Ok(true));
+        let right = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:46.200Z".into());
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // createdAt == updatedAt on one side only, far apart on the other: fails.
+        let equal = one(format!("c={early} u={early}"));
+        let error = equivalent(&equal, &right).unwrap_err();
+        assert!(error.contains("equality structure"), "{error}");
+        // Same-millisecond merge: the other side's instants are 1 ms apart.
+        let adjacent = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:45.101Z".into());
+        assert_eq!(equivalent(&equal, &adjacent), Ok(true));
+        // A different number of occurrences fails.
+        let three = one(format!("c={early} u={late} again={late}"));
+        assert!(equivalent(&left, &three).is_err());
+        // Reusing the first instant versus the second is a mismatch.
+        let mixed = one(format!("c={early} u={late} again={early}"));
+        let other = one(format!("c={early} u={late} again={late}"));
+        assert!(equivalent(&mixed, &other).is_err());
         // A format the other side lacks fails discovery.
         let seconds = one("c=2026-10-01T13:51:45Z u=2026-10-01T13:51:46Z".into());
         assert!(equivalent(&left, &seconds).is_err());
-        // Mixed formats on one side against one format on the other fail.
-        let mixed = one(format!("c={early} u=2026-10-01T13:51:46Z"));
-        assert!(equivalent(&left, &mixed).is_err());
     }
 
     #[test]
