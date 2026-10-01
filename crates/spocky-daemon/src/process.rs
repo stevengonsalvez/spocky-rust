@@ -28,6 +28,15 @@ use crate::session_api::SessionBackend;
 #[must_use]
 pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
     let logger: Arc<dyn Logger> = Arc::new(JsonLineLogger::new(io::stderr(), Vec::new()));
+    // Registered before startup, so a signal that arrives while starting is
+    // held for the wait loop instead of killing the process mid-startup.
+    let signalled = Arc::new(AtomicBool::new(false));
+    for signal in [SIGTERM, SIGINT] {
+        if signal_hook::flag::register(signal, Arc::clone(&signalled)).is_err() {
+            eprintln!("Failed to install a signal handler");
+            return ExitCode::from(1);
+        }
+    }
     let daemon = match start(&DaemonEnv::from_process(), backend, &logger) {
         Ok(daemon) => daemon,
         Err(error) => {
@@ -36,24 +45,21 @@ pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
         }
     };
 
-    let signalled = Arc::new(AtomicBool::new(false));
-    for signal in [SIGTERM, SIGINT] {
-        if signal_hook::flag::register(signal, Arc::clone(&signalled)).is_err() {
-            eprintln!("Failed to install a signal handler");
-            daemon.stop();
-            return ExitCode::from(1);
-        }
-    }
     while !signalled.load(Ordering::SeqCst) && !daemon.shutdown_requested() {
         thread::sleep(Duration::from_millis(50));
     }
 
     // The timer starts when shutdown begins and covers the whole stop.
-    thread::spawn(|| {
-        thread::sleep(FORCE_EXIT_AFTER);
-        eprintln!("Forcing shutdown - HTTP server didn't close in time");
-        std::process::exit(1);
-    });
+    let timer = thread::Builder::new()
+        .name("force-exit".to_owned())
+        .spawn(|| {
+            thread::sleep(FORCE_EXIT_AFTER);
+            eprintln!("Forcing shutdown - HTTP server didn't close in time");
+            std::process::exit(1);
+        });
+    if let Err(error) = timer {
+        eprintln!("Failed to start the force-exit timer: {error}");
+    }
     daemon.stop();
     ExitCode::SUCCESS
 }
