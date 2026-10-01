@@ -10,6 +10,8 @@ mod webhook;
 
 use std::collections::BTreeMap;
 
+use timezone::HostTimeZone;
+
 pub use identity::durable_execution_id;
 pub use manual::{
     AuthOutcome, DispatchedRun, ManualDispatchError, ManualEvent, ManualHttpResponse,
@@ -158,11 +160,10 @@ struct Wakeup {
     lease_expires_at_ms: Option<u64>,
 }
 
-#[derive(Default)]
 pub struct TriggerStore {
     next_id: u64,
     next_wakeup_seq: u64,
-    local_offset_ms: i64,
+    time_zone: HostTimeZone,
     projects: BTreeMap<String, (String, String)>,
     receipts: BTreeMap<String, Receipt>,
     receipt_by_delivery: BTreeMap<(String, String), String>,
@@ -173,7 +174,32 @@ pub struct TriggerStore {
     executions: BTreeMap<String, ExecutionRecord>,
 }
 
+impl Default for TriggerStore {
+    /// An empty store in the host time zone, read once here as the baseline process reads it.
+    fn default() -> Self {
+        Self::with_time_zone(HostTimeZone::from_env())
+    }
+}
+
 impl TriggerStore {
+    /// An empty store whose `receivedAt` date-times without an offset use `time_zone`.
+    #[must_use]
+    pub fn with_time_zone(time_zone: HostTimeZone) -> Self {
+        Self {
+            next_id: 0,
+            next_wakeup_seq: 0,
+            time_zone,
+            projects: BTreeMap::new(),
+            receipts: BTreeMap::new(),
+            receipt_by_delivery: BTreeMap::new(),
+            runs: BTreeMap::new(),
+            run_by_branch: BTreeMap::new(),
+            steps: BTreeMap::new(),
+            wakeups: BTreeMap::new(),
+            executions: BTreeMap::new(),
+        }
+    }
+
     /// Registers a project with its active configuration revision.
     pub fn register_project(
         &mut self,
@@ -187,9 +213,19 @@ impl TriggerStore {
         );
     }
 
-    /// Sets the host offset applied to `receivedAt` date-times written without an offset.
+    /// Pins the host offset applied to `receivedAt` date-times written without an offset.
     pub fn set_local_offset_minutes(&mut self, minutes: i32) {
-        self.local_offset_ms = i64::from(minutes) * 60_000;
+        self.time_zone = HostTimeZone::fixed_minutes(minutes);
+    }
+
+    /// Minutes east of UTC that the store applies to the local wall-clock time `local_ms`, the
+    /// wall clock read as if it were UTC. The baseline reports it as `-getTimezoneOffset()`.
+    #[must_use]
+    pub fn local_offset_minutes_at(&self, local_ms: i64) -> i64 {
+        use timezone::LocalOffset;
+        // An offset is at most a few hours, so the conversion never saturates.
+        i64::try_from(self.time_zone.offset_ms_at_local(i128::from(local_ms)) / 60_000)
+            .unwrap_or_default()
     }
 
     /// Handles one manual trigger request end to end: parse, persist, dispatch.
@@ -208,7 +244,7 @@ impl TriggerStore {
         now_ms: i64,
         body: &[u8],
     ) -> Result<ManualHttpResponse, ManualDispatchError> {
-        let input = match parse_manual_payload(body, self.local_offset_ms) {
+        let input = match parse_manual_payload(body, &self.time_zone) {
             Ok(input) => input,
             Err(ManualParseFailure::InvalidJson) => {
                 return Ok(ManualHttpResponse {
