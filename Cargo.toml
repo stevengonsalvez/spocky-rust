@@ -12,6 +12,7 @@ members = [
   "crates/spocky-domain",
   "crates/spocky-hub-pilot",
   "crates/spocky-message-receipts",
+  "crates/spocky-pglite-host",
   "crates/spocky-platform-bridge",
   "crates/spocky-plugin-pilot",
   "crates/spocky-provider-claude",
