@@ -231,16 +231,19 @@ fn public_manual_run_maps_a_stale_expected_version_to_409() {
     let body = br#"{"trigger":"deploy"}"#;
     let response = public_manual_run(
         AuthOutcome::Authorized,
+        "request-1",
         Some("application/json"),
         body,
         &ManualRunResult::ExpectedConfigurationNotCurrent,
     );
+    assert_eq!(response.status, 409);
     assert_eq!(
-        (response.status, response.code),
-        (409, Some("configuration_changed"))
+        response.body,
+        r#"{"type":"https://paseo.sh/problems/configuration-changed","title":"Configuration changed","status":409,"detail":"expectedVersionId is not the configuration version selected for this delivery.","code":"configuration_changed","requestId":"request-1"}"#
     );
     let denied = public_manual_run(
         AuthOutcome::Unauthorized,
+        "request-1",
         Some("application/json"),
         body,
         &ManualRunResult::DaemonOffline,
