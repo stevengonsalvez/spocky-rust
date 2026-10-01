@@ -34,6 +34,7 @@ use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
 pub use create::CreateAgentOptions;
+pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
 pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgentResult};
 

@@ -1456,3 +1456,303 @@ impl AgentManager {
         )
     }
 }
+
+/// `HydrateTimelineOptions.broadcast`: a flag, or a function the deferred
+/// (non-forced) path asks once the history is recorded.
+pub enum HydrateBroadcast {
+    Now(bool),
+    Deferred(Box<dyn Fn() -> bool + Send + Sync>),
+}
+
+impl HydrateBroadcast {
+    fn evaluate(&self) -> bool {
+        match self {
+            Self::Now(flag) => *flag,
+            Self::Deferred(decide) => decide(),
+        }
+    }
+}
+
+/// `HydrateTimelineOptions`.
+#[derive(Default)]
+pub struct HydrateTimelineOptions {
+    pub force: bool,
+    /// `broadcast ?? false`.
+    pub broadcast: Option<HydrateBroadcast>,
+    /// `broadcastTimeline ?? broadcast`.
+    pub broadcast_timeline: Option<bool>,
+}
+
+/// Events already read from a provider's history, replayed as a stream.
+pub(crate) struct ReplayedHistory(std::vec::IntoIter<JsValue>);
+
+impl crate::agent_sdk::AgentEventStream for ReplayedHistory {
+    fn next(
+        &mut self,
+    ) -> crate::agent_sdk::BoxFuture<'_, Option<crate::agent_sdk::AgentResult<JsValue>>> {
+        let next = self.0.next();
+        Box::pin(async move { next.map(Ok) })
+    }
+}
+
+/// `registerSession`'s startup read: the session's whole history,
+/// content-limited, before the agent is published, so a provider failure
+/// leaves the session unregistered.
+pub(crate) async fn read_startup_history(
+    session: &dyn crate::agent_sdk::AgentSession,
+) -> Result<ReplayedHistory, AgentError> {
+    let mut history = session.stream_history();
+    let mut events = Vec::new();
+    while let Some(event) = history.next().await {
+        events.push(limit_stream_event_content(&event?)?);
+    }
+    Ok(ReplayedHistory(events.into_iter()))
+}
+
+/// Provider history split as the hydration paths read it.
+struct ReadHistory {
+    timeline: Vec<JsValue>,
+    subagents: Vec<JsValue>,
+}
+
+/// Reads `history` to the end: each event content-limited, user messages
+/// that are system-injected envelopes dropped, other non-timeline events
+/// ignored. A stream error stops the read and is returned.
+async fn read_history(
+    mut history: Box<dyn crate::agent_sdk::AgentEventStream>,
+) -> Result<ReadHistory, AgentError> {
+    let mut read = ReadHistory {
+        timeline: Vec::new(),
+        subagents: Vec::new(),
+    };
+    while let Some(event) = history.next().await {
+        let event = limit_stream_event_content(&event?)?;
+        match event_type(&event) {
+            Some("provider_subagent") => read.subagents.push(event),
+            Some("timeline") => {
+                let item = event.get("item");
+                let injected = item
+                    .and_then(|item| item.get("type"))
+                    .and_then(JsValue::as_str)
+                    == Some("user_message")
+                    && is_system_injected_envelope(&js_string(
+                        item.and_then(|item| item.get("text")),
+                    ));
+                if !injected {
+                    read.timeline.push(event);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(read)
+}
+
+/// `event.timestamp ? { timestamp } : undefined`.
+fn history_timestamp(event: &JsValue) -> Option<String> {
+    event
+        .get("timestamp")
+        .filter(|timestamp| truthy(Some(timestamp)))
+        .map(|timestamp| js_string(Some(timestamp)))
+}
+
+impl AgentManager {
+    /// `hydrateTimelineFromProvider(agentId, options)`: replays the
+    /// provider's history into the timeline, once unless `force`.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, a history stream error,
+    /// or a timeline `TypeError`.
+    pub async fn hydrate_timeline_from_provider(
+        &self,
+        agent_id: &str,
+        options: HydrateTimelineOptions,
+    ) -> Result<(), AgentError> {
+        let (id, session, primed) = {
+            let state = self.lock();
+            let agent = Self::require_agent(&state, agent_id)?;
+            let Some(session) = agent.session.clone() else {
+                return Err(AgentError::new(format!(
+                    "Agent '{}' has no managed session",
+                    agent.snapshot.id
+                )));
+            };
+            (
+                agent.snapshot.id.clone(),
+                session,
+                agent.snapshot.history_primed,
+            )
+        };
+        if primed && !options.force {
+            return Ok(());
+        }
+        let broadcast = options.broadcast.unwrap_or(HydrateBroadcast::Now(false));
+        if options.force {
+            let now = broadcast.evaluate();
+            let timeline = options
+                .broadcast_timeline
+                .unwrap_or_else(|| broadcast.evaluate());
+            return self
+                .force_hydrate_from_history(&id, session.stream_history(), now, timeline)
+                .await;
+        }
+        self.prime_from_history(&id, &broadcast, session.stream_history())
+            .await
+    }
+
+    /// `forceHydrateTimelineFromLegacyProviderHistory`: the history
+    /// replaces the timeline and the provider children.
+    async fn force_hydrate_from_history(
+        &self,
+        agent_id: &str,
+        history: Box<dyn crate::agent_sdk::AgentEventStream>,
+        broadcast: bool,
+        broadcast_timeline: bool,
+    ) -> Result<(), AgentError> {
+        let read = read_history(history).await?;
+        let mut state = self.lock();
+        #[allow(clippy::cast_precision_loss, reason = "Date.now() is a double")]
+        let now = crate::clock::now_millis() as f64;
+        let flushes = state.coalescer.flush_and_discard(agent_id, now);
+        let _ = self.apply_coalescer_flushes(&mut state, flushes);
+        state.timeline.delete(agent_id);
+        state
+            .timeline
+            .initialize(
+                agent_id,
+                Vec::new(),
+                None,
+                None,
+                Some(crate::clock::now_iso()),
+            )
+            .map_err(|error| type_error(&error))?;
+        if let Some(agent) = state.agent_mut(agent_id) {
+            agent.snapshot.history_primed = true;
+        }
+        for event in state.provider_subagents.delete_parent(agent_id) {
+            if broadcast {
+                self.dispatch(&state, AgentManagerEvent::ProviderSubagent(event));
+            }
+        }
+        for event in &read.subagents {
+            let update = state
+                .provider_subagents
+                .apply(
+                    agent_id,
+                    &js_string(event.get("provider")),
+                    event.get("event").unwrap_or(&JsValue::Undefined),
+                )
+                .map_err(timeline_error)?;
+            if broadcast {
+                self.dispatch(&state, AgentManagerEvent::ProviderSubagent(update));
+            }
+        }
+        for event in &read.timeline {
+            let row = Self::record_timeline_locked(
+                &mut state,
+                agent_id,
+                event.get("item").cloned().unwrap_or(JsValue::Undefined),
+                history_timestamp(event),
+                None,
+                None,
+            )?;
+            if broadcast_timeline {
+                let epoch = state.timeline.epoch(agent_id).ok().map(str::to_owned);
+                self.dispatch_stream_locked(
+                    &state,
+                    agent_id,
+                    event,
+                    Some(row.seq),
+                    epoch,
+                    Some(row.timestamp),
+                )?;
+            }
+        }
+        if let Some(agent) = state.agent_mut(agent_id) {
+            touch_updated_at(&mut agent.snapshot);
+        }
+        self.emit_state_locked(&mut state, agent_id, true);
+        Ok(())
+    }
+
+    /// `primeTimelineFromLegacyProviderHistory(agent, broadcast, history)`:
+    /// appends the history to the timeline. The whole replay is read
+    /// before either store changes, so a failed read leaves them as they
+    /// were (and the agent unprimed).
+    pub(crate) async fn prime_from_history(
+        &self,
+        agent_id: &str,
+        broadcast: &HydrateBroadcast,
+        history: Box<dyn crate::agent_sdk::AgentEventStream>,
+    ) -> Result<(), AgentError> {
+        if let Some(agent) = self.lock().agent_mut(agent_id) {
+            agent.snapshot.history_primed = false;
+        }
+        let read = read_history(history).await?;
+        let deferred = matches!(broadcast, HydrateBroadcast::Deferred(_));
+        let immediate = matches!(broadcast, HydrateBroadcast::Now(true));
+        let mut state = self.lock();
+        let mut subagent_events = Vec::new();
+        for event in &read.subagents {
+            let update = state
+                .provider_subagents
+                .apply(
+                    agent_id,
+                    &js_string(event.get("provider")),
+                    event.get("event").unwrap_or(&JsValue::Undefined),
+                )
+                .map_err(timeline_error)?;
+            if deferred {
+                subagent_events.push(update);
+            } else if immediate {
+                self.dispatch(&state, AgentManagerEvent::ProviderSubagent(update));
+            }
+        }
+        let mut timeline_events = Vec::new();
+        for event in &read.timeline {
+            let row = Self::record_timeline_locked(
+                &mut state,
+                agent_id,
+                event.get("item").cloned().unwrap_or(JsValue::Undefined),
+                history_timestamp(event),
+                None,
+                None,
+            )?;
+            if deferred {
+                timeline_events.push((event, row));
+            } else if immediate {
+                let epoch = state.timeline.epoch(agent_id).ok().map(str::to_owned);
+                self.dispatch_stream_locked(
+                    &state,
+                    agent_id,
+                    event,
+                    Some(row.seq),
+                    epoch,
+                    Some(row.timestamp),
+                )?;
+            }
+        }
+        if let Some(agent) = state.agent_mut(agent_id) {
+            agent.snapshot.history_primed = true;
+        }
+        if !deferred || !broadcast.evaluate() {
+            return Ok(());
+        }
+        for event in subagent_events {
+            self.dispatch(&state, AgentManagerEvent::ProviderSubagent(event));
+        }
+        for (event, row) in timeline_events {
+            let epoch = state.timeline.epoch(agent_id).ok().map(str::to_owned);
+            self.dispatch_stream_locked(
+                &state,
+                agent_id,
+                event,
+                Some(row.seq),
+                epoch,
+                Some(row.timestamp),
+            )?;
+        }
+        Ok(())
+    }
+}

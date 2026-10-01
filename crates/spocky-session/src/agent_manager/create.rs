@@ -570,6 +570,11 @@ impl AgentManager {
             now,
         );
         let initial_timeline = session.initial_timeline().unwrap_or_default();
+        let startup_history = if !initial_timeline.is_empty() && !snapshot.history_primed {
+            Some(super::events::read_startup_history(session.as_ref()).await?)
+        } else {
+            None
+        };
         self.assert_accepting_agent_registrations()?;
         {
             let mut state = self.lock();
@@ -590,12 +595,8 @@ impl AgentManager {
                 .insert(resolved_agent_id.clone(), AgentLifecycle::Initializing);
         }
         *registered = true;
-        if !initial_timeline.is_empty() {
-            for entry in initial_timeline {
-                self.record_timeline(&resolved_agent_id, entry.item, entry.timestamp, None, None)?;
-            }
-            self.refresh_session_persistence(&resolved_agent_id);
-        }
+        self.record_initial_timeline(&resolved_agent_id, initial_timeline, startup_history)
+            .await?;
         self.refresh_runtime_info(&resolved_agent_id, false).await;
         self.assert_agent_registration_active(&resolved_agent_id, session)?;
         self.persist_snapshot(
@@ -623,6 +624,35 @@ impl AgentManager {
         self.emit_state(&resolved_agent_id, false);
         self.subscribe_to_session(&resolved_agent_id);
         self.get_agent(&resolved_agent_id).ok_or_else(shutting_down)
+    }
+
+    /// `registerSession`'s initial timeline: primed from the startup
+    /// history when the agent's history was not primed, else the session's
+    /// own initial rows.
+    async fn record_initial_timeline(
+        &self,
+        agent_id: &str,
+        initial_timeline: Vec<crate::agent_sdk::ImportedTimelineEntry>,
+        startup_history: Option<super::events::ReplayedHistory>,
+    ) -> Result<(), AgentError> {
+        if !initial_timeline.is_empty() {
+            if let Some(history) = startup_history {
+                // Legacy or imported chats need their existing history
+                // before the startup rows.
+                self.prime_from_history(
+                    agent_id,
+                    &super::events::HydrateBroadcast::Now(false),
+                    Box::new(history),
+                )
+                .await?;
+            } else {
+                for entry in initial_timeline {
+                    self.record_timeline(agent_id, entry.item, entry.timestamp, None, None)?;
+                }
+            }
+            self.refresh_session_persistence(agent_id);
+        }
+        Ok(())
     }
 }
 
