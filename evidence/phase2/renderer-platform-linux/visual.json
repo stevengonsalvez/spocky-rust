@@ -1,0 +1,58 @@
+{
+  "method": {
+    "membership": "complete PNG SHA-256 equality against either pinned desktop image",
+    "rmse": "sqrt(mean squared RGBA byte difference) / 255",
+    "normalization": "none",
+    "mask": "none",
+    "threshold": "none"
+  },
+  "candidate": {
+    "path": "candidate.png",
+    "sha256": "a5bede533dce1a6e70fe44f020918b2bc3a80496484802f7fc7578dcda191bfe",
+    "dimensions": [
+      1280,
+      800
+    ]
+  },
+  "acceptedBaselineSha256": [
+    "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+    "597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d"
+  ],
+  "exactMembership": false,
+  "comparisons": [
+    {
+      "baseline": "baseline-a.png",
+      "baselineSha256": "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+      "dimensions": [
+        1280,
+        800
+      ],
+      "comparable": true,
+      "differentPixels": 91009,
+      "normalizedRmse": 0.054315250557046856,
+      "differenceBoundingBox": [
+        0,
+        0,
+        1280,
+        781
+      ]
+    },
+    {
+      "baseline": "baseline-b.png",
+      "baselineSha256": "597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d",
+      "dimensions": [
+        1280,
+        800
+      ],
+      "comparable": true,
+      "differentPixels": 91009,
+      "normalizedRmse": 0.05431467328743619,
+      "differenceBoundingBox": [
+        0,
+        0,
+        1280,
+        781
+      ]
+    }
+  ]
+}
