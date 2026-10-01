@@ -11,6 +11,7 @@ use crate::agent::{AgentStatus, AttentionReason};
 use crate::field::{Nullable, optional};
 use crate::json::{JsRecord, JsonValue, serialize_passthrough};
 use crate::number::JsNumber;
+use crate::text::JsText;
 
 /// `AgentCapabilityFlags`, a `.catchall(z.boolean())` object. `cloneCapabilities`
 /// copies the provider's object, so known flags keep the provider's order
@@ -84,27 +85,27 @@ impl Serialize for CapabilityFlags {
 /// `AgentMode` as `{ ...mode }` copies it; providers build it in schema order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AgentMode {
-    pub id: String,
-    pub label: String,
+    pub id: JsText,
+    pub label: JsText,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub description: Option<String>,
+    pub description: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub icon: Option<String>,
+    pub icon: Option<JsText>,
     #[serde(
         rename = "colorTier",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub color_tier: Option<String>,
+    pub color_tier: Option<JsText>,
 }
 
 /// `AgentSelectOptionSchema`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentSelectOption {
-    pub id: String,
-    pub label: String,
+    pub id: JsText,
+    pub label: JsText,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub description: Option<String>,
+    pub description: Option<JsText>,
     #[serde(
         rename = "isDefault",
         skip_serializing_if = "Option::is_none",
@@ -121,27 +122,27 @@ pub struct AgentSelectOption {
 pub enum AgentFeature {
     #[serde(rename = "toggle")]
     Toggle {
-        id: String,
-        label: String,
+        id: JsText,
+        label: JsText,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        description: Option<String>,
+        description: Option<JsText>,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        tooltip: Option<String>,
+        tooltip: Option<JsText>,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        icon: Option<String>,
+        icon: Option<JsText>,
         value: bool,
     },
     #[serde(rename = "select")]
     Select {
-        id: String,
-        label: String,
+        id: JsText,
+        label: JsText,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        description: Option<String>,
+        description: Option<JsText>,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        tooltip: Option<String>,
+        tooltip: Option<JsText>,
         #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-        icon: Option<String>,
-        value: Option<String>,
+        icon: Option<JsText>,
+        value: Option<JsText>,
         options: Vec<AgentSelectOption>,
     },
 }
@@ -150,15 +151,15 @@ pub enum AgentFeature {
 /// `metadata` loses `mcpServers` and is dropped when empty.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PersistenceHandle {
-    pub provider: String,
+    pub provider: JsText,
     #[serde(rename = "sessionId")]
-    pub session_id: String,
+    pub session_id: JsText,
     #[serde(
         rename = "nativeHandle",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub native_handle: Option<String>,
+    pub native_handle: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub metadata: Option<JsRecord<JsonValue>>,
 }
@@ -167,23 +168,23 @@ pub struct PersistenceHandle {
 /// present when the provider set it, possibly to `null`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RuntimeInfo {
-    pub provider: String,
+    pub provider: JsText,
     #[serde(rename = "sessionId")]
-    pub session_id: Option<String>,
+    pub session_id: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub model: Option<Nullable<String>>,
+    pub model: Option<Nullable<JsText>>,
     #[serde(
         rename = "thinkingOptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub thinking_option_id: Option<Nullable<String>>,
+    pub thinking_option_id: Option<Nullable<JsText>>,
     #[serde(
         rename = "modeId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub mode_id: Option<Nullable<String>>,
+    pub mode_id: Option<Nullable<JsText>>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub extra: Option<JsRecord<JsonValue>>,
 }
@@ -233,30 +234,30 @@ pub struct AgentUsage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ActiveTurn {
     #[serde(rename = "turnId")]
-    pub turn_id: String,
+    pub turn_id: JsText,
     #[serde(rename = "startedAt")]
-    pub started_at: Option<String>,
+    pub started_at: Option<JsText>,
 }
 
 /// Snapshot of a loaded agent: `toAgentPayload` then `enrichAgentPayload`,
 /// which overwrites `title` in place and appends `archivedAt`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LiveAgentSnapshot {
-    pub id: String,
-    pub provider: String,
-    pub cwd: String,
+    pub id: JsText,
+    pub provider: JsText,
+    pub cwd: JsText,
     /// Spread in only when the agent has a workspace id.
     #[serde(
         rename = "workspaceId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub workspace_id: Option<String>,
-    pub model: Option<String>,
+    pub workspace_id: Option<JsText>,
+    pub model: Option<JsText>,
     #[serde(rename = "thinkingOptionId")]
-    pub thinking_option_id: Option<String>,
+    pub thinking_option_id: Option<JsText>,
     #[serde(rename = "effectiveThinkingOptionId")]
-    pub effective_thinking_option_id: Option<String>,
+    pub effective_thinking_option_id: Option<JsText>,
     #[serde(
         rename = "runtimeInfo",
         skip_serializing_if = "Option::is_none",
@@ -264,17 +265,17 @@ pub struct LiveAgentSnapshot {
     )]
     pub runtime_info: Option<RuntimeInfo>,
     #[serde(rename = "createdAt")]
-    pub created_at: String,
+    pub created_at: JsText,
     #[serde(rename = "updatedAt")]
-    pub updated_at: String,
+    pub updated_at: JsText,
     #[serde(rename = "lastUserMessageAt")]
-    pub last_user_message_at: Option<String>,
+    pub last_user_message_at: Option<JsText>,
     pub status: AgentStatus,
     #[serde(rename = "activeTurn")]
     pub active_turn: Option<ActiveTurn>,
     pub capabilities: CapabilityFlags,
     #[serde(rename = "currentModeId")]
-    pub current_mode_id: Option<String>,
+    pub current_mode_id: Option<JsText>,
     #[serde(rename = "availableModes")]
     pub available_modes: Vec<AgentMode>,
     pub features: Vec<AgentFeature>,
@@ -282,8 +283,8 @@ pub struct LiveAgentSnapshot {
     #[serde(rename = "pendingPermissions")]
     pub pending_permissions: Vec<JsonValue>,
     pub persistence: Option<PersistenceHandle>,
-    pub title: Option<String>,
-    pub labels: JsRecord<String>,
+    pub title: Option<JsText>,
+    pub labels: JsRecord<JsText>,
     #[serde(
         rename = "lastUsage",
         skip_serializing_if = "Option::is_none",
@@ -295,34 +296,34 @@ pub struct LiveAgentSnapshot {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub last_error: Option<String>,
+    pub last_error: Option<JsText>,
     #[serde(rename = "requiresAttention")]
     pub requires_attention: bool,
     #[serde(rename = "attentionReason")]
     pub attention_reason: Option<AttentionReason>,
     #[serde(rename = "attentionTimestamp")]
-    pub attention_timestamp: Option<String>,
+    pub attention_timestamp: Option<JsText>,
     #[serde(rename = "archivedAt")]
-    pub archived_at: Option<String>,
+    pub archived_at: Option<JsText>,
 }
 
 /// Snapshot of an agent read from its stored record (`buildStoredAgentPayload`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoredAgentSnapshot {
-    pub id: String,
-    pub provider: String,
-    pub cwd: String,
+    pub id: JsText,
+    pub provider: JsText,
+    pub cwd: JsText,
     #[serde(
         rename = "workspaceId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub workspace_id: Option<String>,
-    pub model: Option<String>,
+    pub workspace_id: Option<JsText>,
+    pub model: Option<JsText>,
     #[serde(rename = "thinkingOptionId")]
-    pub thinking_option_id: Option<String>,
+    pub thinking_option_id: Option<JsText>,
     #[serde(rename = "effectiveThinkingOptionId")]
-    pub effective_thinking_option_id: Option<String>,
+    pub effective_thinking_option_id: Option<JsText>,
     #[serde(
         rename = "runtimeInfo",
         skip_serializing_if = "Option::is_none",
@@ -330,15 +331,15 @@ pub struct StoredAgentSnapshot {
     )]
     pub runtime_info: Option<RuntimeInfo>,
     #[serde(rename = "createdAt")]
-    pub created_at: String,
+    pub created_at: JsText,
     #[serde(rename = "updatedAt")]
-    pub updated_at: String,
+    pub updated_at: JsText,
     #[serde(rename = "lastUserMessageAt")]
-    pub last_user_message_at: Option<String>,
+    pub last_user_message_at: Option<JsText>,
     pub status: AgentStatus,
     pub capabilities: CapabilityFlags,
     #[serde(rename = "currentModeId")]
-    pub current_mode_id: Option<String>,
+    pub current_mode_id: Option<JsText>,
     /// Always `[]` for a stored agent.
     #[serde(rename = "availableModes")]
     pub available_modes: Vec<AgentMode>,
@@ -346,16 +347,16 @@ pub struct StoredAgentSnapshot {
     #[serde(rename = "pendingPermissions")]
     pub pending_permissions: Vec<JsonValue>,
     pub persistence: Option<PersistenceHandle>,
-    pub title: Option<String>,
+    pub title: Option<JsText>,
     #[serde(rename = "requiresAttention")]
     pub requires_attention: bool,
     #[serde(rename = "attentionReason")]
     pub attention_reason: Option<AttentionReason>,
     #[serde(rename = "attentionTimestamp")]
-    pub attention_timestamp: Option<String>,
+    pub attention_timestamp: Option<JsText>,
     #[serde(rename = "archivedAt")]
-    pub archived_at: Option<String>,
-    pub labels: JsRecord<String>,
+    pub archived_at: Option<JsText>,
+    pub labels: JsRecord<JsText>,
     /// Spread in as `true` only when the provider is unavailable.
     #[serde(
         rename = "providerUnavailable",
