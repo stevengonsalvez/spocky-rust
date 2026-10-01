@@ -11,11 +11,11 @@ use spocky_store::collate::locale_compare;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use crate::clock::now_iso;
-use crate::js::js_string;
 use crate::timeline::{
     FetchDirection, TimelineCursor, TimelineError, TimelineFetch, TimelineStore,
 };
 use crate::timeline_content::limit_agent_timeline_item_content;
+use spocky_contracts::js::js_string;
 
 /// `storeKey(parentAgentId, subagentId)`.
 fn store_key(parent_agent_id: &str, subagent_id: &str) -> String {
