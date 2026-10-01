@@ -17,6 +17,8 @@ use crate::json::{JsValueDeserializer, JsonValue, js_wire_text};
 
 use crate::session::{SessionInbound, SessionOutbound};
 use crate::ws::{WsControlInbound, WsControlOutbound};
+use crate::zod::Outcome;
+use crate::zod_schemas::check_inbound;
 
 /// A frame a client sends.
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +124,63 @@ pub fn parse_frame<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, FrameE
         .map_err(|error| FrameError::Invalid(error.to_string()))
 }
 
+/// Why the daemon rejects an inbound frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InboundRejection {
+    /// `JSON.parse` throws.
+    Syntax(JsonSyntaxError),
+    /// `WSInboundMessageSchema.safeParse` fails with this `error.message`.
+    Invalid(String),
+    /// A session request type without a Rust model.
+    Unmodeled,
+    /// The Rust model rejects a frame zod accepts, or one nested too deep
+    /// for zod to judge (DIV-001); the text is the model's error.
+    Divergent(String),
+}
+
+impl InboundRejection {
+    /// `Invalid message: ${error.message}`, the error text the daemon sends
+    /// for a zod rejection that is not an unknown session request.
+    #[must_use]
+    pub fn invalid_message(&self) -> Option<String> {
+        match self {
+            Self::Invalid(message) => Some(format!("Invalid message: {message}")),
+            Self::Syntax(_) | Self::Unmodeled | Self::Divergent(_) => None,
+        }
+    }
+}
+
+impl Display for InboundRejection {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Syntax(error) => write!(formatter, "invalid JSON: {error}"),
+            Self::Invalid(message) => write!(formatter, "Invalid message: {message}"),
+            Self::Unmodeled => formatter.write_str("session request type without a Rust model"),
+            Self::Divergent(message) => write!(formatter, "Rust model rejects frame: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for InboundRejection {}
+
+/// Parses an inbound frame as the daemon does: `JSON.parse`, then
+/// `WSInboundMessageSchema.safeParse`, whose rejection text the zod port
+/// reproduces, then the Rust model.
+///
+/// # Errors
+///
+/// Returns an [`InboundRejection`] for each way the frame can fail.
+pub fn parse_inbound(text: &str) -> Result<WsInbound, InboundRejection> {
+    let value = parse(text).map_err(InboundRejection::Syntax)?;
+    match check_inbound(&value) {
+        Outcome::Invalid(message) => return Err(InboundRejection::Invalid(message)),
+        Outcome::Unmodeled => return Err(InboundRejection::Unmodeled),
+        Outcome::Valid | Outcome::TooDeep => {}
+    }
+    WsInbound::deserialize(JsValueDeserializer(&value))
+        .map_err(|error| InboundRejection::Divergent(error.to_string()))
+}
+
 /// Writes a frame exactly as `JSON.stringify` writes the equivalent object,
 /// including `\udXXX` escapes for lone surrogates.
 ///
@@ -134,7 +193,7 @@ pub fn frame_text<T: Serialize>(frame: &T) -> Result<String, serde_json::Error> 
 
 #[cfg(test)]
 mod tests {
-    use super::{WsInbound, parse_frame};
+    use super::{InboundRejection, WsInbound, parse_frame, parse_inbound};
     use crate::js_value::stringify;
     use crate::session::SessionInbound;
     use crate::ws::WsControlInbound;
@@ -176,6 +235,28 @@ mod tests {
             panic!("send_agent_message_request");
         };
         assert_eq!(request.attachments.expect("attachments").0.len(), 1);
+    }
+
+    fn provider_options(depth: usize, leaf: &str) -> String {
+        format!(
+            r#"{{"type":"session","message":{{"type":"agent.create.request","requestId":"r","config":{{"provider":"codex","cwd":"/c","providerOptions":{{"n":{}{leaf}{}}}}}}}}}"#,
+            "[".repeat(depth),
+            "]".repeat(depth)
+        )
+    }
+
+    // z.json() recursion: pinned zod judges 990 levels; deeper, the port
+    // stops before the Rust stack does and the model decides (DIV-001). A
+    // rejection is judged on the deep-stack thread too; its exact text is a
+    // golden case, since at 990 levels zod's indentation makes it 151 MB.
+    #[test]
+    fn deep_json_options_are_judged_without_overflow() {
+        assert!(parse_inbound(&provider_options(990, "1")).is_ok());
+        assert!(matches!(
+            parse_inbound(&provider_options(30, "1e400")),
+            Err(InboundRejection::Invalid(_))
+        ));
+        assert!(parse_inbound(&provider_options(DEPTH, "1")).is_ok());
     }
 
     #[test]
