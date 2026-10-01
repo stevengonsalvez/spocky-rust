@@ -8,6 +8,7 @@ rust-version = "1.94"
 [dependencies]
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 spocky-contracts = { path = "../spocky-contracts" }
+spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 
 [lints.rust]
