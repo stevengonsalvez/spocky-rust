@@ -525,7 +525,7 @@ fn notifications_for_other_threads_are_reported_unported() {
     assert!(events.lock().unwrap().is_empty());
     assert_eq!(
         session.unported(),
-        ["sub-agent thread notification item/agentMessage/delta"]
+        ["sub-agent thread notification agent_message_delta"]
     );
 }
 
