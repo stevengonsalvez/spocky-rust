@@ -13,6 +13,8 @@ use std::ffi::OsString;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -93,7 +95,7 @@ pub fn resolve_launch_prefix(
     let command = settings.and_then(|settings| settings.command.as_ref());
     if let Some(ProviderCommand::Replace { argv }) = command {
         let executable = argv.first().cloned().unwrap_or_default();
-        let resolved = resolve_launch_path(&executable, base_env);
+        let resolved = resolve_launch_path(&executable, base_env)?;
         if resolved.is_none() {
             return Err(CODEX_NOT_FOUND_MESSAGE.to_owned());
         }
@@ -106,53 +108,100 @@ pub fn resolve_launch_prefix(
         Some(ProviderCommand::Append { args }) => args.clone(),
         _ => Vec::new(),
     };
-    let resolved = find_executable("codex", base_env).ok_or(CODEX_NOT_FOUND_MESSAGE)?;
+    let resolved = find_executable("codex", base_env)?.ok_or(CODEX_NOT_FOUND_MESSAGE)?;
     Ok(LaunchPrefix {
         command: resolved,
         args,
     })
 }
 
-fn resolve_launch_path(command: &str, base_env: &[(OsString, OsString)]) -> Option<String> {
-    if let Some(found) = find_executable(command, base_env) {
-        return Some(found);
+fn resolve_launch_path(
+    command: &str,
+    base_env: &[(OsString, OsString)],
+) -> Result<Option<String>, String> {
+    if let Some(found) = find_executable(command, base_env)? {
+        return Ok(Some(found));
     }
     if Path::new(command).is_absolute() && Path::new(command).exists() {
-        return Some(command.to_owned());
+        return Ok(Some(command.to_owned()));
     }
-    None
+    Ok(None)
 }
 
 /// `findExecutable(name)` on POSIX.
-#[must_use]
-pub fn find_executable(name: &str, base_env: &[(OsString, OsString)]) -> Option<String> {
+///
+/// # Errors
+/// Returns the `which` failure Paseo propagates: any outcome other than
+/// success or exit code 1 (a missing command).
+pub fn find_executable(
+    name: &str,
+    base_env: &[(OsString, OsString)],
+) -> Result<Option<String>, String> {
     let trimmed = js_trim(name);
     if trimmed.is_empty() {
-        return None;
+        return Ok(None);
     }
     if trimmed.contains('/') || trimmed.contains('\\') {
-        return probe_executable(trimmed, base_env).then(|| trimmed.to_owned());
+        return Ok(probe_executable(trimmed, base_env).then(|| trimmed.to_owned()));
     }
-    which_all(trimmed, base_env)
+    let candidates = if Path::new("/usr/bin/which").exists() {
+        which_all(trimmed, base_env)?
+    } else {
+        path_search_all(trimmed, base_env)
+    };
+    Ok(candidates
         .into_iter()
-        .find(|candidate| probe_executable(candidate, base_env))
+        .find(|candidate| probe_executable(candidate, base_env)))
 }
 
-fn which_all(name: &str, base_env: &[(OsString, OsString)]) -> Vec<String> {
+/// `enumerateCandidatesViaSystemWhich(name)`: exit code 1 means absent;
+/// every other failure is thrown, since a failed lookup is not evidence of
+/// absence.
+fn which_all(name: &str, base_env: &[(OsString, OsString)]) -> Result<Vec<String>, String> {
     let mut command = Command::new("/usr/bin/which");
     command.arg("-a").arg(name);
-    let Ok(outcome) = run_bounded(command, base_env, WHICH_TIMEOUT, usize::MAX) else {
-        return Vec::new();
-    };
-    if outcome.status_code != Some(0) {
-        return Vec::new();
+    let outcome = run_bounded(command, base_env, WHICH_TIMEOUT, usize::MAX)
+        .map_err(|error| format!("spawn /usr/bin/which {}", spawn_error_code(&error)))?;
+    which_candidates(name, &outcome)
+}
+
+fn which_candidates(name: &str, outcome: &BoundedOutcome) -> Result<Vec<String>, String> {
+    if outcome.timed_out || outcome.status_code != Some(0) {
+        if !outcome.timed_out && outcome.status_code == Some(1) {
+            return Ok(Vec::new());
+        }
+        return Err(format!(
+            "Command failed: /usr/bin/which -a {name}\n{}",
+            outcome.stderr
+        ));
     }
     let mut seen = HashSet::new();
-    js_trim(&outcome.stdout)
+    Ok(js_trim(&outcome.stdout)
         .split('\n')
         .filter(|line| !line.is_empty())
         .filter(|line| seen.insert((*line).to_owned()))
         .map(str::to_owned)
+        .collect())
+}
+
+/// The `which` npm package fallback when `/usr/bin/which` is absent: every
+/// executable file named `name` on `PATH`, in order, without duplicates.
+fn path_search_all(name: &str, base_env: &[(OsString, OsString)]) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = base_env
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .map(|(_, value)| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut seen = HashSet::new();
+    path.split(':')
+        .map(|directory| Path::new(if directory.is_empty() { "." } else { directory }).join(name))
+        .filter(|candidate| {
+            std::fs::metadata(candidate)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+        .map(|candidate| candidate.to_string_lossy().into_owned())
+        .filter(|candidate| seen.insert(candidate.clone()))
         .collect()
 }
 
@@ -160,8 +209,11 @@ fn which_all(name: &str, base_env: &[(OsString, OsString)]) -> Vec<String> {
 fn probe_executable(path: &str, base_env: &[(OsString, OsString)]) -> bool {
     let mut command = Command::new(path);
     command.arg("--version");
+    // `classifyProbeError`: an exit (any code) or the probe's own timeout
+    // kill counts as runnable; overflow, spawn errors, and death by another
+    // signal do not.
     match run_bounded(command, base_env, PROBE_TIMEOUT, PROBE_MAX_BUFFER) {
-        Ok(outcome) => !outcome.overflowed,
+        Ok(outcome) => !outcome.overflowed && (outcome.timed_out || outcome.status_code.is_some()),
         Err(_) => false,
     }
 }
@@ -426,7 +478,8 @@ struct BoundedOutcome {
 }
 
 /// Runs a short command with `execFile` semantics: piped output, a timeout
-/// that sends SIGKILL, and a stdout byte limit.
+/// that sends SIGKILL, and a per-stream byte limit that kills the child as
+/// soon as either stream exceeds it.
 fn run_bounded(
     mut command: Command,
     base_env: &[(OsString, OsString)],
@@ -440,13 +493,24 @@ fn run_bounded(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn()?;
-    let stdout = child.stdout.take().map(read_in_background);
-    let stderr = child.stderr.take().map(read_in_background);
+    let overflow = Arc::new(AtomicBool::new(false));
+    let stdout = child
+        .stdout
+        .take()
+        .map(|stream| Capture::start(stream, max_buffer, Arc::clone(&overflow)));
+    let stderr = child
+        .stderr
+        .take()
+        .map(|stream| Capture::start(stream, max_buffer, Arc::clone(&overflow)));
     let deadline = Instant::now() + timeout;
     let mut timed_out = false;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
+        }
+        if overflow.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            break child.wait()?;
         }
         if Instant::now() >= deadline {
             timed_out = true;
@@ -455,27 +519,65 @@ fn run_bounded(
         }
         thread::sleep(Duration::from_millis(10));
     };
-    let stdout = stdout
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default();
-    let stderr = stderr
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default();
+    let stdout = stdout.map(Capture::finish).unwrap_or_default();
+    let stderr = stderr.map(Capture::finish).unwrap_or_default();
     Ok(BoundedOutcome {
         status_code: status.code(),
-        overflowed: stdout.len() > max_buffer,
+        overflowed: overflow.load(Ordering::SeqCst),
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
         timed_out,
     })
 }
 
-fn read_in_background<R: Read + Send + 'static>(mut reader: R) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut buffer = Vec::new();
-        let _ = reader.read_to_end(&mut buffer);
-        buffer
-    })
+// ponytail: a grandchild that keeps the pipe open would hold Node's 'close'
+// forever; we stop waiting after this and use what was read.
+const OUTPUT_DRAIN_AFTER_EXIT: Duration = Duration::from_millis(1000);
+
+/// One captured output stream.
+struct Capture {
+    bytes: Arc<std::sync::Mutex<Vec<u8>>>,
+    done: mpsc::Receiver<()>,
+}
+
+impl Capture {
+    fn start<R: Read + Send + 'static>(
+        mut reader: R,
+        max_buffer: usize,
+        overflow: Arc<AtomicBool>,
+    ) -> Self {
+        let bytes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (finished, done) = mpsc::channel();
+        let sink = Arc::clone(&bytes);
+        thread::spawn(move || {
+            let mut chunk = [0_u8; 8192];
+            loop {
+                match reader.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        let mut buffer = sink
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        buffer.extend_from_slice(&chunk[..read]);
+                        if buffer.len() > max_buffer {
+                            overflow.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = finished.send(());
+        });
+        Self { bytes, done }
+    }
+
+    fn finish(self) -> Vec<u8> {
+        let _ = self.done.recv_timeout(OUTPUT_DRAIN_AFTER_EXIT);
+        self.bytes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
 }
 
 #[cfg(test)]
@@ -499,6 +601,100 @@ mod tests {
             label: "Custom Codex".to_owned(),
             extends: "codex".to_owned(),
         }
+    }
+
+    fn shell(script: &str) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script);
+        command
+    }
+
+    fn base_env() -> Vec<(OsString, OsString)> {
+        std::env::vars_os().collect()
+    }
+
+    #[test]
+    fn overflowing_output_kills_the_child_at_once() {
+        let started = Instant::now();
+        let outcome = run_bounded(
+            shell("head -c 200000 /dev/zero; sleep 5"),
+            &base_env(),
+            Duration::from_secs(20),
+            PROBE_MAX_BUFFER,
+        )
+        .expect("run");
+        assert!(outcome.overflowed);
+        assert!(!outcome.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn a_grandchild_holding_the_pipe_does_not_block_the_result() {
+        let started = Instant::now();
+        let outcome = run_bounded(
+            shell("sleep 5 & echo hi"),
+            &base_env(),
+            Duration::from_secs(20),
+            usize::MAX,
+        )
+        .expect("run");
+        assert_eq!(outcome.status_code, Some(0));
+        assert_eq!(outcome.stdout, "hi\n");
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn probe_classification_matches_paseo() {
+        let env = base_env();
+        assert!(
+            probe_executable("/usr/bin/false", &env),
+            "nonzero exit is runnable"
+        );
+        assert!(!probe_executable("/nonexistent/codex", &env));
+        let dir = std::env::temp_dir().join(format!("spocky-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("self-kill");
+        std::fs::write(&script, "#!/bin/sh\nkill -9 $$\n").unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&script)
+            .status()
+            .unwrap();
+        assert!(
+            !probe_executable(&script.to_string_lossy(), &env),
+            "death by another signal is not runnable"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn which_exit_codes_follow_paseo() {
+        let outcome = |code: Option<i32>, timed_out: bool, stdout: &str| BoundedOutcome {
+            status_code: code,
+            stdout: stdout.to_owned(),
+            stderr: "boom".to_owned(),
+            timed_out,
+            overflowed: false,
+        };
+        assert_eq!(
+            which_candidates(
+                "codex",
+                &outcome(Some(0), false, "/a/codex\n/b/codex\n/a/codex\n")
+            ),
+            Ok(vec!["/a/codex".to_owned(), "/b/codex".to_owned()])
+        );
+        assert_eq!(
+            which_candidates("codex", &outcome(Some(1), false, "")),
+            Ok(vec![])
+        );
+        assert_eq!(
+            which_candidates("codex", &outcome(Some(2), false, "")),
+            Err("Command failed: /usr/bin/which -a codex\nboom".to_owned())
+        );
+        assert_eq!(
+            which_candidates("codex", &outcome(None, true, "")),
+            Err("Command failed: /usr/bin/which -a codex\nboom".to_owned())
+        );
     }
 
     // Paseo: "configures Codex app-server to use a custom provider base URL".
