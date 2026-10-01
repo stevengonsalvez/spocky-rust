@@ -12,6 +12,7 @@
 
 use std::fmt;
 
+use indexmap::IndexMap;
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::{Deserialize, Serialize};
@@ -126,13 +127,13 @@ impl<'de> Deserialize<'de> for JsonValue {
 /// `z.record(z.string(), V)`: string keys in JavaScript property order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsRecord<V> {
-    entries: Vec<(String, V)>,
+    entries: IndexMap<String, V>,
 }
 
 impl<V> Default for JsRecord<V> {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: IndexMap::new(),
         }
     }
 }
@@ -146,23 +147,12 @@ impl<V> JsRecord<V> {
     /// Assigns `record[key] = value` with JavaScript semantics: an existing key
     /// keeps its position.
     pub fn insert(&mut self, key: String, value: V) {
-        if let Some(slot) = self
-            .entries
-            .iter_mut()
-            .find(|(existing, _)| *existing == key)
-        {
-            slot.1 = value;
-        } else {
-            self.entries.push((key, value));
-        }
+        self.entries.insert(key, value);
     }
 
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&V> {
-        self.entries
-            .iter()
-            .find(|(existing, _)| existing == key)
-            .map(|(_, value)| value)
+        self.entries.get(key)
     }
 
     #[must_use]
@@ -175,24 +165,27 @@ impl<V> JsRecord<V> {
         self.entries.is_empty()
     }
 
+    /// Array-index entries in ascending numeric order.
+    pub fn index_entries(&self) -> impl Iterator<Item = (&String, &V)> {
+        let mut indexed: Vec<(u32, &String, &V)> = self
+            .entries
+            .iter()
+            .filter_map(|(key, value)| array_index(key).map(|index| (index, key, value)))
+            .collect();
+        indexed.sort_by_key(|(index, _, _)| *index);
+        indexed.into_iter().map(|(_, key, value)| (key, value))
+    }
+
+    /// Non-index entries in insertion order.
+    pub fn named_entries(&self) -> impl Iterator<Item = (&String, &V)> {
+        self.entries
+            .iter()
+            .filter(|(key, _)| array_index(key).is_none())
+    }
+
     /// Entries in JavaScript enumeration order.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &V)> {
-        let keys: Vec<&String> = self.entries.iter().map(|(key, _)| key).collect();
-        js_key_order(keys.into_iter())
-            .into_iter()
-            .filter_map(|key| self.get(key).map(|value| (key, value)))
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-}
-
-impl<V> FromIterator<(String, V)> for JsRecord<V> {
-    fn from_iter<I: IntoIterator<Item = (String, V)>>(iter: I) -> Self {
-        let mut record = Self::new();
-        for (key, value) in iter {
-            record.insert(key, value);
-        }
-        record
+        self.index_entries().chain(self.named_entries())
     }
 }
 
@@ -230,9 +223,75 @@ impl<'de, V: Deserialize<'de>> Deserialize<'de> for JsRecord<V> {
     }
 }
 
+struct Entries<'a>(Vec<(&'a String, &'a JsonValue)>);
+
+impl Serialize for Entries<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (key, value) in &self.0 {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+/// Writes a zod `.passthrough()` object as zod 4 builds it: shape keys are
+/// assigned first, then unknown keys in input order, and the engine then
+/// enumerates array-index keys before all others.
+///
+/// # Errors
+///
+/// Propagates serializer errors, including a non-finite number.
+pub fn serialize_passthrough<S: Serializer, K: Serialize>(
+    known: &K,
+    extra: &JsRecord<JsonValue>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Ordered<'a, K> {
+        #[serde(flatten)]
+        index: Entries<'a>,
+        #[serde(flatten)]
+        known: &'a K,
+        #[serde(flatten)]
+        named: Entries<'a>,
+    }
+
+    Ordered {
+        index: Entries(extra.index_entries().collect()),
+        known,
+        named: Entries(extra.named_entries().collect()),
+    }
+    .serialize(serializer)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{JsRecord, JsonValue, array_index};
+    use serde::Serialize;
+
+    use super::{JsRecord, JsonValue, array_index, serialize_passthrough};
+
+    #[test]
+    fn passthrough_puts_index_keys_first_and_named_extras_last() {
+        #[derive(Serialize)]
+        struct Known {
+            a: bool,
+            b: bool,
+        }
+        struct Probe(Known, JsRecord<JsonValue>);
+        impl Serialize for Probe {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serialize_passthrough(&self.0, &self.1, serializer)
+            }
+        }
+        let extra: JsRecord<JsonValue> =
+            serde_json::from_str(r#"{"z":1.0,"5":-0,"x":1e21,"0":true}"#).unwrap();
+        let text = serde_json::to_string(&Probe(Known { a: true, b: false }, extra)).unwrap();
+        assert_eq!(
+            text,
+            r#"{"0":true,"5":0,"a":true,"b":false,"z":1,"x":1e+21}"#
+        );
+    }
 
     #[test]
     fn array_index_is_canonical_u32_below_max() {
