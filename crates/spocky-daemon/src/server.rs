@@ -20,8 +20,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
-use spocky_contracts::js_value::parse as parse_js;
+use spocky_contracts::js_value::{JsValue, parse as parse_js};
+use spocky_contracts::json::JsValueDeserializer;
 use spocky_contracts::ws::{
     DaemonPermission, Hello, HelloRejected, HelloRejectedReason, ServerCapabilities,
     ServerFeatureGates, ServerId, WsControlInbound, WsControlOutbound,
@@ -470,28 +472,68 @@ fn is_loopback_address(address: &str) -> bool {
 }
 
 /// `extractRequestInfoFromUnknownWsInbound`.
-fn extract_request_info(payload: &Value) -> Option<(String, Option<String>)> {
+fn extract_request_info(payload: &JsValue) -> Option<(String, Option<String>)> {
     let record = payload.as_object()?;
-    if record.get("type").and_then(Value::as_str) == Some("session")
-        && let Some(message) = record.get("message").and_then(Value::as_object)
-        && let Some(request_id) = message.get("requestId").and_then(Value::as_str)
+    if record.get("type").and_then(JsValue::as_str) == Some("session")
+        && let Some(message) = record.get("message").and_then(JsValue::as_object)
+        && let Some(request_id) = message.get("requestId").and_then(JsValue::as_str)
     {
         return Some((
             request_id.to_owned(),
             message
                 .get("type")
-                .and_then(Value::as_str)
+                .and_then(JsValue::as_str)
                 .map(str::to_owned),
         ));
     }
-    let request_id = record.get("requestId").and_then(Value::as_str)?;
+    let request_id = record.get("requestId").and_then(JsValue::as_str)?;
     Some((
         request_id.to_owned(),
         record
             .get("type")
-            .and_then(Value::as_str)
+            .and_then(JsValue::as_str)
             .map(str::to_owned),
     ))
+}
+
+/// Nesting a session message may have before the backend seam, which takes a
+/// `serde_json::Value` (recursive to build and to drop), refuses it. Control
+/// frames have no such limit: they are read straight from the parsed value.
+const SESSION_MESSAGE_MAX_DEPTH: usize = 128;
+
+/// The session message as a `serde_json::Value` for the backend seam; `None`
+/// past [`SESSION_MESSAGE_MAX_DEPTH`]. Whole numbers stay integers so a
+/// message echoed back is written as `JSON.stringify` writes it.
+fn session_value(value: &JsValue, depth: usize) -> Option<Value> {
+    if depth > SESSION_MESSAGE_MAX_DEPTH {
+        return None;
+    }
+    Some(match value {
+        JsValue::Undefined | JsValue::Null => Value::Null,
+        JsValue::Bool(flag) => Value::Bool(*flag),
+        JsValue::Number(number) => {
+            #[allow(clippy::cast_possible_truncation)]
+            if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 {
+                Value::from(*number as i64)
+            } else {
+                serde_json::Number::from_f64(*number).map_or(Value::Null, Value::Number)
+            }
+        }
+        JsValue::String(text) => Value::String(text.clone()),
+        JsValue::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| session_value(item, depth + 1))
+                .collect::<Option<_>>()?,
+        ),
+        JsValue::Object(object) => {
+            let mut map = Map::new();
+            for (key, item) in object.iter() {
+                map.insert(key.to_owned(), session_value(item, depth + 1)?);
+            }
+            Value::Object(map)
+        }
+    })
 }
 
 /// [`Phase`] without borrowing the socket task.
@@ -1206,16 +1248,12 @@ impl SocketTask {
         // is "Invalid message: " + err.message. The message comes from the
         // contracts parser, never from a Display of the error, which adds text the
         // baseline does not have.
-        if let Err(error) = parse_js(text) {
-            self.on_raw_error(text_of(&error.message));
-            return;
-        }
-        // Valid for `JSON.parse` but not representable as a serde value (a lone
-        // surrogate escape, nesting past serde's limit): it cannot be a valid
-        // frame, so it is answered as an invalid one.
-        let Ok(parsed) = serde_json::from_str::<Value>(text) else {
-            self.on_invalid(&Value::Null, "Invalid input");
-            return;
+        let parsed = match parse_js(text) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                self.on_raw_error(text_of(&error.message));
+                return;
+            }
         };
         let inbound = match self.classify(&parsed) {
             Ok(inbound) => inbound,
@@ -1267,9 +1305,12 @@ impl SocketTask {
 
     /// The inbound schema: control frames by `type`, session frames through
     /// the backend.
-    fn classify(&self, parsed: &Value) -> Result<Inbound, String> {
-        if parsed.get("type").and_then(Value::as_str) == Some("session") {
-            let message = parsed.get("message").cloned().unwrap_or(Value::Null);
+    fn classify(&self, parsed: &JsValue) -> Result<Inbound, String> {
+        if parsed.get("type").and_then(JsValue::as_str) == Some("session") {
+            let message = match parsed.get("message") {
+                Some(message) => session_value(message, 0).ok_or("Invalid input")?,
+                None => Value::Null,
+            };
             return self
                 .shared
                 .deps
@@ -1277,13 +1318,13 @@ impl SocketTask {
                 .validate_inbound(&message)
                 .map(|()| Inbound::Session(message));
         }
-        serde_json::from_value::<WsControlInbound>(parsed.clone())
+        WsControlInbound::deserialize(JsValueDeserializer(parsed))
             .map(|control| Inbound::Control(Box::new(control)))
             .map_err(|error| error.to_string())
     }
 
     /// `handleInvalidInboundMessage`.
-    fn on_invalid(&mut self, parsed: &Value, message: &str) {
+    fn on_invalid(&mut self, parsed: &JsValue, message: &str) {
         if matches!(self.phase, Phase::Pending(_)) {
             self.logger().warn(
                 &[("error", message)],
@@ -1297,8 +1338,8 @@ impl SocketTask {
             return;
         };
         let request_info = extract_request_info(parsed);
-        let unknown_schema =
-            request_info.is_some() && parsed.get("type").and_then(Value::as_str) == Some("session");
+        let unknown_schema = request_info.is_some()
+            && parsed.get("type").and_then(JsValue::as_str) == Some("session");
         let version = &self.shared.config.daemon_version;
         let failure = ProtocolFailure {
             request_id: request_info.as_ref().map(|(id, _)| id.clone()),
