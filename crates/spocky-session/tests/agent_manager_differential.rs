@@ -28,6 +28,9 @@
 //!   archived agent resumed for history without its working directory,
 //!   and the id, client and availability errors.
 //!
+//! - `titles`: `setTitle` (trimmed, blank, unknown agent) and
+//!   `hasInFlightRun` idle, running and unknown.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves.
@@ -559,7 +562,36 @@ const resume = async () => {
   return { results, calls, feed, stored: await registry.get(agentId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume() }));
+const titles = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/titles`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.held] })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const results = [manager.hasInFlightRun(agentId), manager.hasInFlightRun(unknownId)];
+  results.push(await outcome(async () => { await manager.setTitle(agentId, "  New title  "); return null; }));
+  results.push(await outcome(async () => { await manager.setTitle(agentId, "   "); return null; }));
+  results.push(await outcome(async () => { await manager.setTitle(unknownId, "x"); return null; }));
+  manager.runAgent(agentId, "hold").catch(() => {});
+  const started = (entry) => entry[0] === "agent_stream" && entry[2].type === "turn_started" && entry[2].turnId === "turn-5";
+  for (let tick = 0; !feed.some(started); tick += 1) {
+    if (tick === 2000) throw new Error("turn-5 never started");
+    await sleep(5);
+  }
+  results.push(manager.hasInFlightRun(agentId));
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { results, feed, stored: await registry.get(agentId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1795,6 +1827,62 @@ async fn resume_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+async fn titles_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("titles"));
+    let fake = spec("fake");
+    scripted(&fake, &["held"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let mut results = vec![
+        JsValue::Bool(manager.has_in_flight_run(AGENT_ID)),
+        JsValue::Bool(manager.has_in_flight_run(UNKNOWN_ID)),
+    ];
+    for (agent_id, title) in [
+        (AGENT_ID, "  New title  "),
+        (AGENT_ID, "   "),
+        (UNKNOWN_ID, "x"),
+    ] {
+        results.push(outcome(
+            manager
+                .set_title(agent_id, title)
+                .await
+                .map(|()| JsValue::Null),
+        ));
+    }
+    let held = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            manager
+                .run_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+                .await
+        }
+    });
+    wait_for_turn_started(&feed, "turn-5").await;
+    results.push(JsValue::Bool(manager.has_in_flight_run(AGENT_ID)));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    held.abort();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "stored",
+            registry.get(AGENT_ID).await.unwrap_or(JsValue::Null),
+        ),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1967,6 +2055,7 @@ async fn scenarios_match_pinned_manager() {
         ("subagents", subagents_scenario(&cwd, &rust_home.0).await),
         ("hydration", hydration_scenario(&cwd, &rust_home.0).await),
         ("resume", resume_scenario(&cwd, &rust_home.0).await),
+        ("titles", titles_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
