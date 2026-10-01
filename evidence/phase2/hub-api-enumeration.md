@@ -196,7 +196,7 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
   of the comparison; there is no key sorting and no normalization.
 - `hub_api_evidence` asserts on every run that the Rust trace equals the committed trace
   `evidence/phase2/hub-api-original.json` and that the Rust OpenAPI document equals the committed
-  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (462 HTTP cases, 62
+  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (468 HTTP cases, 62
   scenarios, 10 manifest operations), so an empty or shrunken baseline fails.
 - Trace headers are the response `Headers` iteration: names lower case, sorted by name, equal names
   combined with `, `. Operation inputs longer than 2,048 UTF-16 units are recorded as
@@ -220,11 +220,13 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
 | Operation inputs | the exact JSON each operation receives (key order, trimmed values, number text) |
 | OpenAPI | the whole document, byte for byte, and its headers, size and SHA-256 |
 | CLI device authorization | start, poll, inspect and decide bodies and states, polling throttle, expiry at the exact second, per-client and global limits, verification URIs for configured and request URLs, user code normalization including compatibility characters, every access failure kind |
+| API key scope order | keys created with `[runs:dispatch, projects:read]` and with a repeated scope report their scopes in creation order with duplicates removed, as the baseline's `[...new Set(scopes)]` does |
+| Deep `length` arrays | a wrong-typed value whose `length` is an array nested 1,000 to 4,000 deep is answered 400, and 6,000 or more nested levels 500 `internal_error` (V8 throws a `RangeError` while joining); the exact boundary between roughly 4,400 and 4,600 levels depends on the stack and is not compared. Rust joins iteratively and stops at 4,500 levels |
 | Credential rules | Bearer parsing, prefix routing, API key scopes and revocation, CLI credential issue, disclosure and revocation, forbidden and unauthorized outcomes over 43 distinct authorization header shapes and five scopes (59 checks) |
 
 Result of the last run of `hub-api-compare.sh`: `matched: true`, `comparison: byte-identical`,
 `normalization: none`. The traces have SHA-256
-`3f1b7298e7dec2d38315754cb6095c11c91a1415edc71126c4f8096cd1ec93c2` and the OpenAPI documents have
+`624cd4b993194e1b653122d3cb1f9f8f0b8a23f1d845a1d8eb0292294ee21bd0` and the OpenAPI documents have
 SHA-256 `7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69` (see
 `hub-api-sha256.txt`). Behavioral tests of the same flows are in `crates/spocky-hub-pilot/tests/hub_api.rs`.
 
