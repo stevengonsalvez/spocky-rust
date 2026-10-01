@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize as _;
 use serde_json::{Map, Value};
 use spocky_contracts::js_value::{JsValue, parse as parse_js};
-use spocky_contracts::json::JsValueDeserializer;
+use spocky_contracts::json::{JsValueDeserializer, js_wire_text};
 use spocky_contracts::ws::{
     DaemonPermission, Hello, HelloRejected, HelloRejectedReason, ServerCapabilities,
     ServerFeatureGates, ServerId, WsControlInbound, WsControlOutbound,
@@ -305,7 +305,9 @@ impl Shared {
     }
 
     fn send_json(&self, socket: SocketId, value: &Value) {
-        self.enqueue(socket, Outbound::Text(value.to_string()));
+        // `JSON.stringify` writes a lone surrogate as `\udXXX`; the value holds it
+        // in the JavaScript text encoding of spocky-contracts.
+        self.enqueue(socket, Outbound::Text(js_wire_text(&value.to_string())));
     }
 
     fn close_socket(&self, socket: SocketId, code: Option<u16>, reason: &str) {
