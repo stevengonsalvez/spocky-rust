@@ -3,6 +3,7 @@
 //! (`config.json`, `paseo.pid`, `server-id`), and process lifecycle. Behavior
 //! follows pinned Paseo `5de45e2`.
 
+pub mod admission;
 pub mod bearer;
 pub mod hostnames;
 pub mod iso_time;
