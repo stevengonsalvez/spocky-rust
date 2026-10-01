@@ -1439,3 +1439,58 @@ CASES.push(
     }),
   },
 );
+
+// Review 2: String length is UTF-16 code units, so a lone surrogate counts
+// once; zod 4 drops own __proto__ keys from z.record, passthrough extras, and
+// z.json() at any depth without validating them, but z.unknown() keeps them.
+function agentCreate(config, extra = "") {
+  return `{"type":"session","message":{"type":"agent.create.request","requestId":"r"${extra},"config":{"provider":"codex","cwd":"/c"${config}}}}`;
+}
+
+CASES.push(
+  {
+    id: "session.agent_create.title_200_with_lone_surrogate",
+    direction: "inbound",
+    source: "title max(200) counts a lone surrogate as one code unit",
+    raw: agentCreate(`,"title":"${"y".repeat(199)}\\ud800"`),
+  },
+  {
+    id: "session.agent_create.reject_title_201_with_lone_surrogate",
+    direction: "inbound",
+    source: "title max(200)",
+    raw: agentCreate(`,"title":"${"y".repeat(200)}\\ud800"`),
+  },
+  {
+    id: "session.agent_create.reject_title_199_plus_astral",
+    direction: "inbound",
+    source: "title max(200) counts U+10FFFF as two code units",
+    raw: agentCreate(`,"title":"${"y".repeat(199)}\\udbff\\udfff"`),
+  },
+  {
+    id: "session.agent_create.idempotency_key_512_with_lone_surrogate",
+    direction: "inbound",
+    source: "idempotencyKey max(512)",
+    raw: agentCreate("", `,"idempotencyKey":"${"k".repeat(511)}\\udfff"`),
+  },
+  {
+    id: "session.creation_subscribe.lone_surrogate_key",
+    direction: "inbound",
+    source: "idempotencyKey min(1) with a lone surrogate",
+    raw: '{"type":"session","message":{"type":"creation.subscribe.request","requestId":"r","kind":"agent","idempotencyKey":"\\ud800"}}',
+  },
+  {
+    id: "session.agent_create.proto_keys",
+    direction: "inbound",
+    source: "z.record and z.json drop __proto__ unvalidated; z.unknown keeps it",
+    raw: agentCreate(
+      ',"featureValues":{"__proto__":{"x":1},"f":{"__proto__":7,"k":1}},"providerOptions":{"__proto__":"x","p":{"a":[{"__proto__":{"n":1e400},"b":2}],"__proto__":1}}',
+      ',"labels":{"__proto__":5,"z":"1"},"env":{"__proto__":{},"A":"1"}',
+    ),
+  },
+  {
+    id: "ws.hello.proto_extras",
+    direction: "inbound",
+    source: "passthrough extras drop __proto__; z.unknown extra values keep nested __proto__",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{"__proto__":{"voice":true},"x":{"__proto__":1},"voice":false}}',
+  },
+);
