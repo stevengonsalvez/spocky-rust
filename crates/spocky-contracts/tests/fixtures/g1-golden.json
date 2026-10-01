@@ -1,0 +1,299 @@
+{
+  "provenance": {
+    "paseoCommit": "5de45e208690b0efc51c59a585ae9729325a9204",
+    "node": "v22.20.0",
+    "zod": "4.4.3",
+    "zodAot": "0.20.4",
+    "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
+    "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
+    "casesSha256": "ef82ad34476691da1c6ff4ce648b879a68ed13ed7813e5518f2daf7fc2e2ae3c"
+  },
+  "cases": [
+    {
+      "id": "ws.ping",
+      "direction": "inbound",
+      "source": "packages/client/src/daemon-client.ts:2244-2251",
+      "input": "{\"type\":\"ping\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"ping\"}"
+      }
+    },
+    {
+      "id": "ws.ping.extra_key_stripped",
+      "direction": "inbound",
+      "source": "WSPingMessageSchema strips unknown keys",
+      "input": "{\"type\":\"ping\",\"at\":1}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"ping\"}"
+      }
+    },
+    {
+      "id": "ws.pong",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:2319",
+      "input": "{\"type\":\"pong\"}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"pong\"}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"pong\"}"
+      }
+    },
+    {
+      "id": "ws.hello.cli",
+      "direction": "inbound",
+      "source": "packages/client/src/daemon-client.ts:6133-6144; capabilities packages/client/src/connection/index.ts:127-145",
+      "input": "{\"type\":\"hello\",\"clientId\":\"cid_00000000000000000000000000000000\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"hello_rejection\":true,\"owned_subscriptions\":true,\"all_providers\":true,\"selective_agent_timeline\":true,\"reasoning_merge_enum\":true,\"custom_mode_icons\":true,\"terminal_reflowable_snapshot\":true,\"provider_subagents\":true,\"projected_subagent_timeline\":true,\"project_updates\":true,\"compact_provider_snapshots\":true,\"provider_snapshot_references\":true,\"timeline_replacement_invalidation\":true,\"timeline_notifications\":true,\"plugin_timeline_items\":true,\"workspace_setup_blocked\":true,\"explicit_event_subscriptions\":true},\"appVersion\":\"0.10.0\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"cid_00000000000000000000000000000000\",\"clientType\":\"cli\",\"protocolVersion\":1,\"appVersion\":\"0.10.0\",\"capabilities\":{\"hello_rejection\":true,\"explicit_event_subscriptions\":true,\"all_providers\":true,\"reasoning_merge_enum\":true,\"selective_agent_timeline\":true,\"custom_mode_icons\":true,\"terminal_reflowable_snapshot\":true,\"provider_subagents\":true,\"project_updates\":true,\"compact_provider_snapshots\":true,\"provider_snapshot_references\":true,\"timeline_replacement_invalidation\":true,\"timeline_notifications\":true,\"owned_subscriptions\":true,\"projected_subagent_timeline\":true,\"plugin_timeline_items\":true,\"workspace_setup_blocked\":true}}"
+      }
+    },
+    {
+      "id": "ws.hello.cli_local_credential",
+      "direction": "inbound",
+      "source": "packages/client/src/daemon-client.ts:6133-6144; capabilities packages/client/src/connection/index.ts:127-145",
+      "input": "{\"type\":\"hello\",\"clientId\":\"cid_00000000000000000000000000000000\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"localCredential\",\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"capabilities\":{\"hello_rejection\":true,\"owned_subscriptions\":true,\"all_providers\":true,\"selective_agent_timeline\":true,\"reasoning_merge_enum\":true,\"custom_mode_icons\":true,\"terminal_reflowable_snapshot\":true,\"provider_subagents\":true,\"projected_subagent_timeline\":true,\"project_updates\":true,\"compact_provider_snapshots\":true,\"provider_snapshot_references\":true,\"timeline_replacement_invalidation\":true,\"timeline_notifications\":true,\"plugin_timeline_items\":true,\"workspace_setup_blocked\":true,\"explicit_event_subscriptions\":true},\"appVersion\":\"0.10.0\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"cid_00000000000000000000000000000000\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"localCredential\",\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"appVersion\":\"0.10.0\",\"capabilities\":{\"hello_rejection\":true,\"explicit_event_subscriptions\":true,\"all_providers\":true,\"reasoning_merge_enum\":true,\"selective_agent_timeline\":true,\"custom_mode_icons\":true,\"terminal_reflowable_snapshot\":true,\"provider_subagents\":true,\"project_updates\":true,\"compact_provider_snapshots\":true,\"provider_snapshot_references\":true,\"timeline_replacement_invalidation\":true,\"timeline_notifications\":true,\"owned_subscriptions\":true,\"projected_subagent_timeline\":true,\"plugin_timeline_items\":true,\"workspace_setup_blocked\":true}}"
+      }
+    },
+    {
+      "id": "ws.hello.password_and_known_caps_reordered",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema shape order and passthrough",
+      "input": "{\"appVersion\":\"1\",\"capabilities\":{\"zeta\":1,\"timeline_notifications\":false,\"voice\":true,\"pushNotifications\":true},\"auth\":{\"password\":\"p\",\"kind\":\"password\",\"extra\":true},\"protocolVersion\":2,\"clientType\":\"browser\",\"clientId\":\"c\",\"type\":\"hello\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":2,\"auth\":{\"kind\":\"password\",\"password\":\"p\"},\"appVersion\":\"1\",\"capabilities\":{\"voice\":true,\"pushNotifications\":true,\"timeline_notifications\":false,\"zeta\":1}}"
+      }
+    },
+    {
+      "id": "ws.hello.browser_host_filtered",
+      "direction": "inbound",
+      "source": "browser-automation/capabilities.ts BrowserAutomationHostCapabilitySchema",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":1,\"capabilities\":{\"browser_host\":{\"extra\":\"x\",\"supportedCommands\":[\"nope\",\"click\",\"list_tabs\",\"click\"]}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":1,\"capabilities\":{\"browser_host\":{\"supportedCommands\":[\"click\",\"list_tabs\"],\"hostKind\":\"browser host\",\"extra\":\"x\"}}}"
+      }
+    },
+    {
+      "id": "ws.hello.browser_host_no_known_command",
+      "direction": "inbound",
+      "source": "BrowserAutomationHostCapabilitySchema rejects an empty filtered list",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":1,\"capabilities\":{\"browser_host\":{\"supportedCommands\":[\"nope\"],\"hostKind\":\"h\"}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "custom",
+            "path": [
+              "capabilities",
+              "browser_host",
+              "supportedCommands"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.minimal",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema required keys only",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"mcp\",\"protocolVersion\":0}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"mcp\",\"protocolVersion\":0}"
+      }
+    },
+    {
+      "id": "ws.hello.reject_empty_client_id",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema clientId min(1)",
+      "input": "{\"type\":\"hello\",\"clientId\":\"\",\"clientType\":\"cli\",\"protocolVersion\":1}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "too_small",
+            "path": [
+              "clientId"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.reject_fractional_protocol",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema protocolVersion int",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1.5}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "protocolVersion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.reject_null_app_version",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema appVersion optional, not nullable",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"appVersion\":null}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "appVersion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.reject_unknown_client_type",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema clientType enum",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"tv\",\"protocolVersion\":1}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_value",
+            "path": [
+              "clientType"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.reject_non_boolean_capability",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema capability flags are booleans",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"hello_rejection\":\"yes\"}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "capabilities",
+              "hello_rejection"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.recording_state",
+      "direction": "inbound",
+      "source": "WSRecordingStateMessageSchema",
+      "input": "{\"type\":\"recording_state\",\"isRecording\":true}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"recording_state\",\"isRecording\":true}"
+      }
+    },
+    {
+      "id": "ws.reject_unknown_type",
+      "direction": "inbound",
+      "source": "WSInboundMessageSchema discriminated union",
+      "input": "{\"type\":\"nope\"}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_union",
+            "path": [
+              "type"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello_rejected.password_required",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:1706",
+      "input": "{\"type\":\"hello.rejected\",\"reason\":\"password_required\",\"accepts\":[\"password\"]}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"hello.rejected\",\"reason\":\"password_required\",\"accepts\":[\"password\"]}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello.rejected\",\"reason\":\"password_required\",\"accepts\":[\"password\"]}"
+      }
+    },
+    {
+      "id": "ws.hello_rejected.incompatible_protocol",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:1706",
+      "input": "{\"type\":\"hello.rejected\",\"reason\":\"incompatible_protocol\",\"accepts\":[\"password\"]}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"hello.rejected\",\"reason\":\"incompatible_protocol\",\"accepts\":[\"password\"]}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello.rejected\",\"reason\":\"incompatible_protocol\",\"accepts\":[\"password\"]}"
+      }
+    },
+    {
+      "id": "ws.server_info.default",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:1769-1946 buildServerInfoStatusPayload, createServerInfoMessage",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+    },
+    {
+      "id": "ws.server_info.desktop_managed_ungated",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:1769-1946 buildServerInfoStatusPayload, createServerInfoMessage; workspaceLabels, daemonStatusRpc, relayConfig gated off",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":true,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonConfigReload\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":false,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":true,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonConfigReload\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":false,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":true,\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonConfigReload\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":false,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+    },
+    {
+      "id": "ws.server_info.voice_capabilities",
+      "direction": "outbound",
+      "source": "packages/server/src/server/websocket-server.ts:1769-1946 buildServerInfoStatusPayload, createServerInfoMessage; capabilities websocket-server.ts:378-403",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":true,\"reason\":\"\"},\"voice\":{\"enabled\":false,\"reason\":\"Voice is disabled\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}",
+      "aot": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":true,\"reason\":\"\"},\"voice\":{\"enabled\":false,\"reason\":\"Voice is disabled\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_golden\",\"hostname\":\"golden-host\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":true,\"reason\":\"\"},\"voice\":{\"enabled\":false,\"reason\":\"Voice is disabled\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+    }
+  ]
+}
