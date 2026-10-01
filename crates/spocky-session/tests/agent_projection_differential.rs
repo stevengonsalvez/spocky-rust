@@ -67,7 +67,9 @@ const PROJECTIONS: &str = r#"[
     "attention":{"requiresAttention":false}}, {}]
 ]"#;
 
-/// `[agent, existing record or null, applySnapshot options or null]`.
+/// `[agent, existing record or null, applySnapshot options or null]`. The
+/// last case has `agent.internal` false over an existing `internal: true`
+/// with no override (the agent wins) and a null owner.
 const SNAPSHOTS: &str = r#"[
   [{"id":"s1","provider":"codex","cwd":"/w","createdAt":1700000000000,"updatedAt":1700000005000,
     "lastUserMessageAt":null,"labels":{},"lifecycle":"idle","currentModeId":null,
@@ -95,7 +97,14 @@ const SNAPSHOTS: &str = r#"[
    {"id":"s4","provider":"codex","cwd":"/w","createdAt":"2019-01-01T00:00:00.000Z",
     "updatedAt":"2019-01-02T00:00:00.000Z","title":null,"labels":{},"lastStatus":"idle",
     "internal":false},
-   {"title":"New"}]
+   {"title":"New"}],
+  [{"id":"s5","provider":"codex","cwd":"/w","createdAt":1700000000000,"updatedAt":1700000005000,
+    "lastUserMessageAt":null,"labels":{},"lifecycle":"idle","currentModeId":null,
+    "config":{"provider":"codex","cwd":"/w"},"persistence":null,"owner":null,
+    "attention":{"requiresAttention":false},"internal":false},
+   {"id":"s5","provider":"codex","cwd":"/w","createdAt":"2019-01-01T00:00:00.000Z",
+    "updatedAt":"2019-01-02T00:00:00.000Z","title":"Old","labels":{},"lastStatus":"idle",
+    "internal":true}, null]
 ]"#;
 
 const NODE_SCRIPT: &str = r#"
@@ -215,7 +224,10 @@ fn view(input: &JsValue) -> ManagedAgentRecordView {
             AgentAttention::None
         },
         internal: get("internal").and_then(JsValue::as_bool),
-        owner: present(get("owner")),
+        // `agent.owner` is copied as is, so a null owner stays null.
+        owner: get("owner")
+            .filter(|owner| !matches!(owner, JsValue::Undefined))
+            .cloned(),
     }
 }
 
