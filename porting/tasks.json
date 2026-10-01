@@ -31,6 +31,13 @@
       },
       {
         "date": "2026-10-01",
+        "authority": "Claude coordinator session term_d3e130a0",
+        "change": "Green-commit rule: every commit must be green (compiles, tests pass, clippy -D warnings clean). One file per commit stays the default. When a one-file split would leave a red intermediate commit, one atomic commit with the fewest files possible is required, with the reason in the commit body. Never a red intermediate commit.",
+        "firstUse": "p3_session timeline Result API change: crates/spocky-session/src/timeline.rs plus crates/spocky-session/tests/timeline_differential.rs in one commit, part of the TypeError parity work",
+        "earlierExceptions": ["53c5c6b js_value.rs plus json.rs Undefined change", "aa36b46 lead Cargo.toml plus Cargo.lock slip (not a green-rule case; recorded separately)"]
+      },
+      {
+        "date": "2026-10-01",
         "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
         "change": "Hub retained JavaScript PGlite host accepted as a time-boxed interim compatibility exception (accepted-interim). Removal condition unchanged. Lane p2_pglite_rust_host opened to replace it with a Rust Wasm host."
       },
