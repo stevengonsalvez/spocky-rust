@@ -28,6 +28,12 @@ pub const PINNED_CODEX_VERSION: &str = "codex-cli 0.159.0";
 pub enum Reply {
     /// A complete assistant message streamed as the given deltas.
     Message { id: String, deltas: Vec<String> },
+    /// A completed function call the model asks Codex to run.
+    FunctionCall {
+        call_id: String,
+        name: String,
+        arguments: Value,
+    },
     /// `response.created`, then the stream stays open until the client
     /// disconnects or the stub stops.
     Hold,
@@ -169,6 +175,32 @@ fn serve(
             ));
             let _ = stream.write_all(events.as_bytes());
         }
+        Some(Reply::FunctionCall {
+            call_id,
+            name,
+            arguments,
+        }) => {
+            let item = json!({
+                "type": "function_call", "id": format!("fc_{call_id}"), "call_id": call_id,
+                "name": name, "arguments": arguments.to_string(), "status": "completed"
+            });
+            let mut added = item.clone();
+            added["status"] = json!("in_progress");
+            added["arguments"] = json!("");
+            let mut events = sse(
+                "response.output_item.added",
+                json!({"output_index": 0, "item": added}),
+            );
+            events.push_str(&sse(
+                "response.output_item.done",
+                json!({"output_index": 0, "item": item}),
+            ));
+            events.push_str(&sse(
+                "response.completed",
+                json!({"response": {"id": response_id, "usage": {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 4, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 14}}}),
+            ));
+            let _ = stream.write_all(events.as_bytes());
+        }
         Some(Reply::Hold) | None => {
             while !stop.load(Ordering::SeqCst) {
                 if stream.write_all(b": keepalive\n\n").is_err() {
@@ -260,6 +292,14 @@ pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub) -> CodexProvid
     )
 }
 
+/// `run --mode auto`: on-request approvals in a workspace-write sandbox.
+pub fn manager_auto_config(root: &DisposableRoot, provider: &CodexProvider) -> SessionConfig {
+    SessionConfig {
+        mode_id: Some("auto".to_owned()),
+        ..manager_full_access_config(root, provider)
+    }
+}
+
 pub fn full_access_config(root: &DisposableRoot) -> SessionConfig {
     SessionConfig {
         cwd: root.project(),
@@ -303,6 +343,30 @@ impl Events {
 
     pub fn snapshot(&self) -> Vec<Value> {
         self.inner.0.lock().unwrap().clone()
+    }
+
+    /// Waits up to `timeout` until `count` events of the given type arrived.
+    pub fn wait_for_count(&self, event_type: &str, count: usize, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        let (list, ready) = &*self.inner;
+        let mut events = list.lock().unwrap();
+        loop {
+            if events
+                .iter()
+                .filter(|event| event["type"] == event_type)
+                .count()
+                >= count
+            {
+                return;
+            }
+            let now = Instant::now();
+            assert!(
+                now < deadline,
+                "timed out waiting for {count} {event_type}; got {:#?}",
+                *events
+            );
+            events = ready.wait_timeout(events, deadline - now).unwrap().0;
+        }
     }
 
     /// Waits up to `timeout` for an event of the given type.
