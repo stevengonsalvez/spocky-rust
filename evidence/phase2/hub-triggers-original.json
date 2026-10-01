@@ -6,7 +6,7 @@
     "sameReceipt": true,
     "crossOrgDistinct": true,
     "receiptCount": 2,
-    "runCount": 3,
+    "runCount": 4,
     "fanOutDistinct": true,
     "fanOutCreated": true,
     "fanOutReplayCreated": false,
@@ -30,12 +30,17 @@
     "completedAtKept": true,
     "idleDeadlineAtMs": 10000,
     "idleDeadlineCleared": true,
+    "executionBeforeRunBeforeIdle": {
+      "deadlineAtMs": 5000,
+      "idleDeadlineAtMs": 5000
+    },
     "runStatus": "succeeded",
     "runSucceededTransition": true,
     "runSucceededAgainTransition": false
   },
   "identity": {
     "localOffsetMinutes": 0,
+    "januaryOffsetMinutes": 0,
     "firstRun": {
       "runId": "00000000-0000-4000-8000-000000000007",
       "revisionId": "00000000-0000-4000-8000-000000000002",
@@ -360,6 +365,46 @@
       "not-a-date": {
         "status": 400,
         "receivedAtMs": null
+      },
+      "2026-01-15T12:00:00": {
+        "status": 200,
+        "receivedAtMs": 1768478400000
+      },
+      "2026-03-29T00:59:59": {
+        "status": 200,
+        "receivedAtMs": 1774745999000
+      },
+      "2026-03-29T01:00:00": {
+        "status": 200,
+        "receivedAtMs": 1774746000000
+      },
+      "2026-03-29T01:30:00": {
+        "status": 200,
+        "receivedAtMs": 1774747800000
+      },
+      "2026-03-29T02:00:00": {
+        "status": 200,
+        "receivedAtMs": 1774749600000
+      },
+      "2026-10-25T00:59:59": {
+        "status": 200,
+        "receivedAtMs": 1792889999000
+      },
+      "2026-10-25T01:00:00": {
+        "status": 200,
+        "receivedAtMs": 1792890000000
+      },
+      "2026-10-25T01:30:00": {
+        "status": 200,
+        "receivedAtMs": 1792891800000
+      },
+      "2026-10-25T02:00:00": {
+        "status": 200,
+        "receivedAtMs": 1792893600000
+      },
+      "1800-01-01T00:00:00": {
+        "status": 200,
+        "receivedAtMs": -5364662400000
       }
     },
     "omittedReceivedAtIsNow": true,

@@ -1,14 +1,18 @@
 //! Rust side of the Hub trigger differential.
 //!
 //! The trace shape and case list mirror `scripts/phase2/hub-triggers-original.integration.test.ts`.
-//! Every run compares the Rust trace byte for byte with the committed baseline trace
-//! (`evidence/phase2/hub-triggers-original.json`); `SPOCKY_HUB_TRIGGERS_BASELINE` points at a fresh
-//! capture instead, and `SPOCKY_HUB_TRIGGERS_OUTPUT` also writes the Rust trace to a file.
+//! Every run compares the Rust trace byte for byte with a committed baseline trace: the UTC capture
+//! (`evidence/phase2/hub-triggers-original.json`) and the Europe/London capture
+//! (`evidence/phase2/hub-triggers-original-europe-london.json`), each in an explicit zone. A third
+//! test builds the store the way production does, from the host time zone, and compares it with
+//! the capture taken in that zone. `SPOCKY_HUB_TRIGGERS_BASELINE` points the host-zone test at a
+//! fresh capture instead, and `SPOCKY_HUB_TRIGGERS_OUTPUT` writes its trace to a file.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use serde_json::{Map, Number, Value, json};
+use spocky_hub_pilot::triggers::timezone::HostTimeZone;
 use spocky_hub_pilot::triggers::{
     AcceptCall, AcceptFailure, Acceptance, AcceptedRunInput, AuthOutcome, DispatchedRun,
     ExecutionRequest, ExecutionReservation, ExecutionStatus, GitHubWebhook, GitHubWebhookRequest,
@@ -21,7 +25,7 @@ const PROJECT_A: &str = "11111111-1111-4111-8111-111111111111";
 const PROJECT_B: &str = "22222222-2222-4222-8222-222222222222";
 const GITHUB_SECRET: &str = "github-secret";
 
-const RECEIVED_AT_GRID: [&str; 37] = [
+const RECEIVED_AT_GRID: [&str; 47] = [
     "2026",
     "2026-08",
     "2026-08-06",
@@ -59,6 +63,16 @@ const RECEIVED_AT_GRID: [&str; 37] = [
     "26-08-06",
     "",
     "not-a-date",
+    "2026-01-15T12:00:00",
+    "2026-03-29T00:59:59",
+    "2026-03-29T01:00:00",
+    "2026-03-29T01:30:00",
+    "2026-03-29T02:00:00",
+    "2026-10-25T00:59:59",
+    "2026-10-25T01:00:00",
+    "2026-10-25T01:30:00",
+    "2026-10-25T02:00:00",
+    "1800-01-01T00:00:00",
 ];
 
 /// Ordered JSON: object keys keep insertion order, as `JSON.stringify` does in the baseline capture.
@@ -178,23 +192,30 @@ impl<T: Into<J>> From<Option<T>> for J {
     }
 }
 
-const COMMITTED_BASELINE: &str =
-    include_str!("../../../evidence/phase2/hub-triggers-original.json");
+const COMMITTED_UTC: &str = include_str!("../../../evidence/phase2/hub-triggers-original.json");
+const COMMITTED_LONDON: &str =
+    include_str!("../../../evidence/phase2/hub-triggers-original-europe-london.json");
 
-fn baseline_text() -> String {
-    std::env::var_os("SPOCKY_HUB_TRIGGERS_BASELINE").map_or_else(
-        || COMMITTED_BASELINE.to_owned(),
-        |path| fs::read_to_string(path).expect("read baseline trace"),
-    )
-}
+/// Generated IDs of the baseline capture: its UUID mock counts from 1 in creation order (two
+/// projects with their revisions, then the runs and their step runs). The Rust model is given the
+/// same fixed values; the baseline trace is never read to obtain them.
+const REVISION_ID: &str = "00000000-0000-4000-8000-000000000002";
+const FIRST_RUN_ID: &str = "00000000-0000-4000-8000-000000000007";
+const FIRST_STEP_RUN_IDS: [&str; 1] = ["00000000-0000-4000-8000-000000000008"];
+const FAN_OUT_RUN_ID: &str = "00000000-0000-4000-8000-000000000009";
+const FAN_OUT_STEP_RUN_IDS: [&str; 2] = [
+    "00000000-0000-4000-8000-00000000000a",
+    "00000000-0000-4000-8000-00000000000b",
+];
+/// Local midnight of 2026-08-06 and 2026-01-15 as wall-clock milliseconds: the baseline reports
+/// the offset of `new Date(2026, 7, 6)` and `new Date(2026, 0, 15)`.
+const LOCAL_AUGUST_6_2026_MS: i64 = 1_785_974_400_000;
+const LOCAL_JANUARY_15_2026_MS: i64 = 1_768_435_200_000;
+const CAPPED_RUN_ID: &str = "00000000-0000-4000-8000-00000000000c";
+const CAPPED_STEP_RUN_IDS: [&str; 1] = ["00000000-0000-4000-8000-00000000000d"];
 
-fn local_offset_minutes() -> i32 {
-    std::env::var("SPOCKY_HUB_TRIGGERS_LOCAL_OFFSET_MINUTES")
-        .map_or(0, |value| value.parse().expect("offset minutes"))
-}
-
-fn build_trace(baseline: &Value) -> String {
-    let (manual, lease, execution, identity) = store_trace(baseline);
+fn build_trace(store: impl Fn() -> TriggerStore) -> String {
+    let (manual, lease, execution, identity) = store_trace(store());
     let trace = obj! {
         "schemaVersion" => 1_usize,
         "manual" => manual,
@@ -206,7 +227,7 @@ fn build_trace(baseline: &Value) -> String {
             "noStep" => durable_execution_id("run-1", "revision-1", "deploy", None),
             "otherTrigger" => durable_execution_id("run-1", "revision-1", "rollback", Some("step-run-1")),
         },
-        "manualRequests" => manual_request_trace(),
+        "manualRequests" => manual_request_trace(store()),
         "manualRunMatch" => manual_run_match_trace(),
         "publicManualRun" => public_manual_run_trace(),
         "github" => github_trace(),
@@ -217,23 +238,86 @@ fn build_trace(baseline: &Value) -> String {
     text
 }
 
+/// Where two traces first differ, with both line counts so a truncated or padded trace is visible.
+fn describe_difference(rust: &str, baseline: &str) -> String {
+    let first = rust
+        .lines()
+        .zip(baseline.lines())
+        .enumerate()
+        .find(|(_, (left, right))| left != right);
+    format!(
+        "Rust trace has {} lines, baseline has {}; first differing line: {first:?}",
+        rust.lines().count(),
+        baseline.lines().count()
+    )
+}
+
+fn assert_identical(rust: &str, baseline: &str) {
+    assert!(
+        rust == baseline,
+        "Rust trace differs from the baseline trace; {}",
+        describe_difference(rust, baseline)
+    );
+}
+
 #[test]
-fn rust_trace_is_byte_identical_to_the_baseline_trace() {
-    let baseline = baseline_text();
-    let parsed: Value = serde_json::from_str(&baseline).expect("baseline trace is JSON");
-    let trace = build_trace(&parsed);
+fn rust_trace_is_byte_identical_to_the_utc_baseline_trace() {
+    let zone = HostTimeZone::utc();
+    let trace = build_trace(|| TriggerStore::with_time_zone(zone.clone()));
+    assert_identical(&trace, COMMITTED_UTC);
+}
+
+#[test]
+fn rust_trace_is_byte_identical_to_the_europe_london_baseline_trace() {
+    let zone = HostTimeZone::named("Europe/London").expect("Europe/London zoneinfo");
+    let trace = build_trace(|| TriggerStore::with_time_zone(zone.clone()));
+    assert_identical(&trace, COMMITTED_LONDON);
+}
+
+/// The store a production caller builds reads the host zone on construction. Its trace must equal
+/// the baseline captured in that same zone: a fresh capture when `SPOCKY_HUB_TRIGGERS_BASELINE`
+/// names one, else the committed capture for a UTC or Europe/London host.
+#[test]
+fn host_time_zone_trace_is_byte_identical_to_the_baseline_captured_in_that_zone() {
+    let zone = HostTimeZone::from_env();
+    let trace = build_trace(TriggerStore::default);
     if let Some(path) = std::env::var_os("SPOCKY_HUB_TRIGGERS_OUTPUT") {
         fs::write(path, &trace).expect("write trace");
     }
-    assert!(
-        trace == baseline,
-        "Rust trace differs from the baseline trace; first differing line: {:?}",
-        trace
-            .lines()
-            .zip(baseline.lines())
-            .enumerate()
-            .find(|(_, (rust, original))| rust != original)
-    );
+    let committed = [
+        (HostTimeZone::utc(), COMMITTED_UTC),
+        (
+            HostTimeZone::named("Europe/London").expect("Europe/London zoneinfo"),
+            COMMITTED_LONDON,
+        ),
+    ];
+    let baseline = match std::env::var_os("SPOCKY_HUB_TRIGGERS_BASELINE") {
+        Some(path) => fs::read_to_string(path).expect("read baseline trace"),
+        None => match committed
+            .iter()
+            .find(|(candidate, _)| same_rules(candidate, &zone))
+        {
+            Some((_, text)) => (*text).to_owned(),
+            // No capture exists for this host zone: the default store must still behave exactly
+            // like a store built from that zone, which is what the other two tests prove for
+            // their zones against the baseline.
+            None => build_trace(|| TriggerStore::with_time_zone(zone.clone())),
+        },
+    };
+    assert_identical(&trace, &baseline);
+}
+
+/// Two zones agree on every instant the trace depends on: January, August and before 1900.
+fn same_rules(left: &HostTimeZone, right: &HostTimeZone) -> bool {
+    [
+        1_768_478_400_000_i64,
+        1_786_017_600_000,
+        -5_364_662_400_000,
+        1_774_747_800_000,
+        1_792_891_800_000,
+    ]
+    .iter()
+    .all(|&instant| left.offset_ms_at_instant(instant) == right.offset_ms_at_instant(instant))
 }
 
 fn manual_body(org: &str, project: &str, delivery: &str) -> Vec<u8> {
@@ -241,21 +325,6 @@ fn manual_body(org: &str, project: &str, delivery: &str) -> Vec<u8> {
         r#"{{"organizationId":"{org}","projectId":"{project}","source":"manual.run","deliveryId":"{delivery}","payload":{{}}}}"#
     )
     .into_bytes()
-}
-
-fn baseline_ids(baseline: &Value, run: &str) -> (String, String, Vec<String>) {
-    let entry = &baseline["identity"][run];
-    let text = |value: &Value| value.as_str().expect("baseline id").to_owned();
-    (
-        text(&entry["runId"]),
-        text(&entry["revisionId"]),
-        entry["stepRunIds"]
-            .as_array()
-            .expect("step run ids")
-            .iter()
-            .map(text)
-            .collect(),
-    )
 }
 
 fn execution_request(ordinal: usize, started_at_ms: u64) -> ExecutionRequest {
@@ -274,10 +343,12 @@ fn execution_request(ordinal: usize, started_at_ms: u64) -> ExecutionRequest {
 }
 
 #[allow(clippy::too_many_lines)]
-fn store_trace(baseline: &Value) -> (J, J, J, J) {
-    let (first_run_id, revision, first_steps) = baseline_ids(baseline, "firstRun");
-    let (fan_run_id, _, fan_steps) = baseline_ids(baseline, "fanOutRun");
-    let mut store = TriggerStore::default();
+fn store_trace(mut store: TriggerStore) -> (J, J, J, J) {
+    let revision = REVISION_ID.to_owned();
+    let first_run_id = FIRST_RUN_ID.to_owned();
+    let first_steps = FIRST_STEP_RUN_IDS.map(str::to_owned).to_vec();
+    let fan_run_id = FAN_OUT_RUN_ID.to_owned();
+    let fan_steps = FAN_OUT_STEP_RUN_IDS.map(str::to_owned).to_vec();
     store.register_project("org-a", PROJECT_A, &revision);
     store.register_project("org-b", PROJECT_B, "revision-b");
     let mut handled: Vec<ManualEvent> = Vec::new();
@@ -360,6 +431,28 @@ fn store_trace(baseline: &Value) -> (J, J, J, J) {
         configuration_revision_id: "revision-b".to_owned(),
         ..run_input(receipt_of(2), "deploy")
     });
+    // Execution deadline before the run deadline before the idle deadline: idle follows the execution.
+    let capped_run = store.create_accepted_run(&AcceptedRunInput {
+        run_id: Some(CAPPED_RUN_ID.to_owned()),
+        step_ids: vec!["capped-step".to_owned()],
+        step_run_ids: Some(CAPPED_STEP_RUN_IDS.map(str::to_owned).to_vec()),
+        ..run_input(receipt_of(0), "capped")
+    });
+    let ExecutionReservation::Created(capped_execution) = store
+        .reserve_execution(
+            &capped_run.run_id,
+            &ExecutionRequest {
+                step_id: "capped-step".to_owned(),
+                ordinal: 0,
+                started_at_ms: 1_000,
+                deadline_at_ms: 5_000,
+                idle_deadline_at_ms: 20_000,
+            },
+        )
+        .expect("capped reservation")
+    else {
+        panic!("expected created capped execution");
+    };
 
     let running = store
         .transition_execution(&first_execution.id, ExecutionStatus::Running, 2_010)
@@ -403,13 +496,18 @@ fn store_trace(baseline: &Value) -> (J, J, J, J) {
         "completedAtKept" => conflicting.execution.completed_at_ms == succeeded.execution.completed_at_ms,
         "idleDeadlineAtMs" => first_execution.idle_deadline_at_ms,
         "idleDeadlineCleared" => conflicting.execution.idle_deadline_at_ms.is_none(),
+        "executionBeforeRunBeforeIdle" => obj! {
+            "deadlineAtMs" => capped_execution.deadline_at_ms,
+            "idleDeadlineAtMs" => capped_execution.idle_deadline_at_ms,
+        },
         "runStatus" => store.run(&first_run.run_id).expect("run").status,
         "runSucceededTransition" => run_succeeded.transitioned,
         "runSucceededAgainTransition" => run_succeeded_again.transitioned,
     };
     let ids = |values: &[String]| values.iter().map(J::from).collect::<Vec<J>>();
     let identity = obj! {
-        "localOffsetMinutes" => i64::from(local_offset_minutes()),
+        "localOffsetMinutes" => store.local_offset_minutes_at(LOCAL_AUGUST_6_2026_MS),
+        "januaryOffsetMinutes" => store.local_offset_minutes_at(LOCAL_JANUARY_15_2026_MS),
         "firstRun" => obj! {
             "runId" => &first_run.run_id,
             "revisionId" => &revision,
@@ -472,10 +570,8 @@ fn record(
 }
 
 #[allow(clippy::too_many_lines)]
-fn manual_request_trace() -> J {
-    let mut store = TriggerStore::default();
+fn manual_request_trace(mut store: TriggerStore) -> J {
     store.register_project("org_1", PROJECT_A, "revision-1");
-    store.set_local_offset_minutes(local_offset_minutes());
     store.register_project("org_2", PROJECT_B, "revision-2");
     let mut recording: Vec<ManualEvent> = Vec::new();
     let mut cases: Vec<(String, J)> = Vec::new();
