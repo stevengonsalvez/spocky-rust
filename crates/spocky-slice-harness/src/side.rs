@@ -618,20 +618,33 @@ fn launch_script(
     )
 }
 
+/// Dedicated tmux socket for every gate session. The gate never talks to the
+/// default tmux server, so it can never address or stop anyone else's session.
+pub const TMUX_SOCKET: &str = "spocky-p3-gate";
+
 fn tmux(args: &[&str]) -> (Vec<u8>, Vec<u8>, Exit) {
-    run_bounded(Command::new("tmux").args(args), Duration::from_secs(15))
+    run_bounded(
+        Command::new("tmux").args(["-L", TMUX_SOCKET]).args(args),
+        Duration::from_secs(15),
+    )
+}
+
+/// The pane PID of an exact session on the dedicated socket.
+fn pane_pid(session: &str) -> Option<u32> {
+    let (stdout, _, exit) = tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &format!("={session}"),
+        "#{pane_pid}",
+    ]);
+    (exit == Exit::Code(0))
+        .then(|| String::from_utf8_lossy(&stdout).trim().parse().ok())
+        .flatten()
 }
 
 fn session_exists(session: &str) -> bool {
     tmux(&["has-session", "-t", &format!("={session}")]).2 == Exit::Code(0)
-}
-
-fn pid_alive(pid: u32) -> bool {
-    run_bounded(
-        Command::new("/bin/kill").args(["-0", &pid.to_string()]),
-        Duration::from_secs(5),
-    )
-    .2 == Exit::Code(0)
 }
 
 fn signal(pid: u32, name: &str) {
@@ -641,34 +654,187 @@ fn signal(pid: u32, name: &str) {
     );
 }
 
-/// Every descendant of `root_pid`, plus `root_pid`, from one `ps` snapshot.
-fn process_tree(root_pid: u32) -> Vec<u32> {
+/// One process from a `ps` snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proc {
+    pub pid: u32,
+    pub ppid: u32,
+    /// `ps lstart`: unchanged by `exec`, so it identifies one process across
+    /// the env, sandbox-exec, and wrapper hand-offs, and changes on PID reuse.
+    pub start: String,
+    pub comm: String,
+}
+
+/// Whether a process is any tmux client or server. The gate never signals one.
+#[must_use]
+pub fn is_tmux(process: &Proc) -> bool {
+    Path::new(&process.comm)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("tmux"))
+}
+
+/// All processes, from one `ps -A -o pid=,ppid=,lstart=,comm=` snapshot.
+fn snapshot() -> Vec<Proc> {
     let (stdout, _, exit) = run_bounded(
-        Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid="]),
+        Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid=,lstart=,comm="]),
         Duration::from_secs(10),
     );
     if exit != Exit::Code(0) {
-        return vec![root_pid];
+        return Vec::new();
     }
-    let pairs: Vec<(u32, u32)> = String::from_utf8_lossy(&stdout)
+    String::from_utf8_lossy(&stdout)
         .lines()
         .filter_map(|line| {
             let mut words = line.split_whitespace();
-            Some((words.next()?.parse().ok()?, words.next()?.parse().ok()?))
+            let pid = words.next()?.parse().ok()?;
+            let parent = words.next()?.parse().ok()?;
+            // lstart is five words, for example `Thu Oct  1 17:22:45 2026`.
+            let start: Vec<&str> = words.by_ref().take(5).collect();
+            if start.len() != 5 {
+                return None;
+            }
+            let comm = words.collect::<Vec<_>>().join(" ");
+            Some(Proc {
+                pid,
+                ppid: parent,
+                start: start.join(" "),
+                comm,
+            })
         })
-        .collect();
-    let mut tree = vec![root_pid];
-    let mut index = 0;
-    while index < tree.len() {
-        let parent = tree[index];
-        for (pid, ppid) in &pairs {
-            if *ppid == parent && !tree.contains(pid) {
-                tree.push(*pid);
+        .collect()
+}
+
+/// Processes this gate run started: roots it spawned or launched, plus every
+/// descendant seen while its parent was owned. A tmux process is never owned,
+/// even as a descendant, and neither is this harness process.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Owned {
+    /// (pid, start time when first seen); the start time guards against PID reuse.
+    pub processes: Vec<(u32, String)>,
+}
+
+impl Owned {
+    /// Adds a process this run started directly.
+    pub fn add_root(&mut self, pid: u32, snapshot: &[Proc]) {
+        if let Some(process) = snapshot.iter().find(|process| process.pid == pid) {
+            self.insert(process);
+        }
+    }
+
+    fn insert(&mut self, process: &Proc) {
+        if is_tmux(process)
+            || process.pid == std::process::id()
+            || self.processes.iter().any(|(pid, _)| *pid == process.pid)
+        {
+            return;
+        }
+        self.processes.push((process.pid, process.start.clone()));
+    }
+
+    /// Adds every not-yet-owned child of an owned process, to a fixed point.
+    pub fn extend(&mut self, snapshot: &[Proc]) {
+        loop {
+            let before = self.processes.len();
+            for process in snapshot {
+                if self.owns_live(process.ppid, snapshot) {
+                    self.insert(process);
+                }
+            }
+            if self.processes.len() == before {
+                return;
             }
         }
-        index += 1;
     }
-    tree
+
+    /// Whether `pid` is owned and still the same process (same start time).
+    fn owns_live(&self, pid: u32, snapshot: &[Proc]) -> bool {
+        self.processes.iter().any(|(owned, start)| {
+            *owned == pid
+                && snapshot
+                    .iter()
+                    .any(|process| process.pid == pid && process.start == *start)
+        })
+    }
+
+    #[must_use]
+    pub fn pids(&self) -> Vec<u32> {
+        self.processes.iter().map(|(pid, _)| *pid).collect()
+    }
+}
+
+/// The only processes the stop sweep may signal: owned, alive with the same
+/// start time, not tmux, not in `keep`, and not this harness.
+#[must_use]
+pub fn sweep_targets(owned: &Owned, snapshot: &[Proc], keep: &[u32]) -> Vec<u32> {
+    snapshot
+        .iter()
+        .filter(|process| {
+            !is_tmux(process)
+                && !keep.contains(&process.pid)
+                && process.pid != std::process::id()
+                && owned.owns_live(process.pid, snapshot)
+        })
+        .map(|process| process.pid)
+        .collect()
+}
+
+/// Samples the process table every 100 ms while a side runs, growing the
+/// owned set so short-lived descendants are tracked for the stop sweep and
+/// the egress check.
+struct Sampler {
+    owned: std::sync::Arc<std::sync::Mutex<Owned>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Sampler {
+    fn start() -> Self {
+        let owned = std::sync::Arc::new(std::sync::Mutex::new(Owned::default()));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = {
+            let owned = std::sync::Arc::clone(&owned);
+            let stop = std::sync::Arc::clone(&stop);
+            thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    let table = snapshot();
+                    if let Ok(mut owned) = owned.lock() {
+                        owned.extend(&table);
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            })
+        };
+        Self {
+            owned,
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    fn add_root(&self, pid: u32) {
+        let table = snapshot();
+        if let Ok(mut owned) = self.owned.lock() {
+            owned.add_root(pid, &table);
+            owned.extend(&table);
+        }
+    }
+
+    fn owned(&self) -> Owned {
+        self.owned
+            .lock()
+            .map(|owned| owned.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 /// PIDs every codex invocation recorded through the wrapper (`exec` keeps it).
@@ -680,16 +846,6 @@ fn codex_pids(layout: &Layout) -> Vec<u32> {
         .filter_map(|entry| fs::read_to_string(entry.ok()?.path().join("pid")).ok())
         .filter_map(|text| text.trim().parse::<u32>().ok())
         .collect()
-}
-
-/// Adds the daemon tree and every process mentioning the root to `pids`.
-fn observe_pids(pids: &mut Vec<u32>, daemon_pid: Option<u32>, root: &str) {
-    let tree = daemon_pid.map(process_tree).unwrap_or_default();
-    for pid in tree.into_iter().chain(processes_mentioning(root)) {
-        if !pids.contains(&pid) {
-            pids.push(pid);
-        }
-    }
 }
 
 /// Kernel sandbox denials of outbound connections by any of `pids` within
@@ -730,7 +886,8 @@ pub fn egress_violations(window: Duration, pids: &[u32]) -> Vec<String> {
 }
 
 /// PIDs of this user's processes whose arguments or environment contain
-/// `needle` (macOS `ps -E`), excluding this harness process.
+/// `needle` (macOS `ps -E`), excluding this harness process. Used only to
+/// report unowned processes; the gate never signals a PID from this scan.
 fn processes_mentioning(needle: &str) -> Vec<u32> {
     let (stdout, _, exit) = run_bounded(
         Command::new("/bin/ps").args(["-A", "-E", "-ww", "-o", "pid=,command="]),
@@ -1134,13 +1291,23 @@ fn run_in_layout(
     } else {
         None
     };
+    let sampler = Sampler::start();
+    let pane = pane_pid(&session);
+    for pid in pane.into_iter().chain(daemon_pid) {
+        sampler.add_root(pid);
+    }
     let _ = fs::write(
         side_evidence.join("pid.json"),
-        serde_json::to_vec(&serde_json::json!({ "session": session, "daemonPid": daemon_pid }))
-            .unwrap_or_default(),
+        serde_json::to_vec(&serde_json::json!({
+            "session": session,
+            "tmuxSocket": TMUX_SOCKET,
+            "panePid": pane,
+            "daemonPid": daemon_pid
+        }))
+        .unwrap_or_default(),
     );
 
-    let mut pids: Vec<u32> = daemon_pid.into_iter().collect();
+    let mut pids: Vec<u32> = Vec::new();
     let mut readiness_attempts = 0;
     let ready_started = Instant::now();
     let readiness = loop {
@@ -1171,7 +1338,6 @@ fn run_in_layout(
         thread::sleep(READY_INTERVAL);
     };
 
-    observe_pids(&mut pids, daemon_pid, &layout.text(""));
     let mut captured: BTreeMap<&'static str, String> = BTreeMap::new();
     captured.insert("project", layout.text("project"));
     let mut steps = Vec::new();
@@ -1192,7 +1358,6 @@ fn run_in_layout(
             STEP_TIMEOUT,
             &mut pids,
         );
-        observe_pids(&mut pids, daemon_pid, &layout.text(""));
         if let Some((key, pointer)) = step.capture
             && let Some(Value::String(value)) = serde_json::from_slice::<Value>(&stdout)
                 .ok()
@@ -1210,14 +1375,21 @@ fn run_in_layout(
         });
     }
 
-    observe_pids(&mut pids, daemon_pid, &layout.text(""));
     let (force_killed, survivors) = stop_daemon(
         layout,
         &session,
         daemon_pid,
+        &sampler,
         &[stub.child.id()],
         &mut errors,
     );
+    let owned_pids = sampler.owned().pids();
+    drop(sampler);
+    for pid in owned_pids {
+        if !pids.contains(&pid) {
+            pids.push(pid);
+        }
+    }
     let daemon_exit = fs::read_to_string(layout.path("daemon.exit"))
         .ok()
         .and_then(|text| text.trim().parse::<i32>().ok())
@@ -1282,23 +1454,29 @@ fn run_in_layout(
     Ok(side)
 }
 
-/// Stops the daemon and verifies nothing of the side survives. `keep` lists
-/// harness-owned processes (the stub) that the root-path scan must not touch.
+/// Stops the daemon and verifies nothing of the side survives.
+///
+/// Signals only processes this run owns (see [`Owned`] and
+/// [`sweep_targets`]): never a tmux process, never `keep` (the stub), never a
+/// process merely mentioning the root. Owned-looking strays that are not owned
+/// are reported as harness errors and left alone. The tmux session is stopped
+/// by exact name on the dedicated socket only.
 fn stop_daemon(
     layout: &Layout,
     session: &str,
     daemon_pid: Option<u32>,
+    sampler: &Sampler,
     keep: &[u32],
     errors: &mut Vec<String>,
 ) -> (Vec<u32>, Vec<u32>) {
-    let tree = daemon_pid.map(process_tree).unwrap_or_default();
     if let Some(pid) = daemon_pid {
         signal(pid, "TERM");
     } else {
         errors.push("daemon pid was never recorded".into());
     }
     let exited = wait_until(STOP_GRACE, || {
-        layout.path("daemon.exit").exists() && tree.iter().all(|pid| !pid_alive(*pid))
+        layout.path("daemon.exit").exists()
+            && sweep_targets(&sampler.owned(), &snapshot(), keep).is_empty()
     });
     if !exited {
         errors.push(format!(
@@ -1312,35 +1490,25 @@ fn stop_daemon(
             errors.push(format!("tmux kill-session {session} failed"));
         }
     }
-    let force_killed: Vec<u32> = tree.iter().copied().filter(|pid| pid_alive(*pid)).collect();
+    let force_killed = sweep_targets(&sampler.owned(), &snapshot(), keep);
     for pid in &force_killed {
         signal(*pid, "KILL");
     }
     wait_until(KILL_GRACE, || {
-        force_killed.iter().all(|pid| !pid_alive(*pid))
+        sweep_targets(&sampler.owned(), &snapshot(), keep).is_empty()
     });
-    let mut force_killed = force_killed;
-    let mut survivors: Vec<u32> = force_killed
-        .iter()
-        .copied()
-        .filter(|pid| pid_alive(*pid))
-        .collect();
-    // Processes outside the recorded tree (reparented helpers) still carry the
-    // disposable root in their environment or arguments.
-    let strays: Vec<u32> = processes_mentioning(&layout.text(""))
-        .into_iter()
-        .filter(|pid| !keep.contains(pid))
-        .collect();
-    for pid in &strays {
-        signal(*pid, "KILL");
-    }
-    wait_until(KILL_GRACE, || strays.iter().all(|pid| !pid_alive(*pid)));
-    for pid in strays {
-        if !force_killed.contains(&pid) {
-            force_killed.push(pid);
-        }
-        if pid_alive(pid) && !survivors.contains(&pid) {
-            survivors.push(pid);
+    let survivors = sweep_targets(&sampler.owned(), &snapshot(), keep);
+    let owned = sampler.owned();
+    let table = snapshot();
+    for pid in processes_mentioning(&layout.text("")) {
+        let unowned = !owned.pids().contains(&pid) && !keep.contains(&pid);
+        let tmux_process = table
+            .iter()
+            .any(|process| process.pid == pid && is_tmux(process));
+        if unowned && !tmux_process {
+            errors.push(format!(
+                "unowned process {pid} mentions the disposable root; not signalled"
+            ));
         }
     }
     if session_exists(session) {
@@ -1570,28 +1738,6 @@ mod tests {
     }
 
     #[test]
-    fn stray_processes_are_found_by_root_in_environment() {
-        let needle = format!(
-            "/private/tmp/spocky-p3-test-{}-{}",
-            std::process::id(),
-            line!()
-        );
-        let mut child = Command::new("/bin/sleep")
-            .arg("30")
-            .env("SPOCKY_TEST_ROOT", &needle)
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
-            &needle
-        )
-        .contains(&pid)));
-        let _ = child.kill();
-        let _ = child.wait();
-        assert!(!processes_mentioning(&needle).contains(&pid));
-    }
-
-    #[test]
     fn shell_quote_escapes_single_quotes() {
         assert_eq!(shell_quote("a'b c"), r"'a'\''b c'");
     }
@@ -1639,24 +1785,107 @@ mod tests {
         );
     }
 
+    fn proc(pid: u32, parent: u32, comm: &str) -> Proc {
+        Proc {
+            pid,
+            ppid: parent,
+            start: "Thu Oct  1 17:00:00 2026".into(),
+            comm: comm.into(),
+        }
+    }
+
     #[test]
-    fn process_tree_includes_descendants() {
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", "/bin/sleep 30 & wait"])
+    fn ownership_follows_descendants_but_never_tmux_or_unrelated() {
+        let table = vec![
+            proc(100, 1, "/usr/local/bin/tmux"),
+            proc(101, 100, "/bin/sh"),
+            proc(102, 101, "node"),
+            proc(103, 102, "/usr/local/Caskroom/codex/0.159.0/bin/codex"),
+            proc(104, 102, "tmux"),
+            proc(105, 104, "/bin/sh"),
+            proc(200, 1, "/bin/sleep"),
+        ];
+        let mut owned = Owned::default();
+        owned.add_root(101, &table);
+        owned.add_root(100, &table);
+        owned.extend(&table);
+        assert_eq!(owned.pids(), vec![101, 102, 103]);
+        let targets = sweep_targets(&owned, &table, &[103]);
+        assert_eq!(targets, vec![101, 102]);
+        for forbidden in [100, 104, 105, 200] {
+            assert!(!targets.contains(&forbidden), "{forbidden}");
+        }
+    }
+
+    #[test]
+    fn reused_pid_is_not_signalled_but_an_exec_is() {
+        let before = vec![proc(300, 1, "/usr/bin/env")];
+        let mut owned = Owned::default();
+        owned.add_root(300, &before);
+        // Same process after exec: same start time, new command name.
+        let exec = vec![proc(300, 1, "node")];
+        assert_eq!(sweep_targets(&owned, &exec, &[]), vec![300]);
+        // PID reused by another process: different start time.
+        let mut reused = proc(300, 1, "node");
+        reused.start = "Thu Oct  1 17:00:09 2026".into();
+        assert!(sweep_targets(&owned, &[reused], &[]).is_empty());
+    }
+
+    #[test]
+    fn sweep_never_targets_tmux_server_or_unrelated_root_mentions() {
+        // An unrelated live process whose environment mentions the root.
+        let needle = format!(
+            "/private/tmp/spocky-p3-test-{}-{}",
+            std::process::id(),
+            line!()
+        );
+        let mut unrelated = Command::new("/bin/sleep")
+            .arg("30")
+            .env("SPOCKY_TEST_ROOT", &needle)
             .spawn()
             .unwrap();
-        let pid = child.id();
-        assert!(wait_until(Duration::from_secs(5), || process_tree(pid)
-            .len()
-            == 2));
-        let tree = process_tree(pid);
-        for member in &tree {
-            signal(*member, "KILL");
+        let unrelated_pid = unrelated.id();
+        assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
+            &needle
+        )
+        .contains(&unrelated_pid)));
+        let table = snapshot();
+        let mut owned = Owned::default();
+        // Even if a caller hands the sweep a tmux server PID as a root, it is refused.
+        for process in table.iter().filter(|process| is_tmux(process)) {
+            owned.add_root(process.pid, &table);
         }
+        owned.extend(&table);
+        let targets = sweep_targets(&owned, &table, &[]);
+        assert!(!targets.contains(&unrelated_pid));
+        assert!(
+            table
+                .iter()
+                .filter(|process| is_tmux(process))
+                .all(|process| !targets.contains(&process.pid))
+        );
+        assert!(owned.pids().is_empty());
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+    }
+
+    #[test]
+    fn sampler_tracks_short_lived_descendants() {
+        let sampler = Sampler::start();
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "/bin/sleep 3; /bin/sleep 3"])
+            .spawn()
+            .unwrap();
+        sampler.add_root(child.id());
+        // Root plus both sleeps (or the root exec'd into the second one).
+        let tracked = wait_until(Duration::from_secs(10), || {
+            sampler.owned().processes.len() >= 3
+                || (sampler.owned().processes.len() >= 2
+                    && child.try_wait().ok().flatten().is_some())
+        });
+        let _ = child.kill();
         let _ = child.wait();
-        assert!(wait_until(Duration::from_secs(5), || tree
-            .iter()
-            .all(|member| !pid_alive(*member))));
+        assert!(tracked, "{:?}", sampler.owned());
     }
 
     #[test]
