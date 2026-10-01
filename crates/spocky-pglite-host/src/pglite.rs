@@ -116,16 +116,7 @@ impl Compiled {
         // ticker thread advances every EPOCH_TICK.
         config.epoch_interruption(true);
         let engine = Engine::new(&config)?;
-        let ticker = engine.clone();
-        std::thread::Builder::new()
-            .name("pglite-epoch".into())
-            .spawn(move || {
-                loop {
-                    std::thread::sleep(EPOCH_TICK);
-                    ticker.increment_epoch();
-                }
-            })
-            .map_err(|error| abort_error(error.to_string()))?;
+        spawn_epoch_ticker(engine.weak()).map_err(|error| abort_error(error.to_string()))?;
         let pglite = Module::new(&engine, &package.pglite_wasm)?;
         let initdb = Module::new(&engine, &package.initdb_wasm)?;
         Ok(Self {
@@ -195,6 +186,24 @@ pub struct Pglite {
 }
 
 /// True when Wasm stopped because the epoch deadline passed.
+/// Advances the engine's epoch every `EPOCH_TICK`. Holds the engine weakly
+/// and stops once the last `Compiled` using it is dropped.
+fn spawn_epoch_ticker(
+    engine: wasmtime::EngineWeak,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("pglite-epoch".into())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(EPOCH_TICK);
+                let Some(engine) = engine.upgrade() else {
+                    return;
+                };
+                engine.increment_epoch();
+            }
+        })
+}
+
 #[must_use]
 pub fn is_interrupt(error: &wasmtime::Error) -> bool {
     error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::Interrupt)
@@ -588,6 +597,10 @@ fn load_entries(fs: &mut Fs, entries: &[vfs::WalkEntry]) -> Result<()> {
 
 impl Pglite {
     /// `new PGlite(dataDir)` followed by `waitReady`.
+    ///
+    /// The store must stay on a thread with the store stack size: call this
+    /// inside `host::run_on_store_thread`, or use `host::PgliteHost`, which
+    /// owns that thread.
     ///
     /// # Errors
     ///
@@ -1282,6 +1295,14 @@ mod tests {
             Err("RangeError: offset is out of bounds".to_owned())
         );
         assert_eq!(copy_input(&mut memory, 8, b"abc", 3, 4), Ok(0));
+    }
+
+    #[test]
+    fn epoch_ticker_stops_when_the_engine_is_dropped() {
+        let engine = Engine::default();
+        let ticker = spawn_epoch_ticker(engine.weak()).expect("spawn ticker");
+        drop(engine);
+        ticker.join().expect("ticker exits");
     }
 
     #[test]
