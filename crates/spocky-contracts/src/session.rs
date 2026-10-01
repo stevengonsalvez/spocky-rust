@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::creation::CreationSnapshot;
 use crate::field::optional;
 use crate::json::{JsRecord, JsonValue, serialize_passthrough};
 use crate::number::Int;
@@ -15,6 +16,12 @@ use crate::request::{
     FetchAgentTimelineRequest, FetchAgentsRequest, FetchWorkspacesRequest, SendAgentMessageRequest,
     SessionEventsSetSubscriptionRequest, SetAgentTimelineSubscriptionRequest,
     SubscriptionReleaseRequest, WaitForFinishRequest, WorkspaceCreateRequest,
+};
+use crate::response::{
+    AgentCreateResponse, CreationSubscribeResponse, FetchAgentResponse, FetchAgentTimelineResponse,
+    FetchAgentsResponse, FetchWorkspacesResponse, SendAgentMessageResponse,
+    SessionEventsSetSubscriptionResponse, SetAgentTimelineSubscriptionResponse,
+    SubscriptionReleaseResponse, WaitForFinishResponse, WorkspaceCreateResponse,
 };
 use crate::ws::ServerInfo;
 
@@ -163,6 +170,46 @@ pub enum SessionOutbound {
     Pong { payload: SessionPong },
     #[serde(rename = "rpc_error")]
     RpcError { payload: RpcError },
+    #[serde(rename = "workspace.create.update")]
+    WorkspaceCreateUpdate { payload: Box<CreationSnapshot> },
+    #[serde(rename = "agent.create.update")]
+    AgentCreateUpdate { payload: Box<CreationSnapshot> },
+    #[serde(rename = "workspace.create.response")]
+    WorkspaceCreateResponse {
+        payload: Box<WorkspaceCreateResponse>,
+    },
+    #[serde(rename = "agent.create.response")]
+    AgentCreateResponse { payload: Box<AgentCreateResponse> },
+    #[serde(rename = "creation.subscribe.response")]
+    CreationSubscribeResponse {
+        payload: Box<CreationSubscribeResponse>,
+    },
+    #[serde(rename = "fetch_agent_response")]
+    FetchAgentResponse { payload: Box<FetchAgentResponse> },
+    #[serde(rename = "fetch_agents_response")]
+    FetchAgentsResponse { payload: FetchAgentsResponse },
+    #[serde(rename = "fetch_workspaces_response")]
+    FetchWorkspacesResponse { payload: FetchWorkspacesResponse },
+    #[serde(rename = "fetch_agent_timeline_response")]
+    FetchAgentTimelineResponse {
+        payload: Box<FetchAgentTimelineResponse>,
+    },
+    #[serde(rename = "wait_for_finish_response")]
+    WaitForFinishResponse { payload: Box<WaitForFinishResponse> },
+    #[serde(rename = "send_agent_message_response")]
+    SendAgentMessageResponse { payload: SendAgentMessageResponse },
+    #[serde(rename = "session.events.set_subscription.response")]
+    SessionEventsSetSubscriptionResponse {
+        payload: SessionEventsSetSubscriptionResponse,
+    },
+    #[serde(rename = "agent.timeline.set_subscription.response")]
+    SetAgentTimelineSubscriptionResponse {
+        payload: SetAgentTimelineSubscriptionResponse,
+    },
+    #[serde(rename = "subscription.release.response")]
+    SubscriptionReleaseResponse {
+        payload: SubscriptionReleaseResponse,
+    },
 }
 
 #[cfg(test)]
