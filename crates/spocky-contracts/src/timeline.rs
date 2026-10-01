@@ -11,6 +11,7 @@ use serde::{Serialize, Serializer};
 use crate::field::{Nullable, optional};
 use crate::json::{JsRecord, JsonValue};
 use crate::number::{JsNumber, NonNegativeInt};
+use crate::text::JsText;
 
 /// Key order of a `user_message` item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,11 +65,11 @@ pub enum TodoStatus {
 /// One `todo` entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TodoEntry {
-    pub text: String,
+    pub text: JsText,
     pub completed: bool,
-    pub id: Option<String>,
+    pub id: Option<JsText>,
     pub status: Option<TodoStatus>,
-    pub active_form: Option<String>,
+    pub active_form: Option<JsText>,
     pub layout: TodoLayout,
 }
 
@@ -108,11 +109,11 @@ pub enum ToolCallStatus {
 /// `{ type: "shell", command, cwd?, output?, exitCode? }`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ShellDetail {
-    pub command: String,
+    pub command: JsText,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub cwd: Option<String>,
+    pub cwd: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub output: Option<String>,
+    pub output: Option<JsText>,
     #[serde(
         rename = "exitCode",
         skip_serializing_if = "Option::is_none",
@@ -168,8 +169,8 @@ impl Serialize for ToolCallDetail {
 /// A `tool_call` item. `error` is `null` unless `status` is `failed`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolCallItem {
-    pub call_id: String,
-    pub name: String,
+    pub call_id: JsText,
+    pub name: JsText,
     pub status: ToolCallStatus,
     pub error: JsonValue,
     pub detail: ToolCallDetail,
@@ -181,40 +182,40 @@ pub struct ToolCallItem {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TimelineItem {
     UserMessage {
-        text: String,
-        message_id: Option<String>,
-        client_message_id: Option<String>,
+        text: JsText,
+        message_id: Option<JsText>,
+        client_message_id: Option<JsText>,
         layout: UserMessageLayout,
     },
     AssistantMessage {
-        text: String,
-        message_id: Option<String>,
+        text: JsText,
+        message_id: Option<JsText>,
         layout: AssistantMessageLayout,
     },
     Reasoning {
-        text: String,
+        text: JsText,
     },
     ToolCall(Box<ToolCallItem>),
     Todo {
         items: Vec<TodoEntry>,
     },
     Error {
-        message: String,
+        message: JsText,
     },
     Notification {
-        level: String,
-        message: String,
+        level: JsText,
+        message: JsText,
     },
     /// `createContextCompactionTimelineItem`: `type, status, trigger?`.
     Compaction {
-        status: String,
-        trigger: Option<String>,
+        status: JsText,
+        trigger: Option<JsText>,
         pre_tokens: Option<JsNumber>,
     },
     Plugin {
-        id: String,
-        plugin_id: String,
-        kind: String,
+        id: JsText,
+        plugin_id: JsText,
+        kind: JsText,
         version: JsNumber,
         data: JsonValue,
     },
@@ -360,9 +361,9 @@ pub enum TimelineCollapse {
 /// unset.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TimelineEntry {
-    pub provider: String,
+    pub provider: JsText,
     pub item: TimelineItem,
-    pub timestamp: String,
+    pub timestamp: JsText,
     #[serde(rename = "seqStart")]
     pub seq_start: NonNegativeInt,
     #[serde(rename = "seqEnd")]
@@ -374,7 +375,7 @@ pub struct TimelineEntry {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub turn_id: Option<String>,
+    pub turn_id: Option<JsText>,
     pub collapsed: Vec<TimelineCollapse>,
 }
 
@@ -392,6 +393,6 @@ pub struct TimelineWindow {
 /// `{ epoch, seq }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TimelineCursor {
-    pub epoch: String,
+    pub epoch: JsText,
     pub seq: NonNegativeInt,
 }
