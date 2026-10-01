@@ -670,6 +670,8 @@ pub struct Proc {
     /// `ps lstart`: unchanged by `exec`, so it identifies one process across
     /// the env, sandbox-exec, and wrapper hand-offs, and changes on PID reuse.
     pub start: String,
+    /// `ps stat`; a leading `Z` marks an already-exited zombie.
+    pub stat: String,
     pub comm: String,
 }
 
@@ -682,10 +684,10 @@ pub fn is_tmux(process: &Proc) -> bool {
         .is_some_and(|name| name.starts_with("tmux"))
 }
 
-/// All processes, from one `ps -A -o pid=,ppid=,lstart=,comm=` snapshot.
+/// All processes, from one `ps -A -o pid=,ppid=,stat=,lstart=,comm=` snapshot.
 fn snapshot() -> Vec<Proc> {
     let (stdout, _, exit) = run_bounded(
-        Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid=,lstart=,comm="]),
+        Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid=,stat=,lstart=,comm="]),
         Duration::from_secs(10),
     );
     if exit != Exit::Code(0) {
@@ -697,6 +699,7 @@ fn snapshot() -> Vec<Proc> {
             let mut words = line.split_whitespace();
             let pid = words.next()?.parse().ok()?;
             let parent = words.next()?.parse().ok()?;
+            let state = words.next()?.to_owned();
             // lstart is five words, for example `Thu Oct  1 17:22:45 2026`.
             let start: Vec<&str> = words.by_ref().take(5).collect();
             if start.len() != 5 {
@@ -707,6 +710,7 @@ fn snapshot() -> Vec<Proc> {
                 pid,
                 ppid: parent,
                 start: start.join(" "),
+                stat: state,
                 comm,
             })
         })
@@ -771,20 +775,46 @@ impl Owned {
     }
 }
 
-/// The only processes the stop sweep may signal: owned, alive with the same
-/// start time, not tmux, not in `keep`, and not this harness.
+/// The only processes the stop sweep may signal: owned, alive (not a zombie)
+/// with the same start time, not tmux, not in `keep`, and not this harness.
 #[must_use]
 pub fn sweep_targets(owned: &Owned, snapshot: &[Proc], keep: &[u32]) -> Vec<u32> {
     snapshot
         .iter()
         .filter(|process| {
             !is_tmux(process)
+                && !process.stat.starts_with('Z')
                 && !keep.contains(&process.pid)
                 && process.pid != std::process::id()
                 && owned.owns_live(process.pid, snapshot)
         })
         .map(|process| process.pid)
         .collect()
+}
+
+/// The PID to send SIGTERM: the recorded daemon PID only if it is owned,
+/// alive with the same start time, not tmux, and not in `keep`.
+#[must_use]
+pub fn term_target(
+    daemon_pid: Option<u32>,
+    owned: &Owned,
+    snapshot: &[Proc],
+    keep: &[u32],
+) -> Option<u32> {
+    daemon_pid.filter(|pid| sweep_targets(owned, snapshot, keep).contains(pid))
+}
+
+/// SIGKILLs every sweep target, waits, and returns (killed, survivors).
+fn kill_owned(sampler: &Sampler, keep: &[u32]) -> (Vec<u32>, Vec<u32>) {
+    let killed = sweep_targets(&sampler.owned(), &snapshot(), keep);
+    for pid in &killed {
+        signal(*pid, "KILL");
+    }
+    wait_until(KILL_GRACE, || {
+        sweep_targets(&sampler.owned(), &snapshot(), keep).is_empty()
+    });
+    let survivors = sweep_targets(&sampler.owned(), &snapshot(), keep);
+    (killed, survivors)
 }
 
 /// Samples the process table every 100 ms while a side runs, growing the
@@ -1301,7 +1331,9 @@ fn run_in_layout(
     };
     let sampler = Sampler::start();
     let pane = pane_pid(&session);
-    for pid in pane.into_iter().chain(daemon_pid) {
+    // Only the pane is a root. The daemon (read from a file) becomes owned
+    // only by being the pane's descendant, never because the file names it.
+    if let Some(pid) = pane {
         sampler.add_root(pid);
     }
     let _ = fs::write(
@@ -1477,10 +1509,11 @@ fn stop_daemon(
     keep: &[u32],
     errors: &mut Vec<String>,
 ) -> (Vec<u32>, Vec<u32>) {
-    if let Some(pid) = daemon_pid {
-        signal(pid, "TERM");
-    } else {
-        errors.push("daemon pid was never recorded".into());
+    match term_target(daemon_pid, &sampler.owned(), &snapshot(), keep) {
+        Some(pid) => signal(pid, "TERM"),
+        None => errors.push(format!(
+            "daemon pid {daemon_pid:?} is not an owned live process; not signalled"
+        )),
     }
     let exited = wait_until(STOP_GRACE, || {
         layout.path("daemon.exit").exists()
@@ -1498,14 +1531,7 @@ fn stop_daemon(
             errors.push(format!("tmux kill-session {session} failed"));
         }
     }
-    let force_killed = sweep_targets(&sampler.owned(), &snapshot(), keep);
-    for pid in &force_killed {
-        signal(*pid, "KILL");
-    }
-    wait_until(KILL_GRACE, || {
-        sweep_targets(&sampler.owned(), &snapshot(), keep).is_empty()
-    });
-    let survivors = sweep_targets(&sampler.owned(), &snapshot(), keep);
+    let (force_killed, survivors) = kill_owned(sampler, keep);
     let owned = sampler.owned();
     let table = snapshot();
     for pid in processes_mentioning(&layout.text("")) {
@@ -1845,6 +1871,7 @@ mod tests {
             pid,
             ppid: parent,
             start: "Thu Oct  1 17:00:00 2026".into(),
+            stat: "S".into(),
             comm: comm.into(),
         }
     }
@@ -1873,6 +1900,15 @@ mod tests {
     }
 
     #[test]
+    fn zombies_are_never_targets() {
+        let mut owned = Owned::default();
+        let mut zombie = proc(400, 1, "node");
+        owned.add_root(400, std::slice::from_ref(&zombie));
+        zombie.stat = "Z".into();
+        assert!(sweep_targets(&owned, &[zombie], &[]).is_empty());
+    }
+
+    #[test]
     fn reused_pid_is_not_signalled_but_an_exec_is() {
         let before = vec![proc(300, 1, "/usr/bin/env")];
         let mut owned = Owned::default();
@@ -1886,42 +1922,103 @@ mod tests {
         assert!(sweep_targets(&owned, &[reused], &[]).is_empty());
     }
 
+    fn alive(pid: u32) -> bool {
+        snapshot()
+            .iter()
+            .any(|process| process.pid == pid && !process.stat.starts_with('Z'))
+    }
+
+    /// A live process whose environment mentions `needle` but that the gate
+    /// did not start.
+    fn decoy(needle: &str) -> std::process::Child {
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .env("SPOCKY_TEST_ROOT", needle)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
+            needle
+        )
+        .contains(&pid)));
+        child
+    }
+
     #[test]
-    fn sweep_never_targets_tmux_server_or_unrelated_root_mentions() {
-        // An unrelated live process whose environment mentions the root.
+    fn sweep_kills_owned_processes_and_spares_live_decoys_and_tmux() {
         let needle = format!(
             "/private/tmp/spocky-p3-test-{}-{}",
             std::process::id(),
             line!()
         );
-        let mut unrelated = Command::new("/bin/sleep")
+        let mut unrelated = decoy(&needle);
+        let unrelated_pid = unrelated.id();
+        let mut ours = Command::new("/bin/sleep")
             .arg("30")
             .env("SPOCKY_TEST_ROOT", &needle)
             .spawn()
             .unwrap();
-        let unrelated_pid = unrelated.id();
-        assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
-            &needle
-        )
-        .contains(&unrelated_pid)));
+        let ours_pid = ours.id();
+        let sampler = Sampler::start();
+        sampler.add_root(ours_pid);
+        // A tmux process handed in as a root is refused.
         let table = snapshot();
-        let mut owned = Owned::default();
-        // Even if a caller hands the sweep a tmux server PID as a root, it is refused.
         for process in table.iter().filter(|process| is_tmux(process)) {
-            owned.add_root(process.pid, &table);
+            sampler.add_root(process.pid);
         }
-        owned.extend(&table);
-        let targets = sweep_targets(&owned, &table, &[]);
-        assert!(!targets.contains(&unrelated_pid));
+        let tmux_pids: Vec<u32> = table
+            .iter()
+            .filter(|process| is_tmux(process))
+            .map(|process| process.pid)
+            .collect();
+        assert_eq!(sampler.owned().pids(), vec![ours_pid]);
+        let (killed, survivors) = kill_owned(&sampler, &[]);
+        let _ = ours.wait();
+        assert_eq!(killed, vec![ours_pid]);
+        assert!(survivors.is_empty());
+        assert!(!alive(ours_pid));
         assert!(
-            table
-                .iter()
-                .filter(|process| is_tmux(process))
-                .all(|process| !targets.contains(&process.pid))
+            alive(unrelated_pid),
+            "decoy that mentions the root must survive"
         );
-        assert!(owned.pids().is_empty());
+        assert!(tmux_pids.iter().all(|pid| !killed.contains(pid)));
         let _ = unrelated.kill();
         let _ = unrelated.wait();
+    }
+
+    #[test]
+    fn term_refuses_a_decoy_pid_written_to_the_daemon_pid_file() {
+        let directory = scratch(line!());
+        let needle = directory.display().to_string();
+        let mut unrelated = decoy(&needle);
+        let decoy_pid = unrelated.id();
+        let pid_file = directory.join("daemon.pid");
+        fs::write(&pid_file, format!("{decoy_pid}\n")).unwrap();
+        let recorded = fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .ok();
+        let mut ours = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let table = snapshot();
+        let mut owned = Owned::default();
+        owned.add_root(ours.id(), &table);
+        owned.extend(&table);
+        assert_eq!(term_target(recorded, &owned, &table, &[]), None);
+        assert_eq!(
+            term_target(Some(ours.id()), &owned, &table, &[]),
+            Some(ours.id())
+        );
+        assert_eq!(
+            term_target(Some(ours.id()), &owned, &table, &[ours.id()]),
+            None
+        );
+        assert!(alive(decoy_pid));
+        let _ = ours.kill();
+        let _ = ours.wait();
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]
