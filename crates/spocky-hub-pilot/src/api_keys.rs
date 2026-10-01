@@ -71,6 +71,11 @@ pub(crate) struct StoredApiKey {
     prefix: String,
     verifier: [u8; 32],
     scopes: BTreeSet<ApiKeyScope>,
+    /// The scopes in the order the key was created with them, duplicates removed, like the
+    /// baseline's `[...new Set(scopes)]`. Keys stored before this field existed have none and
+    /// report their scopes in declaration order.
+    #[serde(default)]
+    scope_order: Vec<ApiKeyScope>,
     sequence: u64,
     #[serde(default)]
     created_at_epoch_seconds: u64,
@@ -92,7 +97,13 @@ impl<S: DurableHubStore> HubPilot<S> {
             return Err(crate::AuthorityError::ManageResourcesRequired.into());
         }
         let name = name.trim();
-        let scopes = scopes.into_iter().collect::<BTreeSet<_>>();
+        let mut scope_order = Vec::new();
+        for scope in scopes {
+            if !scope_order.contains(&scope) {
+                scope_order.push(scope);
+            }
+        }
+        let scopes = scope_order.iter().copied().collect::<BTreeSet<_>>();
         if name.is_empty() || name.len() > 100 || scopes.is_empty() || scopes.len() > 5 {
             return Err(HubError::InvalidApiKeyInput);
         }
@@ -112,6 +123,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             prefix,
             verifier: Sha256::digest(secret.as_bytes()).into(),
             scopes,
+            scope_order,
             sequence: self.state.next_api_key_sequence,
             created_at_epoch_seconds: now,
             last_used_at_epoch_seconds: None,
@@ -187,6 +199,23 @@ impl<S: DurableHubStore> HubPilot<S> {
             return Err(error);
         }
         Ok(ApiKeyAuthorization::Authorized(access))
+    }
+
+    /// The scopes of a key in creation order (JavaScript `Set` insertion order), for callers that
+    /// expose them the way the baseline does. `None` when no such key exists.
+    #[must_use]
+    pub fn api_key_scope_order(&self, id: &str) -> Option<Vec<ApiKeyScope>> {
+        let key = self.state.api_keys.get(id)?;
+        let stored_order_is_current = key.scope_order.len() == key.scopes.len()
+            && key
+                .scope_order
+                .iter()
+                .all(|scope| key.scopes.contains(scope));
+        Some(if stored_order_is_current {
+            key.scope_order.clone()
+        } else {
+            key.scopes.iter().copied().collect()
+        })
     }
 
     pub fn revoke_api_key(
