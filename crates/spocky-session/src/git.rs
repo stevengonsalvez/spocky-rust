@@ -483,8 +483,17 @@ mod tests {
 
     #[tokio::test]
     async fn streaming_stdout_over_the_cap_is_killed_and_resolves_truncated() {
+        /// Removes the repository when the test ends, also on a panic.
+        struct RemoveOnDrop(std::path::PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
         let root = std::env::temp_dir().join(format!("spocky-git-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create repo dir");
+        let _cleanup = RemoveOnDrop(root.clone());
         let git = |args: &[&str]| {
             let status = std::process::Command::new("git")
                 .args(args)
@@ -519,7 +528,6 @@ mod tests {
         )
         .await
         .expect("truncated output resolves");
-        std::fs::remove_dir_all(&root).expect("cleanup");
         assert!(output.truncated);
         assert_eq!(output.stdout.len(), 1024);
         assert_eq!(output.exit_code, None, "killed by SIGKILL, so no exit code");
