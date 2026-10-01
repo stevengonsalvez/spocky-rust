@@ -13,18 +13,27 @@ use serde_json::Value;
 use spocky_contracts::frame::{FrameError, parse_frame};
 use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::json::{JsonValue, js_wire_text};
-use spocky_contracts::request::FetchAgentsRequest;
+use spocky_contracts::number::PositiveInt;
+use spocky_contracts::request::{
+    FetchAgentRequest, FetchAgentTimelineRequest, FetchAgentsRequest, TimelineDirection,
+    WaitForFinishRequest,
+};
 use spocky_contracts::session::SessionInbound;
 use spocky_contracts::text::JsText;
 use spocky_contracts::ws::DaemonPermission;
 use spocky_daemon::session_api::{
     ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SessionSink, SocketId,
 };
-use spocky_session::agent_manager::AgentManager;
+use spocky_session::agent_identity::{StoredAgentRef, resolve_agent_identifier};
+use spocky_session::agent_manager::{
+    AgentLifecycle, AgentManager, ManagedAgentSnapshot, WaitForAgentOptions, WaitForAgentResult,
+};
 use spocky_session::agent_projection::to_agent_payload;
+use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::clock::random_uuid;
 use spocky_session::provisioning::WorkspaceProvisioning;
+use spocky_session::timeline::{FetchDirection, TimelineCursor};
 use spocky_store::registry::{
     PersistedProjectRecord, PersistedWorkspaceRecord, resolve_project_display_name,
     resolve_workspace_display_name,
@@ -74,6 +83,7 @@ impl SessionBackend for DaemonBackend {
             authorization: Arc::new(SessionAuthorization::new(&open.permissions)),
             permissions: open.permissions,
             capabilities: Mutex::new(open.client_capabilities),
+            app_version: Mutex::new(open.app_version),
             sink: open.sink,
             services: Arc::clone(&self.services),
         })
@@ -92,20 +102,22 @@ pub struct DaemonSession {
     authorization: Arc<SessionAuthorization>,
     permissions: Vec<DaemonPermission>,
     capabilities: Mutex<Option<Value>>,
+    app_version: Mutex<Option<String>>,
     sink: Arc<dyn SessionSink>,
     services: Arc<Services>,
 }
 
-impl DaemonSession {
-    /// `supports(CLIENT_CAPS.allProviders)`.
-    fn supports_all_providers(&self) -> bool {
-        self.capabilities
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .and_then(|caps| caps.get("all_providers"))
-            == Some(&Value::Bool(true))
-    }
+fn locked<T: Clone>(value: &Mutex<T>) -> T {
+    value
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+fn set<T>(slot: &Mutex<T>, value: T) {
+    *slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = value;
 }
 
 impl SessionHandle for DaemonSession {
@@ -121,15 +133,17 @@ impl SessionHandle for DaemonSession {
         &self,
         capabilities: Option<&Value>,
         _source: SocketId,
-        _app_version: Option<&str>,
+        app_version: Option<&str>,
     ) {
-        *self
-            .capabilities
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = capabilities.cloned();
+        set(&self.capabilities, capabilities.cloned());
+        if let Some(app_version) = app_version {
+            set(&self.app_version, Some(app_version.to_owned()));
+        }
     }
 
-    fn update_app_version(&self, _app_version: &str) {}
+    fn update_app_version(&self, app_version: &str) {
+        set(&self.app_version, Some(app_version.to_owned()));
+    }
 
     fn handle_message(&self, message: Value, source: SocketId) {
         let Ok(message) = inbound(&message) else {
@@ -139,7 +153,8 @@ impl SessionHandle for DaemonSession {
         let emit: Emit = Arc::new(move |frame| sink.send_to_source(source, &frame));
         let context = Arc::new(RequestContext {
             services: Arc::clone(&self.services),
-            all_providers: self.supports_all_providers(),
+            capabilities: locked(&self.capabilities),
+            app_version: locked(&self.app_version),
         });
         self.services.runtime.spawn(handle_request(
             Arc::clone(&self.authorization),
@@ -173,16 +188,51 @@ impl SessionHandle for DaemonSession {
     fn cleanup(&self) {}
 }
 
-/// What one request's handler can reach.
+/// What one request's handler can reach: the shared services and the
+/// session's client capabilities and app version when the request arrived.
 struct RequestContext {
     services: Arc<Services>,
-    all_providers: bool,
+    capabilities: Option<Value>,
+    app_version: Option<String>,
+}
+
+/// `MIN_VERSION_ALL_PROVIDERS`.
+const MIN_VERSION_ALL_PROVIDERS: [u64; 3] = [0, 1, 45];
+
+/// `isAppVersionAtLeast(appVersion, MIN_VERSION_ALL_PROVIDERS)`: the prerelease
+/// suffix is dropped and missing parts read as 0. A part that is not a number
+/// is `NaN` in the baseline, which is neither greater nor less, so the
+/// comparison moves on.
+fn app_version_at_least(app_version: Option<&str>, min: [u64; 3]) -> bool {
+    let Some(app_version) = app_version.filter(|version| !version.is_empty()) else {
+        return false;
+    };
+    let base = app_version.split('-').next().unwrap_or_default();
+    let parts: Vec<Option<u64>> = base.split('.').map(|part| part.parse().ok()).collect();
+    for (index, minimum) in min.iter().enumerate() {
+        match parts.get(index).copied().unwrap_or(Some(0)) {
+            Some(part) if part > *minimum => return true,
+            Some(part) if part < *minimum => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 impl RequestContext {
+    /// `supports(capability)`: `capabilities[capability] === true`.
+    fn supports(&self, capability: &str) -> bool {
+        self.capabilities
+            .as_ref()
+            .and_then(|caps| caps.get(capability))
+            == Some(&Value::Bool(true))
+    }
+
     /// `isProviderVisibleToClient`.
     fn provider_visible(&self, provider: &str) -> bool {
-        self.all_providers || LEGACY_PROVIDER_IDS.contains(&provider)
+        self.supports("all_providers")
+            || app_version_at_least(self.app_version.as_deref(), MIN_VERSION_ALL_PROVIDERS)
+            || LEGACY_PROVIDER_IDS.contains(&provider)
     }
 }
 
@@ -199,6 +249,12 @@ async fn route(
         }
         SessionInbound::FetchAgents(request) => {
             fetch_agents(&context, request, &emit).await;
+            Ok(())
+        }
+        SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
+        SessionInbound::WaitForFinish(request) => wait_for_finish(&context, request, &emit).await,
+        SessionInbound::FetchAgentTimeline(request) => {
+            fetch_agent_timeline(&context, request, &emit).await;
             Ok(())
         }
         other => Err(JsText::new(&format!(
@@ -218,25 +274,32 @@ fn to_frame(value: JsValue) -> Value {
 
 /// `buildAgentPayload`: `toAgentPayload(agent)` with the stored title and
 /// archive time (`enrichAgentPayload`).
+async fn agent_payload(
+    context: &RequestContext,
+    agent: &ManagedAgentSnapshot,
+) -> Result<JsValue, String> {
+    let mut payload =
+        to_agent_payload(&agent.payload_view(), None).map_err(|error| error.to_string())?;
+    let stored = context.services.storage.get(&agent.id).await;
+    if let JsValue::Object(object) = &mut payload {
+        let field = |key: &str| {
+            stored
+                .as_ref()
+                .and_then(|record| record.get(key))
+                .filter(|value| !matches!(value, JsValue::Null | JsValue::Undefined))
+                .cloned()
+                .unwrap_or(JsValue::Null)
+        };
+        object.insert("title", field("title"));
+        object.insert("archivedAt", field("archivedAt"));
+    }
+    Ok(payload)
+}
+
 async fn live_agent_payloads(context: &RequestContext) -> Result<Vec<JsValue>, String> {
     let mut payloads = Vec::new();
     for agent in context.services.manager.list_agents() {
-        let mut payload =
-            to_agent_payload(&agent.payload_view(), None).map_err(|error| error.to_string())?;
-        let stored = context.services.storage.get(&agent.id).await;
-        if let JsValue::Object(object) = &mut payload {
-            let field = |key: &str| {
-                stored
-                    .as_ref()
-                    .and_then(|record| record.get(key))
-                    .filter(|value| !matches!(value, JsValue::Null | JsValue::Undefined))
-                    .cloned()
-                    .unwrap_or(JsValue::Null)
-            };
-            object.insert("title", field("title"));
-            object.insert("archivedAt", field("archivedAt"));
-        }
-        payloads.push(payload);
+        payloads.push(agent_payload(context, &agent).await?);
     }
     Ok(payloads)
 }
@@ -481,5 +544,508 @@ async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emi
             frame.insert("payload", JsValue::Object(error));
             emit(to_frame(JsValue::Object(frame)));
         }
+    }
+}
+
+/// The error while `buildStoredAgentPayload` (agent-projections.ts) is not
+/// ported: an unloaded stored agent cannot be described yet.
+const STORED_PAYLOAD_NOT_PORTED: &str =
+    "Stored agent payloads are not ported in spocky-daemon-app yet";
+
+fn frame(kind: &str, payload: JsObject) -> Value {
+    let mut frame = JsObject::new();
+    frame.insert("type", JsValue::String(kind.to_owned()));
+    frame.insert("payload", JsValue::Object(payload));
+    to_frame(JsValue::Object(frame))
+}
+
+fn text_or_null(value: Option<&str>) -> JsValue {
+    value.map_or(JsValue::Null, |text| JsValue::String(text.to_owned()))
+}
+
+/// `resolveAgentIdentifier` over the stored records and the live agents.
+async fn resolve_agent(context: &RequestContext, identifier: &str) -> Result<String, String> {
+    let stored = context.services.storage.list().await;
+    let refs: Vec<StoredAgentRef<'_>> = stored
+        .iter()
+        .map(|record| StoredAgentRef {
+            id: record.get("id").and_then(JsValue::as_str).unwrap_or(""),
+            title: record.get("title").and_then(JsValue::as_str),
+            internal: truthy_text(record, "internal"),
+        })
+        .collect();
+    let live: Vec<String> = context
+        .services
+        .manager
+        .list_agents()
+        .into_iter()
+        .map(|agent| agent.id.clone())
+        .collect();
+    let live: Vec<&str> = live.iter().map(String::as_str).collect();
+    resolve_agent_identifier(identifier, &refs, &live)
+}
+
+/// `getAgentPayloadById`: the live payload, else the stored one, when the
+/// client may see its provider.
+async fn agent_payload_by_id(
+    context: &RequestContext,
+    agent_id: &str,
+) -> Result<Option<JsValue>, JsText> {
+    let visible = |payload: &JsValue| {
+        context.provider_visible(
+            payload
+                .get("provider")
+                .and_then(JsValue::as_str)
+                .unwrap_or(""),
+        )
+    };
+    if let Some(agent) = context.services.manager.get_agent(agent_id) {
+        let payload = agent_payload(context, &agent)
+            .await
+            .map_err(|error| JsText::new(&error))?;
+        return Ok(visible(&payload).then_some(payload));
+    }
+    match context.services.storage.get(agent_id).await {
+        Some(record) if !truthy_text(&record, "internal") => {
+            Err(JsText::new(STORED_PAYLOAD_NOT_PORTED))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// `buildProjectPlacementForWorkspaceId`.
+async fn placement_for_workspace(context: &RequestContext, workspace_id: &str) -> JsValue {
+    let workspace = context
+        .services
+        .provisioning
+        .workspaces
+        .lock()
+        .await
+        .get(workspace_id);
+    let Some(workspace) = workspace else {
+        return JsValue::Null;
+    };
+    let project = context
+        .services
+        .provisioning
+        .projects
+        .lock()
+        .await
+        .get(&workspace.project_id);
+    project.map_or(JsValue::Null, |project| {
+        project_placement(&workspace, &project)
+    })
+}
+
+/// `handleFetchAgent`.
+async fn fetch_agent(
+    context: &RequestContext,
+    request: FetchAgentRequest,
+    emit: &Emit,
+) -> Result<(), JsText> {
+    let respond = |agent: JsValue, project: JsValue, error: JsValue| {
+        let mut payload = JsObject::new();
+        payload.insert("requestId", js_text(&request.request_id));
+        payload.insert("agent", agent);
+        payload.insert("project", project);
+        payload.insert("error", error);
+        emit(frame("fetch_agent_response", payload));
+    };
+    let agent_id = match resolve_agent(context, request.agent_id.as_str()).await {
+        Ok(agent_id) => agent_id,
+        Err(error) => {
+            respond(JsValue::Null, JsValue::Null, JsValue::String(error));
+            return Ok(());
+        }
+    };
+    let Some(agent) = agent_payload_by_id(context, &agent_id).await? else {
+        respond(
+            JsValue::Null,
+            JsValue::Null,
+            JsValue::String(format!("Agent not found: {agent_id}")),
+        );
+        return Ok(());
+    };
+    let project = match agent.get("workspaceId").and_then(JsValue::as_str) {
+        Some(workspace_id) if !workspace_id.is_empty() => {
+            placement_for_workspace(context, workspace_id).await
+        }
+        _ => JsValue::Null,
+    };
+    respond(agent, project, JsValue::Null);
+    Ok(())
+}
+
+/// `waitForAgentEvent(agentId, { signal, waitForActive: true })`, aborted
+/// with reason `"timeout"` after `timeout_ms` when that is positive.
+async fn wait_with_timeout(
+    context: &RequestContext,
+    agent_id: &str,
+    timeout_ms: Option<i64>,
+) -> Result<WaitForAgentResult, AgentError> {
+    let controller = AbortController::default();
+    let timeout = timeout_ms.filter(|millis| *millis > 0).map(|millis| {
+        let controller = controller.clone();
+        context.services.runtime.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(
+                u64::try_from(millis).unwrap_or(u64::MAX),
+            ))
+            .await;
+            controller.abort(AbortReason::Value(JsValue::String("timeout".to_owned())));
+        })
+    });
+    let result = context
+        .services
+        .manager
+        .wait_for_agent_event(
+            agent_id,
+            WaitForAgentOptions {
+                signal: Some(controller.signal()),
+                wait_for_active: true,
+            },
+        )
+        .await;
+    if let Some(timeout) = timeout {
+        timeout.abort();
+    }
+    result
+}
+
+/// `resolveWaitForFinishError`.
+fn wait_for_finish_error(status: &str, final_agent: Option<&JsValue>) -> JsValue {
+    if status != "error" {
+        return JsValue::Null;
+    }
+    match final_agent
+        .and_then(|agent| agent.get("lastError"))
+        .and_then(JsValue::as_str)
+    {
+        Some(message) if !spocky_contracts::text::js_trim(message).is_empty() => {
+            JsValue::String(message.to_owned())
+        }
+        _ => JsValue::String("Agent failed".to_owned()),
+    }
+}
+
+/// `handleWaitForFinish`. The request's own abort signal (released or
+/// disconnected requests) arrives with `SessionDelivery`; until then only the
+/// timeout aborts the wait.
+async fn wait_for_finish(
+    context: &RequestContext,
+    request: WaitForFinishRequest,
+    emit: &Emit,
+) -> Result<(), JsText> {
+    let respond = |status: &str, final_agent: JsValue, error: JsValue, last: JsValue| {
+        let mut payload = JsObject::new();
+        payload.insert("requestId", js_text(&request.request_id));
+        payload.insert("status", JsValue::String(status.to_owned()));
+        payload.insert("final", final_agent);
+        payload.insert("error", error);
+        payload.insert("lastMessage", last);
+        emit(frame("wait_for_finish_response", payload));
+    };
+    let agent_id = match resolve_agent(context, request.agent_id.as_str()).await {
+        Ok(agent_id) => agent_id,
+        Err(error) => {
+            respond(
+                "error",
+                JsValue::Null,
+                JsValue::String(error),
+                JsValue::Null,
+            );
+            return Ok(());
+        }
+    };
+    if context.services.manager.get_agent(&agent_id).is_none() {
+        let record = context.services.storage.get(&agent_id).await;
+        return match record {
+            Some(record) if !truthy_text(&record, "internal") => {
+                Err(JsText::new(STORED_PAYLOAD_NOT_PORTED))
+            }
+            _ => {
+                let error = format!("Agent not found: {agent_id}");
+                respond(
+                    "error",
+                    JsValue::Null,
+                    JsValue::String(error),
+                    JsValue::Null,
+                );
+                Ok(())
+            }
+        };
+    }
+    let result =
+        wait_with_timeout(context, &agent_id, request.timeout_ms.map(PositiveInt::get)).await;
+    let disappeared = || JsText::new(&format!("Agent {agent_id} disappeared while waiting"));
+    match result {
+        Ok(result) => {
+            let final_agent = agent_payload_by_id(context, &agent_id)
+                .await?
+                .ok_or_else(disappeared)?;
+            let status = if result.permission.is_some() {
+                "permission"
+            } else if result.status == AgentLifecycle::Error {
+                "error"
+            } else {
+                "idle"
+            };
+            let error = wait_for_finish_error(status, Some(&final_agent));
+            respond(
+                status,
+                final_agent,
+                error,
+                text_or_null(result.last_message.as_deref()),
+            );
+        }
+        Err(error) => {
+            let is_abort =
+                error.name == "AbortError" || error.message.to_lowercase().contains("aborted");
+            let final_agent = agent_payload_by_id(context, &agent_id).await?;
+            if !is_abort {
+                respond(
+                    "error",
+                    final_agent.unwrap_or(JsValue::Null),
+                    JsValue::String(error.message),
+                    JsValue::Null,
+                );
+                return Ok(());
+            }
+            let final_agent = final_agent.ok_or_else(disappeared)?;
+            respond("timeout", final_agent, JsValue::Null, JsValue::Null);
+        }
+    }
+    Ok(())
+}
+
+/// `ensureAgentLoaded` for a live agent. Loading a stored agent resumes it
+/// from persistence, which arrives with the manager's resume port.
+async fn ensure_agent_loaded(
+    context: &RequestContext,
+    agent_id: &str,
+) -> Result<ManagedAgentSnapshot, String> {
+    if let Some(agent) = context.services.manager.get_agent(agent_id) {
+        return Ok(agent);
+    }
+    let Some(record) = context.services.storage.get(agent_id).await else {
+        return Err(format!("Agent not found: {agent_id}"));
+    };
+    let provider = record
+        .get("provider")
+        .and_then(JsValue::as_str)
+        .unwrap_or("");
+    if !context
+        .services
+        .manager
+        .registered_provider_ids()
+        .iter()
+        .any(|id| id == provider)
+    {
+        return Err(format!(
+            "Agent {agent_id} references unavailable provider '{provider}'"
+        ));
+    }
+    Err("Resuming a stored agent is not ported in spocky-daemon-app yet".to_owned())
+}
+
+fn direction_text(direction: FetchDirection) -> JsValue {
+    JsValue::String(direction.as_str().to_owned())
+}
+
+fn cursor_value(epoch: &str, seq: Option<i64>) -> JsValue {
+    #[allow(clippy::cast_precision_loss)]
+    seq.map_or(JsValue::Null, |seq| {
+        let mut cursor = JsObject::new();
+        cursor.insert("epoch", JsValue::String(epoch.to_owned()));
+        cursor.insert("seq", JsValue::Number(seq as f64));
+        JsValue::Object(cursor)
+    })
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn number(value: i64) -> JsValue {
+    JsValue::Number(value as f64)
+}
+
+/// The response `entries`: rows the client can render, each with the agent's
+/// provider, and `reasoning_merge` dropped for clients without
+/// `reasoning_merge_enum`.
+fn timeline_entries(
+    context: &RequestContext,
+    provider: &str,
+    rows: &[spocky_session::timeline::ProjectedRow],
+) -> Vec<JsValue> {
+    let merge_enum = context.supports("reasoning_merge_enum");
+    rows.iter()
+        .filter(|row| match row.item.get("type").and_then(JsValue::as_str) {
+            Some("notification") => context.supports("timeline_notifications"),
+            Some("plugin") => context.supports("plugin_timeline_items"),
+            _ => true,
+        })
+        .map(|row| {
+            let mut entry = JsObject::new();
+            entry.insert("provider", JsValue::String(provider.to_owned()));
+            entry.insert("item", row.item.clone());
+            entry.insert("timestamp", JsValue::String(row.timestamp.clone()));
+            entry.insert("seqStart", number(row.seq_start));
+            entry.insert("seqEnd", number(row.seq_end));
+            let ranges = row
+                .source_seq_ranges
+                .iter()
+                .map(|range| {
+                    let mut value = JsObject::new();
+                    value.insert("startSeq", number(range.start_seq));
+                    value.insert("endSeq", number(range.end_seq));
+                    JsValue::Object(value)
+                })
+                .collect();
+            entry.insert("sourceSeqRanges", JsValue::Array(ranges));
+            // `turnId: undefined` keeps its slot and is assigned after.
+            entry.insert(
+                "turnId",
+                row.turn_id
+                    .as_ref()
+                    .map_or(JsValue::Undefined, |turn| JsValue::String(turn.clone())),
+            );
+            let collapsed = row
+                .collapsed
+                .iter()
+                .map(|kind| kind.as_str())
+                .filter(|kind| merge_enum || *kind != "reasoning_merge")
+                .map(|kind| JsValue::String(kind.to_owned()))
+                .collect();
+            entry.insert("collapsed", JsValue::Array(collapsed));
+            JsValue::Object(entry)
+        })
+        .collect()
+}
+
+/// `handleFetchAgentTimelineRequest`.
+async fn fetch_agent_timeline(
+    context: &RequestContext,
+    request: FetchAgentTimelineRequest,
+    emit: &Emit,
+) {
+    let direction = match request.direction {
+        Some(TimelineDirection::Tail) => FetchDirection::Tail,
+        Some(TimelineDirection::Before) => FetchDirection::Before,
+        Some(TimelineDirection::After) => FetchDirection::After,
+        None => {
+            if request.cursor.is_some() {
+                FetchDirection::After
+            } else {
+                FetchDirection::Tail
+            }
+        }
+    };
+    let limit = request.limit.map_or(
+        if direction == FetchDirection::After {
+            0
+        } else {
+            200
+        },
+        |limit| usize::try_from(limit.get()).unwrap_or(usize::MAX),
+    );
+    let cursor = request.cursor.as_ref().map(|cursor| TimelineCursor {
+        epoch: cursor.epoch.as_str().to_owned(),
+        seq: cursor.seq.get(),
+    });
+    let agent_id = request.agent_id.as_str().to_owned();
+    let mut payload = JsObject::new();
+    payload.insert("requestId", js_text(&request.request_id));
+    payload.insert("agentId", js_text(&request.agent_id));
+    let loaded = async {
+        let snapshot = ensure_agent_loaded(context, &agent_id).await?;
+        let agent = agent_payload(context, &snapshot).await?;
+        let fetched = context
+            .services
+            .manager
+            .fetch_timeline(&agent_id, direction, cursor.as_ref(), Some(limit))
+            .map_err(|error| error.message)?;
+        Ok::<_, String>((snapshot, agent, fetched))
+    }
+    .await;
+    match loaded {
+        Ok((snapshot, agent, fetched)) => {
+            payload.insert("agent", agent);
+            payload.insert("direction", direction_text(direction));
+            payload.insert("projection", JsValue::String("projected".to_owned()));
+            payload.insert("epoch", JsValue::String(fetched.epoch.clone()));
+            payload.insert("reset", JsValue::Bool(fetched.reset));
+            payload.insert("staleCursor", JsValue::Bool(fetched.stale_cursor));
+            payload.insert("gap", JsValue::Bool(fetched.gap));
+            let mut window = JsObject::new();
+            window.insert("minSeq", number(fetched.window.min_seq));
+            window.insert("maxSeq", number(fetched.window.max_seq));
+            window.insert("nextSeq", number(fetched.window.next_seq));
+            payload.insert("window", JsValue::Object(window));
+            payload.insert(
+                "startCursor",
+                cursor_value(&fetched.epoch, fetched.start_seq),
+            );
+            payload.insert("endCursor", cursor_value(&fetched.epoch, fetched.end_seq));
+            payload.insert("hasOlder", JsValue::Bool(fetched.has_older));
+            payload.insert("hasNewer", JsValue::Bool(fetched.has_newer));
+            if request.merge_window == Some(true) {
+                payload.insert("mergeWindow", JsValue::Bool(true));
+            }
+            let entries = timeline_entries(context, &snapshot.provider, &fetched.rows);
+            payload.insert("entries", JsValue::Array(entries));
+            payload.insert("error", JsValue::Null);
+        }
+        Err(error) => {
+            payload.insert("agent", JsValue::Null);
+            payload.insert("direction", direction_text(direction));
+            payload.insert("projection", JsValue::String("projected".to_owned()));
+            payload.insert("epoch", JsValue::String(String::new()));
+            payload.insert("reset", JsValue::Bool(false));
+            payload.insert("staleCursor", JsValue::Bool(false));
+            payload.insert("gap", JsValue::Bool(false));
+            let mut window = JsObject::new();
+            window.insert("minSeq", number(0));
+            window.insert("maxSeq", number(0));
+            window.insert("nextSeq", number(0));
+            payload.insert("window", JsValue::Object(window));
+            payload.insert("startCursor", JsValue::Null);
+            payload.insert("endCursor", JsValue::Null);
+            payload.insert("hasOlder", JsValue::Bool(false));
+            payload.insert("hasNewer", JsValue::Bool(false));
+            if request.merge_window == Some(true) {
+                payload.insert("mergeWindow", JsValue::Bool(true));
+            }
+            payload.insert("entries", JsValue::Array(Vec::new()));
+            payload.insert("error", JsValue::String(error));
+        }
+    }
+    emit(frame("fetch_agent_timeline_response", payload));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MIN_VERSION_ALL_PROVIDERS, app_version_at_least, wait_for_finish_error};
+    use spocky_contracts::js_value::{JsValue, parse};
+
+    #[test]
+    fn app_version_gate_matches_is_app_version_at_least() {
+        let at_least = |version| app_version_at_least(version, MIN_VERSION_ALL_PROVIDERS);
+        assert!(!at_least(None));
+        assert!(!at_least(Some("")));
+        assert!(at_least(Some("0.1.45")));
+        assert!(at_least(Some("0.1.45-beta.4")));
+        assert!(at_least(Some("0.2")));
+        assert!(!at_least(Some("0.1.44")));
+        assert!(at_least(Some("1")));
+    }
+
+    #[test]
+    fn wait_error_uses_last_error_or_agent_failed() {
+        assert_eq!(wait_for_finish_error("idle", None), JsValue::Null);
+        assert_eq!(
+            wait_for_finish_error("error", Some(&parse(r#"{"lastError":"boom"}"#).unwrap())),
+            JsValue::String("boom".to_owned())
+        );
+        assert_eq!(
+            wait_for_finish_error("error", Some(&parse(r#"{"lastError":"  "}"#).unwrap())),
+            JsValue::String("Agent failed".to_owned())
+        );
     }
 }
