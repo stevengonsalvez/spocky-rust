@@ -447,10 +447,19 @@ const hookHandlers = { event: new Map(), before: new Map() };
 const hookRequests = new Map();
 const settings = new Map();
 const connections = new Map();
+const pendingConnections = new Map();
 const paseoRequests = new Map();
 let paseoSequence = 0;
 let settingsDirectory;
 let cleanup;
+let stopping = false;
+
+const lifecycleEventNames = new Set([
+  "agent.created", "agent.turn_started", "agent.turn_ended",
+  "agent.permission_requested", "agent.permission_resolved", "agent.archived",
+  "workspace.created", "workspace.archived",
+]);
+const beforeHookNames = new Set(["agent.create", "agent.session_open", "workspace.create"]);
 
 function send(message) { process.send(message); }
 function describe(error) { return error instanceof Error ? error.message : String(error); }
@@ -590,10 +599,65 @@ function registerSettings(definition) {
 function addHook(kind, name, handler) {
   if (typeof handler !== "function") throw new Error(`Invalid ${kind} hook: ${name}`);
   const normalized = String(name);
+  const supported = kind === "event" ? lifecycleEventNames : beforeHookNames;
+  if (!supported.has(normalized)) {
+    throw new Error(kind === "event" ? `Unknown lifecycle event: ${normalized}` : `Unknown before hook: ${normalized}`);
+  }
   const entries = hookHandlers[kind].get(normalized) ?? new Set();
   entries.add(handler);
   hookHandlers[kind].set(normalized, entries);
-  return () => entries.delete(handler);
+  hooksChanged();
+  return () => {
+    if (!entries.delete(handler)) return;
+    if (entries.size === 0) hookHandlers[kind].delete(normalized);
+    hooksChanged();
+  };
+}
+function hookCatalog() {
+  return { events: [...hookHandlers.event.keys()], before: [...hookHandlers.before.keys()] };
+}
+function hooksChanged() {
+  send({ type: "hooks.changed", hooks: hookCatalog() });
+}
+function assertObject(value, name) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid ${name} hook request`);
+  return value;
+}
+function validateBeforeRequest(name, value) {
+  const request = assertObject(value, name);
+  if (name === "workspace.create") {
+    const source = assertObject(request.source, name);
+    if (source.kind === "directory") {
+      if (typeof source.path !== "string") throw new Error("Invalid workspace.create hook request");
+    } else if (source.kind !== "worktree") {
+      throw new Error("Invalid workspace.create hook request");
+    }
+  } else if (name === "agent.session_open") {
+    if (typeof request.agentId !== "string" ||
+        !(request.workspaceId === null || typeof request.workspaceId === "string") ||
+        typeof request.provider !== "string" || typeof request.cwd !== "string" ||
+        !["create", "resume", "refresh", "import"].includes(request.reason) ||
+        !["interactive", "history"].includes(request.purpose) ||
+        !request.env || typeof request.env !== "object" || Array.isArray(request.env) ||
+        Object.values(request.env).some((item) => typeof item !== "string")) {
+      throw new Error("Invalid agent.session_open hook request");
+    }
+  } else if (name === "agent.create") {
+    const config = assertObject(request.config, name);
+    if (typeof config.cwd !== "string") throw new Error("Invalid agent.create hook request");
+  }
+  return request;
+}
+function validateBeforeResult(name, previous, output) {
+  const next = validateBeforeRequest(name, output);
+  if (name === "agent.session_open" &&
+      ["agentId", "workspaceId", "provider", "cwd", "reason", "purpose"].some((key) => previous[key] !== next[key])) {
+    throw new Error("agent.session_open hooks can only change env");
+  }
+  if (name === "agent.create" && previous.config.cwd !== next.config.cwd) {
+    throw new Error("agent.create hooks cannot change the workspace directory");
+  }
+  return next;
 }
 function paseoRequest(method, input) {
   const requestId = `paseo-${++paseoSequence}`;
@@ -610,7 +674,8 @@ function serverContext() {
     handle: registerHandler,
     registerProvider(provider) {
       const id = validId(provider && provider.id, "plugin provider ID");
-      if (!String(provider.label ?? "").trim() || typeof provider.connect !== "function") {
+      if (!String(provider.label ?? "").trim() || typeof provider.connect !== "function" ||
+          (provider.getCatalogCacheKey !== undefined && typeof provider.getCatalogCacheKey !== "function")) {
         throw new Error(`Invalid plugin provider: ${id}`);
       }
       if (providers.has(id)) throw new Error(`Duplicate plugin provider ID: ${id}`);
@@ -618,8 +683,10 @@ function serverContext() {
     },
     registerUsageSource(source) {
       const id = validId(source && source.id, "usage source ID");
-      if (!String(source.label ?? "").trim() || typeof source.identify !== "function" ||
-          typeof source.fetch !== "function") throw new Error(`Invalid usage source: ${id}`);
+      if (!String(source.label ?? "").trim() || typeof source.fetch !== "function" ||
+          !source.input || typeof source.input.parseAsync !== "function") {
+        throw new Error(`Invalid usage source: ${id}`);
+      }
       if (usageSources.has(id)) throw new Error(`Duplicate usage source: ${id}`);
       usageSources.set(id, source);
     },
@@ -642,12 +709,15 @@ async function initialize(message) {
   send({
     type: "ready",
     methods: [...handlers.keys()].sort(),
-    providers: [...providers.entries()].sort().map(([id, value]) => ({ id, label: value.label })),
+    hooks: hookCatalog(),
+    providers: [...providers.entries()].sort().map(([id, value]) => ({
+      id,
+      label: value.label,
+      description: value.description,
+      iconPath: value.icon,
+      hasCatalogCacheKey: value.getCatalogCacheKey === undefined ? undefined : true,
+    })),
     usageSources: [...usageSources.entries()].sort().map(([id, value]) => ({ id, label: value.label, discover: typeof value.discover === "function" })),
-    hooks: {
-      events: [...hookHandlers.event.keys()].sort(),
-      before: [...hookHandlers.before.keys()].sort(),
-    },
   });
 }
 
@@ -655,13 +725,32 @@ async function invokeHook(message) {
   const controller = new AbortController();
   hookRequests.set(message.requestId, controller);
   try {
-    const registered = [...(hookHandlers[message.kind]?.get(message.name) ?? [])];
-    let output = null;
-    for (const handler of registered) {
-      const current = await handler(message.input, { paseo, signal: controller.signal });
-      if (current !== undefined) output = current;
+    if (message.kind === "before" && !beforeHookNames.has(message.name)) {
+      throw new Error(`Unknown before hook: ${message.name}`);
     }
-    send({ type: "result", requestId: message.requestId, output: jsonValue(output) });
+    const registered = [...(hookHandlers[message.kind]?.get(message.name) ?? [])];
+    if (message.kind === "before") {
+      let request = validateBeforeRequest(message.name, message.input);
+      for (const handler of registered) {
+        controller.signal.throwIfAborted();
+        const current = await handler(
+          { request: structuredClone(request) },
+          { paseo, signal: controller.signal },
+        );
+        if (current !== undefined) request = validateBeforeResult(message.name, request, current);
+      }
+      send({ type: "result", requestId: message.requestId, output: jsonValue(request) });
+      return;
+    }
+    for (const handler of registered) {
+      controller.signal.throwIfAborted();
+      try {
+        await handler(structuredClone(message.input), { paseo, signal: controller.signal });
+      } catch (error) {
+        console.error(`Lifecycle hook ${message.name} failed`, error);
+      }
+    }
+    send({ type: "result", requestId: message.requestId, output: null });
   } catch (error) {
     send({ type: "error", requestId: message.requestId, error: describe(error) });
   } finally {
@@ -670,10 +759,27 @@ async function invokeHook(message) {
 }
 
 async function connectProvider(message) {
+  if (stopping) throw new Error("Plugin is stopping");
   const provider = providers.get(message.providerId);
   if (!provider) throw new Error(`Unknown plugin provider: ${message.providerId}`);
-  if (connections.has(message.connectionId)) throw new Error(`Duplicate provider connection: ${message.connectionId}`);
-  const connection = await provider.connect(message.request);
+  if (connections.has(message.connectionId) || pendingConnections.has(message.connectionId)) {
+    throw new Error(`Duplicate provider connection: ${message.connectionId}`);
+  }
+  const pending = { tombstoned: false };
+  pendingConnections.set(message.connectionId, pending);
+  let connection;
+  try {
+    connection = await provider.connect(message.request);
+  } catch (error) {
+    pendingConnections.delete(message.connectionId);
+    if (pending.tombstoned || stopping) return;
+    throw error;
+  }
+  pendingConnections.delete(message.connectionId);
+  if (pending.tombstoned || stopping) {
+    await connection.close().catch(() => undefined);
+    return;
+  }
   let unsubscribe = () => {};
   unsubscribe = connection.onEvent((event) => {
     try {
@@ -697,19 +803,33 @@ async function connectProvider(message) {
 async function closeProvider(connectionId) {
   const current = connections.get(connectionId);
   if (!current) return;
-  connections.delete(connectionId);
-  current.unsubscribe();
-  try {
-    await current.connection.close();
-    send({ type: "provider.closed", connectionId });
-  } catch (error) {
-    send({ type: "provider.closed", connectionId, error: describe(error) });
-  }
+  if (current.closing) return current.closing;
+  const closing = (async () => {
+    current.unsubscribe();
+    try {
+      await current.connection.close();
+      send({ type: "provider.closed", connectionId });
+    } catch (error) {
+      send({ type: "provider.closed", connectionId, error: describe(error) });
+    } finally {
+      connections.delete(connectionId);
+    }
+  })();
+  current.closing = closing;
+  return closing;
 }
 
 process.on("message", (message) => {
   void (async () => {
     if (message.type === "initialize") return initialize(message);
+    if (message.type === "provider.catalog_key") {
+      const provider = providers.get(message.providerId);
+      if (!provider) throw new Error(`Unknown provider: ${message.providerId}`);
+      const output = await provider.getCatalogCacheKey?.(message.options);
+      if (output !== undefined && typeof output !== "string") throw new Error("Invalid catalogue key");
+      send({ type: "result", requestId: message.requestId, output });
+      return;
+    }
     if (message.type === "invoke") {
       const registered = handlers.get(message.method);
       if (!registered) throw new Error(`Unknown RPC method: ${message.method}`);
@@ -732,6 +852,7 @@ process.on("message", (message) => {
       try {
         await connectProvider(message);
       } catch (error) {
+        if (stopping) return;
         send({ type: "provider.connect_failed", connectionId: message.connectionId, error: describe(error) });
       }
       return;
@@ -739,10 +860,12 @@ process.on("message", (message) => {
     if (message.type === "provider.send") {
       const current = connections.get(message.connectionId);
       if (!current) throw new Error(`Unknown provider connection: ${message.connectionId}`);
+      if (current.closing) throw new Error("Provider connection is closing");
       try {
         await current.connection.send(message.input);
         send({ type: "provider.accepted", connectionId: message.connectionId, acceptanceId: message.acceptanceId });
       } catch (error) {
+        if (stopping) return;
         send({ type: "provider.rejected", connectionId: message.connectionId, acceptanceId: message.acceptanceId, error: describe(error) });
       }
       return;
@@ -774,8 +897,13 @@ process.on("message", (message) => {
       return;
     }
     if (message.type === "shutdown") {
-      for (const connectionId of [...connections.keys()]) await closeProvider(connectionId);
+      stopping = true;
+      for (const controller of hookRequests.values()) controller.abort();
+      hookHandlers.event.clear();
+      hookHandlers.before.clear();
+      for (const pending of pendingConnections.values()) pending.tombstoned = true;
       await cleanup?.();
+      await Promise.all([...connections.keys()].map(closeProvider));
       send({ type: "paseo_close" });
       process.disconnect();
       return;
@@ -1599,10 +1727,38 @@ fn exchange_runtime(
     let initialize = serde_json::to_string(initialize)?;
     writeln!(stdin, "{initialize}")?;
     stdin.flush()?;
-    let ready_line = receiver
-        .recv_timeout(timeout)
-        .map_err(|_| PluginError::RuntimeTimedOut)??;
-    let ready: ReadyMessage = serde_json::from_str(&ready_line)?;
+    let mut traffic = vec![RuntimeTraffic {
+        direction: "host_to_plugin",
+        message: initialize.clone(),
+    }];
+    let ready = loop {
+        let line = receiver
+            .recv_timeout(timeout)
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => PluginError::RuntimeTimedOut,
+                mpsc::RecvTimeoutError::Disconnected => PluginError::RuntimeProtocol,
+            })??;
+        traffic.push(RuntimeTraffic {
+            direction: "plugin_to_host",
+            message: line.clone(),
+        });
+        let message: serde_json::Value = serde_json::from_str(&line)?;
+        match message.get("type").and_then(serde_json::Value::as_str) {
+            Some("hooks.changed") => {
+                decode_process_message(&line).map_err(|_| PluginError::RuntimeProtocol)?;
+            }
+            Some("ready") => break serde_json::from_str::<ReadyMessage>(&line)?,
+            Some("fatal") => {
+                let error = message
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Plugin initialization failed")
+                    .to_owned();
+                return Err(PluginError::RuntimeFatal(error));
+            }
+            _ => return Err(PluginError::RuntimeProtocol),
+        }
+    };
     if ready.r#type != "ready" {
         return Err(PluginError::RuntimeProtocol);
     }
@@ -1626,16 +1782,6 @@ fn exchange_runtime(
     );
     contributions.extend(ready.hooks.events.into_iter().map(Contribution::HookEvent));
     contributions.extend(ready.hooks.before.into_iter().map(Contribution::HookBefore));
-    let mut traffic = vec![
-        RuntimeTraffic {
-            direction: "host_to_plugin",
-            message: initialize.clone(),
-        },
-        RuntimeTraffic {
-            direction: "plugin_to_host",
-            message: ready_line,
-        },
-    ];
     let invocation_output = perform_invocation(
         stdin,
         &receiver,
@@ -1698,7 +1844,10 @@ fn perform_protocol_steps(
             RuntimeProtocolStep::Receive(expected) => {
                 let encoded = receiver
                     .recv_timeout(timeout)
-                    .map_err(|_| PluginError::RuntimeTimedOut)??;
+                    .map_err(|error| match error {
+                        mpsc::RecvTimeoutError::Timeout => PluginError::RuntimeTimedOut,
+                        mpsc::RecvTimeoutError::Disconnected => PluginError::RuntimeProtocol,
+                    })??;
                 let actual =
                     decode_process_message(&encoded).map_err(|_| PluginError::RuntimeProtocol)?;
                 traffic.push(RuntimeTraffic {

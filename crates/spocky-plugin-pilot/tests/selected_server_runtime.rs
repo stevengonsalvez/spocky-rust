@@ -17,7 +17,13 @@ const SERVER_BUNDLE: &str = r#"(function(require) {
     server.on("agent.created", () => {});
     server.before("agent.create", () => {});
     server.registerProvider({ id: "direct", label: "Direct", connect() {} });
-    server.registerUsageSource({ id: "credits", label: "Credits", input: {}, identify() {}, fetch() {} });
+    server.registerUsageSource({
+      id: "credits",
+      label: "Credits",
+      input: { async parseAsync(value) { return value; } },
+      identify() {},
+      fetch() {},
+    });
     return () => {};
   } };
 })"#;
@@ -38,8 +44,8 @@ const FULL_SERVER_BUNDLE: &str = r#"(function(require) {
     }));
     server.handle(defineRpc({ name: "daemon.sessions", input: {}, output: {} }), async (_, { paseo }) =>
       paseo.sessions.list({ limit: 2 }));
-    server.on("session.created", (input) => ({ observed: input.id }));
-    server.before("session.prompt", async (_input, { signal }) =>
+    server.on("workspace.created", (input) => { globalThis.lastWorkspace = input.workspace.id; });
+    server.before("workspace.create", async (_input, { signal }) =>
       new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("cancelled")))));
     server.registerUsageSource({
       id: "credits",
@@ -551,15 +557,15 @@ fn selected_wrapper_routes_headless_plugin_contracts_and_persists_settings() {
         RuntimeProtocolStep::Send(PluginProcessRequest::Hook {
             request_id: "event-hook".into(),
             kind: HookKind::Event,
-            name: "session.created".into(),
-            input: json!({"id":"session-1"}),
+            name: "workspace.created".into(),
+            input: json!({"workspace":{"id":"workspace-1"}}),
         }),
-        result("event-hook", json!({"observed":"session-1"})),
+        result("event-hook", json!(null)),
         RuntimeProtocolStep::Send(PluginProcessRequest::Hook {
             request_id: "before-hook".into(),
             kind: HookKind::Before,
-            name: "session.prompt".into(),
-            input: json!({}),
+            name: "workspace.create".into(),
+            input: json!({"source":{"kind":"directory","path":"/project"}}),
         }),
         RuntimeProtocolStep::Send(PluginProcessRequest::HookCancel {
             request_id: "before-hook".into(),
