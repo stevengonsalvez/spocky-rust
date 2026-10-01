@@ -15,6 +15,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
+use spocky_contracts::js::truthy;
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_provider_codex::launch::{CODEX_NOT_FOUND_MESSAGE, resolve_launch_prefix};
 use spocky_provider_codex::{
@@ -27,7 +28,6 @@ use spocky_session::agent_sdk::{
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
     FetchCatalogOptions, ProviderRefreshContext, StreamCallback, Unsubscribe,
 };
-use spocky_session::js::truthy;
 
 const CODEX: &str = "codex";
 
