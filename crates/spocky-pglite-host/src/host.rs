@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread::{self, JoinHandle};
 
 use serde::{Deserialize, Serialize};
@@ -146,38 +146,37 @@ pub struct PgliteHost {
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
-/// Package root plus every engine option, so hosts that ask for different
+/// Package root plus the engine options, so hosts that ask for different
 /// engine settings never share a compiled engine.
-type CompiledKey = (PathBuf, usize, Option<PathBuf>);
+type CompiledKey = (PathBuf, EngineOptions);
 
 fn compiled_key(package_root: &Path, options: &EngineOptions) -> CompiledKey {
-    (
-        package_root.to_path_buf(),
-        options.max_wasm_stack,
-        options.cache_directory.clone(),
-    )
+    (package_root.to_path_buf(), options.clone())
 }
 
 fn compiled_for(
     package_root: &Path,
     options: &EngineOptions,
 ) -> Result<Arc<Compiled>, PgliteHostError> {
-    static CACHE: OnceLock<Mutex<HashMap<CompiledKey, Arc<Compiled>>>> = OnceLock::new();
+    // Weak entries: the engine, and its epoch ticker, end with the last host
+    // that uses it.
+    static CACHE: OnceLock<Mutex<HashMap<CompiledKey, Weak<Compiled>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache
         .lock()
         .map_err(|_| PgliteHostError::Startup("compile cache poisoned".into()))?;
     let key = compiled_key(package_root, options);
-    if let Some(compiled) = cache.get(&key) {
-        return Ok(Arc::clone(compiled));
+    if let Some(compiled) = cache.get(&key).and_then(Weak::upgrade) {
+        return Ok(compiled);
     }
+    cache.retain(|_, compiled| compiled.strong_count() > 0);
     let package = PinnedPackage::load(package_root)
         .map_err(|error| PgliteHostError::Startup(error.to_string()))?;
     let compiled = Arc::new(
         Compiled::new(Arc::new(package), options)
             .map_err(|error| PgliteHostError::Startup(format!("{error:?}")))?,
     );
-    cache.insert(key, Arc::clone(&compiled));
+    cache.insert(key, Arc::downgrade(&compiled));
     Ok(compiled)
 }
 
