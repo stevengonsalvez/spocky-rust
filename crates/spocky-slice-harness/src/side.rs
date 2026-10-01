@@ -26,6 +26,18 @@ const STOP_GRACE: Duration = Duration::from_secs(30);
 const KILL_GRACE: Duration = Duration::from_secs(5);
 const FIXTURE_DATE: &str = "2020-01-02T03:04:05Z";
 
+/// macOS seatbelt wrapper used for every daemon and CLI process of a side.
+pub const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
+/// Seatbelt profile: everything the pinned programs need is allowed except
+/// outbound IP connections to anything but loopback. Inherited by every
+/// descendant (the codex app-server, git, shells). A denied connect fails
+/// with `EPERM` and the kernel logs `Sandbox: <name>(<pid>) deny(1)
+/// network-outbound`, which [`egress_violations`] turns into a gate failure.
+pub const EGRESS_PROFILE: &str = "(version 1)(allow default)\
+(deny network-outbound (remote ip \"*:*\"))\
+(allow network-outbound (remote ip \"localhost:*\"))";
+
 /// Which daemon a side runs. The client is always the pinned Paseo CLI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -230,6 +242,9 @@ pub struct SideRun {
     pub survivors: Vec<u32>,
     /// Harness failures that prevented a complete capture.
     pub harness_errors: Vec<String>,
+    /// Every PID observed on this side (daemon tree, CLI steps, codex
+    /// invocations, root-path scans); used for the egress check.
+    pub observed_pids: Vec<u32>,
 }
 
 fn now_ms() -> u64 {
@@ -264,6 +279,15 @@ const PIPE_GRACE: Duration = Duration::from_secs(5);
 /// if a leftover group member keeps a pipe open past [`PIPE_GRACE`], the group
 /// is killed and the result is [`Exit::PipesHeld`], which fails every check.
 fn run_bounded(command: &mut Command, timeout: Duration) -> (Vec<u8>, Vec<u8>, Exit) {
+    run_tracked(command, timeout, &mut Vec::new())
+}
+
+/// [`run_bounded`], also recording the spawned PID in `pids`.
+fn run_tracked(
+    command: &mut Command,
+    timeout: Duration,
+    pids: &mut Vec<u32>,
+) -> (Vec<u8>, Vec<u8>, Exit) {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -278,6 +302,7 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> (Vec<u8>, Vec<u8>, E
         Err(error) => return (Vec::new(), Vec::new(), Exit::NotRun(error.to_string())),
     };
     let group = child.id();
+    pids.push(group);
     let stdout = drain(child.stdout.take());
     let stderr = drain(child.stderr.take());
     let started = Instant::now();
@@ -446,6 +471,7 @@ pub fn codex_wrapper_script(io_dir: &str, codex: &str) -> String {
          io={io}\n\
          n=1\n\
          while ! mkdir \"$io/$n\" 2>/dev/null; do n=$((n + 1)); done\n\
+         printf '%s\\n' \"$$\" >\"$io/$n/pid\"\n\
          for arg in \"$@\"; do printf '%s\\n' \"$arg\"; done >\"$io/$n/argv\"\n\
          mkfifo \"$io/$n/fifo\" || exit 98\n\
          exec 3<&0\n\
@@ -643,6 +669,64 @@ fn process_tree(root_pid: u32) -> Vec<u32> {
         index += 1;
     }
     tree
+}
+
+/// PIDs every codex invocation recorded through the wrapper (`exec` keeps it).
+fn codex_pids(layout: &Layout) -> Vec<u32> {
+    let Ok(entries) = fs::read_dir(layout.path("codex-io")) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| fs::read_to_string(entry.ok()?.path().join("pid")).ok())
+        .filter_map(|text| text.trim().parse::<u32>().ok())
+        .collect()
+}
+
+/// Adds the daemon tree and every process mentioning the root to `pids`.
+fn observe_pids(pids: &mut Vec<u32>, daemon_pid: Option<u32>, root: &str) {
+    let tree = daemon_pid.map(process_tree).unwrap_or_default();
+    for pid in tree.into_iter().chain(processes_mentioning(root)) {
+        if !pids.contains(&pid) {
+            pids.push(pid);
+        }
+    }
+}
+
+/// Kernel sandbox denials of outbound connections by any of `pids` within
+/// the last `window`. Each returned line fails the gate.
+#[must_use]
+pub fn egress_violations(window: Duration, pids: &[u32]) -> Vec<String> {
+    let (stdout, stderr, exit) = run_bounded(
+        Command::new("/usr/bin/log").args([
+            "show",
+            "--last",
+            &format!("{}s", window.as_secs().max(1)),
+            "--style",
+            "compact",
+            "--predicate",
+            "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"network-outbound\"",
+        ]),
+        Duration::from_secs(120),
+    );
+    if exit != Exit::Code(0) {
+        return vec![format!(
+            "egress check could not read the kernel log: {} {}",
+            exit.render(),
+            String::from_utf8_lossy(&stderr)
+        )];
+    }
+    String::from_utf8_lossy(&stdout)
+        .lines()
+        .filter(|line| {
+            line.split("Sandbox: ").nth(1).is_some_and(|rest| {
+                rest.split_once(") deny")
+                    .and_then(|(head, _)| head.rsplit_once('('))
+                    .and_then(|(_, pid)| pid.parse::<u32>().ok())
+                    .is_some_and(|pid| pids.contains(&pid))
+            })
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// PIDs of this user's processes whose arguments or environment contain
@@ -897,8 +981,10 @@ fn cli_command(
     environment: &BTreeMap<String, String>,
     argv: &[String],
 ) -> Command {
-    let mut command = Command::new(tools.paseo_root.join("packages/cli/bin/paseo"));
+    let mut command = Command::new(SANDBOX_EXEC);
     command
+        .args(["-p", EGRESS_PROFILE])
+        .arg(tools.paseo_root.join("packages/cli/bin/paseo"))
         .args(argv)
         .current_dir(layout.path("project"))
         .env_clear()
@@ -978,7 +1064,7 @@ fn run_in_layout(
     fs::write(layout.path("paseo-home/config.json"), config).map_err(|error| error.to_string())?;
 
     let environment = side_environment(layout, tools);
-    let program: Vec<String> = match kind {
+    let unsandboxed: Vec<String> = match kind {
         DaemonKind::Original => vec![
             tools.node_bin.join("node").display().to_string(),
             tools
@@ -994,6 +1080,11 @@ fn run_in_layout(
             None => return Err("spocky side requested without --spocky-daemon".into()),
         },
     };
+    let program: Vec<String> = [SANDBOX_EXEC, "-p", EGRESS_PROFILE]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(unsandboxed)
+        .collect();
     let session = format!("{OWNED_PREFIX}{}-{}-{}", gate.id, kind.label(), now_ms());
     fs::write(
         layout.path("launch.sh"),
@@ -1049,6 +1140,7 @@ fn run_in_layout(
             .unwrap_or_default(),
     );
 
+    let mut pids: Vec<u32> = daemon_pid.into_iter().collect();
     let mut readiness_attempts = 0;
     let ready_started = Instant::now();
     let readiness = loop {
@@ -1057,8 +1149,11 @@ fn run_in_layout(
         let left = READY_TIMEOUT
             .saturating_sub(ready_started.elapsed())
             .clamp(Duration::from_secs(1), Duration::from_secs(30));
-        let (stdout, stderr, exit) =
-            run_bounded(&mut cli_command(tools, layout, &environment, &argv), left);
+        let (stdout, stderr, exit) = run_tracked(
+            &mut cli_command(tools, layout, &environment, &argv),
+            left,
+            &mut pids,
+        );
         let attempt = StepRun {
             name: "ready".into(),
             argv,
@@ -1076,6 +1171,7 @@ fn run_in_layout(
         thread::sleep(READY_INTERVAL);
     };
 
+    observe_pids(&mut pids, daemon_pid, &layout.text(""));
     let mut captured: BTreeMap<&'static str, String> = BTreeMap::new();
     captured.insert("project", layout.text("project"));
     let mut steps = Vec::new();
@@ -1091,10 +1187,12 @@ fn run_in_layout(
                 continue;
             }
         };
-        let (stdout, stderr, exit) = run_bounded(
+        let (stdout, stderr, exit) = run_tracked(
             &mut cli_command(tools, layout, &environment, &argv),
             STEP_TIMEOUT,
+            &mut pids,
         );
+        observe_pids(&mut pids, daemon_pid, &layout.text(""));
         if let Some((key, pointer)) = step.capture
             && let Some(Value::String(value)) = serde_json::from_slice::<Value>(&stdout)
                 .ok()
@@ -1112,6 +1210,7 @@ fn run_in_layout(
         });
     }
 
+    observe_pids(&mut pids, daemon_pid, &layout.text(""));
     let (force_killed, survivors) = stop_daemon(
         layout,
         &session,
@@ -1128,6 +1227,18 @@ fn run_in_layout(
         );
     let stub_port = stub.port;
     drop(stub);
+    for pid in codex_pids(layout) {
+        if !pids.contains(&pid) {
+            pids.push(pid);
+        }
+    }
+    // Let the kernel log flush, then fail on any denied outbound connect.
+    thread::sleep(Duration::from_secs(2));
+    let window =
+        Duration::from_millis(now_ms().saturating_sub(window_start_ms)) + Duration::from_secs(30);
+    for violation in egress_violations(window, &pids) {
+        errors.push(format!("non-loopback egress attempt: {violation}"));
+    }
 
     let records = stub_records(layout);
     let mut stub_scripted = 0;
@@ -1165,6 +1276,7 @@ fn run_in_layout(
         force_killed,
         survivors,
         harness_errors: errors,
+        observed_pids: pids,
     };
     write_raw(&side, &side_evidence);
     Ok(side)
@@ -1377,6 +1489,49 @@ mod tests {
     }
 
     #[test]
+    fn non_loopback_connect_is_blocked_and_detected_but_loopback_is_not() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port().to_string();
+        let mut pids = Vec::new();
+        let (_, _, loopback) = run_tracked(
+            Command::new(SANDBOX_EXEC).args([
+                "-p",
+                EGRESS_PROFILE,
+                "/usr/bin/nc",
+                "-z",
+                "-w",
+                "3",
+                "127.0.0.1",
+                &port,
+            ]),
+            Duration::from_secs(20),
+            &mut pids,
+        );
+        assert_eq!(loopback, Exit::Code(0));
+        let loopback_pid = pids[0];
+        let (_, _, outbound) = run_tracked(
+            Command::new(SANDBOX_EXEC).args([
+                "-p",
+                EGRESS_PROFILE,
+                "/usr/bin/nc",
+                "-z",
+                "-w",
+                "3",
+                "192.0.2.1",
+                "443",
+            ]),
+            Duration::from_secs(20),
+            &mut pids,
+        );
+        assert_ne!(outbound, Exit::Code(0));
+        let outbound_pid = pids[1];
+        assert!(wait_until(Duration::from_secs(30), || {
+            !egress_violations(Duration::from_secs(120), &[outbound_pid]).is_empty()
+        }));
+        assert!(egress_violations(Duration::from_secs(120), &[loopback_pid]).is_empty());
+    }
+
+    #[test]
     fn special_files_are_never_opened() {
         let directory = scratch(line!());
         let layout = Layout {
@@ -1566,6 +1721,7 @@ mod tests {
             force_killed: Vec::new(),
             survivors: Vec::new(),
             harness_errors: Vec::new(),
+            observed_pids: Vec::new(),
         }
     }
 
