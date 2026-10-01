@@ -4,6 +4,7 @@
 
 pub mod agent_identity;
 pub mod agent_projection;
+pub mod agent_sdk;
 pub mod checkout;
 pub mod clock;
 pub mod git;
