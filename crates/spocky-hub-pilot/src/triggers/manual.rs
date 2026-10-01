@@ -442,15 +442,27 @@ pub enum AuthOutcome {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DispatchedRun {
+    pub delivery_key: String,
+    pub provider_event_receipt_id: String,
+    pub trigger_run_id: String,
+    pub configured_trigger_name: String,
+    pub workflow_status: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ManualRunResult {
-    Dispatched(Value),
+    Dispatched(DispatchedRun),
     ProjectNotFound,
     ActorForbidden,
     DaemonOffline,
     ExpectedConfigurationNotCurrent,
     ConfigurationNotFound,
     TriggerNotFound,
-    InvalidInput,
+    /// The run was created but rejected the submitted input; the issue list is empty here.
+    InvalidInput {
+        trigger_run_id: String,
+    },
     DispatchConflict,
     InfrastructureUnavailable,
 }
@@ -458,60 +470,175 @@ pub enum ManualRunResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicResponse {
     pub status: u16,
-    pub code: Option<&'static str>,
     pub content_type: &'static str,
     pub www_authenticate: Option<&'static str>,
-    pub body: Option<Value>,
+    /// Response bytes, key order included.
+    pub body: String,
 }
 
-fn problem(status: u16, code: &'static str) -> PublicResponse {
+const MANUAL_RUN_SCOPE: &str = "runs:dispatch";
+
+fn quoted(text: &str) -> String {
+    serde_json::to_string(text).unwrap_or_default()
+}
+
+fn problem(
+    request_id: &str,
+    status: u16,
+    code: &str,
+    title: &str,
+    detail: &str,
+    with_empty_issues: bool,
+) -> PublicResponse {
+    let issues = if with_empty_issues {
+        ",\"issues\":[]"
+    } else {
+        ""
+    };
     PublicResponse {
         status,
-        code: Some(code),
         content_type: "application/problem+json",
         www_authenticate: (status == 401).then_some("Bearer"),
-        body: None,
+        body: format!(
+            "{{\"type\":{},\"title\":{},\"status\":{status},\"detail\":{},\"code\":{},\"requestId\":{}{issues}}}",
+            quoted(&format!(
+                "https://paseo.sh/problems/{}",
+                code.replace('_', "-")
+            )),
+            quoted(title),
+            quoted(detail),
+            quoted(code),
+            quoted(request_id),
+        ),
     }
 }
 
-/// Maps one `POST /api/v1/manual-runs` exchange to its HTTP outcome.
+/// Maps one `POST /api/v1/manual-runs` exchange to its HTTP response, body bytes included.
 ///
 /// Not modelled: request schema validation issues; the body is assumed schema-valid once it is
 /// JSON with a JSON content type.
 #[must_use]
 pub fn public_manual_run(
     auth: AuthOutcome,
+    request_id: &str,
     content_type: Option<&str>,
     body: &[u8],
     result: &ManualRunResult,
 ) -> PublicResponse {
+    let fail =
+        |status, code, title, detail: &str| problem(request_id, status, code, title, detail, false);
     match auth {
-        AuthOutcome::Unavailable => return problem(503, "authentication_unavailable"),
-        AuthOutcome::Unauthorized => return problem(401, "unauthorized"),
-        AuthOutcome::Forbidden => return problem(403, "insufficient_scope"),
+        AuthOutcome::Unavailable => {
+            return fail(
+                503,
+                "authentication_unavailable",
+                "Authentication unavailable",
+                "Bearer-credential authentication is currently unavailable. Retry the request later.",
+            );
+        }
+        AuthOutcome::Unauthorized => {
+            return fail(
+                401,
+                "unauthorized",
+                "Authentication required",
+                "Provide an active Paseo organization credential in the Authorization: Bearer header.",
+            );
+        }
+        AuthOutcome::Forbidden => {
+            return fail(
+                403,
+                "insufficient_scope",
+                "Insufficient scope",
+                &format!("This operation requires the {MANUAL_RUN_SCOPE} scope."),
+            );
+        }
         AuthOutcome::Authorized => {}
     }
     let json_content =
         content_type.is_some_and(|value| value.to_ascii_lowercase().contains("application/json"));
     if !json_content || serde_json::from_slice::<Value>(body).is_err() {
-        return problem(400, "invalid_json");
+        return fail(
+            400,
+            "invalid_json",
+            "Invalid JSON",
+            "Send a JSON request body using Content-Type: application/json.",
+        );
     }
+    result_response(request_id, result)
+}
+
+fn result_response(request_id: &str, result: &ManualRunResult) -> PublicResponse {
+    let fail =
+        |status, code, title, detail: &str| problem(request_id, status, code, title, detail, false);
     match result {
-        ManualRunResult::Dispatched(value) => PublicResponse {
+        ManualRunResult::Dispatched(run) => PublicResponse {
             status: 200,
-            code: None,
             content_type: "application/json",
             www_authenticate: None,
-            body: Some(value.clone()),
+            body: format!(
+                "{{\"deliveryKey\":{},\"providerEventReceiptId\":{},\"triggerRunId\":{},\"configuredTriggerName\":{},\"workflowStatus\":{}}}",
+                quoted(&run.delivery_key),
+                quoted(&run.provider_event_receipt_id),
+                quoted(&run.trigger_run_id),
+                quoted(&run.configured_trigger_name),
+                quoted(&run.workflow_status),
+            ),
         },
-        ManualRunResult::ProjectNotFound => problem(404, "project_not_found"),
-        ManualRunResult::ActorForbidden => problem(403, "actor_forbidden"),
-        ManualRunResult::ConfigurationNotFound => problem(404, "configuration_not_found"),
-        ManualRunResult::TriggerNotFound => problem(404, "trigger_not_found"),
-        ManualRunResult::ExpectedConfigurationNotCurrent => problem(409, "configuration_changed"),
-        ManualRunResult::DaemonOffline => problem(409, "daemon_offline"),
-        ManualRunResult::InvalidInput => problem(400, "invalid_input"),
-        ManualRunResult::DispatchConflict => problem(409, "dispatch_conflict"),
-        ManualRunResult::InfrastructureUnavailable => problem(503, "infrastructure_unavailable"),
+        ManualRunResult::ProjectNotFound => fail(
+            404,
+            "project_not_found",
+            "Project not found",
+            "No active project with that slug exists in the credential's organization.",
+        ),
+        ManualRunResult::ActorForbidden => fail(
+            403,
+            "actor_forbidden",
+            "Actor forbidden",
+            "The configured manual trigger does not allow this actor.",
+        ),
+        ManualRunResult::ConfigurationNotFound => fail(
+            404,
+            "configuration_not_found",
+            "Configuration not found",
+            "The requested configuration revision is not available.",
+        ),
+        ManualRunResult::TriggerNotFound => fail(
+            404,
+            "trigger_not_found",
+            "Trigger not found",
+            "The active configuration has no matching manual trigger.",
+        ),
+        ManualRunResult::ExpectedConfigurationNotCurrent => fail(
+            409,
+            "configuration_changed",
+            "Configuration changed",
+            "expectedVersionId is not the configuration version selected for this delivery.",
+        ),
+        ManualRunResult::DaemonOffline => fail(
+            409,
+            "daemon_offline",
+            "Daemon offline",
+            "The selected daemon is not connected. Reconnect it before retrying.",
+        ),
+        ManualRunResult::InvalidInput { trigger_run_id } => problem(
+            request_id,
+            400,
+            "invalid_input",
+            "Invalid trigger input",
+            &format!("Run {trigger_run_id} rejected the submitted input."),
+            true,
+        ),
+        ManualRunResult::DispatchConflict => fail(
+            409,
+            "dispatch_conflict",
+            "Run not dispatched",
+            "The durable event exists but no matching run is available yet. Retry with the same deliveryKey.",
+        ),
+        ManualRunResult::InfrastructureUnavailable => fail(
+            503,
+            "infrastructure_unavailable",
+            "Service unavailable",
+            "The operation could not reach durable storage. Retry the request later.",
+        ),
     }
 }
