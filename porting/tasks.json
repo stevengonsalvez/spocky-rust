@@ -244,7 +244,7 @@
       "dependencies": [],
       "priority": 1,
       "state": "done",
-      "owner": "Sol lead",
+      "owner": "Sol lead; range 7193135..3447a5f incl egress-deny fix 9aecef1 queued with the integration reviewer 2026-10-01",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust",
       "branch": "main",
       "permittedPaths": ["PORTING.md", "crates/spocky-baseline/", "evidence/phase1/", "porting/"],
@@ -1050,7 +1050,7 @@
       ],
       "priority": 4,
       "state": "implementing",
-      "owner": "claude-opus-5-5 high, terminal term_9bd878de, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-terminal, launched 2026-10-01 into the slot of retired p2_hub_triggers_followups; step 1 is evidence/phase4/terminal-emulator-decision.md (@xterm/headless snapshot corpus versus candidate Rust emulators) ending DECISION NEEDED: emulator, decided by the lead (faithful xterm buffer port or interim Node host exception); PTY, coalescer, backpressure, and size ownership proceed in parallel",
+      "owner": "claude-opus-5-5 high, terminal term_9bd878de, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-terminal, launched 2026-10-01 into the slot of retired p2_hub_triggers_followups; step 1 is evidence/phase4/terminal-emulator-decision.md (@xterm/headless snapshot corpus versus candidate Rust emulators) ending DECISION NEEDED: emulator, decided by the lead (faithful xterm buffer port or interim Node host exception); PTY, coalescer, backpressure, and size ownership proceed in parallel; EMULATOR DECISION 2026-10-01 (coordinator authority, memo evidence/phase4/terminal-emulator-decision.md: vt100 0.16.2 matched only 6 of 16 corpus scenarios): faithful MIT port of @xterm/headless 6.0.0 core in lane p4_xterm_core, no interim Node host; p4_terminal keeps PTY lifecycle, coalescer, backpressure, size ownership, worker protocol, snapshot extraction and restore, and consumes spocky-xterm; scripts/phase4/terminal-emulator-eval stays out of the Spocky lockfile",
       "permittedPaths": [
         "crates/spocky-terminal/",
         "scripts/phase4/terminal-*",
@@ -1078,8 +1078,8 @@
         "DLIF-001 lifecycle pilot on main"
       ],
       "priority": 4,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches",
+      "state": "implementing",
+      "owner": "claude-opus-5-5 high, terminal term_a736f5ad, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-provider-claude, launched 2026-10-01; paths crates/spocky-provider-claude/, scripts/phase4/provider-claude-*, evidence/phase4/provider-claude-*; implements the agent_sdk seam; hermetic under the real-provider rule",
       "permittedPaths": [
         "crates/spocky-provider-claude/",
         "Cargo.lock (entries from this crate only)"
@@ -1151,6 +1151,36 @@
         "cargo fmt --package spocky-hub-pilot -- --check"
       ],
       "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p4_xterm_core",
+      "capabilities": [
+        "DTRM-002 terminal emulator state",
+        "DTRM-001 snapshot fidelity"
+      ],
+      "dependencies": [
+        "spocky-contracts on main"
+      ],
+      "priority": 4,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches (Opus)",
+      "permittedPaths": [
+        "crates/spocky-xterm/",
+        "scripts/phase4/xterm-*",
+        "evidence/phase4/xterm-*",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "Faithful port of the @xterm/headless 6.0.0 core with MIT attribution: parser, InputHandler subset, Buffer and BufferLine with 1000-line scrollback, reflow, Unicode 6 widths, charsets, DEC modes, coreService cursor fields, and a StringDecoder equivalent; corpus plus seeded byte-fuzz differential against the pinned xterm, byte for byte",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-xterm",
+        "cargo clippy --locked -p spocky-xterm --all-targets -- -D warnings",
+        "cargo fmt --package spocky-xterm -- --check"
+      ],
+      "skeleton": "main 8cef85f (f56e305 manifest, 81fe23a crate root); no Spocky dependencies except spocky-contracts",
+      "recordedBy": "Claude lead, 2026-10-01, coordinator emulator decision",
       "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
     },
     {
