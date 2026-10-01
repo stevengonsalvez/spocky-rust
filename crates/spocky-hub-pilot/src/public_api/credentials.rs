@@ -46,6 +46,12 @@ impl<T: CliCredentialStore + ?Sized> CliCredentialStore for std::rc::Rc<T> {
 
 /// Authorizes API keys, as `OrganizationApiKeys.authorize` does.
 pub trait ApiKeyAuthorizer {
+    /// The scopes of a key in creation order, as the baseline returns them; `None` falls back to
+    /// the order of the authorization result.
+    fn scope_order(&self, _credential_id: &str) -> Option<Vec<ApiKeyScope>> {
+        None
+    }
+
     /// # Errors
     ///
     /// Returns [`OperationError`] when key storage fails.
@@ -57,6 +63,10 @@ pub trait ApiKeyAuthorizer {
 }
 
 impl<S: DurableHubStore> ApiKeyAuthorizer for HubPilot<S> {
+    fn scope_order(&self, credential_id: &str) -> Option<Vec<ApiKeyScope>> {
+        self.api_key_scope_order(credential_id)
+    }
+
     fn authorize_api_key(
         &mut self,
         authorization: &str,
@@ -108,11 +118,15 @@ impl<A: ApiKeyAuthorizer, C: CliCredentialStore> OperationAuthenticator
                 ApiKeyAuthorization::Unauthorized => AuthorizationOutcome::Unauthorized,
                 ApiKeyAuthorization::Forbidden => AuthorizationOutcome::Forbidden,
                 ApiKeyAuthorization::Authorized(access) => {
+                    let scopes = self
+                        .api_keys
+                        .scope_order(&access.credential_id)
+                        .unwrap_or_else(|| access.scopes.iter().copied().collect());
                     AuthorizationOutcome::Authorized(PublicAuthorization {
                         kind: CredentialKind::ApiKey,
                         credential_id: access.credential_id,
                         organization_id: access.organization.as_str().to_owned(),
-                        scopes: access.scopes.into_iter().collect(),
+                        scopes,
                     })
                 }
             },
