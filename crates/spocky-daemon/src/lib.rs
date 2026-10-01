@@ -11,6 +11,7 @@ pub mod listen;
 pub mod local_credential;
 pub mod log;
 pub mod origin;
+pub mod pid_lock;
 pub mod private_files;
 pub mod server_id;
 pub mod subprotocol;
