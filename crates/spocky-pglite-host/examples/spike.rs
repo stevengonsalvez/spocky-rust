@@ -1,7 +1,8 @@
 //! End-to-end spike of the Rust `PGlite` host. Prints a JSON report.
 //!
 //! Usage: `spike <package root> <fresh data directory> <copy of a Node-made
-//! data directory>`. The host runs on a dedicated large-stack thread.
+//! data directory> <snapshot directory>`. The store runs on the library's
+//! store thread. `SPOCKY_PGLITE_CACHE_DIR` enables the compilation cache.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,11 +11,10 @@ use std::time::Instant;
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use spocky_pglite_host::host::run_on_store_thread;
 use spocky_pglite_host::package::{PinnedPackage, hex};
 use spocky_pglite_host::pglite::{Compiled, EngineOptions, HostError, Pglite};
 use spocky_pglite_host::protocol::{Backend, BindValue};
-
-const THREAD_STACK: usize = 256 * 1024 * 1024;
 
 fn rows(messages: &[Backend]) -> Vec<Vec<Option<String>>> {
     messages
@@ -73,13 +73,31 @@ fn error_text(error: &HostError) -> String {
     format!("{error}")
 }
 
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("create snapshot directory");
+    for entry in fs::read_dir(from).expect("read directory") {
+        let entry = entry.expect("entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).expect("copy file");
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines, reason = "one sequential spike workload")]
-fn run(package_root: &Path, fresh: &Path, node_copy: &Path) -> Value {
+fn run(package_root: &Path, fresh: &Path, node_copy: &Path, snapshot: &Path) -> Value {
     let mut steps = Vec::new();
     let started = Instant::now();
     let package = Arc::new(PinnedPackage::load(package_root).expect("pinned package"));
-    let compiled = Compiled::new(package, &EngineOptions::default()).expect("compile");
-    steps.push(json!({"step": "compile", "milliseconds": started.elapsed().as_millis()}));
+    let options = EngineOptions {
+        cache_directory: std::env::var_os("SPOCKY_PGLITE_CACHE_DIR").map(PathBuf::from),
+        ..EngineOptions::default()
+    };
+    let cached = options.cache_directory.is_some();
+    let compiled = Compiled::new(package, &options).expect("compile");
+    steps.push(json!({"step": "compile", "milliseconds": started.elapsed().as_millis(), "cacheDirectory": cached}));
 
     let opened = Instant::now();
     let mut database = match Pglite::open(&compiled, fresh) {
@@ -164,6 +182,7 @@ fn run(package_root: &Path, fresh: &Path, node_copy: &Path) -> Value {
 
     let mut tree = Vec::new();
     walk(fresh, Path::new(""), &mut tree);
+    copy_tree(fresh, snapshot);
 
     let mut reopened = Vec::new();
     for (label, directory) in [("rustReopen", fresh), ("nodeDirectoryReopen", node_copy)] {
@@ -200,17 +219,18 @@ fn run(package_root: &Path, fresh: &Path, node_copy: &Path) -> Value {
 
 fn main() {
     let arguments: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
-    let [package_root, fresh, node_copy] = arguments.as_slice() else {
-        eprintln!("usage: spike <package root> <fresh data directory> <node data copy>");
+    let [package_root, fresh, node_copy, snapshot] = arguments.as_slice() else {
+        eprintln!(
+            "usage: spike <package root> <fresh data directory> <node data copy> <snapshot directory>"
+        );
         std::process::exit(2);
     };
-    let (package_root, fresh, node_copy) = (package_root.clone(), fresh.clone(), node_copy.clone());
-    let report = std::thread::Builder::new()
-        .name("pglite-host".into())
-        .stack_size(THREAD_STACK)
-        .spawn(move || run(&package_root, &fresh, &node_copy))
-        .expect("spawn host thread")
-        .join()
-        .expect("host thread");
+    let (package_root, fresh, node_copy, snapshot) = (
+        package_root.clone(),
+        fresh.clone(),
+        node_copy.clone(),
+        snapshot.clone(),
+    );
+    let report = run_on_store_thread(move || run(&package_root, &fresh, &node_copy, &snapshot));
     println!("{}", serde_json::to_string_pretty(&report).expect("json"));
 }
