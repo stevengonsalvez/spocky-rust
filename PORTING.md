@@ -139,6 +139,9 @@ Its 17 retained-host and 13 embedded-SQL tests pass, but the exception remains
 unaccepted. Read-only review accepts narrow darwin/x64 cooperating-host
 ownership and retains packaging, platform, IPC performance, delivery,
 callback-transaction, keyed-lock, full-schema, and mixed-legacy gaps.
+Real pinned-baseline forward handoff and same-schema baseline reopen now pass
+with both data markers preserved and no journal change; read-only review remains
+in progress.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
@@ -149,6 +152,8 @@ protocol residuals and production qualification remain. Full renderer
 platforms, cross-platform plugin clients, and native audio cases remain
 incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
 compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
-deb lifecycle pass, while signed delivery and native Windows, iOS, Android, and
+deb lifecycle pass. Linux ALSA null playback and deterministic null capture pass
+in a pinned container; physical audio, PulseAudio and PipeWire server graphs,
+STT, and TTS remain open. Signed delivery and native Windows, iOS, Android, and
 browser delivery remain open. Phase 3 remains blocked. No runtime parity
 milestone is complete. No runtime compatibility exception is accepted.
