@@ -460,6 +460,9 @@ fn create_layout(gate: &str, tools: &Tools) -> io::Result<Layout> {
     Ok(layout)
 }
 
+/// Most codex invocations one side may record; the shim exits 95 beyond it.
+pub const MAX_CODEX_INVOCATIONS: u32 = 1000;
+
 /// The `codex` the daemon finds on `PATH`. It records each invocation's argv
 /// and the exact bytes the daemon writes to codex stdin (the app-server
 /// JSON-RPC input) under `codex-io/<n>/`, then execs the pinned binary as the
@@ -469,14 +472,19 @@ pub fn codex_wrapper_script(io_dir: &str, codex: &str) -> String {
     format!(
         "#!/bin/sh\n\
          io={io}\n\
+         [ -d \"$io\" ] || exit 96\n\
          n=1\n\
-         while ! mkdir \"$io/$n\" 2>/dev/null; do n=$((n + 1)); done\n\
+         while ! /bin/mkdir \"$io/$n\" 2>/dev/null; do\n\
+         n=$((n + 1))\n\
+         [ \"$n\" -le {max} ] || exit 95\n\
+         done\n\
          printf '%s\\n' \"$$\" >\"$io/$n/pid\"\n\
          for arg in \"$@\"; do printf '%s\\n' \"$arg\"; done >\"$io/$n/argv\"\n\
-         mkfifo \"$io/$n/fifo\" || exit 98\n\
-         exec 3<&0\n\
-         tee \"$io/$n/stdin\" <&3 >\"$io/$n/fifo\" &\n\
-         exec {codex} \"$@\" <\"$io/$n/fifo\" 3<&-\n",
+         /usr/bin/mkfifo \"$io/$n/fifo\" || exit 98\n\
+         exec 9<&0\n\
+         /usr/bin/tee \"$io/$n/stdin\" <&9 >\"$io/$n/fifo\" &\n\
+         exec {codex} \"$@\" <\"$io/$n/fifo\" 9<&-\n",
+        max = MAX_CODEX_INVOCATIONS,
         io = shell_quote(io_dir),
         codex = shell_quote(codex),
     )
@@ -1656,6 +1664,53 @@ mod tests {
         fs::remove_dir_all(&directory).unwrap();
     }
 
+    #[test]
+    fn codex_wrapper_refuses_missing_io_and_unbounded_numbering() {
+        let directory = scratch(line!());
+        let marker = directory.join("ran");
+        let fake = directory.join("fake-codex");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\n: >{}\n",
+                shell_quote(&marker.display().to_string())
+            ),
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let run_wrapper = |io: &Path| {
+            let wrapper = directory.join("codex");
+            fs::write(
+                &wrapper,
+                codex_wrapper_script(&io.display().to_string(), &fake.display().to_string()),
+            )
+            .unwrap();
+            // Children forked concurrently by other tests can inherit this
+            // pipe on macOS; only the shim's exit code matters here.
+            match run_bounded(
+                Command::new("/bin/sh").arg(&wrapper),
+                Duration::from_secs(20),
+            )
+            .2
+            {
+                Exit::PipesHeld(code) => Exit::Code(code),
+                other => other,
+            }
+        };
+        assert_eq!(run_wrapper(&directory.join("missing")), Exit::Code(96));
+        let full = directory.join("full");
+        for number in 1..=MAX_CODEX_INVOCATIONS {
+            fs::create_dir_all(full.join(number.to_string())).unwrap();
+        }
+        assert_eq!(run_wrapper(&full), Exit::Code(95));
+        assert!(!marker.exists());
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn non_loopback_connect_is_blocked_and_detected_but_loopback_is_not() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
