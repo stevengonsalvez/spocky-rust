@@ -12,10 +12,11 @@ use crate::field::optional;
 use crate::json::{JsRecord, JsonValue, deserialize_tagged, serialize_passthrough};
 use crate::number::Int;
 use crate::request::{
-    AgentCreateRequest, CreateAgentRequest, CreationSubscribeRequest, FetchAgentRequest,
-    FetchAgentTimelineRequest, FetchAgentsRequest, FetchWorkspacesRequest, SendAgentMessageRequest,
-    SessionEventsSetSubscriptionRequest, SetAgentTimelineSubscriptionRequest,
-    SubscriptionReleaseRequest, WaitForFinishRequest, WorkspaceCreateRequest,
+    AgentCreateRequest, AgentPermissionResponseRequest, CancelAgentRequest, CreateAgentRequest,
+    CreationSubscribeRequest, FetchAgentRequest, FetchAgentTimelineRequest, FetchAgentsRequest,
+    FetchWorkspacesRequest, SendAgentMessageRequest, SessionEventsSetSubscriptionRequest,
+    SetAgentTimelineSubscriptionRequest, SubscriptionReleaseRequest, WaitForFinishRequest,
+    WorkspaceCreateRequest,
 };
 use crate::response::{
     AgentCreateResponse, CreationSubscribeResponse, FetchAgentResponse, FetchAgentTimelineResponse,
@@ -167,6 +168,10 @@ pub enum SessionInbound {
     SetSessionEventsSubscription(SessionEventsSetSubscriptionRequest),
     #[serde(rename = "subscription.release.request")]
     SubscriptionRelease(SubscriptionReleaseRequest),
+    #[serde(rename = "agent_permission_response")]
+    AgentPermissionResponse(AgentPermissionResponseRequest),
+    #[serde(rename = "cancel_agent_request")]
+    CancelAgent(CancelAgentRequest),
 }
 
 deserialize_tagged!(SessionInbound, "type", {
@@ -211,6 +216,13 @@ deserialize_tagged!(SessionInbound, "type", {
     },
     "subscription.release.request" => |input| {
         SubscriptionReleaseRequest::deserialize(input).map(SessionInbound::SubscriptionRelease)
+    },
+    "agent_permission_response" => |input| {
+        AgentPermissionResponseRequest::deserialize(input)
+            .map(SessionInbound::AgentPermissionResponse)
+    },
+    "cancel_agent_request" => |input| {
+        CancelAgentRequest::deserialize(input).map(SessionInbound::CancelAgent)
     },
 });
 

@@ -24,7 +24,8 @@ pub fn inbound_requirement(message: &SessionInbound) -> Requirement {
         }
         SessionInbound::CreateAgent(_)
         | SessionInbound::AgentCreate(_)
-        | SessionInbound::SendAgentMessage(_) => Some(&[WorkspaceWrite, HubExecute]),
+        | SessionInbound::SendAgentMessage(_)
+        | SessionInbound::CancelAgent(_) => Some(&[WorkspaceWrite, HubExecute]),
         SessionInbound::FetchWorkspaces(_)
         | SessionInbound::FetchAgents(_)
         | SessionInbound::FetchAgent(_)
@@ -34,6 +35,7 @@ pub fn inbound_requirement(message: &SessionInbound) -> Requirement {
             Some(&[WorkspaceRead, DaemonRead, HubExecute])
         }
         SessionInbound::SubscriptionRelease(_) => None,
+        SessionInbound::AgentPermissionResponse(_) => Some(&[WorkspaceWrite]),
     }
 }
 

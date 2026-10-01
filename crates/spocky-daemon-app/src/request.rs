@@ -38,13 +38,17 @@ pub fn request_type(message: &SessionInbound) -> &'static str {
             "session.events.set_subscription.request"
         }
         SessionInbound::SubscriptionRelease(_) => "subscription.release.request",
+        SessionInbound::AgentPermissionResponse(_) => "agent_permission_response",
+        SessionInbound::CancelAgent(_) => "cancel_agent_request",
     }
 }
 
-/// `sessionRequestId(msg)`: every slice message carries a string `requestId`.
+/// `sessionRequestId(msg)`: the string `requestId`, or `None` for the
+/// baseline's `null` when the message has none (`cancel_agent_request`
+/// makes it optional).
 #[must_use]
-pub fn request_id(message: &SessionInbound) -> &JsText {
-    match message {
+pub fn request_id(message: &SessionInbound) -> Option<&JsText> {
+    Some(match message {
         SessionInbound::Ping(m) => &m.request_id,
         SessionInbound::WorkspaceCreate(m) => &m.request_id,
         SessionInbound::FetchWorkspaces(m) => &m.request_id,
@@ -59,7 +63,9 @@ pub fn request_id(message: &SessionInbound) -> &JsText {
         SessionInbound::SetAgentTimelineSubscription(m) => &m.request_id,
         SessionInbound::SetSessionEventsSubscription(m) => &m.request_id,
         SessionInbound::SubscriptionRelease(m) => &m.request_id,
-    }
+        SessionInbound::AgentPermissionResponse(m) => &m.request_id,
+        SessionInbound::CancelAgent(m) => return m.request_id.as_ref(),
+    })
 }
 
 /// Serializes an outbound session message with its construction key order.
@@ -105,12 +111,12 @@ pub fn handle_request(
         }
     };
     let emit: &mut dyn FnMut(Value) = &mut allowed;
-    let id = request_id(&message).clone();
+    let id = request_id(&message).cloned();
     let kind = request_type(&message);
     if !authorization.allows_inbound(&message) {
         // `if (requestId)`: an empty request id gets no frame here, while the
         // handler failure below only checks the type and still answers.
-        if !id.as_str().is_empty() {
+        if let Some(id) = id.filter(|id| !id.as_str().is_empty()) {
             let error = JsText::new(&format!("Session is not authorized for {kind}"));
             emit(rpc_error(id, kind, error, "access_denied"));
         }
@@ -123,7 +129,11 @@ pub fn handle_request(
         .unwrap_or_else(|panic| Err(JsText::new(&panic_message(panic.as_ref()))));
     if let Err(error) = outcome {
         let failure = JsText::from_js(format!("Request failed: {}", error.as_str()));
-        emit(rpc_error(id, kind, failure, "handler_error"));
+        // `typeof requestId === "string"`: a message without one gets only
+        // the activity log entry.
+        if let Some(id) = id {
+            emit(rpc_error(id, kind, failure, "handler_error"));
+        }
         emit(json!({
             "type": "activity_log",
             "payload": {
@@ -241,6 +251,43 @@ mod tests {
             failed[0].to_string(),
             r#"{"type":"rpc_error","payload":{"requestId":"","requestType":"fetch_agents_request","error":"Request failed: boom","code":"handler_error"}}"#
         );
+    }
+
+    #[test]
+    fn cancel_without_request_id_gets_no_rpc_error() {
+        let cancel = json!({"type": "cancel_agent_request", "agentId": "a"});
+        let (denied, called) = run(&[DaemonPermission::DaemonRead], &cancel, Ok(()));
+        assert!(!called);
+        assert!(denied.is_empty());
+        let (failed, called) = run(&DaemonPermission::ALL, &cancel, Err(JsText::new("boom")));
+        assert!(called);
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0]["type"], "activity_log");
+        assert_eq!(failed[0]["payload"]["content"], "Error: boom");
+    }
+
+    #[test]
+    fn permission_response_and_cancel_use_the_baseline_permissions() {
+        let respond = json!({
+            "type": "agent_permission_response",
+            "agentId": "a",
+            "requestId": "p1",
+            "response": {"behavior": "deny", "interrupt": true, "message": "no"}
+        });
+        let cancel = json!({"type": "cancel_agent_request", "agentId": "a", "requestId": "c1"});
+        assert!(run(&[DaemonPermission::WorkspaceWrite], &respond, Ok(())).1);
+        let (denied, called) = run(&[DaemonPermission::HubExecute], &respond, Ok(()));
+        assert!(!called);
+        assert_eq!(
+            serde_json::to_string(&denied).unwrap(),
+            r#"[{"type":"rpc_error","payload":{"requestId":"p1","requestType":"agent_permission_response","error":"Session is not authorized for agent_permission_response","code":"access_denied"}}]"#
+        );
+        assert!(run(&[DaemonPermission::WorkspaceWrite], &cancel, Ok(())).1);
+        assert!(run(&[DaemonPermission::HubExecute], &cancel, Ok(())).1);
+        let (denied, called) = run(&[DaemonPermission::WorkspaceRead], &cancel, Ok(()));
+        assert!(!called);
+        assert_eq!(denied[0]["payload"]["requestType"], "cancel_agent_request");
+        assert_eq!(denied[0]["payload"]["code"], "access_denied");
     }
 
     #[test]
