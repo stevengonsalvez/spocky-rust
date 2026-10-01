@@ -668,11 +668,13 @@ fn tmux(args: &[&str]) -> (Vec<u8>, Vec<u8>, Exit) {
 
 /// The pane PID of an exact session on the dedicated socket.
 fn pane_pid(session: &str) -> Option<u32> {
+    // `=name:` (exact session, its active window); `=name` alone resolves no
+    // pane for display-message and prints an empty string.
     let (stdout, _, exit) = tmux(&[
         "display-message",
         "-p",
         "-t",
-        &format!("={session}"),
+        &format!("={session}:"),
         "#{pane_pid}",
     ]);
     (exit == Exit::Code(0))
@@ -1935,6 +1937,18 @@ mod tests {
         for forbidden in [100, 104, 105, 200] {
             assert!(!targets.contains(&forbidden), "{forbidden}");
         }
+    }
+
+    #[test]
+    fn pane_pid_resolves_on_the_dedicated_socket() {
+        let session = format!("{OWNED_PREFIX}test-pane-{}-{}", std::process::id(), line!());
+        let launched = tmux(&["new-session", "-d", "-s", &session, "/bin/sleep 30"]);
+        assert_eq!(launched.2, Exit::Code(0));
+        let pane = pane_pid(&session);
+        let _ = tmux(&["kill-session", "-t", &format!("={session}")]);
+        let pane = pane.expect("pane pid");
+        assert!(pane > 1);
+        assert!(!session_exists(&session));
     }
 
     #[test]
