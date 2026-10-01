@@ -230,11 +230,57 @@ const fieldDiff = (left, right) =>
 const nodeVsNode = fieldDiff("node", "node2");
 const nodeVsRust = fieldDiff("node", "rust");
 
+// pg_control layout check. Reads the fields at their PostgreSQL 18
+// ControlFileData offsets and checks them against the values the original
+// host decoded, and checks the CRC-32C stored after the struct, so differing
+// bytes can be named by field.
+const CRC_OFFSET = 292;
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? (value >>> 1) ^ 0x82f63b78 : value >>> 1;
+  return value >>> 0;
+});
+const crc32c = (buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+const controlFields = [
+  ["system_identifier", 0, 8],
+  ["time", 24, 8],
+  ["checkPointCopy.time", 104, 8],
+  ["mock_authentication_nonce", 257, 32],
+  ["crc", CRC_OFFSET, 4],
+];
+const controlField = (offset) =>
+  controlFields.find(([, start, size]) => offset >= start && offset < start + size)?.[0] ?? "other";
+const pgControl = {};
+for (const label of Object.keys(directories)) {
+  const buffer = bytes[label]["global/pg_control"];
+  pgControl[label] = {
+    systemIdentifierMatchesDecoded:
+      buffer.readBigUInt64LE(0).toString() === flat[label]["system.system_identifier"],
+    checkpointTimeMatchesDecoded:
+      Number(buffer.readBigInt64LE(104)) * 1000 === Date.parse(flat[label]["checkpoint.checkpoint_time"]),
+    crcMatches: crc32c(buffer.subarray(0, CRC_OFFSET)) === buffer.readUInt32LE(CRC_OFFSET),
+  };
+}
+const fieldsOf = (left, right) => {
+  const counts = {};
+  for (const offset of differingOffsets(bytes[left]["global/pg_control"], bytes[right]["global/pg_control"])) {
+    const name = controlField(offset);
+    counts[name] = (counts[name] ?? 0) + 1;
+  }
+  return counts;
+};
+pgControl.differingFields = { nodeVsNode: fieldsOf("node", "node2"), nodeVsRust: fieldsOf("node", "rust") };
+
 process.stdout.write(
   `${JSON.stringify(
     {
       byteDiff,
       walFields,
+      pgControl,
       decodedFields: flat,
       fieldDiff: {
         nodeVsNode,
