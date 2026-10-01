@@ -147,15 +147,21 @@ simultaneous mixed-owner races, and the retained compatibility exception remain
 open.
 Ordered mixed legacy/candidate starts now exclude the second owner in both
 directions, and clean handoff preserves the same directory, 49-row journal, and
-baseline marker. Simultaneous pre-record races and schema downgrade remain
-unqualified; read-only review is pending.
+baseline marker. Publication derives both observed journal counts, requires zero
+candidate migrations, and rejects unclean owner shutdown. Signal cancellation
+shares bounded detached-group cleanup across readiness rejection. Read-only
+review accepts this narrow macOS x64 ordered-start checkpoint. Simultaneous
+pre-record races and schema downgrade remain unqualified.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
 all-target compilation passes, but native Windows runtime qualification remains
 open. The selected relay runtime passes control,
 pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
-protocol residuals and production qualification remain. Full renderer
+frame work matches escaped valid handshakes and final fragmented size boundaries,
+but read-only review rejects malformed JSON classification, nonfinal control
+fragment limits, and paired-route evidence pending Sol repair. Production
+qualification remains open. Full renderer
 platforms, cross-platform plugin clients, and native audio cases remain
 incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
 compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
