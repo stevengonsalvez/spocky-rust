@@ -1,15 +1,3 @@
-bash: line 4: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
-perl: warning: Setting locale failed.
-perl: warning: Please check that your locale settings:
-	LANGUAGE = (unset),
-	LC_ALL = "en_US.UTF-8",
-	LANG = "en_US.UTF-8"
-    are supported and installed on your system.
-perl: warning: Falling back to the standard locale ("C").
-debconf: delaying package configuration, since apt-utils is not installed
-info: syncing channel updates for 1.94.0-x86_64-unknown-linux-gnu
-info: latest update on 2026-03-05 for version 1.94.0 (4a4ef493e 2026-03-02)
-info: downloading 5 components
 rustc 1.94.0 (4a4ef493e 2026-03-02)
 cargo 1.94.0 (85eff7c80 2026-01-15)
 at-spi2-core	2.46.0-5
@@ -20,117 +8,117 @@ python3-pyatspi	2.46.0-2
 x11-utils	7.7+5
 xdotool	1:3.20160805.1-5
 xvfb	2:21.1.7-3+deb12u13
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.64s
-de9f42b9ded581c754984b975b359726210b196b38fd1c8a4e8cf701d367c12e  /target/debug/spocky-ui-desktop
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=0 pid=6611 comm="/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
-dbus-daemon[6603]: [session uid=0 pid=6603] Successfully activated service 'org.a11y.Bus'
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.portal.Desktop' requested by ':1.2' (uid=0 pid=6611 comm="/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.portal.Documents' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.PermissionStore' requested by ':1.4' (uid=0 pid=6661 comm="/usr/libexec/xdg-document-portal" label="docker-default (enforce)")
-dbus-daemon[6603]: [session uid=0 pid=6603] Successfully activated service 'org.freedesktop.impl.portal.PermissionStore'
-dbus-daemon[6603]: [session uid=0 pid=6603] Successfully activated service 'org.freedesktop.portal.Documents'
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.24s
+45e108d2a6782e57d2bae38764d2c7190d716dae8af76cef14e6d58041ceebc1  /opt/target/debug/spocky-ui-desktop
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=0 pid=38 comm="/opt/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
+dbus-daemon[30]: [session uid=0 pid=30] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.portal.Desktop' requested by ':1.2' (uid=0 pid=38 comm="/opt/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.portal.Documents' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.PermissionStore' requested by ':1.4' (uid=0 pid=101 comm="/usr/libexec/xdg-document-portal" label="docker-default (enforce)")
+dbus-daemon[30]: [session uid=0 pid=30] Successfully activated service 'org.freedesktop.impl.portal.PermissionStore'
+dbus-daemon[30]: [session uid=0 pid=30] Successfully activated service 'org.freedesktop.portal.Documents'
 fusermount3: fuse device not found, try 'modprobe fuse' first
 error: fuse init failed: Can't mount path /root/.cache/doc
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6675): Gtk-WARNING **: 15:54:21.288: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:118): Gtk-WARNING **: 16:50:45.672: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.309: Failed to create RealtimeKit proxy: Could not connect: No such file or directory
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.695: Failed to create RealtimeKit proxy: Could not connect: No such file or directory
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6679): Gtk-WARNING **: 15:54:21.341: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:122): Gtk-WARNING **: 16:50:45.722: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.346: Failed to create settings proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.726: Failed to create settings proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.346: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.726: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6685): Gtk-WARNING **: 15:54:21.379: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:127): Gtk-WARNING **: 16:50:45.751: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.386: Failed to create file chooser proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.755: Failed to create file chooser proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.386: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.755: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6687): Gtk-WARNING **: 15:54:21.432: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:130): Gtk-WARNING **: 16:50:45.791: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.443: Failed to create app chooser proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.795: Failed to create app chooser proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.444: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.795: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6692): Gtk-WARNING **: 15:54:21.475: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:132): Gtk-WARNING **: 16:50:45.820: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.479: Failed to create print proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.825: Failed to create print proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.479: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.825: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6695): Gtk-WARNING **: 15:54:21.511: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:134): Gtk-WARNING **: 16:50:45.865: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.519: Failed to create notification proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.870: Failed to create notification proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.519: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.870: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6697): Gtk-WARNING **: 15:54:21.550: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:140): Gtk-WARNING **: 16:50:45.894: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.555: Failed to create inhibit proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.899: Failed to create inhibit proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.555: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.899: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6702): Gtk-WARNING **: 15:54:21.582: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:142): Gtk-WARNING **: 16:50:45.921: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.585: Failed to create access proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.925: Failed to create access proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.585: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.925: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6705): Gtk-WARNING **: 15:54:21.609: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:144): Gtk-WARNING **: 16:50:45.956: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.612: Failed to create access proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.964: Failed to create access proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.612: No skeleton to export
-[W][73516.903552] pw.conf      | [          conf.c:  939 try_load_conf()] can't load config client.conf: No such file or directory
-[E][73516.903614] pw.conf      | [          conf.c:  963 pw_conf_load_conf_for_context()] can't load default config client.conf: No such file or directory
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.964: No skeleton to export
+[W][76901.185990] pw.conf      | [          conf.c:  939 try_load_conf()] can't load config client.conf: No such file or directory
+[E][76901.186046] pw.conf      | [          conf.c:  963 pw_conf_load_conf_for_context()] can't load default config client.conf: No such file or directory
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.616: Failed connect to PipeWire: Couldn't create PipeWire context
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:45.976: Failed connect to PipeWire: Couldn't create PipeWire context
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6707): Gtk-WARNING **: 15:54:21.639: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:149): Gtk-WARNING **: 16:50:46.006: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.642: Failed to create account proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.012: Failed to create account proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.642: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.012: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6709): Gtk-WARNING **: 15:54:21.668: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:152): Gtk-WARNING **: 16:50:46.038: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.672: Failed to create email proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.042: Failed to create email proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.672: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=6653 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.042: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=0 pid=96 comm="/usr/libexec/xdg-desktop-portal" label="docker-default (enforce)")
 
-(xdg-desktop-portal-gtk:6714): Gtk-WARNING **: 15:54:21.699: cannot open display: 
-dbus-daemon[6603]: [session uid=0 pid=6603] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(xdg-desktop-portal-gtk:154): Gtk-WARNING **: 16:50:46.066: cannot open display: 
+dbus-daemon[30]: [session uid=0 pid=30] Activated service 'org.freedesktop.impl.portal.desktop.gtk' failed: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.702: Failed to create dynamic_launcher proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.070: Failed to create dynamic_launcher proxy: Error calling StartServiceByName for org.freedesktop.impl.portal.desktop.gtk: Process org.freedesktop.impl.portal.desktop.gtk exited with status 1
 
-(/usr/libexec/xdg-desktop-portal:6653): xdg-desktop-portal-WARNING **: 15:54:21.702: No skeleton to export
-dbus-daemon[6603]: [session uid=0 pid=6603] Successfully activated service 'org.freedesktop.portal.Desktop'
-dbus-daemon[6649]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=0 pid=6611 comm="/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
-dbus-daemon[6649]: Successfully activated service 'org.a11y.atspi.Registry'
+(/usr/libexec/xdg-desktop-portal:96): xdg-desktop-portal-WARNING **: 16:50:46.070: No skeleton to export
+dbus-daemon[30]: [session uid=0 pid=30] Successfully activated service 'org.freedesktop.portal.Desktop'
+dbus-daemon[92]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=0 pid=38 comm="/opt/target/debug/spocky-ui-desktop" label="docker-default (enforce)")
+dbus-daemon[92]: Successfully activated service 'org.a11y.atspi.Registry'
 SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
 RENDERER_PLATFORM_LINUX_OK
