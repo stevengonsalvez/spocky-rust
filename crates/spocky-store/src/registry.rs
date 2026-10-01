@@ -552,8 +552,10 @@ impl<R: RegistryRecord> FileRegistry<R> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the atomic write fails; the cache is then unchanged.
+    /// Returns an error if the schema rejects the record or the atomic write
+    /// fails; the cache is then unchanged.
     pub fn upsert(&mut self, record: R) -> Result<(), StoreError> {
+        let record = schema_parse(record)?;
         let mut staged = self.entries().clone();
         set_entry(&mut staged, record.id().to_owned(), record);
         self.commit(staged)
@@ -565,7 +567,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the atomic write fails.
+    /// Returns an error if the schema rejects the result or the atomic write fails.
     pub fn update(
         &mut self,
         id: &str,
@@ -579,7 +581,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
         else {
             return Ok(None);
         };
-        let next = updater(existing);
+        let next = schema_parse(updater(existing))?;
         set_entry(&mut staged, id.to_owned(), next.clone());
         self.commit(staged)?;
         Ok(Some(next))
@@ -640,6 +642,16 @@ impl<R: RegistryRecord> FileRegistry<R> {
         self.cache = Some(staged);
         Ok(())
     }
+}
+
+/// `schema.parse(record)`: every write path re-validates the record, so a
+/// value the schema rejects (for example a zero `untrustedSource.number`)
+/// fails before anything is written.
+/// A typed record round-trips unchanged when valid, so the record is returned
+/// as given.
+fn schema_parse<R: RegistryRecord>(record: R) -> Result<R, StoreError> {
+    R::from_value(&record.to_value()).map_err(StoreError::InvalidRecord)?;
+    Ok(record)
 }
 
 /// `Map.set` semantics: replace in place, otherwise append.
