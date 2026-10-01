@@ -19,10 +19,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Child;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -48,6 +48,9 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(2_000);
 const ASSISTANT_MESSAGE_BOUNDARY_MARKDOWN: &str = "\n\n---\n\n";
 const DEFAULT_CODEX_MODE_ID: &str = "auto";
 const CLOSED_MESSAGE: &str = "Codex app-server session is closed";
+/// Returned when `fetch_catalog` hits its deadline; the caller reports its
+/// own timeout, as Paseo's `runProviderRefreshWithDeadline` does.
+pub const CATALOG_DEADLINE_MESSAGE: &str = "Codex catalog refresh aborted at its deadline";
 
 /// Server request methods Paseo answers through flows not yet ported.
 const UNPORTED_REQUEST_METHODS: [&str; 3] = [
@@ -339,7 +342,20 @@ struct State {
     closed: bool,
     collaboration_modes: Vec<CollaborationMode>,
     resolved_collaboration_mode: Option<ResolvedCollaborationMode>,
-    unported: Vec<String>,
+    unported: UnportedLog,
+}
+
+/// Unported paths seen so far, each recorded once in first-seen order, so a
+/// stream of identical notifications cannot grow it without bound.
+#[derive(Default)]
+struct UnportedLog(Vec<String>);
+
+impl UnportedLog {
+    fn push(&mut self, what: String) {
+        if !self.0.contains(&what) {
+            self.0.push(what);
+        }
+    }
 }
 
 /// Work for the event dispatch thread.
@@ -429,7 +445,7 @@ impl CodexSession {
         let service_tier_fast =
             feature("fast_mode") && model_supports_fast_mode(config.model.as_deref());
         let plan_mode_enabled = feature("plan_mode");
-        let mut unported = Vec::new();
+        let mut unported = UnportedLog::default();
         if plan_mode_enabled {
             unported.push("plan_mode feature".to_owned());
         }
@@ -516,7 +532,7 @@ impl CodexSession {
     /// Paths Paseo renders that this port does not, in arrival order.
     #[must_use]
     pub fn unported(&self) -> Vec<String> {
-        lock(&self.inner.state).unported.clone()
+        lock(&self.inner.state).unported.0.clone()
     }
 
     #[must_use]
@@ -3109,17 +3125,39 @@ impl CodexProvider {
             .get_or_init(|| launch::resolve_gates(self.runtime_settings.as_ref(), &self.base_env))
     }
 
-    /// `fetchCatalog()`: a short-lived app-server (no launch env, no
-    /// `--enable goals`), `model/list`, configured defaults, then dispose.
+    /// `fetchCatalog(options, context)`: a short-lived app-server (no launch
+    /// env, no `--enable goals`), `model/list`, configured defaults, then
+    /// dispose. With a deadline, the app-server is disposed when it passes,
+    /// as Paseo disposes it on the refresh context's abort signal.
     ///
     /// # Errors
-    /// Returns launch, initialize, or `model/list` failures.
-    pub fn fetch_catalog(&self) -> Result<Value, String> {
+    /// Returns launch, initialize, or `model/list` failures, or
+    /// [`CATALOG_DEADLINE_MESSAGE`] when the deadline passed first.
+    pub fn fetch_catalog(&self, deadline: Option<Instant>) -> Result<Value, String> {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(CATALOG_DEADLINE_MESSAGE.to_owned());
+        }
         let gates = self.gates();
         let prefix = launch::resolve_launch_prefix(self.runtime_settings.as_ref(), &self.base_env)?;
         let env = launch::provider_env(&self.base_env, self.runtime_settings.as_ref(), None);
         let child = launch::spawn_app_server(&prefix, false, &env)?;
         let client = AppServerClient::new(child).map_err(|error| error.message)?;
+        let aborted = Arc::new(AtomicBool::new(false));
+        let (finished, watch) = mpsc::channel::<()>();
+        let watchdog = deadline.map(|deadline| {
+            let client = client.clone();
+            let aborted = Arc::clone(&aborted);
+            thread::spawn(move || {
+                let wait = deadline.saturating_duration_since(Instant::now());
+                if matches!(
+                    watch.recv_timeout(wait),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    aborted.store(true, Ordering::SeqCst);
+                    let _ = client.dispose();
+                }
+            })
+        });
         let models = client
             .request(
                 "initialize",
@@ -3131,6 +3169,13 @@ impl CodexProvider {
                 client.notify("initialized", Some(json!({})));
                 catalog::models_from_app_server(&client)
             });
+        drop(finished);
+        if let Some(watchdog) = watchdog {
+            let _ = watchdog.join();
+        }
+        if aborted.load(Ordering::SeqCst) {
+            return Err(CATALOG_DEADLINE_MESSAGE.to_owned());
+        }
         let disposed = client.dispose().map_err(|error| error.message);
         let models = models?;
         disposed?;
@@ -3225,6 +3270,47 @@ mod tests {
             vec![json!("turn_started"), json!("turn_completed")]
         );
         session.close().expect("close");
+    }
+
+    #[test]
+    fn unported_paths_are_recorded_once() {
+        let session = bare_session();
+        for _ in 0..3 {
+            session.handle_notification(
+                "item/agentMessage/delta",
+                Some(&json!({"threadId": "child", "itemId": "c", "delta": "z"})),
+            );
+        }
+        assert_eq!(
+            session.unported(),
+            ["sub-agent thread notification item/agentMessage/delta"]
+        );
+        session.close().expect("close");
+    }
+
+    #[test]
+    fn catalog_fetch_stops_at_its_deadline() {
+        // An app-server that never answers `initialize`.
+        let provider = CodexProvider::new(
+            Some(ProviderRuntimeSettings {
+                command: Some(crate::launch::ProviderCommand::Replace {
+                    argv: vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+                }),
+                env: None,
+            }),
+            None,
+            std::env::vars_os().collect(),
+        );
+        let started = Instant::now();
+        assert_eq!(
+            provider.fetch_catalog(Some(Instant::now() + Duration::from_millis(500))),
+            Err(CATALOG_DEADLINE_MESSAGE.to_owned())
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(
+            provider.fetch_catalog(Some(Instant::now())),
+            Err(CATALOG_DEADLINE_MESSAGE.to_owned())
+        );
     }
 
     #[test]
