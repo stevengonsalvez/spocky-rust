@@ -7,7 +7,7 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "0c0d0d7b785e05ce209e562872cb7e1560a245497c96e22d510777af6720ffc7"
+    "casesSha256": "19934db2318d57b17b4ac58d24d2f1400fdcc868b62ece58fdc7050e2c69632a"
   },
   "cases": [
     {
@@ -1463,6 +1463,94 @@
       "zod": {
         "success": true,
         "output": "{\"type\":\"session\",\"message\":{\"type\":\"send_agent_message_response\",\"payload\":{\"requestId\":\"r\",\"agentId\":\"123e4567-e89b-42d3-a456-426614174000\",\"accepted\":true,\"error\":null}}}"
+      }
+    },
+    {
+      "id": "session.agent_create.title_200_with_lone_surrogate",
+      "direction": "inbound",
+      "source": "title max(200) counts a lone surrogate as one code unit",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\ud800\"}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\ud800\"},\"labels\":{},\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "session.agent_create.reject_title_201_with_lone_surrogate",
+      "direction": "inbound",
+      "source": "title max(200)",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\ud800\"}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "too_big",
+            "path": [
+              "message",
+              "config",
+              "title"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "session.agent_create.reject_title_199_plus_astral",
+      "direction": "inbound",
+      "source": "title max(200) counts U+10FFFF as two code units",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\udbff\\udfff\"}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "too_big",
+            "path": [
+              "message",
+              "config",
+              "title"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "session.agent_create.idempotency_key_512_with_lone_surrogate",
+      "direction": "inbound",
+      "source": "idempotencyKey max(512)",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"idempotencyKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\\udfff\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\"}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"idempotencyKey\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\\udfff\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\"},\"labels\":{},\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "session.creation_subscribe.lone_surrogate_key",
+      "direction": "inbound",
+      "source": "idempotencyKey min(1) with a lone surrogate",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"creation.subscribe.request\",\"requestId\":\"r\",\"kind\":\"agent\",\"idempotencyKey\":\"\\ud800\"}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"creation.subscribe.request\",\"requestId\":\"r\",\"kind\":\"agent\",\"idempotencyKey\":\"\\ud800\"}}"
+      }
+    },
+    {
+      "id": "session.agent_create.proto_keys",
+      "direction": "inbound",
+      "source": "z.record and z.json drop __proto__ unvalidated; z.unknown keeps it",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"labels\":{\"__proto__\":5,\"z\":\"1\"},\"env\":{\"__proto__\":{},\"A\":\"1\"},\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"featureValues\":{\"__proto__\":{\"x\":1},\"f\":{\"__proto__\":7,\"k\":1}},\"providerOptions\":{\"__proto__\":\"x\",\"p\":{\"a\":[{\"__proto__\":{\"n\":1e400},\"b\":2}],\"__proto__\":1}}}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"featureValues\":{\"f\":{\"__proto__\":7,\"k\":1}},\"providerOptions\":{\"p\":{\"a\":[{\"b\":2}]}}},\"env\":{\"A\":\"1\"},\"labels\":{\"z\":\"1\"},\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "ws.hello.proto_extras",
+      "direction": "inbound",
+      "source": "passthrough extras drop __proto__; z.unknown extra values keep nested __proto__",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"__proto__\":{\"voice\":true},\"x\":{\"__proto__\":1},\"voice\":false}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"voice\":false,\"x\":{\"__proto__\":1}}}"
       }
     }
   ]
