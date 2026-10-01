@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use crate::js;
+
 /// `DEFAULT_PORT` in `config.ts`.
 const DEFAULT_PORT: &str = "6767";
 
@@ -73,16 +75,16 @@ pub fn parse_listen_string(listen: &str) -> Result<ListenTarget, ListenError> {
             path: listen.to_owned(),
         });
     }
-    let trimmed = trim_js(listen);
+    let trimmed = js::trim(listen);
     if !trimmed.is_empty() && trimmed.bytes().all(|b| b.is_ascii_digit()) {
         return Ok(ListenTarget::Tcp {
             host: "127.0.0.1".to_owned(),
-            port: parse_int_radix10(trimmed).unwrap_or(i64::MAX),
+            port: parse_int_radix10(trimmed).map_or(i64::MAX, port_value),
         });
     }
     if let Some(last_colon) = listen.rfind(':') {
         let (host, port_text) = (&listen[..last_colon], &listen[last_colon + 1..]);
-        let Some(port) = parse_int_radix10(port_text) else {
+        let Some(port) = parse_int_radix10(port_text).filter(|port| port.is_finite()) else {
             return Err(ListenError(format!(
                 "Invalid port in listen string: {listen}"
             )));
@@ -97,7 +99,7 @@ pub fn parse_listen_string(listen: &str) -> Result<ListenTarget, ListenError> {
             } else {
                 clean_host.to_owned()
             },
-            port,
+            port: port_value(port),
         });
     }
     Err(ListenError(format!("Invalid listen string: {listen}")))
@@ -125,38 +127,11 @@ fn is_windows_drive_path(text: &str) -> bool {
     bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
 }
 
-/// `String.prototype.trim` whitespace: `WhiteSpace` and `LineTerminator`.
-fn is_js_whitespace(c: char) -> bool {
-    matches!(
-        c,
-        '\u{9}'
-            | '\u{a}'
-            | '\u{b}'
-            | '\u{c}'
-            | '\u{d}'
-            | '\u{20}'
-            | '\u{a0}'
-            | '\u{1680}'
-            | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
-}
-
-fn trim_js(text: &str) -> &str {
-    text.trim_matches(is_js_whitespace)
-}
-
-/// `parseInt(text, 10)` as a finite number: skip leading whitespace, take an
-/// optional sign, then the longest run of ASCII digits. `None` is `NaN`. A run
-/// too long for `i64` saturates, and the bind check rejects it as out of range.
-fn parse_int_radix10(text: &str) -> Option<i64> {
-    let rest = text.trim_start_matches(is_js_whitespace);
+/// `parseInt(text, 10)`: skip leading whitespace, take an optional sign, then
+/// the longest run of ASCII digits. `None` is `NaN`. A run past `f64::MAX`
+/// (309 or more digits) is `Infinity`, which is not finite.
+fn parse_int_radix10(text: &str) -> Option<f64> {
+    let rest = js::trim_start(text);
     let (negative, rest) = match rest.as_bytes().first() {
         Some(b'-') => (true, &rest[1..]),
         Some(b'+') => (false, &rest[1..]),
@@ -166,13 +141,15 @@ fn parse_int_radix10(text: &str) -> Option<i64> {
     if digits == 0 {
         return None;
     }
-    let magnitude = rest[..digits]
-        .bytes()
-        .try_fold(0_i64, |acc, b| {
-            acc.checked_mul(10)?.checked_add(i64::from(b - b'0'))
-        })
-        .unwrap_or(i64::MAX);
+    let magnitude: f64 = rest[..digits].parse().ok()?;
     Some(if negative { -magnitude } else { magnitude })
+}
+
+/// The port Node would hand to `listen`. A value beyond `i64` saturates; the
+/// bind check rejects every port outside 0..=65535 either way.
+#[allow(clippy::cast_possible_truncation)]
+fn port_value(parsed: f64) -> i64 {
+    parsed as i64
 }
 
 #[cfg(test)]
@@ -305,6 +282,30 @@ mod tests {
         assert_eq!(
             parse_listen_string("99999999999999999999999"),
             Ok(tcp("127.0.0.1", i64::MAX))
+        );
+        assert_eq!(
+            parse_listen_string("host:99999999999999999999999"),
+            Ok(tcp("host", i64::MAX))
+        );
+    }
+
+    #[test]
+    fn a_port_of_309_digits_is_infinity_like_the_baseline() {
+        let digits = "9".repeat(309);
+        // Bare numeric form: parseInt gives Infinity, which is never checked.
+        assert_eq!(parse_listen_string(&digits), Ok(tcp("127.0.0.1", i64::MAX)));
+        // host:port form: Number.isFinite(Infinity) is false.
+        assert_eq!(
+            parse_listen_string(&format!("host:{digits}")),
+            Err(ListenError(format!(
+                "Invalid port in listen string: host:{digits}"
+            )))
+        );
+        // 1e308 has 309 digits and is still finite.
+        let finite = format!("1{}", "0".repeat(308));
+        assert_eq!(
+            parse_listen_string(&format!("host:{finite}")),
+            Ok(tcp("host", i64::MAX))
         );
     }
 
