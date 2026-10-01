@@ -97,8 +97,12 @@ pub fn handle_request(
     let id = request_id(&message).clone();
     let kind = request_type(&message);
     if !authorization.allows_inbound(&message) {
-        let error = JsText::new(&format!("Session is not authorized for {kind}"));
-        emit(rpc_error(id, kind, error, "access_denied"));
+        // `if (requestId)`: an empty request id gets no frame here, while the
+        // handler failure below only checks the type and still answers.
+        if !id.as_str().is_empty() {
+            let error = JsText::new(&format!("Session is not authorized for {kind}"));
+            emit(rpc_error(id, kind, error, "access_denied"));
+        }
         return;
     }
     if let Err(error) = dispatch(message, emit) {
@@ -190,6 +194,27 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&emitted).unwrap(),
             r#"[{"type":"rpc_error","payload":{"requestId":"w1","requestType":"wait_for_finish_request","error":"Session is not authorized for wait_for_finish_request","code":"access_denied"}}]"#
+        );
+    }
+
+    #[test]
+    fn empty_request_id_skips_access_denied_but_not_handler_error() {
+        let (denied, called) = run(
+            &[],
+            &json!({"type": "fetch_agents_request", "requestId": ""}),
+            Ok(()),
+        );
+        assert!(!called);
+        assert!(denied.is_empty());
+        let (failed, called) = run(
+            &DaemonPermission::ALL,
+            &json!({"type": "fetch_agents_request", "requestId": ""}),
+            Err(JsText::new("boom")),
+        );
+        assert!(called);
+        assert_eq!(
+            failed[0].to_string(),
+            r#"{"type":"rpc_error","payload":{"requestId":"","requestType":"fetch_agents_request","error":"Request failed: boom","code":"handler_error"}}"#
         );
     }
 
