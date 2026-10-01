@@ -38,6 +38,15 @@
       },
       {
         "date": "2026-10-01",
+        "authority": "Claude lead, recorded at the coordinator's direction",
+        "kind": "evidence and safety limitation",
+        "incident": "During the lead's gated run of batch v5 (integration branch integ/v5, landed on main as 9b7c4db), crates/spocky-daemon-app/tests/codex_agent_real.rs test full_access_turn_runs_through_the_seam ran with SPOCKY_REAL_CODEX=1 and passed. That test had no network deny.",
+        "knownFacts": ["the test launches the pinned codex 0.159.0 app-server", "CODEX_HOME points at a disposable directory whose config.toml sets model_provider = spocky-stub with base_url on 127.0.0.1", "OPENAI_API_KEY is set to the literal test-key", "HOME is a disposable directory", "no sandbox, proxy guard, or egress assertion was applied", "no network traffic was captured, so whether codex contacted api.openai.com or any other host is unknown"],
+        "assessment": "Possible egress from codex defaults (for example update or login checks) cannot be ruled out. Any such request would carry only the test key and codex defaults; non-destructive.",
+        "response": "Daemon-app tests run without SPOCKY_REAL_CODEX until the p3_g1_wiring fix (egress-deny sandbox launcher, loopback stub, egress assertion, #[ignore], bounded waits) lands and the lead reviews it. PORTING.md safety now requires that pattern for every real-provider test."
+      },
+      {
+        "date": "2026-10-01",
         "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
         "change": "Hub retained JavaScript PGlite host accepted as a time-boxed interim compatibility exception (accepted-interim). Removal condition unchanged. Lane p2_pglite_rust_host opened to replace it with a Rust Wasm host."
       },
