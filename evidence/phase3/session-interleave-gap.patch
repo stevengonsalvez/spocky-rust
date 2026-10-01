@@ -1,0 +1,221 @@
+diff --git a/crates/spocky-session/tests/agent_manager_differential.rs b/crates/spocky-session/tests/agent_manager_differential.rs
+index b8dddf8c..954d4422 100644
+--- a/crates/spocky-session/tests/agent_manager_differential.rs
++++ b/crates/spocky-session/tests/agent_manager_differential.rs
+@@ -31,6 +31,9 @@
+ //! - `titles`: `setTitle` (trimmed, blank, unknown agent) and
+ //!   `hasInFlightRun` idle, running and unknown.
+ //!
++//! - `interleave`: two agents' sessions emit events alternately in one
++//!   synchronous loop (one tick); the feed order must match.
++//!
+ //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
+ //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
+ //! `startTurn` that long before it resolves.
+@@ -159,6 +162,22 @@ const SCENARIO_TURNS: &str = r#"{
+     {"type":"timeline","provider":"fake","item":{"type":"assistant_message","text":"old answer"},"timestamp":""},
+     {"type":"timeline","provider":"fake","item":{"type":"tool_call","callId":"h-1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}
+   ],
++  "interleaveA": [
++    {"type":"turn_started","provider":"fake","turnId":"turn-11"}
++  ],
++  "interleaveB": [
++    {"type":"turn_started","provider":"fake","turnId":"turn-12"}
++  ],
++  "interleaved": [
++    [0, {"type":"timeline","provider":"fake","turnId":"turn-11","item":{"type":"assistant_message","text":"a1"}}],
++    [1, {"type":"timeline","provider":"fake","turnId":"turn-12","item":{"type":"assistant_message","text":"b1"}}],
++    [0, {"type":"timeline","provider":"fake","turnId":"turn-11","item":{"type":"tool_call","callId":"ca","name":"shell","status":"running","error":null,"detail":{"type":"shell","command":"a"}}}],
++    [1, {"type":"usage_updated","provider":"fake","turnId":"turn-12","usage":{"inputTokens":2}}],
++    [1, {"type":"timeline","provider":"fake","turnId":"turn-12","item":{"type":"reasoning","text":"b2"}}],
++    [0, {"type":"turn_completed","provider":"fake","turnId":"turn-11"}],
++    [1, {"type":"timeline","provider":"fake","turnId":"turn-12","item":{"type":"assistant_message","text":"b3"}}],
++    [1, {"type":"turn_completed","provider":"fake","turnId":"turn-12"}]
++  ],
+   "permission": [
+     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
+     {"type":"__delay","ms":100},
+@@ -207,7 +226,7 @@ const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, wa
+ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+ const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
+ class FakeSession {
+-  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline; }
++  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline; if (spec.sessions) spec.sessions.push(this); }
+   subscribe(callback) { this.listeners.push(callback); return () => {}; }
+   emitLater(events, ms) {
+     setTimeout(async () => {
+@@ -591,7 +610,37 @@ const titles = async () => {
+   return { results, feed, stored: await registry.get(agentId) };
+ };
+ 
+-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles() }));
++const interleave = async () => {
++  const calls = [];
++  const scripted = JSON.parse(scenarioTurnsJson);
++  const registry = new AgentStorage(`${home}/interleave`, logger);
++  const sessions = [];
++  const manager = new AgentManager({
++    logger,
++    registry,
++    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.interleaveA, scripted.interleaveB], sessions })) },
++    providerDefinitions: { fake: { enabled: true } },
++  });
++  const feed = recordFeed(manager);
++  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
++  await manager.createAgent({ provider: "fake", cwd }, otherId, {});
++  const runs = [outcome(() => manager.runAgent(agentId, "a")), outcome(() => manager.runAgent(otherId, "b"))];
++  const started = (turnId) => (entry) => entry[0] === "agent_stream" && entry[2].type === "turn_started" && entry[2].turnId === turnId;
++  for (let tick = 0; !(feed.some(started("turn-11")) && feed.some(started("turn-12"))); tick += 1) {
++    if (tick === 2000) throw new Error("turns never started");
++    await sleep(5);
++  }
++  for (const [index, event] of scripted.interleaved) {
++    for (const listener of sessions[index].listeners) listener(event);
++  }
++  const results = await Promise.all(runs);
++  await sleep(100);
++  await manager.flush();
++  await registry.flush();
++  return { results, feed };
++};
++
++process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), interleave: await interleave() }));
+ "#;
+ 
+ fn json(text: &str) -> JsValue {
+@@ -625,6 +674,9 @@ struct Spec {
+     history: Option<JsValue>,
+     /// `session.initialTimeline`: `[{ item, timestamp }]`.
+     initial_timeline: Option<JsValue>,
++    /// Each created session's listeners, in creation order, so a test can
++    /// emit to several sessions in one synchronous loop.
++    sessions: Arc<Mutex<Vec<Arc<Mutex<Vec<StreamCallback>>>>>>,
+ }
+ 
+ fn spec(provider: &str) -> Spec {
+@@ -637,6 +689,7 @@ fn spec(provider: &str) -> Spec {
+         interrupt: None,
+         history: None,
+         initial_timeline: None,
++        sessions: Arc::default(),
+     }
+ }
+ 
+@@ -890,9 +943,15 @@ impl AgentClient for FakeClient {
+             context,
+             options,
+         ]));
++        let listeners = Arc::new(Mutex::new(Vec::new()));
++        self.spec
++            .sessions
++            .lock()
++            .expect("sessions")
++            .push(Arc::clone(&listeners));
+         let session = FakeSession {
+             spec: self.spec.clone(),
+-            listeners: Arc::new(Mutex::new(Vec::new())),
++            listeners,
+             calls: Arc::clone(&self.calls),
+         };
+         Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
+@@ -924,9 +983,15 @@ impl AgentClient for FakeClient {
+             launch_context_value(launch_context),
+             options,
+         ]));
++        let listeners = Arc::new(Mutex::new(Vec::new()));
++        self.spec
++            .sessions
++            .lock()
++            .expect("sessions")
++            .push(Arc::clone(&listeners));
+         let session = FakeSession {
+             spec: self.spec.clone(),
+-            listeners: Arc::new(Mutex::new(Vec::new())),
++            listeners,
+             calls: Arc::clone(&self.calls),
+         };
+         Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
+@@ -1883,6 +1948,75 @@ async fn titles_scenario(cwd: &str, home: &Path) -> JsValue {
+     ])
+ }
+ 
++async fn interleave_scenario(cwd: &str, home: &Path) -> JsValue {
++    let calls = Calls::default();
++    let registry = AgentStorage::new(home.join("interleave"));
++    let fake = spec("fake");
++    scripted(&fake, &["interleaveA", "interleaveB"]);
++    let sessions = Arc::clone(&fake.sessions);
++    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
++    let feed = record_feed(&manager);
++    for id in [AGENT_ID, OTHER_ID] {
++        manager
++            .create_agent(
++                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
++                Some(id.to_owned()),
++                CreateAgentOptions::default(),
++            )
++            .await
++            .expect("create");
++    }
++    let runs: Vec<_> = [(AGENT_ID, "a"), (OTHER_ID, "b")]
++        .into_iter()
++        .map(|(id, prompt)| {
++            let manager = manager.clone();
++            tokio::spawn(async move {
++                outcome(
++                    manager
++                        .run_agent(id, AgentPromptInput::Text(prompt.to_owned()), None)
++                        .await
++                        .map(|run| run.to_js()),
++                )
++            })
++        })
++        .collect();
++    wait_for_turn_started(&feed, "turn-11").await;
++    wait_for_turn_started(&feed, "turn-12").await;
++    // One synchronous loop: no await between the two sessions' events.
++    {
++        let sessions = sessions.lock().expect("sessions");
++        for entry in json(SCENARIO_TURNS)
++            .get("interleaved")
++            .and_then(JsValue::as_array)
++            .expect("interleaved")
++        {
++            let entry = entry.as_array().expect("entry");
++            #[allow(
++                clippy::cast_possible_truncation,
++                clippy::cast_sign_loss,
++                reason = "scripted session indexes are 0 or 1"
++            )]
++            let index = entry[0].as_f64().expect("index") as usize;
++            let callbacks = sessions[index].lock().expect("listeners").clone();
++            for callback in &callbacks {
++                callback(entry[1].clone());
++            }
++        }
++    }
++    let mut results = Vec::new();
++    for run in runs {
++        results.push(run.await.expect("join"));
++    }
++    tokio::time::sleep(Duration::from_millis(100)).await;
++    manager.flush().await;
++    registry.flush().await;
++    let feed = feed.lock().expect("feed").clone();
++    object(vec![
++        ("results", JsValue::Array(results)),
++        ("feed", JsValue::Array(feed)),
++    ])
++}
++
+ /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
+ /// [`FIXED_IDS`] with `<UUID>`.
+ fn normalize(text: &str) -> String {
+@@ -2056,6 +2190,7 @@ async fn scenarios_match_pinned_manager() {
+         ("hydration", hydration_scenario(&cwd, &rust_home.0).await),
+         ("resume", resume_scenario(&cwd, &rust_home.0).await),
+         ("titles", titles_scenario(&cwd, &rust_home.0).await),
++        ("interleave", interleave_scenario(&cwd, &rust_home.0).await),
+     ]);
+     assert_eq!(normalize(&stringify(&rust)), expected);
+ }
