@@ -4,10 +4,18 @@
 //! and `parseConfigFile` in `persisted-config.ts`.
 //!
 //! Only `daemon.listen`, `daemon.hostnames` (and its old name `allowedHosts`),
-//! `daemon.cors.allowedOrigins` and `daemon.auth.password` are read. The rest of
-//! the baseline's strict zod schema belongs to `spocky-store` and is not
-//! validated here, so a config the baseline rejects for an unrelated field can
-//! load, and the text of schema errors differs.
+//! `daemon.cors.allowedOrigins` and `daemon.auth.password` are read.
+//!
+//! Unported: config refusal. The baseline parses the whole file with one strict
+//! zod schema (`persisted-config.ts`) and refuses what it rejects: an
+//! unrecognized key in any section (`Unrecognized key: "bogus"`), an invalid
+//! `allowedHosts` entry beside valid ones, and every issue joined as zod joins
+//! them, with the V8 `JSON.parse` text for a syntax error. This module checks
+//! only the four fields above, so a config the baseline refuses can start the
+//! daemon and the text of the errors it does report differs. Closing the gap
+//! needs a persisted-config schema in the contracts zod port, after which the
+//! check calls it with no second zod here. Tracked as an open gap, deferred
+//! until after G1.
 
 use std::fmt;
 use std::fs;
