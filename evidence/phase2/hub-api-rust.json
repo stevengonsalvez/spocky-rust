@@ -8819,6 +8819,212 @@
         "body": "{\"status\":\"retry_later\",\"interval\":5}"
       }
     ],
+    "expired-record-retained": [
+      {
+        "do": "start",
+        "as": "a",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"wl_mQXJdD_gNq7kYF35C2A7T-B-CcKfWV13Wq3ut-N0\",\"userCode\":\"INL5-2OHN-HHZEI\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=INL5-2OHN-HHZEI\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "poll",
+        "of": "a",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"interval\":5}"
+      },
+      {
+        "do": "poll",
+        "of": "a",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"slow_down\",\"interval\":10}"
+      },
+      {
+        "do": "advance",
+        "seconds": 601
+      },
+      {
+        "do": "start",
+        "as": "b",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"xhZdoteFvJAA-fAOfC9-8CnCw2Or2mMzTUjx3t_1ZII\",\"userCode\":\"YMCG-6ZKA-55UZO\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=YMCG-6ZKA-55UZO\",\"expiresAt\":\"2026-08-06T12:20:01.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "start",
+        "as": "c",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"2KkIRE7uRVKZr3_EJm7Pq_NYVcuokjYBPrW20Y2XZCI\",\"userCode\":\"654A-CTXZ-4KIGG\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=654A-CTXZ-4KIGG\",\"expiresAt\":\"2026-08-06T12:20:01.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "start",
+        "as": "d",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"hf-S8Kq6ujxy13cKYPSxxCUP0mWct03S8VPiJy8SYio\",\"userCode\":\"2KT4-WF7D-AKCOO\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=2KT4-WF7D-AKCOO\",\"expiresAt\":\"2026-08-06T12:20:01.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "poll",
+        "of": "a",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"expired\",\"interval\":10}"
+      },
+      {
+        "do": "poll",
+        "of": "a",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"expired\",\"interval\":10}"
+      },
+      {
+        "do": "decide",
+        "of": "a",
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"authorization_unavailable\"}"
+      },
+      {
+        "do": "inspect",
+        "of": "a",
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"authorization_unavailable\"}"
+      }
+    ],
+    "user-code-collision": [
+      {
+        "do": "start",
+        "as": "a",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"wl_mQXJdD_gNq7kYF35C2A7T-B-CcKfWV13Wq3ut-N0\",\"userCode\":\"INL5-2OHN-HHZEI\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=INL5-2OHN-HHZEI\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "start",
+        "as": "b",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"xhZdoteFvJAA-fAOfC9-8CnCw2Or2mMzTUjx3t_1ZII\",\"userCode\":\"INL5-2OHN-HHZEI\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=INL5-2OHN-HHZEI\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "start",
+        "as": "c",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"2KkIRE7uRVKZr3_EJm7Pq_NYVcuokjYBPrW20Y2XZCI\",\"userCode\":\"INL5-2OHN-HHZEI\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=INL5-2OHN-HHZEI\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "start",
+        "as": "d",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"deviceCode\":\"hf-S8Kq6ujxy13cKYPSxxCUP0mWct03S8VPiJy8SYio\",\"userCode\":\"INL5-2OHN-HHZEI\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=INL5-2OHN-HHZEI\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+      },
+      {
+        "do": "inspect",
+        "of": "d",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"organization\":{\"id\":\"org-acme\",\"name\":\"Acme\",\"slug\":\"acme\"},\"canManage\":true}"
+      },
+      {
+        "do": "decide",
+        "of": "d",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"approved\"}"
+      },
+      {
+        "do": "decide",
+        "of": "b",
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"authorization_unavailable\"}"
+      },
+      {
+        "do": "inspect",
+        "of": "c",
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"authorization_unavailable\"}"
+      },
+      {
+        "do": "poll",
+        "of": "a",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"authorized\",\"interval\":5,\"credential\":\"paseo_cli_5noy8g3Bt1EE_3tcuDtn7yHjJargT1ZGA9jKiMxguQeOQh40PSD6Y48I\",\"organizationId\":\"org-acme\"}"
+      },
+      {
+        "do": "poll",
+        "of": "b",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"interval\":5}"
+      },
+      {
+        "do": "poll",
+        "of": "c",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"interval\":5}"
+      },
+      {
+        "do": "poll",
+        "of": "d",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"interval\":5}"
+      }
+    ],
     "global-limit": [
       {
         "do": "startMany",

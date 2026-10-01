@@ -1002,7 +1002,17 @@ fn run_scenario(spec: &Json) -> Json {
     // The baseline draws two random byte strings and one UUID per API key it creates, before the
     // first step. Rust creates its keys with the system generator, so the deterministic sequences
     // skip the same draws to stay aligned.
-    let mut random_bytes = deterministic_bytes();
+    let mut draw = deterministic_bytes();
+    let repeat_user_code = member(config, "repeatUserCode") == &Json::Bool(true);
+    let mut first_eight: Option<Vec<u8>> = None;
+    // A scenario can make every 8-byte draw (a user code) repeat the first one, as the capture does.
+    let mut random_bytes: Box<dyn FnMut(usize) -> Vec<u8>> = Box::new(move |size| {
+        let bytes = draw(size);
+        if size == 8 && repeat_user_code {
+            return first_eight.get_or_insert(bytes).clone();
+        }
+        bytes
+    });
     let mut ids = counter_ids();
     for _ in &keys {
         random_bytes(9);
@@ -1302,7 +1312,7 @@ fn manifest_trace() -> Json {
 
 /// Fixture counts are part of the evidence: a shrunken case list or an empty baseline fails.
 const CASE_COUNT: usize = 459;
-const SCENARIO_COUNT: usize = 60;
+const SCENARIO_COUNT: usize = 62;
 
 fn build_trace(openapi: &str) -> String {
     let spec = parse_json(CASES).expect("case list is JSON");

@@ -13,20 +13,33 @@ import { createPublicApi, publicOpenApiDocument, publicOperationManifest } from 
 
 // Deterministic generated values keep the trace reproducible byte for byte. The Rust differential
 // derives the same sequences: UUID n is 00000000-0000-4000-8000-<n in 12 hex digits>, and the
-// n-th randomBytes call returns the first `size` bytes of SHA-256("spocky-hub-api-random:<n>").
+// n-th randomBytes call returns the first `size` bytes of SHA-256("spocky-hub-api-random:<n>"). A
+// scenario with `repeatUserCode` makes every 8-byte draw return the first 8-byte draw.
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:crypto")>();
-  const state = globalThis as unknown as { __hubApiUuid: number; __hubApiBytes: number };
+  const state = globalThis as unknown as {
+    __hubApiUuid: number;
+    __hubApiBytes: number;
+    __hubApiRepeatEight: boolean;
+    __hubApiEight: Buffer | undefined;
+  };
   const randomUUID = () =>
     `00000000-0000-4000-8000-${(++state.__hubApiUuid).toString(16).padStart(12, "0")}`;
   const randomBytes = (size: number) => {
     state.__hubApiBytes += 1;
     if (size > 32) throw new Error("deterministic randomBytes supports at most 32 bytes");
-    return actual
+    const bytes = actual
       .createHash("sha256")
       .update(`spocky-hub-api-random:${state.__hubApiBytes}`)
       .digest()
       .subarray(0, size);
+    // A scenario can make every 8-byte draw (a user code) repeat the first one, which forces user
+    // code collisions between authorizations.
+    if (size === 8 && state.__hubApiRepeatEight) {
+      state.__hubApiEight ??= bytes;
+      return state.__hubApiEight;
+    }
+    return bytes;
   };
   return { ...actual, default: { ...actual, randomUUID, randomBytes }, randomUUID, randomBytes };
 });
@@ -47,10 +60,17 @@ interface RequestSpec {
   body: BodySpec | null;
 }
 
-function resetGenerators(): void {
-  const state = globalThis as unknown as { __hubApiUuid: number; __hubApiBytes: number };
+function resetGenerators(repeatUserCode = false): void {
+  const state = globalThis as unknown as {
+    __hubApiUuid: number;
+    __hubApiBytes: number;
+    __hubApiRepeatEight: boolean;
+    __hubApiEight: Buffer | undefined;
+  };
   state.__hubApiUuid = 0;
   state.__hubApiBytes = 0;
+  state.__hubApiRepeatEight = repeatUserCode;
+  state.__hubApiEight = undefined;
 }
 
 function materialize(body: BodySpec | null, substitutions?: (text: string) => string): string | Uint8Array | null {
@@ -312,10 +332,10 @@ function transformUserCode(code: string, transform: string | undefined): string 
 }
 
 async function runScenario(spec: {
-  config: { publicBaseUrl: string | null; access: string; startAt: string; apiKeys: Array<{ name: string; scopes: string[]; revoked?: boolean }> };
+  config: { publicBaseUrl: string | null; access: string; startAt: string; apiKeys: Array<{ name: string; scopes: string[]; revoked?: boolean }>; repeatUserCode?: boolean };
   steps: Array<Record<string, any>>;
 }) {
-  resetGenerators();
+  resetGenerators(spec.config.repeatUserCode === true);
   let now = new Date(spec.config.startAt);
   const database = createMemoryDatabase({ now: () => now });
   const authorizations = new CliAuthorizations(

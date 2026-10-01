@@ -723,6 +723,33 @@ scenario("start-fingerprint-headers", cfg(), [
   start("i", { headers: [["x-paseo-client-address", "unknown"]] }),
   start("j", { headers: [["x-paseo-client-address", "unknown"]] }),
 ]);
+scenario("expired-record-retained", cfg(), [
+  start("a", { headers: [["x-paseo-client-address", "one"]] }),
+  poll("a"),
+  poll("a"),
+  { do: "advance", seconds: 601 },
+  start("b", { headers: [["x-paseo-client-address", "two"]] }),
+  start("c", { headers: [["x-paseo-client-address", "three"]] }),
+  start("d", { headers: [["x-paseo-client-address", "four"]] }),
+  poll("a"),
+  poll("a"),
+  decide("a", "approve"),
+  inspect("a"),
+]);
+scenario("user-code-collision", cfg({ repeatUserCode: true }), [
+  start("a", { headers: [["x-paseo-client-address", "one"]] }),
+  start("b", { headers: [["x-paseo-client-address", "two"]] }),
+  start("c", { headers: [["x-paseo-client-address", "three"]] }),
+  start("d", { headers: [["x-paseo-client-address", "four"]] }),
+  inspect("d"),
+  decide("d", "approve"),
+  decide("b", "deny"),
+  inspect("c"),
+  poll("a"),
+  poll("b"),
+  poll("c"),
+  poll("d"),
+]);
 scenario("global-limit", cfg(), [
   { do: "startMany", count: 1000, fingerprintPrefix: "load-", as: "load" },
   start("over"),

@@ -15421,6 +15421,183 @@
       ]
     },
     {
+      "name": "expired-record-retained",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "one"
+            ]
+          ]
+        },
+        {
+          "do": "poll",
+          "of": "a"
+        },
+        {
+          "do": "poll",
+          "of": "a"
+        },
+        {
+          "do": "advance",
+          "seconds": 601
+        },
+        {
+          "do": "start",
+          "as": "b",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "two"
+            ]
+          ]
+        },
+        {
+          "do": "start",
+          "as": "c",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "three"
+            ]
+          ]
+        },
+        {
+          "do": "start",
+          "as": "d",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "four"
+            ]
+          ]
+        },
+        {
+          "do": "poll",
+          "of": "a"
+        },
+        {
+          "do": "poll",
+          "of": "a"
+        },
+        {
+          "do": "decide",
+          "of": "a",
+          "decision": "approve",
+          "organizationId": "org-acme"
+        },
+        {
+          "do": "inspect",
+          "of": "a"
+        }
+      ]
+    },
+    {
+      "name": "user-code-collision",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": [],
+        "repeatUserCode": true
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "one"
+            ]
+          ]
+        },
+        {
+          "do": "start",
+          "as": "b",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "two"
+            ]
+          ]
+        },
+        {
+          "do": "start",
+          "as": "c",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "three"
+            ]
+          ]
+        },
+        {
+          "do": "start",
+          "as": "d",
+          "url": "https://hub.test/api/v1/cli-authorizations",
+          "headers": [
+            [
+              "x-paseo-client-address",
+              "four"
+            ]
+          ]
+        },
+        {
+          "do": "inspect",
+          "of": "d"
+        },
+        {
+          "do": "decide",
+          "of": "d",
+          "decision": "approve",
+          "organizationId": "org-acme"
+        },
+        {
+          "do": "decide",
+          "of": "b",
+          "decision": "deny",
+          "organizationId": "org-acme"
+        },
+        {
+          "do": "inspect",
+          "of": "c"
+        },
+        {
+          "do": "poll",
+          "of": "a"
+        },
+        {
+          "do": "poll",
+          "of": "b"
+        },
+        {
+          "do": "poll",
+          "of": "c"
+        },
+        {
+          "do": "poll",
+          "of": "d"
+        }
+      ]
+    },
+    {
       "name": "global-limit",
       "config": {
         "publicBaseUrl": "https://hub.test",
