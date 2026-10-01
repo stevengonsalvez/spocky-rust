@@ -62,6 +62,15 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 
 No crate may carry a second JavaScript-compatible JSON parser or writer.
 
+JavaScript value operators (ToBoolean truthiness, object spread, `String()`
+conversion) over `JsValue` live in one place: `spocky-contracts/src/js.rs`,
+next to `js_value`. Decided 2026-10-01 by the lead at the coordinator's
+request. Sequence: `p3_session`'s `crate::js` integrates first; `p3_contracts`
+moves it verbatim with its tests into `spocky-contracts`; `p3_session` switches
+to it and deletes its copy; `p3_provider_codex` replaces `transport.rs`
+`js_truthy` with it. No crate may carry a second implementation of these
+operators.
+
 ## Architecture freeze rule
 
 Names describe ownership boundaries, not a commitment to one crate per row. Contract and tool-selection pilots may split crates or revise dependency direction. They may not merge direct Hub transport into relay, terminate endpoint encryption in relay, or move compatibility logic into presentation code.
