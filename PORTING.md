@@ -136,8 +136,9 @@ Hub retained-PGlite evidence matches 50 table names, 537 constraint and index
 names, 49 journal rows, and five narrow scenarios. The retained JavaScript host
 uses one shared OS-backed data-directory lock across the Rust storage adapters.
 Its 17 retained-host and 13 embedded-SQL tests pass, but the exception remains
-unaccepted pending adversarial review and declared packaging, platform, IPC
-performance, delivery, callback-transaction, keyed-lock, and full-schema gaps.
+unaccepted. Read-only review accepts narrow darwin/x64 cooperating-host
+ownership and retains packaging, platform, IPC performance, delivery,
+callback-transaction, keyed-lock, full-schema, and mixed-legacy gaps.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
