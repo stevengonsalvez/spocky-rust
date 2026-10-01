@@ -95,19 +95,22 @@ Sources:
 Every item below is exercised by `scripts/phase2/hub-triggers-original.integration.test.ts` (real baseline
 code at the pinned commit, offline, in-memory database) and by
 `crates/spocky-hub-pilot/tests/hub_triggers_evidence.rs` (Rust). `scripts/phase2/hub-triggers-compare.sh`
-compares the two JSON traces with `jq -S` and no normalization. No generated ID, wall-clock value or
-temp path appears in either trace.
+compares the two raw trace files byte for byte (`cmp`), so object key order, whitespace and every
+response body byte are part of the comparison. No key sorting and no normalization is applied. No
+generated ID, wall-clock value or temp path appears in either trace; the public API request ID is a
+fixed `request-1` header so problem bodies are deterministic.
 
 | Area | Cases compared |
 | --- | --- |
 | Manual intake (`handleManualTriggerRequest`) | 35 request cases, 37 `receivedAt` grid strings, handler replay count, receipt evidence (provider, source, dropped reason, null connection and resource), cross-organization receipts |
 | Manual run matching (`createManualRunProvider`) | 10 cases: matched, public delivery key, expected version current and stale, revision missing, trigger missing, actor forbidden and allowed, no user filter, wrong event trigger |
-| Public manual-run response (`createPublicApi`) | 10 operation results mapped to status and problem code, plus 401, 403, 503 authentication, invalid JSON, wrong and missing content type |
+| Public manual-run response (`createPublicApi`) | 10 operation results compared as full response bodies (RFC 9457 problem JSON key order included), plus 401, 403, 503 authentication, invalid JSON, wrong and missing content type |
 | Runs, fan-out, leases, execution records | receipt dedupe, run per receipt, project and trigger, wakeup claim, lease expiry, fenced release, durable execution identity, execution reuse after unknown outcome, first terminal wins, idle deadline cleared, run success idempotent |
 | Durable execution ID | three fixed vectors compared as literal UUID strings |
 | GitHub webhook (`createWebhookSource`) | 42 cases: 503, 401 variants, 413 at and over the 1,048,576 byte limit, header bounds at 128 bytes, malformed JSON, invalid UTF-8, BOM, non-object bodies, installation ID shapes, lifecycle events, unsupported and handlerless drops, multiple handlers and events, storage 503 and 500, replay, long and empty secrets, signature hash value |
 
-Result: `matched: true`, `normalization: none`.
+Result: `matched: true`, `comparison: byte-identical`, `normalization: none`. Both traces have SHA-256
+`4d1a1ccadd794d3f8afa5a1bff8aa96f8ca6a0b0ee1e7b8eae5185cfaf915a42` (see `hub-triggers-sha256.txt`).
 
 ## Remaining gaps (not covered, not claimed)
 
