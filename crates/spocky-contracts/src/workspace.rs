@@ -11,6 +11,7 @@ use serde::{Serialize, Serializer};
 use crate::field::{Nullable, optional};
 use crate::json::JsonValue;
 use crate::number::JsNumber;
+use crate::text::JsText;
 
 /// `projectKind` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -60,9 +61,9 @@ pub struct AheadBehind {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GitRuntime {
     #[serde(rename = "currentBranch")]
-    pub current_branch: Option<String>,
+    pub current_branch: Option<JsText>,
     #[serde(rename = "remoteUrl")]
-    pub remote_url: Option<String>,
+    pub remote_url: Option<JsText>,
     #[serde(rename = "isPaseoOwnedWorktree")]
     pub is_paseo_owned_worktree: bool,
     #[serde(rename = "isDirty")]
@@ -78,7 +79,7 @@ pub struct GitRuntime {
 /// `{ message }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ForgeError {
-    pub message: String,
+    pub message: JsText,
 }
 
 /// `buildWorkspaceGitHubRuntimePayload`. `pullRequest` is the forge
@@ -100,15 +101,15 @@ pub enum PlacementCheckout {
     /// `workspace.kind === "directory"`: `cwd, isGit, currentBranch,
     /// remoteUrl, worktreeRoot, isPaseoOwnedWorktree, mainRepoRoot`, all
     /// fixed except `cwd`.
-    NotGit { cwd: String },
+    NotGit { cwd: JsText },
     /// Any git workspace: `cwd, currentBranch, remoteUrl: null,
     /// worktreeRoot, isGit: true, isPaseoOwnedWorktree, mainRepoRoot`.
     Git {
-        cwd: String,
-        current_branch: Option<String>,
-        worktree_root: String,
+        cwd: JsText,
+        current_branch: Option<JsText>,
+        worktree_root: JsText,
         is_paseo_owned_worktree: bool,
-        main_repo_root: Option<String>,
+        main_repo_root: Option<JsText>,
     },
 }
 
@@ -149,12 +150,12 @@ impl Serialize for PlacementCheckout {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectPlacement {
     #[serde(rename = "projectKey")]
-    pub project_key: String,
+    pub project_key: JsText,
     #[serde(rename = "projectName")]
-    pub project_name: String,
+    pub project_name: JsText,
     /// `resolveWorkspaceDisplayName`, always a string.
     #[serde(rename = "workspaceName")]
-    pub workspace_name: String,
+    pub workspace_name: JsText,
     pub checkout: PlacementCheckout,
 }
 
@@ -166,44 +167,44 @@ pub struct ProjectPlacement {
 /// variant has no `project` and sets `gitRuntime` and `githubRuntime` itself.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkspaceDescriptor {
-    pub id: String,
+    pub id: JsText,
     #[serde(rename = "projectId")]
-    pub project_id: String,
+    pub project_id: JsText,
     #[serde(rename = "projectDisplayName")]
-    pub project_display_name: String,
+    pub project_display_name: JsText,
     #[serde(rename = "projectCustomName")]
-    pub project_custom_name: Option<String>,
+    pub project_custom_name: Option<JsText>,
     #[serde(rename = "projectCustomIconRevision")]
-    pub project_custom_icon_revision: Option<String>,
+    pub project_custom_icon_revision: Option<JsText>,
     #[serde(rename = "projectRootPath")]
-    pub project_root_path: String,
+    pub project_root_path: JsText,
     #[serde(rename = "workspaceDirectory")]
-    pub workspace_directory: String,
+    pub workspace_directory: JsText,
     /// Present only for Paseo-owned worktrees.
     #[serde(
         rename = "worktreeSlug",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub worktree_slug: Option<String>,
+    pub worktree_slug: Option<JsText>,
     #[serde(rename = "projectKind")]
     pub project_kind: ProjectKind,
     #[serde(rename = "workspaceKind")]
     pub workspace_kind: WorkspaceKind,
-    pub name: String,
-    pub title: Option<String>,
+    pub name: JsText,
+    pub title: Option<JsText>,
     #[serde(rename = "pinnedAt")]
-    pub pinned_at: Option<String>,
+    pub pinned_at: Option<JsText>,
     /// Spread in only when non-empty.
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub labels: Option<Vec<String>>,
+    pub labels: Option<Vec<JsText>>,
     #[serde(rename = "archivingAt")]
-    pub archiving_at: Option<String>,
+    pub archiving_at: Option<JsText>,
     pub status: WorkspaceStatus,
     #[serde(rename = "statusEnteredAt")]
-    pub status_entered_at: Option<String>,
+    pub status_entered_at: Option<JsText>,
     #[serde(rename = "activityAt")]
-    pub activity_at: Option<String>,
+    pub activity_at: Option<JsText>,
     #[serde(rename = "diffStat")]
     pub diff_stat: Option<DiffStat>,
     /// The workspace scripts service's payloads, carried as built.
@@ -223,5 +224,5 @@ pub struct WorkspaceDescriptor {
     )]
     pub github_runtime: Option<Nullable<GitHubRuntime>>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub forge: Option<String>,
+    pub forge: Option<JsText>,
 }
