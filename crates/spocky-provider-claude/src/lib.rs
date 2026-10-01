@@ -5,5 +5,10 @@
 pub mod model_manifest;
 pub mod models;
 pub mod partial_json;
+pub mod sidechain_tracker;
+pub mod subagents;
+pub mod task_notification;
+pub mod task_state;
+pub mod timestamps;
 pub mod tool_call_detail;
 pub mod tool_call_mapper;
