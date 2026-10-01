@@ -759,3 +759,85 @@ pub struct WorkspaceCreateRequest {
     pub first_agent_context: Option<FirstAgentContext>,
     pub source: WorkspaceSource,
 }
+
+/// `AgentPermissionResponseSchema`'s `allow` arm, after `behavior`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionAllow {
+    #[serde(
+        rename = "selectedActionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub selected_action_id: Option<JsText>,
+    #[serde(
+        rename = "updatedInput",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub updated_input: Option<JsRecord<JsonValue>>,
+    #[serde(
+        rename = "updatedPermissions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub updated_permissions: Option<Vec<JsRecord<JsonValue>>>,
+}
+
+/// `AgentPermissionResponseSchema`'s `deny` arm, after `behavior`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionDeny {
+    #[serde(
+        rename = "selectedActionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub selected_action_id: Option<JsText>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub message: Option<JsText>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub interrupt: Option<bool>,
+}
+
+/// `AgentPermissionResponseSchema`, discriminated by `behavior`, in zod
+/// output order.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "behavior")]
+pub enum PermissionResponse {
+    #[serde(rename = "allow")]
+    Allow(PermissionAllow),
+    #[serde(rename = "deny")]
+    Deny(PermissionDeny),
+}
+
+deserialize_tagged!(PermissionResponse, "behavior", {
+    "allow" => |input| PermissionAllow::deserialize(input).map(PermissionResponse::Allow),
+    "deny" => |input| PermissionDeny::deserialize(input).map(PermissionResponse::Deny),
+});
+
+/// `AgentPermissionResponseMessageSchema`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPermissionResponseRequest {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+    pub response: PermissionResponse,
+}
+
+/// `CancelAgentRequestMessageSchema`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelAgentRequest {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(
+        rename = "requestId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub request_id: Option<JsText>,
+}
