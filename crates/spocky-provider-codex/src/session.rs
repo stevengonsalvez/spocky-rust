@@ -49,6 +49,7 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(2_000);
 const ASSISTANT_MESSAGE_BOUNDARY_MARKDOWN: &str = "\n\n---\n\n";
 const DEFAULT_CODEX_MODE_ID: &str = "auto";
 const CLOSED_MESSAGE: &str = "Codex app-server session is closed";
+const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_millis(2_000);
 /// Returned when `fetch_catalog` hits its deadline; the caller reports its
 /// own timeout, as Paseo's `runProviderRefreshWithDeadline` does.
 pub const CATALOG_DEADLINE_MESSAGE: &str = "Codex catalog refresh aborted at its deadline";
@@ -399,7 +400,9 @@ impl UnportedLog {
     }
 }
 
-/// Work for the event dispatch thread.
+/// Work for the event dispatch thread. The queue is unbounded on purpose:
+/// publishers hold the state lock, so backpressure would deadlock a
+/// subscriber that calls back into the session while the queue is full.
 enum Dispatch {
     Events(Vec<Value>),
     /// Answered once every earlier event was delivered.
@@ -571,8 +574,11 @@ impl CodexSession {
         let session = Self::new(options)?;
         {
             let mut state = lock(&session.inner.state);
-            state.current_thread_id = Some(handle.session_id.clone());
-            state.history_pending = true;
+            // `if (this.resumeHandle?.sessionId)`: an empty id is falsy.
+            if !handle.session_id.is_empty() {
+                state.current_thread_id = Some(handle.session_id.clone());
+                state.history_pending = true;
+            }
             state.history_only = history_only;
             state.async_questions = saved_async_questions(
                 handle
@@ -605,7 +611,9 @@ impl CodexSession {
             .collect()
     }
 
-    /// Registers a stream event subscriber; returns its id.
+    /// Registers a stream event subscriber; returns its id. A subscriber that
+    /// captures a clone of this session keeps it alive until `unsubscribe` or
+    /// `close`, which clears every subscriber and so breaks the cycle.
     pub fn subscribe(&self, subscriber: Subscriber) -> u64 {
         let id = self.inner.next_subscriber.fetch_add(1, Ordering::SeqCst);
         lock(&self.inner.subscribers).push((id, subscriber));
@@ -1036,12 +1044,23 @@ impl CodexSession {
                     ("request", request.clone()),
                 ]),
             );
-            state.pending_permissions.push(PendingPermission {
+            let pending = PendingPermission {
                 id,
                 request,
                 kind,
                 responder,
-            });
+            };
+            // Paseo keys pending permissions by id in a Map: a repeated id
+            // keeps its position and takes the new request and handler. The
+            // replaced responder answers Codex with an error when dropped.
+            match state
+                .pending_permissions
+                .iter_mut()
+                .find(|known| known.id == pending.id)
+            {
+                Some(known) => *known = pending,
+                None => state.pending_permissions.push(pending),
+            }
             self.publish(&events);
         }
     }
@@ -1618,18 +1637,20 @@ impl CodexSession {
     /// # Errors
     /// Returns the dispose failure when Codex survives SIGKILL.
     pub fn close(&self) -> Result<(), String> {
-        clear_pending_permissions(&mut lock(&self.inner.state));
         {
             let mut state = lock(&self.inner.state);
             state.closed = true;
+            clear_pending_permissions(&mut state);
             state.active_foreground_turn_id = None;
             state.active_client_message_id = None;
             if let Some(pending) = state.pending_identification.take() {
                 pending.slot.resolve(None);
             }
         }
-        // Paseo delivered every earlier event synchronously before close.
-        self.flush_dispatch();
+        // Paseo delivered every earlier event synchronously before close. A
+        // subscriber blocked in a session call (for example `start_turn`)
+        // must not hold close up, so the wait is bounded.
+        self.flush_dispatch(Some(CLOSE_FLUSH_TIMEOUT));
         lock(&self.inner.subscribers).clear();
         let outcome = self.dispose_client();
         lock(&self.inner.state).current_thread_id = None;
@@ -1692,7 +1713,7 @@ impl CodexSession {
     /// Waits until every event published so far reached the subscribers.
     /// Returns at once on the dispatch thread itself, which cannot wait for
     /// its own queue.
-    fn flush_dispatch(&self) {
+    fn flush_dispatch(&self, timeout: Option<Duration>) {
         if thread::current().id() == self.inner.dispatch_thread {
             return;
         }
@@ -1701,7 +1722,14 @@ impl CodexSession {
             .as_ref()
             .is_some_and(|dispatch| dispatch.send(Dispatch::Barrier(done)).is_ok());
         if sent {
-            let _ = delivered.recv();
+            match timeout {
+                Some(timeout) => {
+                    let _ = delivered.recv_timeout(timeout);
+                }
+                None => {
+                    let _ = delivered.recv();
+                }
+            }
         }
     }
 
@@ -1744,13 +1772,13 @@ impl CodexSession {
     #[cfg(feature = "test-hooks")]
     pub fn receive_notification(&self, method: &str, params: Option<&Value>) {
         self.handle_notification(method, params);
-        self.flush_dispatch();
+        self.flush_dispatch(None);
     }
 
     /// Waits until every event published so far reached the subscribers.
     #[cfg(feature = "test-hooks")]
     pub fn flush_events(&self) {
-        self.flush_dispatch();
+        self.flush_dispatch(None);
     }
 
     /// Puts the session in the state Paseo's `createSession()` test fixture
@@ -3541,7 +3569,7 @@ mod tests {
             "turn/completed",
             Some(&json!({"turn": {"status": "completed"}})),
         );
-        session.flush_dispatch();
+        session.flush_dispatch(None);
         assert_eq!(
             *seen.lock().unwrap(),
             vec![json!("turn_started"), json!("turn_completed")]
@@ -3588,6 +3616,84 @@ mod tests {
             provider.fetch_catalog(Some(Instant::now())),
             Err(CATALOG_DEADLINE_MESSAGE.to_owned())
         );
+    }
+
+    #[test]
+    fn a_repeated_approval_id_replaces_the_pending_request_in_place() {
+        // A `cat` child echoes each client request back as a server request,
+        // which hands this test real responders.
+        let child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exec cat"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("cat");
+        let client = AppServerClient::new(child).expect("client");
+        let (captured, responders) = mpsc::channel();
+        let captured = Mutex::new(captured);
+        client.set_request_handler(
+            "approval",
+            Arc::new(move |_, _, responder| {
+                let _ = captured.lock().unwrap().send(responder);
+            }),
+        );
+        let first = {
+            let client = client.clone();
+            thread::spawn(move || client.request("approval", None, Duration::from_secs(10)))
+        };
+        let first_responder = responders.recv().expect("first responder");
+        let session = bare_session();
+        let params = json!({"itemId": "i", "threadId": "t", "turnId": "u", "command": "ls"});
+        session.handle_approval_request(PermissionKind::Command, Some(&params), first_responder);
+        let second = {
+            let client = client.clone();
+            thread::spawn(move || client.request("approval", None, Duration::from_secs(10)))
+        };
+        let second_responder = responders.recv().expect("second responder");
+        let params = json!({"itemId": "i", "threadId": "t", "turnId": "u", "command": "pwd"});
+        session.handle_approval_request(PermissionKind::Command, Some(&params), second_responder);
+
+        let pending = session.pending_permissions();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["title"], json!("Run command: pwd"));
+        assert_eq!(
+            first.join().unwrap().map_err(|error| error.message),
+            Err(crate::transport::DROPPED_REQUEST_MESSAGE.to_owned()),
+            "the replaced responder answers instead of leaving Codex waiting"
+        );
+        session.close().expect("close");
+        assert!(session.pending_permissions().is_empty());
+        assert_eq!(
+            second.join().unwrap(),
+            Ok(json!({"decision": "cancel"})),
+            "close answers open approvals with cancel"
+        );
+        client.dispose().expect("dispose");
+    }
+
+    #[test]
+    fn an_empty_resume_session_id_starts_without_a_thread() {
+        let options = SessionOptions {
+            config: SessionConfig {
+                cwd: "/w".to_owned(),
+                ..SessionConfig::default()
+            },
+            spawn: Box::new(|| Err("no app-server in unit tests".to_owned())),
+            custom_codex_config: None,
+            ephemeral: false,
+            gates: CodexGates {
+                goals_enabled: false,
+                auto_review_enabled: false,
+            },
+        };
+        let handle = ResumeHandle {
+            session_id: String::new(),
+            metadata: None,
+        };
+        let session = CodexSession::resumed(options, &handle, false).expect("session");
+        assert_eq!(session.id(), None);
+        assert!(session.stream_history().is_empty());
     }
 
     #[test]
