@@ -52,6 +52,7 @@ gtimeout 600 npm ci --prefix "$capture_dir" --ignore-scripts --no-audit --no-fun
 
 (
   cd "$capture_dir"
+  TZ=UTC \
   SPOCKY_HUB_TRIGGERS_OUTPUT="$result_file" \
   gtimeout 120 ./node_modules/.bin/vitest run \
     src/hub-triggers-original.integration.test.ts \
