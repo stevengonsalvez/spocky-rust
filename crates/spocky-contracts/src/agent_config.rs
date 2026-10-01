@@ -7,7 +7,7 @@ use crate::field::{Nullable, optional};
 use crate::json::{JsRecord, JsonValue, ZodJson, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::PositiveInt;
-use crate::text::{NonEmptyString, TrimmedString};
+use crate::text::{JsText, NonEmptyString, TrimmedString};
 
 /// `MAX_EXPLICIT_AGENT_TITLE_CHARS` in `agent-title-limits.ts`.
 pub const MAX_EXPLICIT_AGENT_TITLE_CHARS: usize = 200;
@@ -18,11 +18,11 @@ pub type ExplicitAgentTitle = TrimmedString<1, MAX_EXPLICIT_AGENT_TITLE_CHARS>;
 /// `McpStdioServerConfigSchema` fields after `type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpStdioServerConfig {
-    pub command: String,
+    pub command: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub args: Option<Vec<String>>,
+    pub args: Option<Vec<JsText>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub env: Option<JsRecord<String>>,
+    pub env: Option<JsRecord<JsText>>,
     #[serde(
         rename = "alwaysLoad",
         default,
@@ -36,9 +36,9 @@ pub struct McpStdioServerConfig {
 /// `type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpRemoteServerConfig {
-    pub url: String,
+    pub url: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub headers: Option<JsRecord<String>>,
+    pub headers: Option<JsRecord<JsText>>,
     #[serde(
         rename = "alwaysLoad",
         default,
@@ -87,24 +87,24 @@ pub struct ToolPolicy {
 /// `AgentSessionConfigSchema` in zod output order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSessionConfig {
-    pub provider: String,
-    pub cwd: String,
+    pub provider: JsText,
+    pub cwd: JsText,
     #[serde(
         rename = "modeId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub mode_id: Option<String>,
+    pub mode_id: Option<JsText>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub model: Option<String>,
+    pub model: Option<JsText>,
     #[serde(
         rename = "thinkingOptionId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub thinking_option_id: Option<String>,
+    pub thinking_option_id: Option<JsText>,
     #[serde(
         rename = "featureValues",
         default,
@@ -134,7 +134,7 @@ pub struct AgentSessionConfig {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<JsText>,
     #[serde(
         rename = "mcpServers",
         default,
@@ -160,7 +160,7 @@ string_literal!(ChangeRequestKind = "change_request");
 pub struct ChangeRequestCheckoutSource {
     pub kind: ChangeRequestKind,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub forge: Option<String>,
+    pub forge: Option<JsText>,
     pub number: PositiveInt,
     #[serde(
         rename = "projectPath",
@@ -168,7 +168,7 @@ pub struct ChangeRequestCheckoutSource {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_path: Option<String>,
+    pub project_path: Option<JsText>,
 }
 
 /// `GitSetupOptionsSchema`.
@@ -180,7 +180,7 @@ pub struct GitSetupOptions {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub base_branch: Option<String>,
+    pub base_branch: Option<JsText>,
     #[serde(
         rename = "createNewBranch",
         default,
@@ -194,7 +194,7 @@ pub struct GitSetupOptions {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub new_branch_name: Option<String>,
+    pub new_branch_name: Option<JsText>,
     #[serde(
         rename = "createWorktree",
         default,
@@ -208,7 +208,7 @@ pub struct GitSetupOptions {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub worktree_slug: Option<String>,
+    pub worktree_slug: Option<JsText>,
     #[serde(
         rename = "refName",
         default,
