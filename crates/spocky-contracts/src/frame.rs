@@ -16,14 +16,14 @@ use crate::ws::{WsControlInbound, WsControlOutbound};
 #[derive(Debug, Clone, PartialEq)]
 pub enum WsInbound {
     Control(WsControlInbound),
-    Session(SessionInbound),
+    Session(Box<SessionInbound>),
 }
 
 /// A frame the daemon sends.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WsOutbound {
     Control(WsControlOutbound),
-    Session(SessionOutbound),
+    Session(Box<SessionOutbound>),
 }
 
 #[derive(Deserialize)]
@@ -59,7 +59,7 @@ impl<'de> Deserialize<'de> for WsInbound {
         let value = Value::deserialize(deserializer)?;
         if frame_type(&value) == Some("session") {
             SessionEnvelope::<SessionInbound>::deserialize(value)
-                .map(|envelope| Self::Session(envelope.message))
+                .map(|envelope| Self::Session(Box::new(envelope.message)))
                 .map_err(de::Error::custom)
         } else {
             WsControlInbound::deserialize(value)
@@ -83,7 +83,7 @@ impl<'de> Deserialize<'de> for WsOutbound {
         let value = Value::deserialize(deserializer)?;
         if frame_type(&value) == Some("session") {
             SessionEnvelope::<SessionOutbound>::deserialize(value)
-                .map(|envelope| Self::Session(envelope.message))
+                .map(|envelope| Self::Session(Box::new(envelope.message)))
                 .map_err(de::Error::custom)
         } else {
             WsControlOutbound::deserialize(value)
