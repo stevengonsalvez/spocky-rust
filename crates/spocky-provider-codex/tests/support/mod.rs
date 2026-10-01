@@ -113,6 +113,12 @@ pub enum Reply {
         name: String,
         arguments: Value,
     },
+    /// A completed freeform (custom) tool call such as `apply_patch`.
+    CustomToolCall {
+        call_id: String,
+        name: String,
+        input: String,
+    },
     /// `response.created`, then the stream stays open until the client
     /// disconnects or the stub stops.
     Hold,
@@ -266,22 +272,18 @@ fn serve(
                 "type": "function_call", "id": format!("fc_{call_id}"), "call_id": call_id,
                 "name": name, "arguments": arguments.to_string(), "status": "completed"
             });
-            let mut added = item.clone();
-            added["status"] = json!("in_progress");
-            added["arguments"] = json!("");
-            let mut events = sse(
-                "response.output_item.added",
-                json!({"output_index": 0, "item": added}),
-            );
-            events.push_str(&sse(
-                "response.output_item.done",
-                json!({"output_index": 0, "item": item}),
-            ));
-            events.push_str(&sse(
-                "response.completed",
-                json!({"response": {"id": response_id, "usage": {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 4, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 14}}}),
-            ));
-            let _ = stream.write_all(events.as_bytes());
+            let _ = stream.write_all(tool_call_events(&item, "arguments", response_id).as_bytes());
+        }
+        Some(Reply::CustomToolCall {
+            call_id,
+            name,
+            input,
+        }) => {
+            let item = json!({
+                "type": "custom_tool_call", "id": format!("ctc_{call_id}"), "call_id": call_id,
+                "name": name, "input": input, "status": "completed"
+            });
+            let _ = stream.write_all(tool_call_events(&item, "input", response_id).as_bytes());
         }
         Some(Reply::Hold) | None => {
             while !stop.load(Ordering::SeqCst) {
@@ -292,6 +294,27 @@ fn serve(
             }
         }
     }
+}
+
+/// One completed tool call item: added (in progress, `payload` empty), done,
+/// then `response.completed`.
+fn tool_call_events(item: &Value, payload: &str, response_id: &str) -> String {
+    let mut added = item.clone();
+    added["status"] = json!("in_progress");
+    added[payload] = json!("");
+    let mut events = sse(
+        "response.output_item.added",
+        json!({"output_index": 0, "item": added}),
+    );
+    events.push_str(&sse(
+        "response.output_item.done",
+        json!({"output_index": 0, "item": item}),
+    ));
+    events.push_str(&sse(
+        "response.completed",
+        json!({"response": {"id": response_id, "usage": {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 4, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 14}}}),
+    ));
+    events
 }
 
 fn sse(event: &str, mut data: Value) -> String {
