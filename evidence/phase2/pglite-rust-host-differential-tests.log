@@ -1,0 +1,24 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running tests/retained_pglite_runtime.rs (/private/tmp/spocky-targets/pglite-rust-host/debug/deps/retained_pglite_runtime-a309d35967006ac1)
+
+running 17 tests
+test retained_host_bounds_delivery_when_child_stops_reading ... ok
+test retained_host_enforces_frame_bound_and_timeout_without_replay ... ok
+test retained_host_gives_partial_live_owner_bounded_grace ... ok
+test retained_host_keeps_baseline_partial_journal_semantics ... ok
+test retained_host_never_replaces_live_lock_inode ... ok
+test retained_host_persists_normal_close_and_recovers_injected_post_close_failure ... ok
+test retained_host_preserves_json_tags_distinct_from_sql_scalars ... ok
+test retained_host_reclaims_stale_owner_with_one_concurrent_winner ... ok
+test retained_host_recovers_committed_write_after_lost_crash_reply ... ok
+test retained_host_rejects_second_owner_and_recovers_after_child_crash ... ok
+test retained_host_releases_owner_when_parent_process_dies ... ok
+test retained_host_reopens_real_historical_state_and_applies_remaining_migrations ... ok
+test retained_host_replays_history_and_preserves_typed_values ... ok
+test retained_host_rolls_back_applied_steps_when_later_migration_fails ... ok
+test retained_host_rolls_back_pending_migrations_after_partial_journal ... ok
+test retained_host_rolls_back_transaction ... ok
+test retained_host_serializes_concurrent_callers ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 142.41s
+
