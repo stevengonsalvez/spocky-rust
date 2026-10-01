@@ -593,10 +593,26 @@ pub struct Lookup {
 }
 
 /// Collected text written to the TTY devices, split by the glue's line rule.
+/// With `discard` set, lines are dropped, like `PGlite`'s `print` and
+/// `printErr` at debug level 0, so a long-lived database does not grow it.
 #[derive(Default, Debug, Clone)]
 pub struct Console {
     pub stdout: Vec<String>,
     pub stderr: Vec<String>,
+    pub discard: bool,
+}
+
+impl Console {
+    fn push(&mut self, sink: usize, text: String) {
+        if self.discard {
+            return;
+        }
+        if sink == 0 {
+            self.stdout.push(text);
+        } else {
+            self.stderr.push(text);
+        }
+    }
 }
 
 pub struct Fs {
@@ -2538,11 +2554,7 @@ impl Fs {
             None | Some(10) => {
                 let text = utf8_array_to_string(&state.output);
                 state.output.clear();
-                if state.sink == 0 {
-                    self.console.stdout.push(text);
-                } else {
-                    self.console.stderr.push(text);
-                }
+                self.console.push(state.sink, text);
             }
             Some(0) => {}
             Some(byte) => state.output.push(byte),
@@ -2556,11 +2568,7 @@ impl Fs {
         if !state.output.is_empty() {
             let text = utf8_array_to_string(&state.output);
             state.output.clear();
-            if state.sink == 0 {
-                self.console.stdout.push(text);
-            } else {
-                self.console.stderr.push(text);
-            }
+            self.console.push(state.sink, text);
         }
     }
 
@@ -3309,4 +3317,30 @@ fn host_statfs(_root: &std::path::Path) -> Option<[i64; 6]> {
     // workloads covered here (0 calls in the import trace), so the host keeps
     // the Emscripten defaults and records this as an untested difference.
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discarding_console_keeps_no_lines() {
+        let mut fs = Fs::new();
+        fs.ttys.insert(
+            7,
+            Tty {
+                output: Vec::new(),
+                sink: 1,
+            },
+        );
+        for byte in b"LOG: one\n" {
+            fs.tty_put_char(7, Some(*byte));
+        }
+        assert_eq!(fs.console.stderr, ["LOG: one"]);
+        fs.console.discard = true;
+        for byte in b"LOG: two\n" {
+            fs.tty_put_char(7, Some(*byte));
+        }
+        assert_eq!(fs.console.stderr, ["LOG: one"]);
+    }
 }
