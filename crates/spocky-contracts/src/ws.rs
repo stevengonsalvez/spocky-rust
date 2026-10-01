@@ -10,7 +10,9 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::field::optional;
-use crate::json::{JsRecord, JsonValue, serialize_passthrough};
+use crate::json::{
+    JsRecord, JsonValue, deserialize_tagged, serialize_passthrough, split_passthrough,
+};
 use crate::number::Int;
 use crate::text::{NonEmptyString, TrimmedString};
 
@@ -29,7 +31,7 @@ pub enum ClientType {
 }
 
 /// `WSHelloMessageSchema.auth`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind")]
 pub enum HelloAuth {
     #[serde(rename = "password")]
@@ -37,6 +39,27 @@ pub enum HelloAuth {
     #[serde(rename = "localCredential")]
     LocalCredential { token: String },
 }
+
+deserialize_tagged!(HelloAuth, "kind", {
+    "password" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            password: String,
+        }
+        Fields::deserialize(input).map(|fields| HelloAuth::Password {
+            password: fields.password,
+        })
+    },
+    "localCredential" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            token: String,
+        }
+        Fields::deserialize(input).map(|fields| HelloAuth::LocalCredential {
+            token: fields.token,
+        })
+    },
+});
 
 /// `BROWSER_AUTOMATION_COMMAND_NAMES` in `browser-automation/rpc-schemas.ts`.
 pub const BROWSER_AUTOMATION_COMMAND_NAMES: [&str; 22] = [
@@ -95,22 +118,21 @@ impl Serialize for BrowserHostCapability {
 impl<'de> Deserialize<'de> for BrowserHostCapability {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        struct Raw {
+        struct Known {
             #[serde(rename = "supportedCommands")]
             supported_commands: Vec<NonEmptyString>,
             #[serde(rename = "hostKind", default = "default_host_kind")]
             host_kind: NonEmptyString,
-            #[serde(flatten)]
-            extra: JsRecord<JsonValue>,
         }
 
         fn default_host_kind() -> NonEmptyString {
             NonEmptyString::new("browser host".to_owned()).unwrap_or_else(|| unreachable!())
         }
 
-        let raw = Raw::deserialize(deserializer)?;
+        let (known, extra): (Known, _) =
+            split_passthrough(deserializer, &["supportedCommands", "hostKind"])?;
         let mut supported_commands: Vec<String> = Vec::new();
-        for command in raw.supported_commands {
+        for command in known.supported_commands {
             let command = command.into_string();
             if BROWSER_AUTOMATION_COMMAND_NAMES.contains(&command.as_str())
                 && !supported_commands.contains(&command)
@@ -125,8 +147,8 @@ impl<'de> Deserialize<'de> for BrowserHostCapability {
         }
         Ok(Self {
             supported_commands,
-            host_kind: raw.host_kind,
-            extra: raw.extra,
+            host_kind: known.host_kind,
+            extra,
         })
     }
 }
@@ -135,13 +157,38 @@ impl<'de> Deserialize<'de> for BrowserHostCapability {
 ///
 /// zod output order: array-index extra keys ascending, then the shape flags,
 /// then the other extra keys in input order.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct HelloCapabilities {
-    #[serde(flatten)]
     pub flags: HelloCapabilityFlags,
     /// Keys outside the shape, such as `owned_subscriptions`.
-    #[serde(flatten)]
     pub extra: JsRecord<JsonValue>,
+}
+
+/// The shape keys of `WSHelloMessageSchema.capabilities`.
+const HELLO_CAPABILITY_KEYS: [&str; 16] = [
+    "voice",
+    "hello_rejection",
+    "pushNotifications",
+    "explicit_event_subscriptions",
+    "all_providers",
+    "reasoning_merge_enum",
+    "selective_agent_timeline",
+    "custom_mode_icons",
+    "terminal_reflowable_snapshot",
+    "provider_subagents",
+    "project_updates",
+    "compact_provider_snapshots",
+    "provider_snapshot_references",
+    "timeline_replacement_invalidation",
+    "timeline_notifications",
+    "browser_host",
+];
+
+impl<'de> Deserialize<'de> for HelloCapabilities {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (flags, extra) = split_passthrough(deserializer, &HELLO_CAPABILITY_KEYS)?;
+        Ok(Self { flags, extra })
+    }
 }
 
 impl Serialize for HelloCapabilities {
@@ -565,7 +612,7 @@ pub struct ServerInfo {
 
 /// Frames a client sends: `WSInboundMessageSchema` minus the session envelope,
 /// which the session module adds.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum WsControlInbound {
     /// Application-level `{ "type": "ping" }`; there are no WebSocket ping frames.
@@ -579,6 +626,21 @@ pub enum WsControlInbound {
         is_recording: bool,
     },
 }
+
+deserialize_tagged!(WsControlInbound, "type", {
+    "ping" => |_| Ok(WsControlInbound::Ping),
+    "hello" => |input| Hello::deserialize(input).map(|hello| WsControlInbound::Hello(Box::new(hello))),
+    "recording_state" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            #[serde(rename = "isRecording")]
+            is_recording: bool,
+        }
+        Fields::deserialize(input).map(|fields| WsControlInbound::RecordingState {
+            is_recording: fields.is_recording,
+        })
+    },
+});
 
 /// Frames the daemon sends outside the session envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
