@@ -1,0 +1,137 @@
+{
+  "tree": {
+    "nodeEntries": 1001,
+    "rustEntries": 1001,
+    "onlyNode": [],
+    "onlyRust": [],
+    "filesWithSameBytes": 973,
+    "differences": {
+      "type": [],
+      "size": [],
+      "mode": [],
+      "mtimeClass": [],
+      "content": [
+        "global/pg_control",
+        "pg_wal/000000010000000000000001"
+      ]
+    }
+  },
+  "steps": {
+    "select1": {
+      "node": {
+        "step": "select1",
+        "rows": [
+          {
+            "one": 1
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          [
+            "1"
+          ]
+        ],
+        "step": "select1"
+      }
+    },
+    "plpgsqlException": {
+      "node": {
+        "step": "plpgsqlException",
+        "longjmpCalls": 1
+      },
+      "rust": {
+        "longjmpCalls": 1,
+        "notices": [
+          "caught 22012"
+        ],
+        "step": "plpgsqlException"
+      }
+    },
+    "structuredError": {
+      "node": {
+        "step": "structuredError",
+        "code": "42P01",
+        "message": "relation \"missing_table\" does not exist",
+        "severity": "ERROR"
+      },
+      "rust": {
+        "code": "42P01",
+        "message": "relation \"missing_table\" does not exist",
+        "severity": "ERROR",
+        "step": "structuredError"
+      }
+    },
+    "settings": {
+      "node": {
+        "step": "settings",
+        "rows": [
+          {
+            "timezone": "Etc/GMT0",
+            "version": "18.3"
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          [
+            "Etc/GMT0",
+            "18.3"
+          ]
+        ],
+        "step": "settings"
+      }
+    }
+  },
+  "nodeCounters": {
+    "longjmp": 1,
+    "invokeCaughtLongjmp": 0,
+    "exit": 7
+  },
+  "rustCounters": {
+    "dlopen": 3,
+    "dlsym": 18,
+    "emscripten_throw_longjmp": 1,
+    "initdb_postgres_main": 5,
+    "invoke_caught_longjmp": 1,
+    "postgres_main_longjmp": 1
+  },
+  "rustOpen": {
+    "initdb": {
+      "entries": 996,
+      "exitCode": 0,
+      "stderr": ""
+    },
+    "milliseconds": 10625,
+    "ok": true,
+    "step": "open"
+  },
+  "rustCompile": {
+    "cacheDirectory": true,
+    "milliseconds": 24867,
+    "step": "compile"
+  },
+  "rustReopen": [
+    {
+      "closed": true,
+      "error": null,
+      "rows": [
+        [
+          "1"
+        ]
+      ],
+      "step": "rustReopen"
+    },
+    {
+      "closed": true,
+      "error": null,
+      "rows": [
+        [
+          "1",
+          "spike marker"
+        ]
+      ],
+      "step": "nodeDirectoryReopen"
+    }
+  ]
+}
