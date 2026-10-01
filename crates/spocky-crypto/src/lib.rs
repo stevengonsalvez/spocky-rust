@@ -1,4 +1,5 @@
 pub mod base64_js;
+pub mod channel;
 pub mod js_json;
 pub mod js_string;
 
