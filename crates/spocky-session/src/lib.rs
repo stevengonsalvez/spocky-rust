@@ -17,6 +17,7 @@ pub mod git_remote;
 pub mod js;
 pub mod paths;
 pub mod project_key;
+pub mod provider_subagents;
 pub mod provisioning;
 pub mod runtime_mcp_config;
 pub mod stream_coalescer;
