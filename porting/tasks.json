@@ -534,7 +534,20 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "danger-full-access/unrestricted",
-          "status": "implementing",
+          "status": "implementing; checkpoint 1 code and tests integrated, evidence held",
+          "checkpoints": [
+            {
+              "date": "2026-10-01",
+              "writer": "Claude Sonnet writer term_fbb7b2ab",
+              "sourceCommits": ["e7d65c2", "5ebf8ca", "4d6e224", "ccbea17", "431cd14", "0b65277"],
+              "integrationCommits": ["1b84943", "9b30733", "7a3458d", "8a1db0e", "aa34edf", "f4257a9"],
+              "review": { "reviewer": "read-only code-reviewer subagent, Opus, launched by the Claude lead", "range": "655a99a..6fea1f1", "verdict": "INTEGRATE-WITH-FOLLOWUPS; execution id derivation matches baseline lifecycle.ts:1771 byte for byte; HMAC, request order 503/401/413/signature/400, fenced lease release, first terminal transition, and run branch idempotency match" },
+              "leadVerification": "gated, CARGO_TARGET_DIR=/private/tmp/spocky-targets/lead: hub_triggers 8/8, hub_contract 5/5, http_runtime 6/6, all-target clippy and package fmt clean",
+              "held": { "7ee4905": "P1: enumeration doc claims compare scripts and matched:true with no normalization before either exists", "6fea1f1": "P2: hub_triggers_evidence passes vacuously when SPOCKY_HUB_TRIGGERS_OUTPUT is unset", "01d9341, fc8194b, d99a946, be2d78e, 7bfe140, 51b5b96": "compare used jq -S and hid key order; writer reworking" },
+              "routedFindings": ["P2 mod.rs idle deadline must also cap by execution deadline", "P2 mod.rs step lookup must match stepId and ordinal", "P2 manual.rs BOM strip and lossy UTF-8 like request.json(), inferred", "P2 webhook.rs test-double counters inside production type", "P3 parse_iso_ms discards value and treats no-offset time as UTC", "P3 wakeup tie-break by run id instead of insertion order", "P3 missing exact lease-expiry boundary test", "P3 gaps list misses Postgres receipt null ids, active-project check, and manual 503 database_unavailable", "P3 baseline harness executionIdIsDurable is tautological"],
+              "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+            }
+          ],
           "dependencies": ["p2_hub_schema_downgrade"],
           "capabilities": ["CLOUD-HUB-TRIGGERS-016", "CLOUD-HUB-EXEC-002"],
           "acceptanceCases": ["qualify verified GitHub webhook trigger handling", "qualify execution behavior offline on loopback", "avoid deployment and production services", "port 6767 remains untouched"],
