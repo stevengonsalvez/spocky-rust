@@ -1,0 +1,53 @@
+{
+  "baseline": {
+    "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "sourceSha256": "cf3b965451bd8cd9203f16118bdda8df80cec096b51d8d7f3e5b0456dc5f92e7",
+    "disposableSourceReadOnly": true
+  },
+  "candidatePausedBeforeOwner": {
+    "pause": {
+      "event": "paused-before-owner-open"
+    },
+    "baselineOpened": true,
+    "candidateRejected": {
+      "error": "directory-in-use",
+      "event": "open-rejected",
+      "opened": false
+    },
+    "candidateExit": {
+      "code": 0,
+      "signal": null
+    }
+  },
+  "baselinePausedAfterExclusiveCreate": {
+    "emptyOwnerFileCreated": true,
+    "candidateReady": {
+      "event": "owner-ready",
+      "opened": true,
+      "owner": {
+        "pid": 69855,
+        "protocol": "os-file-lock-v1",
+        "token": "7b9faf23-5693-4cbb-b2e8-7ecc6df8a7a5"
+      },
+      "tableCount": 50
+    },
+    "baselineWriteCompleted": true,
+    "partialInode": 343366280,
+    "candidateInode": 343366283,
+    "distinctInodes": true,
+    "visibleOwnerProtocol": "os-file-lock-v1",
+    "bothProcessesLive": true,
+    "closed": {
+      "event": "closed"
+    },
+    "candidateExit": {
+      "code": 0,
+      "signal": null
+    }
+  },
+  "conclusion": {
+    "exclusiveCandidateCreate": "implemented",
+    "pausedBaselineAfterCreate": "inherent-unresolved-race",
+    "reason": "pinned baseline treats an incomplete record as stale after bounded retries"
+  }
+}
