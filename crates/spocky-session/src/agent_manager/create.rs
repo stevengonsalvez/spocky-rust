@@ -9,8 +9,8 @@ use spocky_store::js_value::{JsObject, JsValue};
 use super::{AgentLifecycle, AgentManager, ManagedAgent, ManagedAgentSnapshot, validate_agent_id};
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
 use crate::agent_sdk::{
-    AgentClient, AgentCreateSessionOptions, AgentError, AgentLaunchContext, AgentSession,
-    FetchCatalogOptions,
+    AgentClient, AgentCreateSessionOptions, AgentError, AgentLaunchContext, AgentResumePurpose,
+    AgentResumeSessionOptions, AgentSession, FetchCatalogOptions,
 };
 use crate::js::{js_string, spread, spread_into, truthy};
 use crate::runtime_mcp_config::{strip_internal_paseo_mcp_server, with_runtime_paseo_mcp_server};
@@ -34,13 +34,38 @@ pub struct CreateAgentOptions {
     pub owner: Option<JsValue>,
 }
 
-/// `registerSession` options the create path passes.
+/// `registerSession` options the create and resume paths pass.
+#[derive(Default)]
 pub(crate) struct RegisterOptions {
     pub(crate) labels: Option<JsValue>,
     pub(crate) initial_title: Option<String>,
     pub(crate) workspace_id: Option<String>,
     pub(crate) owner: Option<JsValue>,
     pub(crate) history_primed: Option<bool>,
+    pub(crate) created_at_millis: Option<i64>,
+    pub(crate) updated_at_millis: Option<i64>,
+    /// `lastUserMessageAt ?? null`.
+    pub(crate) last_user_message_at_millis: Option<i64>,
+    /// `resolveInitialAttention(attention)`.
+    pub(crate) attention: Option<AgentAttention>,
+    /// `persistence ?? session.describePersistence()`.
+    pub(crate) persistence: Option<JsValue>,
+    /// Bringing a known agent back: installing the session is not activity
+    /// in it, so `updatedAt` is not touched.
+    pub(crate) restoring: bool,
+}
+
+/// `resumeAgentFromPersistence` options: what the stored record says
+/// about the agent being brought back.
+#[derive(Debug, Clone, Default)]
+pub struct ResumeAgentOptions {
+    pub created_at_millis: Option<i64>,
+    pub updated_at_millis: Option<i64>,
+    pub last_user_message_at_millis: Option<i64>,
+    pub labels: Option<JsValue>,
+    pub workspace_id: Option<String>,
+    pub owner: Option<JsValue>,
+    pub attention: Option<AgentAttention>,
 }
 
 /// `PreparedSessionConfig`.
@@ -155,7 +180,12 @@ impl AgentManager {
         )?;
         self.delete_agent_state(&resolved_agent_id);
         let prepared = self
-            .prepare_session_config(&config, &resolved_agent_id, options.env.as_ref())
+            .prepare_session_config(
+                &config,
+                &resolved_agent_id,
+                options.env.as_ref(),
+                AgentResumePurpose::Interactive,
+            )
             .await?;
         let provider = config_text(&prepared.stored_config, "provider")
             .unwrap_or_default()
@@ -192,6 +222,131 @@ impl AgentManager {
                 workspace_id: options.workspace_id,
                 owner: options.owner,
                 history_primed: Some(true),
+                ..RegisterOptions::default()
+            },
+        )
+        .await
+    }
+
+    /// `resumeAgentFromPersistence(handle, overrides, agentId, options,
+    /// resumeOptions)`: reopens a stored agent's provider session and
+    /// registers it as restored, inside the agent's lifecycle lane.
+    ///
+    /// # Errors
+    ///
+    /// The baseline's id, configuration, provider and registration errors.
+    pub async fn resume_agent_from_persistence(
+        &self,
+        handle: JsValue,
+        overrides: Option<JsValue>,
+        agent_id: Option<String>,
+        options: ResumeAgentOptions,
+        resume_options: Option<AgentResumeSessionOptions>,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        let resolved_agent_id = validate_agent_id(
+            &agent_id.unwrap_or_else(|| (self.inner.id_factory)()),
+            "resumeAgentFromPersistence",
+        )?;
+        let lane = Self::lane(&mut self.lock().lifecycle_lanes, &resolved_agent_id);
+        let _turn = lane.lock().await;
+        self.resume_agent_from_persistence_internal(
+            &handle,
+            overrides.as_ref(),
+            &resolved_agent_id,
+            options,
+            resume_options,
+        )
+        .await
+    }
+
+    async fn resume_agent_from_persistence_internal(
+        &self,
+        handle: &JsValue,
+        overrides: Option<&JsValue>,
+        agent_id: &str,
+        options: ResumeAgentOptions,
+        resume_options: Option<AgentResumeSessionOptions>,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        self.assert_accepting_agent_registrations()?;
+        let resolved_agent_id = validate_agent_id(agent_id, "resumeAgentFromPersistence")?;
+        let mut merged = spread(
+            handle
+                .get("metadata")
+                .filter(|metadata| !matches!(metadata, JsValue::Undefined | JsValue::Null)),
+        );
+        spread_into(&mut merged, overrides);
+        merged.insert(
+            "provider",
+            handle
+                .get("provider")
+                .cloned()
+                .unwrap_or(JsValue::Undefined),
+        );
+        // Residency comes from durable state inside the lane: a queued
+        // archive or restore may have completed since the caller read it.
+        let registry = self.inner.registry.clone();
+        let record = match &registry {
+            Some(registry) => registry.get(&resolved_agent_id).await,
+            None => None,
+        };
+        let current_resume_options = match &record {
+            Some(record) => Some(AgentResumeSessionOptions {
+                purpose: Some(if truthy(record.get("archivedAt")) {
+                    AgentResumePurpose::History
+                } else {
+                    AgentResumePurpose::Interactive
+                }),
+            }),
+            None => resume_options,
+        };
+        let purpose = current_resume_options
+            .and_then(|options| options.purpose)
+            .unwrap_or(AgentResumePurpose::Interactive);
+        let prepared = self
+            .prepare_session_config(&JsValue::Object(merged), &resolved_agent_id, None, purpose)
+            .await?;
+        let provider = js_string(handle.get("provider"));
+        let Some(client) = self.lock().client(&provider) else {
+            return Err(AgentError::new(format!(
+                "No client registered for provider '{provider}'"
+            )));
+        };
+        if !client.is_available(None, None).await? {
+            return Err(AgentError::new(format!(
+                "Provider '{provider}' is not available. Please ensure the CLI is installed."
+            )));
+        }
+        self.lock().paseo_tool_policies.insert(
+            resolved_agent_id.clone(),
+            prepared.paseo_tool_policy.clone(),
+        );
+        let cwd = js_string(prepared.stored_config.get("cwd"));
+        let launch_context = Self::build_launch_context(&resolved_agent_id, &cwd, None);
+        let session = client
+            .resume_session(
+                handle.clone(),
+                Some(prepared.launch_config),
+                Some(launch_context),
+                current_resume_options,
+            )
+            .await?;
+        self.require_external_mcp_support(&session, &prepared.stored_config)
+            .await?;
+        self.register_session(
+            session,
+            prepared.stored_config,
+            &resolved_agent_id,
+            RegisterOptions {
+                labels: options.labels,
+                workspace_id: options.workspace_id,
+                owner: options.owner,
+                created_at_millis: options.created_at_millis,
+                updated_at_millis: options.updated_at_millis,
+                last_user_message_at_millis: options.last_user_message_at_millis,
+                attention: options.attention,
+                persistence: Some(handle.clone()),
+                restoring: true,
+                ..RegisterOptions::default()
             },
         )
         .await
@@ -206,12 +361,20 @@ impl AgentManager {
     }
 
     /// `normalizeConfig(config, { purpose: "interactive" })`.
-    async fn normalize_config(&self, config: &JsValue) -> Result<JsValue, AgentError> {
+    /// Reading an archived agent's history (`purpose: "history"`) runs
+    /// nothing, so its working directory need not exist.
+    async fn normalize_config(
+        &self,
+        config: &JsValue,
+        purpose: AgentResumePurpose,
+    ) -> Result<JsValue, AgentError> {
         let mut normalized = spread(Some(config));
         if let Some(cwd) = normalized.get("cwd").filter(|cwd| truthy(Some(cwd))) {
             let resolved = crate::paths::resolve_from_cwd(&js_string(Some(cwd)));
             normalized.insert("cwd", JsValue::String(resolved.clone()));
-            assert_usable_working_directory(&resolved)?;
+            if purpose != AgentResumePurpose::History {
+                assert_usable_working_directory(&resolved)?;
+            }
         }
         if let Some(model) = normalized.get("model").and_then(JsValue::as_str) {
             let trimmed = js_trim(model).to_owned();
@@ -307,9 +470,10 @@ impl AgentManager {
         config: &JsValue,
         agent_id: &str,
         _env: Option<&JsObject>,
+        purpose: AgentResumePurpose,
     ) -> Result<PreparedSessionConfig, AgentError> {
         let stored_config = self
-            .normalize_config(&strip_internal_paseo_mcp_server(config))
+            .normalize_config(&strip_internal_paseo_mcp_server(config), purpose)
             .await?;
         let provider = js_string(stored_config.get("provider"));
         let (tools_enabled, mcp_base_url, append_system_prompt) = {
@@ -500,6 +664,33 @@ impl AgentManager {
             .or(fallback_title)
     }
 
+    /// `initializeAgentTimelineForRegister`: whether the agent already has
+    /// timeline rows; otherwise starts an empty timeline at `now`.
+    fn initialize_agent_timeline_for_register(
+        &self,
+        agent_id: &str,
+        now: i64,
+    ) -> Result<bool, AgentError> {
+        let mut state = self.lock();
+        let already_primed = state.timeline.has(agent_id);
+        if !already_primed {
+            state
+                .timeline
+                .initialize(
+                    agent_id,
+                    Vec::new(),
+                    None,
+                    None,
+                    Some(crate::clock::iso_from_millis(now)),
+                )
+                .map_err(|error| AgentError {
+                    name: "TypeError".to_owned(),
+                    message: error.0,
+                })?;
+        }
+        Ok(already_primed)
+    }
+
     /// `registerSession(session, config, agentId, options)` for a new agent.
     pub(crate) async fn register_session(
         &self,
@@ -537,26 +728,8 @@ impl AgentManager {
             .resolve_initial_persisted_title(&resolved_agent_id, &config, options.initial_title)
             .await;
         let now = crate::clock::now_millis();
-        let durable_timeline_has_rows = {
-            let mut state = self.lock();
-            let already_primed = state.timeline.has(&resolved_agent_id);
-            if !already_primed {
-                state
-                    .timeline
-                    .initialize(
-                        &resolved_agent_id,
-                        Vec::new(),
-                        None,
-                        None,
-                        Some(crate::clock::iso_from_millis(now)),
-                    )
-                    .map_err(|error| AgentError {
-                        name: "TypeError".to_owned(),
-                        message: error.0,
-                    })?;
-            }
-            already_primed
-        };
+        let durable_timeline_has_rows =
+            self.initialize_agent_timeline_for_register(&resolved_agent_id, now)?;
         let snapshot = initial_snapshot(
             &resolved_agent_id,
             config,
@@ -566,6 +739,11 @@ impl AgentManager {
                 workspace_id: options.workspace_id,
                 owner: options.owner,
                 history_primed: options.history_primed.unwrap_or(durable_timeline_has_rows),
+                created_at_millis: options.created_at_millis,
+                updated_at_millis: options.updated_at_millis,
+                last_user_message_at_millis: options.last_user_message_at_millis,
+                attention: options.attention,
+                persistence: options.persistence,
             },
             now,
         );
@@ -615,7 +793,11 @@ impl AgentManager {
             let mut state = self.lock();
             if let Some(agent) = state.agent_mut(&resolved_agent_id) {
                 agent.snapshot.lifecycle = AgentLifecycle::Idle;
-                touch_updated_at(&mut agent.snapshot);
+                // Stamping now over a restored timestamp would rewrite the
+                // workspace's "last used" every time a chat is reopened.
+                if !options.restoring {
+                    touch_updated_at(&mut agent.snapshot);
+                }
             }
         }
         self.persist_snapshot(&resolved_agent_id, SnapshotOverrides::default())
@@ -662,6 +844,11 @@ struct InitialAgentFields {
     workspace_id: Option<String>,
     owner: Option<JsValue>,
     history_primed: bool,
+    created_at_millis: Option<i64>,
+    updated_at_millis: Option<i64>,
+    last_user_message_at_millis: Option<i64>,
+    attention: Option<AgentAttention>,
+    persistence: Option<JsValue>,
 }
 
 /// `buildManagedAgentForRegister`: an initializing agent over `session`.
@@ -686,21 +873,26 @@ fn initial_snapshot(
             .unwrap_or(false),
         config,
         runtime_info: None,
-        created_at_millis: now,
-        updated_at_millis: now,
+        created_at_millis: fields.created_at_millis.unwrap_or(now),
+        updated_at_millis: fields.updated_at_millis.unwrap_or(now),
         available_modes: Vec::new(),
         features: None,
         current_mode_id: None,
         pending_permissions: Vec::new(),
         pending_replacement: false,
-        persistence: attach_persistence_cwd(session.describe_persistence(), &cwd),
+        persistence: attach_persistence_cwd(
+            fields
+                .persistence
+                .or_else(|| session.describe_persistence()),
+            &cwd,
+        ),
         history_primed: fields.history_primed,
-        last_user_message_at_millis: None,
+        last_user_message_at_millis: fields.last_user_message_at_millis,
         active_turn_id: None,
         active_turn_started_at_millis: None,
         last_usage: None,
         last_error: None,
-        attention: AgentAttention::None,
+        attention: fields.attention.unwrap_or(AgentAttention::None),
         labels: fields
             .labels
             .unwrap_or_else(|| JsValue::Object(JsObject::new())),

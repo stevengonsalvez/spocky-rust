@@ -69,7 +69,7 @@ async fn run_settled(mut settled: tokio::sync::watch::Receiver<bool>) -> Result<
 }
 
 impl AgentManager {
-    fn lane(
+    pub(super) fn lane(
         lanes: &mut std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>,
         agent_id: &str,
     ) -> Arc<tokio::sync::Mutex<()>> {
