@@ -620,6 +620,13 @@ impl AgentRecordStore {
         self.deleting.insert(id.to_owned());
     }
 
+    /// `deleting.has(id)`: a delete has begun, so queued writes for `id` are
+    /// skipped before their record is built.
+    #[must_use]
+    pub fn is_deleting(&self, id: &str) -> bool {
+        self.deleting.contains(id)
+    }
+
     /// `remove`: marks the id deleting, unlinks every file indexed for it,
     /// and drops it from the cache. Unlink failures other than not-found do
     /// not fail the call; they are returned for the caller to log, as the
