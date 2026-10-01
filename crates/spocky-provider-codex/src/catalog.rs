@@ -9,7 +9,9 @@
 use serde_json::{Map, Value, json};
 
 use crate::launch::CODEX_PROVIDER;
-use crate::transport::{AppServerClient, DEFAULT_REQUEST_TIMEOUT, js_trim};
+use spocky_contracts::text::js_trim;
+
+use crate::transport::{AppServerClient, DEFAULT_REQUEST_TIMEOUT};
 
 /// One entry of `CodexModelListResponseSchema.data`.
 #[derive(Debug, Clone, PartialEq)]
