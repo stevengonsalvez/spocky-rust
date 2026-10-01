@@ -17,11 +17,47 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use spocky_provider_codex::{
-    CodexProvider, CodexSession, CustomProvider, ProviderRuntimeSettings, SessionConfig,
+    CodexProvider, CodexSession, CustomProvider, ProviderCommand, ProviderRuntimeSettings,
+    SessionConfig,
 };
 
 /// Pinned Codex binary and digest from `evidence/phase3/slice-plan.md`.
 pub const PINNED_CODEX_VERSION: &str = "codex-cli 0.159.0";
+pub const PINNED_CODEX_PATH: &str = "/usr/local/Caskroom/codex/0.159.0/bin/codex";
+pub const PINNED_CODEX_SHA256: &str =
+    "1ad71e5ed117114f9d04cdd8d5dd411515b5ab7ebc725b8ca2f484695d71c838";
+
+/// The pinned Codex binary when `SPOCKY_REAL_CODEX=1`, verified by path,
+/// SHA-256, and version. Without the variable the real-Codex tests skip and
+/// say so; every lane gate sets it, so a skip is never gate evidence.
+pub fn real_codex() -> Option<String> {
+    static VERIFIED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if std::env::var("SPOCKY_REAL_CODEX").as_deref() != Ok("1") {
+        eprintln!("SKIPPED real-Codex test: set SPOCKY_REAL_CODEX=1 to run it");
+        return None;
+    }
+    VERIFIED.get_or_init(|| {
+        let digest = std::process::Command::new("shasum")
+            .args(["-a", "256", PINNED_CODEX_PATH])
+            .output()
+            .expect("shasum of the pinned codex");
+        let digest = String::from_utf8_lossy(&digest.stdout);
+        assert_eq!(
+            digest.split_whitespace().next(),
+            Some(PINNED_CODEX_SHA256),
+            "pinned codex digest mismatch at {PINNED_CODEX_PATH}"
+        );
+        let version = std::process::Command::new(PINNED_CODEX_PATH)
+            .arg("--version")
+            .output()
+            .expect("pinned codex --version");
+        assert_eq!(
+            String::from_utf8_lossy(&version.stdout).trim(),
+            PINNED_CODEX_VERSION
+        );
+    });
+    Some(PINNED_CODEX_PATH.to_owned())
+}
 
 /// One scripted reply to a `POST /v1/responses`.
 #[derive(Clone)]
@@ -260,8 +296,9 @@ pub fn path_string(path: &Path) -> String {
 }
 
 /// Provider wired the way the slice harness configures the daemon: an
-/// `extends: "codex"` profile whose env points Codex at the stub.
-pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub) -> CodexProvider {
+/// `extends: "codex"` profile whose env points Codex at the stub, launching
+/// the pinned binary by absolute path.
+pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -> CodexProvider {
     let home = path_string(&root.join("home"));
     let base_env: Vec<(OsString, OsString)> = vec![
         (
@@ -280,7 +317,9 @@ pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub) -> CodexProvid
     .collect();
     CodexProvider::new(
         Some(ProviderRuntimeSettings {
-            command: None,
+            command: Some(ProviderCommand::Replace {
+                argv: vec![codex.to_owned()],
+            }),
             env: Some(env),
         }),
         Some(CustomProvider {
