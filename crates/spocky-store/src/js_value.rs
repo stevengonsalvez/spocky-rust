@@ -55,24 +55,40 @@ pub enum JsTextUnit {
     LoneSurrogate(u16),
 }
 
-/// Decodes JavaScript text into scalars and lone surrogates.
+/// Decodes JavaScript text into scalars and lone surrogates. A
+/// [`JS_TEXT_ESCAPE`] that is not followed by a doubled escape or an encoded
+/// surrogate (raw text that never went through [`js_text`]) stands for itself.
 pub fn js_text_units(text: &str) -> impl Iterator<Item = JsTextUnit> + '_ {
-    let mut chars = text.chars();
+    let mut chars = text.chars().peekable();
     std::iter::from_fn(move || {
         let character = chars.next()?;
         if character != JS_TEXT_ESCAPE {
             return Some(JsTextUnit::Char(character));
         }
-        match chars.next() {
-            Some(JS_TEXT_ESCAPE) | None => Some(JsTextUnit::Char(JS_TEXT_ESCAPE)),
-            Some(encoded) => {
-                let unit = u32::from(encoded) - SURROGATE_BASE + 0xD800;
-                Some(JsTextUnit::LoneSurrogate(
-                    u16::try_from(unit).unwrap_or(0xFFFD),
-                ))
+        match chars.peek().copied() {
+            Some(JS_TEXT_ESCAPE) => {
+                chars.next();
+                Some(JsTextUnit::Char(JS_TEXT_ESCAPE))
             }
+            Some(encoded) => match encoded_surrogate(encoded) {
+                Some(unit) => {
+                    chars.next();
+                    Some(JsTextUnit::LoneSurrogate(unit))
+                }
+                None => Some(JsTextUnit::Char(JS_TEXT_ESCAPE)),
+            },
+            None => Some(JsTextUnit::Char(JS_TEXT_ESCAPE)),
         }
     })
+}
+
+/// The lone surrogate an escape payload encodes, if it is one.
+fn encoded_surrogate(encoded: char) -> Option<u16> {
+    let offset = u32::from(encoded).checked_sub(SURROGATE_BASE)?;
+    if offset > 0x7FF {
+        return None;
+    }
+    u16::try_from(0xD800 + offset).ok()
 }
 
 /// UTF-16 code units of JavaScript text, as `String.prototype` indexes them.
@@ -100,8 +116,9 @@ pub fn js_text_from_utf16(units: &[u16]) -> String {
     out
 }
 
-/// A parsed JavaScript value.
-#[derive(Debug, Clone, PartialEq)]
+/// A parsed JavaScript value. `Clone`, `PartialEq`, `Debug`, and `Drop` walk
+/// the tree with explicit stacks, so input as deep as `JSON.parse` accepts
+/// never overflows the Rust stack.
 pub enum JsValue {
     Null,
     Bool(bool),
@@ -272,6 +289,92 @@ impl Drop for JsValue {
         while let Some(mut value) = stack.pop() {
             value.take_children(&mut stack);
         }
+    }
+}
+
+enum CloneWork<'a> {
+    Visit(&'a JsValue),
+    Array(usize),
+    Object(Vec<String>),
+}
+
+impl Clone for JsValue {
+    fn clone(&self) -> Self {
+        let mut work = vec![CloneWork::Visit(self)];
+        let mut built: Vec<JsValue> = Vec::new();
+        while let Some(step) = work.pop() {
+            match step {
+                CloneWork::Visit(value) => match value {
+                    Self::Null => built.push(Self::Null),
+                    Self::Bool(flag) => built.push(Self::Bool(*flag)),
+                    Self::Number(number) => built.push(Self::Number(*number)),
+                    Self::String(text) => built.push(Self::String(text.clone())),
+                    Self::Array(items) => {
+                        work.push(CloneWork::Array(items.len()));
+                        work.extend(items.iter().rev().map(CloneWork::Visit));
+                    }
+                    Self::Object(object) => {
+                        work.push(CloneWork::Object(
+                            object.entries.iter().map(|(key, _)| key.clone()).collect(),
+                        ));
+                        work.extend(
+                            object
+                                .entries
+                                .iter()
+                                .rev()
+                                .map(|(_, item)| CloneWork::Visit(item)),
+                        );
+                    }
+                },
+                CloneWork::Array(length) => {
+                    let items = built.split_off(built.len() - length);
+                    built.push(Self::Array(items));
+                }
+                CloneWork::Object(keys) => {
+                    let values = built.split_off(built.len() - keys.len());
+                    built.push(Self::Object(JsObject {
+                        entries: keys.into_iter().zip(values).collect(),
+                    }));
+                }
+            }
+        }
+        built.pop().unwrap_or(Self::Null)
+    }
+}
+
+impl PartialEq for JsValue {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Null, Self::Null) => {}
+                (Self::Bool(a), Self::Bool(b)) if a == b => {}
+                (Self::String(a), Self::String(b)) if a == b => {}
+                (Self::Number(a), Self::Number(b)) if a == b => {}
+                (Self::Array(a), Self::Array(b)) if a.len() == b.len() => {
+                    pending.extend(a.iter().zip(b));
+                }
+                (Self::Object(a), Self::Object(b)) if a.entries.len() == b.entries.len() => {
+                    for ((left_key, left_value), (right_key, right_value)) in
+                        a.entries.iter().zip(&b.entries)
+                    {
+                        if left_key != right_key {
+                            return false;
+                        }
+                        pending.push((left_value, right_value));
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl fmt::Debug for JsValue {
+    /// Writes the value as `JSON.stringify` would.
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&stringify(self))
     }
 }
 
@@ -625,48 +728,67 @@ fn write_string(out: &mut String, text: &str) {
     out.push('"');
 }
 
-fn write_value(out: &mut String, value: &JsValue, indent: Option<&str>, depth: usize) {
-    match value {
-        JsValue::Null => out.push_str("null"),
-        JsValue::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
-        JsValue::Number(number) => out.push_str(&js_number(*number)),
-        JsValue::String(text) => write_string(out, text),
-        JsValue::Array(items) => {
-            if items.is_empty() {
-                out.push_str("[]");
-                return;
-            }
-            out.push('[');
-            for (position, item) in items.iter().enumerate() {
-                if position > 0 {
+enum WriteWork<'a> {
+    Value(&'a JsValue, usize),
+    Item(usize, bool),
+    Key(&'a str, usize, bool),
+    Close(char, usize),
+}
+
+// V8 `JSON.stringify` recurses and throws a RangeError somewhere between
+// 3,000 and 5,000 nesting levels (it depends on the stack in use), so the
+// baseline fails to write such values. This writer uses an explicit stack
+// and writes them; no fixed depth reproduces V8's limit.
+fn write_value(out: &mut String, root: &JsValue, indent: Option<&str>) {
+    let mut work = vec![WriteWork::Value(root, 0)];
+    while let Some(step) = work.pop() {
+        match step {
+            WriteWork::Item(depth, first) => {
+                if !first {
                     out.push(',');
                 }
-                newline(out, indent, depth + 1);
-                write_value(out, item, indent, depth + 1);
+                newline(out, indent, depth);
             }
-            newline(out, indent, depth);
-            out.push(']');
-        }
-        JsValue::Object(object) => {
-            if object.is_empty() {
-                out.push_str("{}");
-                return;
+            WriteWork::Close(bracket, depth) => {
+                newline(out, indent, depth);
+                out.push(bracket);
             }
-            out.push('{');
-            for (position, (key, item)) in object.iter().enumerate() {
-                if position > 0 {
+            WriteWork::Key(key, depth, first) => {
+                if !first {
                     out.push(',');
                 }
-                newline(out, indent, depth + 1);
+                newline(out, indent, depth);
                 write_string(out, key);
                 out.push(':');
                 if indent.is_some() {
                     out.push(' ');
                 }
-                write_value(out, item, indent, depth + 1);
             }
-            newline(out, indent, depth);
-            out.push('}');
+            WriteWork::Value(value, depth) => match value {
+                JsValue::Null => out.push_str("null"),
+                JsValue::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+                JsValue::Number(number) => out.push_str(&js_number(*number)),
+                JsValue::String(text) => write_string(out, text),
+                JsValue::Array(items) if items.is_empty() => out.push_str("[]"),
+                JsValue::Object(object) if object.is_empty() => out.push_str("{}"),
+                JsValue::Array(items) => {
+                    out.push('[');
+                    work.push(WriteWork::Close(']', depth));
+                    for (position, item) in items.iter().enumerate().rev() {
+                        work.push(WriteWork::Value(item, depth + 1));
+                        work.push(WriteWork::Item(depth + 1, position == 0));
+                    }
+                }
+                JsValue::Object(object) => {
+                    out.push('{');
+                    work.push(WriteWork::Close('}', depth));
+                    let entries: Vec<(&str, &JsValue)> = object.iter().collect();
+                    for (position, (key, item)) in entries.into_iter().enumerate().rev() {
+                        work.push(WriteWork::Value(item, depth + 1));
+                        work.push(WriteWork::Key(key, depth + 1, position == 0));
+                    }
+                }
+            },
         }
     }
 }
@@ -680,14 +802,11 @@ fn newline(out: &mut String, indent: Option<&str>, depth: usize) {
     }
 }
 
-// ponytail: the writer recurses per nesting level; V8 `JSON.stringify` throws
-// a RangeError at its own stack limit, which this does not reproduce.
-
 /// `JSON.stringify(value)`.
 #[must_use]
 pub fn stringify(value: &JsValue) -> String {
     let mut out = String::new();
-    write_value(&mut out, value, None, 0);
+    write_value(&mut out, value, None);
     out
 }
 
@@ -695,7 +814,7 @@ pub fn stringify(value: &JsValue) -> String {
 #[must_use]
 pub fn stringify_pretty(value: &JsValue) -> String {
     let mut out = String::new();
-    write_value(&mut out, value, Some("  "), 0);
+    write_value(&mut out, value, Some("  "));
     out
 }
 
@@ -761,6 +880,34 @@ mod tests {
         assert!(parsed.get("b").is_some_and(JsValue::is_object));
         assert!(parsed.get("missing").is_none());
         assert!(JsValue::Null.get("a").is_none());
+    }
+
+    #[test]
+    fn deep_values_clone_compare_and_stringify_without_recursion() {
+        let depth = 100_000;
+        let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let parsed = parse(&text).expect("JSON.parse accepts deep nesting");
+        let copy = parsed.clone();
+        assert!(copy == parsed);
+        assert_eq!(stringify(&copy), text);
+        let objects = format!("{}1{}", "{\"a\":".repeat(depth), "}".repeat(depth));
+        let nested = parse(&objects).expect("deep objects parse");
+        assert_eq!(stringify(&nested.clone()), objects);
+        assert!(nested != copy);
+    }
+
+    #[test]
+    fn raw_escape_character_without_payload_stands_for_itself() {
+        // Text that never went through `js_text`: a lone U+10FFFF followed by
+        // ordinary characters, or at the end, must not panic or vanish.
+        for raw in ["\u{10FFFF}a", "a\u{10FFFF}", "\u{10FFFF}\u{10FFFE}"] {
+            let units: Vec<JsTextUnit> = js_text_units(raw).collect();
+            assert!(units.contains(&JsTextUnit::Char('\u{10FFFF}')), "{raw:?}");
+            assert_eq!(
+                stringify(&JsValue::String(raw.to_owned())),
+                format!("\"{raw}\"")
+            );
+        }
     }
 
     #[test]
