@@ -76,7 +76,7 @@ run_pair() {
   pair_status=0
   "$@" || pair_status=$?
   printf '%s %s exit %s\n' "$gate" "$pair_name" "$pair_status"
-  for file in verdict.json manifest.json rules.json; do
+  for file in verdict.json manifest.json rules.json transforms.json; do
     if [ -f "$evidence/$pair_name/$file" ]; then
       printf '  sha256 %s  %s\n' "$(p3_sha256 "$evidence/$pair_name/$file")" "$pair_name/$file"
     fi
