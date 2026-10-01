@@ -90,12 +90,12 @@ if [ "$self_check_only" = false ]; then
   if [ "$overall" -eq 0 ]; then
     if (cd "$repository_root" &&
       "$build_gate" gtimeout --kill-after=30 900 \
-        cargo build --locked -p spocky-daemon --bin spocky-daemon) >&2 &&
+        cargo build --locked -p spocky-daemon-app --bin spocky-daemon) >&2 &&
       [ -x "$CARGO_TARGET_DIR/debug/spocky-daemon" ]; then
       spocky_daemon=$CARGO_TARGET_DIR/debug/spocky-daemon
       run_pair parity spocky || overall=1
     else
-      printf '%s parity blocked: crate spocky-daemon has no buildable bin target spocky-daemon\n' "$gate" >&2
+      printf '%s parity blocked: package spocky-daemon-app has no buildable bin target spocky-daemon\n' "$gate" >&2
       overall=1
     fi
   else
