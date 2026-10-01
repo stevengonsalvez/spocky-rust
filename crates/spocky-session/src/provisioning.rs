@@ -127,22 +127,35 @@ pub fn initial_checkout_placement(cwd: &str, checkout: &CheckoutLite) -> Workspa
     }
 }
 
-/// A new directory workspace and the project registry writes it caused,
-/// which the session publishes as mutations.
+/// A new directory workspace and the registry writes it caused, which the
+/// session publishes as mutations. `expects_initial_agent` is the upsert
+/// context (`WorkspaceMutationContext`) carried into the workspace mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedWorkspace {
     pub workspace: PersistedWorkspaceRecord,
     pub project: PersistedProjectRecord,
     pub project_upserted: bool,
+    pub expects_initial_agent: bool,
+}
+
+/// `deps.lifecycle.emit("workspace.created", ...)`: called after the
+/// workspace upsert commits, as the plugin lifecycle is in the baseline.
+pub type WorkspaceCreatedHook = Box<dyn Fn(&PersistedWorkspaceRecord) + Send + Sync>;
+
+/// The optional `context` argument of `createWorkspaceForDirectory`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceCreateContext {
+    pub expects_initial_agent: bool,
+    pub workspace_id: Option<String>,
 }
 
 /// Registries plus the identity and paths that provisioning needs.
-#[derive(Debug)]
 pub struct WorkspaceProvisioning {
     pub projects: Mutex<ProjectRegistry>,
     pub workspaces: Mutex<WorkspaceRegistry>,
     pub server_id: Option<String>,
     pub checkout: CheckoutContext,
+    pub on_workspace_created: Option<WorkspaceCreatedHook>,
 }
 
 impl WorkspaceProvisioning {
@@ -242,7 +255,7 @@ impl WorkspaceProvisioning {
         cwd: &str,
         title: Option<&str>,
         project_id: Option<&str>,
-        workspace_id: Option<String>,
+        context: WorkspaceCreateContext,
     ) -> Result<CreatedWorkspace, ProvisioningError> {
         let normalized_cwd = resolve_from_cwd(cwd);
         let checkout = get_checkout(&normalized_cwd, &self.checkout).await?;
@@ -256,7 +269,7 @@ impl WorkspaceProvisioning {
         let timestamp = now_iso();
         let placement = initial_checkout_placement(&normalized_cwd, &checkout);
         let workspace = PersistedWorkspaceRecord {
-            workspace_id: workspace_id.unwrap_or_else(generate_workspace_id),
+            workspace_id: context.workspace_id.unwrap_or_else(generate_workspace_id),
             project_id: project.project_id.clone(),
             cwd: placement.cwd,
             kind: placement.kind,
@@ -279,10 +292,14 @@ impl WorkspaceProvisioning {
             untrusted_source: None,
         };
         self.workspaces.lock().await.upsert(workspace.clone())?;
+        if let Some(hook) = &self.on_workspace_created {
+            hook(&workspace);
+        }
         Ok(CreatedWorkspace {
             workspace,
             project,
             project_upserted,
+            expects_initial_agent: context.expects_initial_agent,
         })
     }
 }
