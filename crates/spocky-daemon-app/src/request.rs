@@ -2,6 +2,8 @@
 //! (`session.ts`): the authorization gate, the `rpc_error` a failing handler
 //! produces, and the `activity_log` that follows it.
 
+use std::any::Any;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -114,7 +116,12 @@ pub fn handle_request(
         }
         return;
     }
-    if let Err(error) = dispatch(message, emit) {
+    // A thrown handler error is `handler_error` in the baseline; a Rust
+    // handler that panics is reported the same way instead of tearing down
+    // the connection thread.
+    let outcome = catch_unwind(AssertUnwindSafe(|| dispatch(message, &mut *emit)))
+        .unwrap_or_else(|panic| Err(JsText::new(&panic_message(panic.as_ref()))));
+    if let Err(error) = outcome {
         let failure = JsText::from_js(format!("Request failed: {}", error.as_str()));
         emit(rpc_error(id, kind, failure, "handler_error"));
         emit(json!({
@@ -127,6 +134,15 @@ pub fn handle_request(
             }
         }));
     }
+}
+
+/// The text of a panic payload: the `panic!` message when it is a string.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "handler panicked".to_owned())
 }
 
 /// `Date.now()`.
@@ -279,6 +295,25 @@ mod tests {
             .map(|frame| frame["type"].as_str().unwrap())
             .collect();
         assert_eq!(kinds, ["fetch_agent_response", "rpc_error"]);
+    }
+
+    #[test]
+    fn a_panicking_handler_becomes_handler_error() {
+        let mut emitted = Vec::new();
+        handle_request(
+            &SessionAuthorization::new(&DaemonPermission::ALL),
+            inbound(&json!({"type": "fetch_agents_request", "requestId": "p1"})),
+            &mut |value| emitted.push(value),
+            |_, _| panic!("index out of bounds"),
+        );
+        assert_eq!(
+            emitted[0].to_string(),
+            r#"{"type":"rpc_error","payload":{"requestId":"p1","requestType":"fetch_agents_request","error":"Request failed: index out of bounds","code":"handler_error"}}"#
+        );
+        assert_eq!(
+            emitted[1]["payload"]["content"],
+            "Error: index out of bounds"
+        );
     }
 
     #[test]
