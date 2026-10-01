@@ -14,7 +14,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::transport::js_trim;
+use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 /// Result of mapping one Codex thread item.
 #[derive(Debug, Clone, PartialEq)]
@@ -431,7 +431,7 @@ fn plan_item(record: &Map<String, Value>) -> Option<Value> {
 pub fn normalize_plan_markdown(text: &str) -> String {
     let joined = text
         .split('\n')
-        .map(|line| line.trim_end_matches(char::is_whitespace))
+        .map(|line| line.trim_end_matches(is_js_whitespace))
         .collect::<Vec<_>>()
         .join("\n");
     js_trim(&joined).to_owned()
@@ -714,6 +714,16 @@ mod tests {
             json!({"type": "todo", "items": [
                 {"id": "1", "text": "Ship", "status": "pending", "completed": false}
             ]})
+        );
+    }
+
+    #[test]
+    fn plan_markdown_trims_only_javascript_whitespace() {
+        // JS `\s` and `trim()` leave U+0085 (NEL) in place; Rust's
+        // `char::is_whitespace` would strip it.
+        assert_eq!(
+            normalize_plan_markdown("a\u{85}\n b \u{3000}"),
+            "a\u{85}\n b"
         );
     }
 
