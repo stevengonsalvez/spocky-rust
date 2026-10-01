@@ -1,6 +1,8 @@
 //! Starting and stopping the daemon in-process against disposable homes.
 //! Listeners bind port 0. No test starts a daemon on 6767 or 6768.
 
+mod common;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -11,6 +13,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use spocky_daemon::daemon::{DaemonEnv, NoSessionBackend, resolve_paseo_home, start};
+use spocky_daemon::listen::resolve_listen_address;
 use spocky_daemon::log::{Logger, NullLogger};
 use tungstenite::Message;
 use tungstenite::client::IntoClientRequest;
@@ -37,7 +40,23 @@ fn write_config(home: &Path, daemon: &Value) {
     .unwrap();
 }
 
+/// The listen address `env` resolves to, as the daemon resolves it. A home
+/// with no `daemon.listen` and no override resolves to the production port.
+fn effective_listen(env: &DaemonEnv) -> String {
+    let persisted = fs::read_to_string(resolve_paseo_home(env).join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|config| config["daemon"]["listen"].as_str().map(str::to_owned));
+    resolve_listen_address(
+        None,
+        env.get("PASEO_LISTEN"),
+        persisted.as_deref().or(Some("127.0.0.1:6767")),
+        env.get("PORT"),
+    )
+}
+
 fn start_daemon(env: &DaemonEnv) -> Result<spocky_daemon::daemon::RunningDaemon, String> {
+    common::assert_disposable_listen(&effective_listen(env));
     let logger: Arc<dyn Logger> = Arc::new(NullLogger);
     start(env, Arc::new(NoSessionBackend), &logger).map_err(|error| error.0)
 }
