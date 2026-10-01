@@ -158,10 +158,11 @@ Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
 all-target compilation passes, but native Windows runtime qualification remains
 open. The selected relay runtime passes control,
 pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
-frame work matches escaped valid handshakes and final fragmented size boundaries,
-but read-only review rejects malformed JSON classification, nonfinal control
-fragment limits, and paired-route evidence pending Sol repair. Production
-qualification remains open. Full renderer
+loopback frame work now matches whole-document JSON classification, Jason
+duplicate and numeric boundaries, deep opaque nesting, fragmented data and
+control limits, exact close reasons, and unrelated-route continuity. Read-only
+review accepts this narrow checkpoint. Production TLS, non-loopback, load, and
+deployment qualification remain open. Full renderer
 platforms, cross-platform plugin clients, and native audio cases remain
 incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
 compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
