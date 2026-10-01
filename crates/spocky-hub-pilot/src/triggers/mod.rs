@@ -11,10 +11,10 @@ use std::collections::BTreeMap;
 
 pub use identity::durable_execution_id;
 pub use manual::{
-    AuthOutcome, ManualDispatchError, ManualEvent, ManualHttpResponse, ManualParseFailure,
-    ManualRunMatch, ManualRunPayload, ManualRunRejection, ManualRunResult, ManualSource,
-    ManualTriggerInput, PublicResponse, RunConfiguration, RunTrigger, match_manual_run,
-    parse_manual_payload, public_manual_run,
+    AuthOutcome, DispatchedRun, ManualDispatchError, ManualEvent, ManualHttpResponse,
+    ManualParseFailure, ManualRunMatch, ManualRunPayload, ManualRunRejection, ManualRunResult,
+    ManualSource, ManualTriggerInput, PublicResponse, RunConfiguration, RunTrigger,
+    match_manual_run, parse_manual_payload, public_manual_run,
 };
 pub use webhook::{
     AcceptCall, AcceptFailure, GitHubWebhook, GitHubWebhookRequest, LifecycleCall,
