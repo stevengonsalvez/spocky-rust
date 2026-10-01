@@ -93,24 +93,37 @@ Sources:
 ## Rust coverage and differential result
 
 Every item below is exercised by `scripts/phase2/hub-triggers-original.integration.test.ts` (real baseline
-code at the pinned commit, offline, in-memory database) and by
-`crates/spocky-hub-pilot/tests/hub_triggers_evidence.rs` (Rust). `scripts/phase2/hub-triggers-compare.sh`
-compares the two raw trace files byte for byte (`cmp`), so object key order, whitespace and every
-response body byte are part of the comparison. No key sorting and no normalization is applied. No
-generated ID, wall-clock value or temp path appears in either trace; the public API request ID is a
-fixed `request-1` header so problem bodies are deterministic.
+code at the pinned commit, offline, in-memory database, `TZ=UTC`, generated IDs made deterministic) and
+by `crates/spocky-hub-pilot/tests/hub_triggers_evidence.rs` (Rust).
+
+- `scripts/phase2/hub-triggers-capture.sh` writes the baseline trace to
+  `evidence/raw/phase2/hub-triggers-original.json`.
+- `scripts/phase2/hub-triggers-compare.sh` runs the Rust trace and compares the two raw files byte for
+  byte (`cmp`). Object key order, whitespace and every response body byte are part of the comparison;
+  there is no key sorting and no normalization. The public API request ID is a fixed `request-1`
+  header so problem bodies are deterministic, and the Rust model is given the baseline's generated run,
+  revision and step run IDs (taken from the trace) so that the execution IDs it derives can be compared.
+- `hub_triggers_evidence` asserts on every run that the Rust trace equals the committed baseline trace
+  `evidence/phase2/hub-triggers-original.json`; it does not pass when the output variable is unset.
 
 | Area | Cases compared |
 | --- | --- |
-| Manual intake (`handleManualTriggerRequest`) | 35 request cases, 37 `receivedAt` grid strings, handler replay count, receipt evidence (provider, source, dropped reason, null connection and resource), cross-organization receipts |
+| Manual intake (`handleManualTriggerRequest`) | 37 request cases, a 37-string `receivedAt` grid with the parsed epoch milliseconds, omitted `receivedAt`, one to three leading byte order marks, handler replay count, receipt evidence (provider, source, dropped reason, null connection and resource), cross-organization receipts |
 | Manual run matching (`createManualRunProvider`) | 10 cases: matched, public delivery key, expected version current and stale, revision missing, trigger missing, actor forbidden and allowed, no user filter, wrong event trigger |
-| Public manual-run response (`createPublicApi`) | 10 operation results compared as full response bodies (RFC 9457 problem JSON key order included), plus 401, 403, 503 authentication, invalid JSON, wrong and missing content type |
-| Runs, fan-out, leases, execution records | receipt dedupe, run per receipt, project and trigger, wakeup claim, lease expiry, fenced release, durable execution identity, execution reuse after unknown outcome, first terminal wins, idle deadline cleared, run success idempotent |
-| Durable execution ID | three fixed vectors compared as literal UUID strings |
-| GitHub webhook (`createWebhookSource`) | 42 cases: 503, 401 variants, 413 at and over the 1,048,576 byte limit, header bounds at 128 bytes, malformed JSON, invalid UTF-8, BOM, non-object bodies, installation ID shapes, lifecycle events, unsupported and handlerless drops, multiple handlers and events, storage 503 and 500, replay, long and empty secrets, signature hash value |
+| Public manual-run response (`createPublicApi`) | 10 operation results compared as full response bodies (RFC 9457 problem JSON key order included), 401, 403, 503 authentication, invalid JSON, wrong and missing content type, one to three leading byte order marks, and an invalid UTF-8 byte inside a string |
+| Runs, fan-out, leases, execution records | receipt dedupe, run per receipt, project and trigger, wakeup claim, lease claimable at exactly its expiry instant and not one millisecond before, fenced release, execution reuse after unknown outcome, step selection by step ID and ordinal, idle deadline capped by the execution and run deadlines, first terminal wins, idle deadline cleared, run success idempotent |
+| Execution identity | generated run, revision and step run IDs, the derived execution IDs, and three fixed derivation vectors compared as literal UUID strings |
+| GitHub webhook (`createWebhookSource`) | 43 cases: 503, 401 variants, 413 at and over the 1,048,576 byte limit, header bounds at 128 bytes, malformed JSON, invalid UTF-8, one and two leading byte order marks, non-object bodies, installation ID shapes, lifecycle events, unsupported and handlerless drops, multiple handlers and events, storage 503 and 500, replay, long and empty secrets, signature hash value |
 
-Result: `matched: true`, `comparison: byte-identical`, `normalization: none`. Both traces have SHA-256
-`4d1a1ccadd794d3f8afa5a1bff8aa96f8ca6a0b0ee1e7b8eae5185cfaf915a42` (see `hub-triggers-sha256.txt`).
+The Rust webhook endpoint takes its acceptance boundary as a trait (`WebhookBackend`); the manual
+handler is a closure. Neither production type holds counters or logs, those live in the tests.
+
+Result of the last run of `hub-triggers-compare.sh`: `matched: true`, `comparison: byte-identical`,
+`normalization: none`. Both traces have SHA-256
+`b90c37caae59b1a6f55521e1693fbd1b7b58035682fd148ccba7f3b32137fcc4` (see `hub-triggers-sha256.txt`).
+The local-offset path was also checked once at +05:30 by capturing with `TZ=Asia/Kolkata` and running the
+Rust trace with `SPOCKY_HUB_TRIGGERS_LOCAL_OFFSET_MINUTES=330`; that run is not part of the committed
+scripts.
 
 ## Remaining gaps (not covered, not claimed)
 
@@ -129,9 +142,18 @@ Result: `matched: true`, `comparison: byte-identical`, `normalization: none`. Bo
 - Durable provider receipt acceptance (`trigger-acceptance.ts`): organization and connection routing,
   signature hash storage, accept-time dedupe. The webhook differential uses the same recording stub on
   both sides, so dedupe there is a model of the boundary, not of the database.
+- Postgres manual persistence differs from the in-memory database that is compared here. It stores
+  null connection and resource ids on the receipt row (only the route snapshot carries them), and it
+  requires the project to be `status = 'active'` as well as having an active configuration revision;
+  the in-memory database checks only the revision. The Rust model follows the in-memory behavior.
+- The manual request handler maps a database-unavailable error to `503` with
+  `{"error":"database_unavailable"}`. The Rust model has no storage failure injection for the manual
+  path, so that mapping is not compared.
 - GitHub `push` repository synchronization, and every non-GitHub provider and schedule recurrence.
 - `receivedAt` strings that only the baseline's legacy date parser accepts (for example `Aug 6 2026`,
-  `2026/08/06`, `2026-08-06 12:00`, `2026-8-6`). Rust accepts the ISO 8601 grammar only.
+  `2026/08/06`, `2026-08-06 12:00`, `2026-8-6`). Rust accepts the ISO 8601 grammar only. Date-times
+  written without an offset use a fixed host offset given to the store; the baseline uses the host time
+  zone including daylight saving rules.
 - Non-ASCII header values and JSON numbers outside the f64 range.
 
 ## Baseline behavior preserved on purpose
@@ -142,6 +164,7 @@ Result: `matched: true`, `comparison: byte-identical`, `normalization: none`. Bo
 - The manual payload requires the `payload` key. An omitted key is rejected with
   `Invalid input: expected nonoptional, received undefined`; an explicit `null` is accepted.
 - `receivedAt` such as `2026-02-30` is accepted (the date rolls over), `2026-02-32` is rejected.
-- A leading UTF-8 byte order mark is stripped before JSON parsing in both the webhook and manual paths.
+- The request body reader behind `Request.json()` drops up to two leading UTF-8 byte order marks (one in
+  the body reader, one in the decoder): two parse, three do not. The webhook decoder drops one.
 - A manual delivery for an unknown project or one without an active revision throws
   `manual project configuration unavailable` out of the request handler.
