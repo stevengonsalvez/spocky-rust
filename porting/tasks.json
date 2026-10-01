@@ -812,6 +812,19 @@
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
         },
         {
+          "batch": "v5-v7",
+          "date": "2026-10-01",
+          "integrations": {
+            "v5 (main 9b7c4db)": "p3_provider_codex 8b43acc..a3742fa (13) and p3_g1_wiring first 12 incl codex adapter; gated codex 81+21+6+5+2, daemon-app 19+1",
+            "v6 (main bc0326e)": "p3_message_receipts 431cdfb..cbe2b89 (7) and p2_pglite_rust_host through a0bf280 (29, incl previously held evidence docs now corrected); gated receipts 12, pglite 18+1+2 with fixture",
+            "triggers (main e81f08d)": "p2_hub_triggers_followups restacked 12 commits, each commit tested individually (hub_triggers and hub_triggers_evidence) then clippy and fmt",
+            "v7 (main abb8bb7)": "p3_session 34 commits through 638ee89 plus store 3102a9f, ce345b0; seam commits c7b4771 and 4c6aa6f landed as atomic lead integration commits with matching crates/spocky-daemon-app/src/codex_agent.rs signature fixes (reason in body), cargo check -p spocky-daemon-app green after each; gated session, store, domain, contracts, daemon-app 27 test binaries, clippy, fmt"
+          },
+          "safetyNote": "v5 gate ran codex_agent_real with SPOCKY_REAL_CODEX=1 without network deny; recorded as evidence and safety limitation; later gates run daemon-app without SPOCKY_REAL_CODEX",
+          "findings": "/private/tmp/claude-501/-Users-stevengonsalvez-orca-workspaces-paseo-paseo-rust/1b07299c-9eb9-4bb1-a98b-4db77f240f59/scratchpad/findings/",
+          "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+        },
+        {
           "batch": "v4",
           "date": "2026-10-01",
           "integrationRange": "c9e7aba..64e232a, 38 signed commits",
