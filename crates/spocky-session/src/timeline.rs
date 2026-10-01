@@ -277,7 +277,11 @@ fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> Result<JsVal
 /// terminates there.
 fn merge_seq_ranges(existing: &[SeqRange], incoming: &[SeqRange]) -> Vec<SeqRange> {
     let mut merged = existing.to_vec();
-    for range in incoming {
+    // The baseline's per-seq loop runs no iteration for an inverted range.
+    for range in incoming
+        .iter()
+        .filter(|range| range.start_seq <= range.end_seq)
+    {
         match merged.last_mut() {
             Some(last) if range.start_seq <= js_add(last.end_seq, 1) => {
                 last.end_seq = last.end_seq.max(range.end_seq);
@@ -1205,7 +1209,10 @@ impl TimelineStore {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{FetchDirection, TimelineCursor, TimelineStore, project_rows};
+    use super::{
+        FetchDirection, ProjectedRow, SeedRow, SeqRange, TimelineCursor, TimelineSeed,
+        TimelineStore, project_rows,
+    };
     use spocky_store::js_value::parse;
 
     #[test]
@@ -1234,6 +1241,53 @@ mod tests {
             .fetch("a", FetchDirection::Tail, None, None)
             .expect("fetch");
         assert_eq!((page.window.max_seq, page.window.next_seq), (top - 1, top));
+    }
+
+    #[test]
+    fn inverted_source_ranges_add_no_sequence_numbers() {
+        // node (pinned store): projected rows x [{1,1}] and y [{5,3}] merge to
+        // "xy" with sourceSeqRanges [{1,1}].
+        let row = |seq: i64, text: &str, start_seq: i64, end_seq: i64| {
+            SeedRow::Projected(ProjectedRow {
+                item: parse(&format!(
+                    r#"{{"type":"assistant_message","text":"{text}"}}"#
+                ))
+                .expect("item"),
+                turn_id: None,
+                provider_message_id: None,
+                timestamp: "T".to_owned(),
+                seq_start: seq,
+                seq_end: seq,
+                source_seq_ranges: vec![SeqRange { start_seq, end_seq }],
+                collapsed: Vec::new(),
+                seq,
+                provider_message_id_last: false,
+            })
+        };
+        let mut store = TimelineStore::default();
+        store
+            .initialize_with(
+                "a",
+                TimelineSeed {
+                    rows: vec![row(1, "x", 1, 1), row(2, "y", 5, 3)],
+                    epoch: Some("E".to_owned()),
+                    ..TimelineSeed::default()
+                },
+            )
+            .expect("seed");
+        let rows = store.rows("a").expect("timeline");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].item.get("text").and_then(|text| text.as_str()),
+            Some("xy")
+        );
+        assert_eq!(
+            rows[0].source_seq_ranges,
+            [SeqRange {
+                start_seq: 1,
+                end_seq: 1
+            }]
+        );
     }
 
     #[test]
