@@ -864,10 +864,218 @@
           "change": "DAG revision: P3 starts in parallel with remaining P2 gaps. Dependency narrowed from P2-HARNESS-PILOTS to the P2 core pilots p2_harness, p2_codec_crypto, p2_state_lifecycle, and p2_lifecycle_full. P2-HARNESS-PILOTS stays implementing.",
           "reason": "The daemon slice depends on codec, crypto, stored-state, and lifecycle pilots, which are integrated. Remaining P2 gaps (UI platforms, Hub services, relay production, delivery) do not gate the daemon slice.",
           "deviation": "The approved plan said not to start Phase 3 until P2-HARNESS-PILOTS is done and its review boundary passes. This revision overrides that gate on coordinator authority, not a direct Stevie decision. P2 adversarial reviews remain rejected. Astra is not used in the Claude routing window, so the P3 two-review boundary cannot close until it is."
+        },
+        {
+          "date": "2026-10-01",
+          "authority": "Claude lead",
+          "change": "Process slip recorded: lead commit aa36b46 contains both Cargo.toml and Cargo.lock, breaking the one-file-per-commit rule. A concurrent git index lock failed the Cargo.toml commit while the file stayed staged, so the next commit took both. Left in place rather than rewriting signed main history."
         }
       ],
       "reviews": [], "repairs": [], "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
       "blockedBy": null
+    },
+    {
+      "id": "p3_g1_wiring",
+      "capabilities": [
+        "G1 end-to-end dispatch",
+        "DPRO-002",
+        "DLIF-001"
+      ],
+      "dependencies": [
+        "p3_daemon_transport rebase onto contracts",
+        "p3_session agent-manager port",
+        "p3_provider_codex"
+      ],
+      "priority": 3,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-daemon-app/",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "SessionBackend implementation for spocky-daemon dispatching the slice-plan section 3 G1 messages to spocky-session and spocky-provider-codex, event fan-out to SessionSink, and the spocky-daemon binary target",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-daemon-app",
+        "cargo clippy --locked -p spocky-daemon-app --all-targets -- -D warnings",
+        "cargo fmt --package spocky-daemon-app -- --check",
+        "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g1"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p3_message_receipts",
+      "capabilities": [
+        "DRECEIPT-001"
+      ],
+      "dependencies": [
+        "DSTA-001 (spocky-store on main)",
+        "DPRO-002 (spocky-contracts on main)"
+      ],
+      "priority": 3,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-message-receipts/",
+        "scripts/phase3/receipts-*",
+        "evidence/phase3/receipts-*",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "Port packages/server/src/server/message-receipts/index.ts: first delivery, duplicate suppression, restart, corruption, write failure, and unknown outcome, with a differential against the pinned build dist",
+      "acceptanceCommands": [
+        "SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node SPOCKY_PASEO_DIST=<pinned dist> cargo test --locked -p spocky-message-receipts",
+        "cargo clippy --locked -p spocky-message-receipts --all-targets -- -D warnings",
+        "cargo fmt --package spocky-message-receipts -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p3_e2ee_channel",
+      "capabilities": [
+        "CLOUD-RELAY-E2EE-007",
+        "DSEC-003"
+      ],
+      "dependencies": [
+        "p2_codec_crypto (crypto primitives on main)"
+      ],
+      "priority": 4,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-crypto/",
+        "scripts/phase3/e2ee-*",
+        "evidence/phase3/e2ee-*",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "Port packages/relay/src/encrypted-channel.ts: handshake, e2ee_hello, encrypted frame format, replay and ordering boundaries, close behavior, with TypeScript-versus-Rust interoperability vectors captured from the pinned relay package; daemon keypair stays in spocky-daemon",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-crypto",
+        "cargo clippy --locked -p spocky-crypto --all-targets -- -D warnings",
+        "cargo fmt --package spocky-crypto -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p4_terminal",
+      "capabilities": [
+        "DTRM-001",
+        "DTRM-002"
+      ],
+      "dependencies": [
+        "DPRO-004 (spocky-wire binary frames on main)"
+      ],
+      "priority": 4,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-terminal/",
+        "scripts/phase4/terminal-*",
+        "evidence/phase4/terminal-*",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "Port packages/server/src/terminal PTY lifecycle, input and output, resize, snapshots, coalescing, and backpressure, with byte-parity scenarios against the pinned build terminal worker",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-terminal",
+        "cargo clippy --locked -p spocky-terminal --all-targets -- -D warnings",
+        "cargo fmt --package spocky-terminal -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p4_provider_claude",
+      "capabilities": [
+        "DPRV-001 (Claude Code adapter)"
+      ],
+      "dependencies": [
+        "p3_provider_codex patterns on main",
+        "DLIF-001 lifecycle pilot on main"
+      ],
+      "priority": 4,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-provider-claude/",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "firstDeliverable": "Port packages/server/src/server/agent/providers/claude: launch resolution, stream parsing, permission mapping, interrupt, and resume, with ported Paseo test fixtures and real-binary tests gated on a pinned Claude Code binary against a local stub, never the network",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-provider-claude",
+        "cargo clippy --locked -p spocky-provider-claude --all-targets -- -D warnings",
+        "cargo fmt --package spocky-provider-claude -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p4_cli_offline",
+      "capabilities": [
+        "DCLI-001"
+      ],
+      "dependencies": [
+        "DSDK-001 partial (no daemon needed for this deliverable)"
+      ],
+      "priority": 5,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-cli/",
+        "scripts/phase4/cli-*",
+        "evidence/phase4/cli-*",
+        "Cargo.lock (entries from this crate only)"
+      ],
+      "model": "claude-sonnet-5-5 with lead Opus review",
+      "effort": "high",
+      "firstDeliverable": "Rust CLI command tree, aliases, flag parsing, help and version text, usage errors, and exit codes for daemon-unreachable cases, byte-compared with the pinned packages/cli build output; commands that need a daemon come after G1",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-cli",
+        "cargo clippy --locked -p spocky-cli --all-targets -- -D warnings",
+        "cargo fmt --package spocky-cli -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
+    },
+    {
+      "id": "p2_hub_setup",
+      "capabilities": [
+        "CLOUD-HUB-SETUP-028"
+      ],
+      "dependencies": [
+        "CLOUD-HUB-DATA-015 (accepted-interim PGlite host)",
+        "CLOUD-HUB-AUTH-004 relational pilots on main"
+      ],
+      "priority": 5,
+      "state": "ready",
+      "owner": "unassigned; coordinator launches",
+      "permittedPaths": [
+        "crates/spocky-hub-pilot/src/setup/ (new files only)",
+        "crates/spocky-hub-pilot/tests/hub_setup*.rs",
+        "scripts/phase2/hub-setup*",
+        "evidence/phase2/hub-setup*",
+        "crates/spocky-hub-pilot/src/lib.rs (one-line module registration, lead resolves conflicts)"
+      ],
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "firstDeliverable": "Port Hub src/instance-setup: first run, forced password replacement, browser claim, durable secret, restart, and concurrent setup, with a trace differential against the pinned Hub modules",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-hub-pilot --test hub_setup",
+        "cargo clippy --locked -p spocky-hub-pilot --all-targets -- -D warnings",
+        "cargo fmt --package spocky-hub-pilot -- --check"
+      ],
+      "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
+      "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
     },
     {
       "id": "P4-ECOSYSTEM",
