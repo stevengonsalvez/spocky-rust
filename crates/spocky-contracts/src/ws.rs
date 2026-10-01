@@ -8,7 +8,6 @@
 
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
-use serde_json::Value;
 
 use crate::field::optional;
 use crate::json::{JsRecord, JsonValue, serialize_passthrough};
@@ -223,7 +222,7 @@ impl HelloCapabilities {
                 return self
                     .extra
                     .get(key)
-                    .is_some_and(|value| *value.as_value() == Value::Bool(true));
+                    .is_some_and(|value| value.as_value().as_bool() == Some(true));
             }
         };
         known == Some(true)
