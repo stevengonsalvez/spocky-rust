@@ -69,13 +69,62 @@ fn disposable_root(side: &str) -> (Disposable, String) {
     (Disposable(root), text)
 }
 
-/// The pinned node and dist paths, or `None` when skipping was requested.
+/// SHA-256 of the pinned dist modules under test, recorded in
+/// `evidence/phase3/receipts-differential.md`.
+const PINNED_MODULES: [(&str, &str); 2] = [
+    (
+        "server/message-receipts/index.js",
+        "e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559",
+    ),
+    (
+        "server/atomic-file.js",
+        "835d68e580f2d1d5ae344559bf6eca4829ede020ea2416e8e8e2115303121c25",
+    ),
+];
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
+}
+
+/// Fails unless `node` reports v22.20.0 and `dist` holds the pinned modules.
+fn verify_pinned(node: &std::ffi::OsStr, dist: &std::ffi::OsStr) {
+    let version = Command::new(node)
+        .args(["-p", "process.version"])
+        .output()
+        .expect("run pinned node");
+    assert_eq!(
+        String::from_utf8_lossy(&version.stdout).trim(),
+        "v22.20.0",
+        "SPOCKY_PINNED_NODE is not node 22.20.0"
+    );
+    for (module, expected) in PINNED_MODULES {
+        let path = Path::new(dist).join(module);
+        let bytes = fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert_eq!(
+            sha256_hex(&bytes),
+            expected,
+            "{} is not the pinned build",
+            path.display()
+        );
+    }
+}
+
+/// The pinned node and dist paths, verified, or `None` when skipping was
+/// requested.
 fn pinned_inputs() -> Option<(std::ffi::OsString, std::ffi::OsString)> {
     match (
         std::env::var_os("SPOCKY_PINNED_NODE"),
         std::env::var_os("SPOCKY_PASEO_DIST"),
     ) {
-        (Some(node), Some(dist)) => Some((node, dist)),
+        (Some(node), Some(dist)) => {
+            verify_pinned(&node, &dist);
+            Some((node, dist))
+        }
         _ if std::env::var("SPOCKY_ALLOW_SKIP").as_deref() == Ok("1") => {
             eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: pinned differential not run");
             None
@@ -112,10 +161,14 @@ fn run_node(node: &std::ffi::OsStr, script: &str, args: &[&std::ffi::OsStr]) -> 
 /// The scripted steps. A path is relative to the root, or
 /// `{"receipt": [dir, agentId, messageId]}` for that send's receipt file. A
 /// callback runs its filesystem `ops`, then rejects with `fail` if present.
-/// `count: 2` issues two identical sends at once.
+/// `count: 2` issues two identical sends at once on one instance; `racer`
+/// names a second instance on the same directory that sends at the same
+/// time.
 const STEPS: &str = r#"[
   {"label":"first delivery","op":"send","instance":"a","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","b":{"y":1,"x":[{"d":1,"c":2}]},"10":1,"2":2,"B":true,"_k":null,"a b":"é"},"prepare":{"ops":[]},"send":{"ops":[]}},
   {"label":"concurrent duplicates","op":"send","instance":"a","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","b":{"y":1,"x":[{"d":1,"c":2}]},"10":1,"2":2,"B":true,"_k":null,"a b":"é"},"send":{"ops":[]},"count":2},
+  {"label":"concurrent first sends deliver once","op":"send","instance":"a","dir":"receipts","agentId":"agent","messageId":"m10","request":{"text":"fresh"},"prepare":{"ops":[]},"send":{"ops":[]},"count":2},
+  {"label":"two instances racing one key both deliver","op":"send","instance":"j","racer":"k","dir":"receipts","agentId":"agent","messageId":"m11","request":{"text":"raced"},"prepare":{"ops":[]},"send":{"ops":[]}},
   {"label":"duplicate after restart","op":"send","instance":"b","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","b":{"y":1,"x":[{"d":1,"c":2}]},"10":1,"2":2,"B":true,"_k":null,"a b":"é"},"send":{"ops":[]}},
   {"label":"reordered request keys are the same request","op":"send","instance":"b","dir":"receipts","agentId":"agent","messageId":"m1","request":{"a b":"é","_k":null,"B":true,"2":2,"b":{"x":[{"c":2,"d":1}],"y":1},"text":"hello","10":1},"send":{"ops":[]}},
   {"label":"key conflict","op":"send","instance":"b","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"other"},"send":{"ops":[]}},
@@ -218,10 +271,12 @@ for (const step of steps) {
   let results = [];
   if (step.op === "send") {
     if (!instances.has(step.instance)) instances.set(step.instance, new MessageReceipts(`${root}/${step.dir}`));
+    if (step.racer && !instances.has(step.racer)) instances.set(step.racer, new MessageReceipts(`${root}/${step.dir}`));
     const receipts = instances.get(step.instance);
+    const senders = step.racer ? [receipts, instances.get(step.racer)] : Array.from({ length: step.count ?? 1 }, () => receipts);
     const input = { agentId: step.agentId, messageId: step.messageId, request: step.request, send: callback(step.send, () => deliveries++) };
     if (step.prepare) input.prepare = callback(step.prepare, () => prepares++);
-    const settled = await Promise.allSettled(Array.from({ length: step.count ?? 1 }, () => receipts.send(input)));
+    const settled = await Promise.allSettled(senders.map((sender) => sender.send(input)));
     results = settled.map((outcome) => outcome.status === "fulfilled"
       ? { ok: true }
       : { error: { name: outcome.reason.name, message: outcome.reason.message, ...outcome.reason } });
@@ -412,12 +467,7 @@ fn listing(root: &str) -> JsValue {
                 walk(root, &path, out);
             } else {
                 let bytes = fs::read(&full).expect("read entry");
-                let hash = Sha256::digest(&bytes)
-                    .iter()
-                    .fold(String::new(), |mut out, byte| {
-                        let _ = write!(out, "{byte:02x}");
-                        out
-                    });
+                let hash = sha256_hex(&bytes);
                 out.push(JsValue::Array(vec![
                     string(&path),
                     mode,
@@ -440,11 +490,18 @@ async fn run_rust(root: &str, steps: &JsValue) -> String {
     for step in steps.as_array().expect("steps") {
         let mut results = Vec::new();
         if text_field(step, "op") == "send" {
-            let receipts = instances
-                .entry(text_field(step, "instance").to_owned())
-                .or_insert_with(|| {
+            let racer = step.get("racer").and_then(JsValue::as_str);
+            for name in std::iter::once(text_field(step, "instance")).chain(racer) {
+                instances.entry(name.to_owned()).or_insert_with(|| {
                     MessageReceipts::new(format!("{root}/{}", text_field(step, "dir")))
                 });
+            }
+            let receipts = &instances[text_field(step, "instance")];
+            let second = match racer {
+                Some(name) => Some(&instances[name]),
+                None if step.get("count").and_then(JsValue::as_f64) == Some(2.0) => Some(receipts),
+                None => None,
+            };
             let scripted = Scripted {
                 root: root.to_owned(),
                 prepare: step.get("prepare").cloned(),
@@ -454,10 +511,10 @@ async fn run_rust(root: &str, steps: &JsValue) -> String {
             };
             let (agent, message) = (text_field(step, "agentId"), text_field(step, "messageId"));
             let request = field(step, "request");
-            if step.get("count").and_then(JsValue::as_f64) == Some(2.0) {
+            if let Some(other) = second {
                 let (first, second) = tokio::join!(
                     receipts.send(agent, message, request, scripted.clone()),
-                    receipts.send(agent, message, request, scripted),
+                    other.send(agent, message, request, scripted),
                 );
                 results.push(result_row(first));
                 results.push(result_row(second));
