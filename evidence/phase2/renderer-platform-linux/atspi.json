@@ -1,0 +1,1942 @@
+{
+  "application": "spocky-ui-desktop",
+  "treeBefore": {
+    "role": "application",
+    "name": "spocky-ui-desktop",
+    "text": null,
+    "states": [],
+    "children": [
+      {
+        "role": "frame",
+        "name": "Dioxus App",
+        "text": null,
+        "states": [
+          "enabled",
+          "visible",
+          "showing"
+        ],
+        "children": [
+          {
+            "role": "filler",
+            "name": null,
+            "text": null,
+            "states": [
+              "enabled",
+              "visible",
+              "showing"
+            ],
+            "children": [
+              {
+                "role": "menu bar",
+                "name": null,
+                "text": null,
+                "states": [
+                  "enabled",
+                  "visible",
+                  "showing"
+                ],
+                "children": [
+                  {
+                    "role": "menu",
+                    "name": "Window",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "role": "menu",
+                    "name": "Edit",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Cut",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Copy",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Paste",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Select All",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "role": "menu",
+                    "name": "Help",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "menu item",
+                        "name": "Toggle Developer Tools",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Float on Top (dev mode only)",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "role": "filler",
+                "name": null,
+                "text": null,
+                "states": [],
+                "children": [
+                  {
+                    "role": "filler",
+                    "name": null,
+                    "text": null,
+                    "states": [],
+                    "children": [
+                      {
+                        "role": "scroll pane",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "focusable",
+                          "enabled"
+                        ],
+                        "children": [
+                          {
+                            "role": "document web",
+                            "name": "Dioxus app",
+                            "text": null,
+                            "states": [
+                              "focusable",
+                              "enabled",
+                              "visible",
+                              "showing"
+                            ],
+                            "children": [
+                              {
+                                "role": "landmark",
+                                "name": null,
+                                "text": null,
+                                "states": [
+                                  "enabled",
+                                  "visible",
+                                  "showing"
+                                ],
+                                "children": [
+                                  {
+                                    "role": "landmark",
+                                    "name": "Primary navigation",
+                                    "text": null,
+                                    "states": [
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "push button",
+                                        "name": "New workspace",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "History",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Search",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Schedules",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "No projects yet",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Add a project to get started",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Add project",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Import session",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Add project",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Hosts",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Import session",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Usage",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Help and support",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Settings",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "push button",
+                                    "name": "Close menu",
+                                    "text": null,
+                                    "states": [
+                                      "focusable",
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": []
+                                  },
+                                  {
+                                    "role": "landmark",
+                                    "name": "Open project",
+                                    "text": null,
+                                    "states": [
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Add a project\nOpen a folder on your machine\n",
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Add a project",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Open a folder on your machine",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal\n",
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Import session",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Open a Claude Code, Codex or other session you started in a terminal",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Setup providers\nConfigure Claude Code, Codex, and more\n",
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Setup providers",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Configure Claude Code, Codex, and more",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "footer",
+                                        "name": null,
+                                        "text": null,
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "push button",
+                                            "name": "Star",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "push button",
+                                            "name": "Sponsor",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "push button",
+                                            "name": "Community",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "focusOrder": [
+    {
+      "role": "push button",
+      "name": "New workspace",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "History",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Search",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Schedules",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Add project",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Import session",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Add project",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Hosts",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Import session",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Usage",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Help and support",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Settings",
+      "text": null
+    },
+    {
+      "role": "document web",
+      "name": "Dioxus app",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Close menu",
+      "text": null
+    },
+    {
+      "role": "section",
+      "name": null,
+      "text": "Add a project\nOpen a folder on your machine\n"
+    },
+    {
+      "role": "section",
+      "name": null,
+      "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal\n"
+    },
+    {
+      "role": "section",
+      "name": null,
+      "text": "Setup providers\nConfigure Claude Code, Codex, and more\n"
+    },
+    {
+      "role": "push button",
+      "name": "Star",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Sponsor",
+      "text": null
+    },
+    {
+      "role": "push button",
+      "name": "Community",
+      "text": null
+    },
+    null
+  ],
+  "focusTrace": [
+    {
+      "afterKey": null,
+      "focusedNodes": []
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "New workspace",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "History",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Search",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Schedules",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Add project",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Import session",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Add project",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Hosts",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Import session",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Usage",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Help and support",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Settings",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Close menu",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "section",
+          "name": null,
+          "text": "Add a project\nOpen a folder on your machine\n"
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "section",
+          "name": null,
+          "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal\n"
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "section",
+          "name": null,
+          "text": "Setup providers\nConfigure Claude Code, Codex, and more\n"
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Star",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Sponsor",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "Community",
+          "text": null
+        }
+      ]
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": []
+    },
+    {
+      "afterKey": "Tab",
+      "focusedNodes": [
+        {
+          "role": "scroll pane",
+          "name": null,
+          "text": null
+        },
+        {
+          "role": "document web",
+          "name": "Dioxus app",
+          "text": null
+        },
+        {
+          "role": "push button",
+          "name": "New workspace",
+          "text": null
+        }
+      ]
+    }
+  ],
+  "focusWalk": {
+    "returnedToFirst": true,
+    "baselineNames": [
+      "New workspace",
+      "History",
+      "Search",
+      "Schedules",
+      "Add project",
+      "Import session",
+      "Add project",
+      "Hosts",
+      "Import session",
+      "Usage",
+      "Help and support",
+      "Settings",
+      null,
+      "Close menu",
+      "Add a project Open a folder on your machine",
+      "Import session Open a Claude Code, Codex or other session you started in a terminal",
+      "Setup providers Configure Claude Code, Codex, and more",
+      "Star",
+      "Sponsor",
+      "Community"
+    ],
+    "candidateNames": [
+      "New workspace",
+      "History",
+      "Search",
+      "Schedules",
+      "Add project",
+      "Import session",
+      "Add project",
+      "Hosts",
+      "Import session",
+      "Usage",
+      "Help and support",
+      "Settings",
+      "Dioxus app",
+      "Close menu",
+      null,
+      null,
+      null,
+      "Star",
+      "Sponsor",
+      "Community",
+      null
+    ],
+    "candidateTexts": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "Add a project\nOpen a folder on your machine\n",
+      "Import session\nOpen a Claude Code, Codex or other session you started in a terminal\n",
+      "Setup providers\nConfigure Claude Code, Codex, and more\n",
+      null,
+      null,
+      null,
+      null
+    ],
+    "namesEqual": false,
+    "baselineRoles": [
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      "button",
+      null,
+      "button",
+      null,
+      null,
+      null,
+      "button",
+      "button",
+      "button"
+    ],
+    "candidateRoles": [
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "push button",
+      "document web",
+      "push button",
+      "section",
+      "section",
+      "section",
+      "push button",
+      "push button",
+      "push button",
+      null
+    ],
+    "normalization": "none"
+  },
+  "plusInteraction": {
+    "input": [
+      "Tab walk",
+      "Return"
+    ],
+    "focusedBeforeActivation": {
+      "role": "push button",
+      "name": "New workspace",
+      "text": null
+    },
+    "focusedAfterActivation": {
+      "role": "push button",
+      "name": "New workspace",
+      "text": null
+    },
+    "treeChanged": true,
+    "dialogObserved": false
+  },
+  "addProjectInteraction": {
+    "input": [
+      "Tab until Add a project",
+      "Return"
+    ],
+    "controlFound": true,
+    "activated": true,
+    "focusedBeforeActivation": {
+      "role": "section",
+      "name": null,
+      "text": "Add a project\nOpen a folder on your machine\n"
+    },
+    "treeChanged": true,
+    "dialogObserved": true,
+    "dialogNames": [
+      "Search for directory Find a directory on isolated-baseline",
+      "Clone from GitHub Search projects available to your GitHub account",
+      "New directory Create an empty directory on isolated-baseline"
+    ],
+    "baselineDialogText": [
+      "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline \u2191\u2193 Navigate \u23ce Select Esc Close"
+    ],
+    "baselineDialogControls": [
+      "Search for directory Find a directory on isolated-baseline",
+      "Clone from GitHub Search projects available to your GitHub account",
+      "New directory Create an empty directory on isolated-baseline"
+    ]
+  },
+  "treeAfterAddProject": {
+    "role": "application",
+    "name": "spocky-ui-desktop",
+    "text": null,
+    "states": [],
+    "children": [
+      {
+        "role": "frame",
+        "name": "Dioxus App",
+        "text": null,
+        "states": [
+          "enabled",
+          "visible",
+          "showing"
+        ],
+        "children": [
+          {
+            "role": "filler",
+            "name": null,
+            "text": null,
+            "states": [
+              "enabled",
+              "visible",
+              "showing"
+            ],
+            "children": [
+              {
+                "role": "menu bar",
+                "name": null,
+                "text": null,
+                "states": [
+                  "enabled",
+                  "visible",
+                  "showing"
+                ],
+                "children": [
+                  {
+                    "role": "menu",
+                    "name": "Window",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "role": "menu",
+                    "name": "Edit",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Cut",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Copy",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Paste",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "separator",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Select All",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "role": "menu",
+                    "name": "Help",
+                    "text": null,
+                    "states": [
+                      "enabled",
+                      "visible",
+                      "showing"
+                    ],
+                    "children": [
+                      {
+                        "role": "menu item",
+                        "name": "Toggle Developer Tools",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "menu item",
+                        "name": "Float on Top (dev mode only)",
+                        "text": null,
+                        "states": [
+                          "enabled",
+                          "visible"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "role": "filler",
+                "name": null,
+                "text": null,
+                "states": [],
+                "children": [
+                  {
+                    "role": "filler",
+                    "name": null,
+                    "text": null,
+                    "states": [],
+                    "children": [
+                      {
+                        "role": "scroll pane",
+                        "name": null,
+                        "text": null,
+                        "states": [
+                          "focusable",
+                          "focused",
+                          "enabled"
+                        ],
+                        "children": [
+                          {
+                            "role": "document web",
+                            "name": "Dioxus app",
+                            "text": null,
+                            "states": [
+                              "focusable",
+                              "focused",
+                              "enabled",
+                              "visible",
+                              "showing"
+                            ],
+                            "children": [
+                              {
+                                "role": "landmark",
+                                "name": null,
+                                "text": null,
+                                "states": [
+                                  "enabled",
+                                  "visible",
+                                  "showing"
+                                ],
+                                "children": [
+                                  {
+                                    "role": "landmark",
+                                    "name": "Primary navigation",
+                                    "text": null,
+                                    "states": [
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "push button",
+                                        "name": "New workspace",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "History",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Search",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Schedules",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "No projects yet",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Add a project to get started",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Add project",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Import session",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Add project",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Hosts",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Import session",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Usage",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Help and support",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Settings",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "push button",
+                                    "name": "Close menu",
+                                    "text": null,
+                                    "states": [
+                                      "focusable",
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": []
+                                  },
+                                  {
+                                    "role": "landmark",
+                                    "name": "Open project",
+                                    "text": null,
+                                    "states": [
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Add a project\nOpen a folder on your machine\n",
+                                        "states": [
+                                          "focusable",
+                                          "focused",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Add a project",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Open a folder on your machine",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal\n",
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Import session",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Open a Claude Code, Codex or other session you started in a terminal",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Setup providers\nConfigure Claude Code, Codex, and more\n",
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Setup providers",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "section",
+                                            "name": null,
+                                            "text": "Configure Claude Code, Codex, and more",
+                                            "states": [
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "footer",
+                                        "name": null,
+                                        "text": null,
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": [
+                                          {
+                                            "role": "push button",
+                                            "name": "Star",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "push button",
+                                            "name": "Sponsor",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          },
+                                          {
+                                            "role": "push button",
+                                            "name": "Community",
+                                            "text": null,
+                                            "states": [
+                                              "focusable",
+                                              "enabled",
+                                              "visible",
+                                              "showing"
+                                            ],
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "dialog",
+                                    "name": null,
+                                    "text": null,
+                                    "states": [
+                                      "enabled",
+                                      "visible",
+                                      "showing"
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "Add project",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "section",
+                                        "name": null,
+                                        "text": "isolated-baseline",
+                                        "states": [
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Search for directory Find a directory on isolated-baseline",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "Clone from GitHub Search projects available to your GitHub account",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "push button",
+                                        "name": "New directory Create an empty directory on isolated-baseline",
+                                        "text": null,
+                                        "states": [
+                                          "focusable",
+                                          "enabled",
+                                          "visible",
+                                          "showing"
+                                        ],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
