@@ -12,9 +12,9 @@ use crate::agent_sdk::{
     AgentClient, AgentCreateSessionOptions, AgentError, AgentLaunchContext, AgentResumePurpose,
     AgentResumeSessionOptions, AgentSession, FetchCatalogOptions,
 };
-use crate::js::{js_string, spread, spread_into, truthy};
 use crate::runtime_mcp_config::{strip_internal_paseo_mcp_server, with_runtime_paseo_mcp_server};
 use crate::text::js_trim;
+use spocky_contracts::js::{js_string, spread, spread_into, truthy};
 
 /// `CreateAgentOptions`.
 #[derive(Debug, Clone, Default, PartialEq)]
