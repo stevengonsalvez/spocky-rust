@@ -880,9 +880,13 @@ pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<N
         .iter()
         .map(|text| (target_key(&text.target), text.text.clone()))
         .collect();
+    // Only targets both sides have. A text present on one side only is a
+    // plain difference the comparison reports; a rule there would turn it
+    // into a normalization miss and hide which artifact differs.
     let mut targets: Vec<NormalizationTarget> = Vec::new();
-    for text in left.iter().chain(right) {
-        if !targets.contains(&text.target) {
+    for text in left {
+        if right.iter().any(|other| other.target == text.target) && !targets.contains(&text.target)
+        {
             targets.push(text.target.clone());
         }
     }
@@ -1396,6 +1400,32 @@ mod tests {
         let other = vec![("anything".to_owned(), "pub=".to_owned())];
         let error = equivalent_with(&left, &right, other.clone(), other).unwrap_err();
         assert!(error.contains("allowlisted"), "{error}");
+    }
+
+    #[test]
+    fn one_sided_targets_get_no_rule_and_still_differ() {
+        let left = vec![
+            artifact("shared", UUID_A.into()),
+            artifact("extra", UUID_A.into()),
+        ];
+        let right = vec![artifact("shared", UUID_B.into())];
+        let left_facts = facts("/private/tmp/a", 1, 2);
+        let right_facts = facts("/private/tmp/b", 3, 4);
+        let classes = value_classes(
+            &input(&left_facts, &left, Vec::new()),
+            &input(&right_facts, &right, Vec::new()),
+            &SLICE_SHAPES,
+        )
+        .unwrap();
+        let rules = rules_for(&classes, &left, &right);
+        assert_eq!(
+            rules
+                .iter()
+                .map(|rule| rule.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["generated-id-uuid-1@artifact:shared"]
+        );
+        assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
     #[test]
