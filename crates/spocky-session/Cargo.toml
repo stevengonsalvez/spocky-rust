@@ -16,6 +16,9 @@ spocky-store = { path = "../spocky-store" }
 spocky-domain = { path = "../spocky-domain" }
 spocky-contracts = { path = "../spocky-contracts" }
 
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 
