@@ -61,6 +61,16 @@ fn start_daemon(env: &DaemonEnv) -> Result<spocky_daemon::daemon::RunningDaemon,
     start(env, Arc::new(NoSessionBackend), &logger).map_err(|error| error.0)
 }
 
+/// Kills and reaps the child when the test ends, however it ends.
+struct KillOnDrop(std::process::Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 fn get(listen: &str, path: &str) -> String {
     let mut stream = TcpStream::connect(listen).unwrap();
     stream
@@ -145,27 +155,27 @@ fn a_home_held_by_another_live_process_is_refused() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
     write_config(&home, &json!({"listen": "127.0.0.1:0"}));
-    let mut holder = std::process::Command::new("sleep")
-        .arg("60")
-        .spawn()
-        .unwrap();
+    let holder = KillOnDrop(
+        std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap(),
+    );
     let started = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis();
     let lock = json!({
-        "pid": holder.id(),
+        "pid": holder.0.id(),
         "startedAt": spocky_daemon::iso_time::to_iso_string(i64::try_from(started).unwrap()),
         "hostname": "x", "uid": 1, "listen": "127.0.0.1:9", "heartbeat": true
     });
     fs::write(home.join("paseo.pid"), lock.to_string()).unwrap();
     let error = start_daemon(&env(&home, &[])).err().expect("must refuse");
-    let _ = holder.kill();
-    holder.wait().unwrap();
     assert!(
         error.starts_with(&format!(
             "Another Paseo daemon is already running (PID {}, started ",
-            holder.id()
+            holder.0.id()
         )),
         "{error}"
     );
