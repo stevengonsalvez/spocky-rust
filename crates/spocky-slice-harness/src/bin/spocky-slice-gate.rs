@@ -111,9 +111,15 @@ fn run() -> Result<bool, String> {
     );
     let right = run_side(&gate, options.right, &options.tools, &right_dir)?;
     let outcome = compare_sides(&gate, &left, &right);
-    write_json(&options.evidence.join("rules.json"), &outcome.rules)?;
+    write_json(
+        &options.evidence.join("rules.json"),
+        &serde_json::json!({"normalization": outcome.rules, "transforms": outcome.transforms}),
+    )?;
     if let Some(manifest) = &outcome.manifest {
-        write_json(&options.evidence.join("manifest.json"), manifest)?;
+        write_json(
+            &options.evidence.join("manifest.json"),
+            &serde_json::json!({"transforms": outcome.transforms, "differential": manifest}),
+        )?;
         let differing = differing_artifacts(manifest);
         fs::write(
             options.evidence.join("differing.txt"),
