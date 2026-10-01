@@ -14,7 +14,7 @@ use super::events::{
 };
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
 use crate::agent_prompt::submitted_prompt_text;
-use crate::agent_sdk::{AgentError, AgentPromptInput, AgentRunOptions, AgentSession};
+use crate::agent_sdk::{AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession};
 use crate::js::{js_string, truthy};
 
 /// `finalizedForegroundTurnIds` keeps at most this many ids.
@@ -57,10 +57,41 @@ pub struct AgentRunResult {
     pub canceled: bool,
 }
 
-/// `WaitForAgentOptions` (the abort signal is not ported).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// `WaitForAgentOptions`.
+#[derive(Debug, Clone, Default)]
 pub struct WaitForAgentOptions {
+    pub signal: Option<AbortSignal>,
     pub wait_for_active: bool,
+}
+
+/// The fallback message of `waitForAgentEvent`'s abort error.
+const WAIT_ABORTED: &str = "wait_for_agent aborted";
+
+/// `createAbortError(signal, fallbackMessage)`: an `AbortError` whose
+/// message is a string reason, else the fallback. `abortMessage` also takes
+/// an `Error` reason's message, which [`AbortSignal`] cannot carry: its
+/// reasons are [`JsValue`]s.
+fn abort_error(signal: &AbortSignal, fallback: &str) -> AgentError {
+    let message = match signal.reason() {
+        Some(JsValue::String(reason)) => reason.clone(),
+        _ => fallback.to_owned(),
+    };
+    AgentError {
+        name: "AbortError".to_owned(),
+        message,
+    }
+}
+
+/// Runs the wait's `unsubscribe` when the wait ends, however it ends:
+/// settled, aborted, or dropped by its caller.
+struct Unsubscribing<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> Drop for Unsubscribing<F> {
+    fn drop(&mut self) {
+        if let Some(unsubscribe) = self.0.take() {
+            unsubscribe();
+        }
+    }
 }
 
 /// `WaitForAgentResult`.
@@ -489,7 +520,8 @@ impl AgentManager {
     ///
     /// # Errors
     ///
-    /// `Agent <id> not found` for an unknown agent.
+    /// `Agent <id> not found` for an unknown agent, and an `AbortError` when
+    /// `options.signal` aborts before the wait settles.
     pub async fn wait_for_agent_event(
         &self,
         agent_id: &str,
@@ -523,6 +555,9 @@ impl AgentManager {
                 last_message: self.get_last_assistant_message(agent_id),
             });
         }
+        if let Some(signal) = options.signal.as_ref().filter(|signal| signal.aborted()) {
+            return Err(abort_error(signal, WAIT_ABORTED));
+        }
         let has_started = snapshot.lifecycle.is_busy()
             || snapshot.active_foreground_turn_id.is_some()
             || matches!(pending_run, Some(RunStart::Started(_)));
@@ -539,7 +574,7 @@ impl AgentManager {
             .done = Some(done_tx);
         let callback_watch = Arc::clone(&watch);
         let wait_for_active = options.wait_for_active;
-        let unsubscribe = self.subscribe(
+        let unsubscribe = Unsubscribing(Some(self.subscribe(
             Arc::new(move |event: &AgentManagerEvent| {
                 let mut watch = callback_watch
                     .lock()
@@ -550,9 +585,16 @@ impl AgentManager {
                 agent_id: Some(agent_id.to_owned()),
                 replay_state: Some(true),
             },
-        )?;
-        let permission = done_rx.await.unwrap_or(None);
-        unsubscribe();
+        )?));
+        let permission = match &options.signal {
+            Some(signal) => tokio::select! {
+                biased;
+                permission = done_rx => permission.unwrap_or(None),
+                () = signal.wait() => return Err(abort_error(signal, WAIT_ABORTED)),
+            },
+            None => done_rx.await.unwrap_or(None),
+        };
+        drop(unsubscribe);
         let status = watch
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
