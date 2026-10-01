@@ -81,7 +81,9 @@ impl DaemonEnv {
         Self::new(vars, std::env::current_dir().unwrap_or_default(), home_dir)
     }
 
-    fn get(&self, name: &str) -> Option<&str> {
+    /// The value of environment variable `name`.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&str> {
         self.vars.get(name).map(String::as_str)
     }
 }
