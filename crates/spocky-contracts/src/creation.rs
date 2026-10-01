@@ -16,6 +16,7 @@ use crate::field::optional;
 use crate::number::NonNegativeInt;
 use crate::request::CreationKind;
 use crate::snapshot::AgentSnapshot;
+use crate::text::JsText;
 use crate::workspace::WorkspaceDescriptor;
 
 /// `CreationSnapshotSchema.phase`.
@@ -44,14 +45,14 @@ pub enum FailedStage {
 pub struct CreationSnapshot {
     pub kind: CreationKind,
     #[serde(rename = "idempotencyKey")]
-    pub idempotency_key: String,
+    pub idempotency_key: JsText,
     pub revision: NonNegativeInt,
     pub phase: CreationPhase,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
     #[serde(rename = "workspaceId")]
-    pub workspace_id: Option<String>,
+    pub workspace_id: Option<JsText>,
     #[serde(rename = "agentId")]
-    pub agent_id: Option<String>,
+    pub agent_id: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub workspace: Option<Box<WorkspaceDescriptor>>,
     #[serde(
@@ -59,7 +60,7 @@ pub struct CreationSnapshot {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub setup_skipped_reason: Option<String>,
+    pub setup_skipped_reason: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub agent: Option<AgentSnapshot>,
     #[serde(
@@ -67,7 +68,7 @@ pub struct CreationSnapshot {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub error_code: Option<String>,
+    pub error_code: Option<JsText>,
     #[serde(
         rename = "failedStage",
         skip_serializing_if = "Option::is_none",
