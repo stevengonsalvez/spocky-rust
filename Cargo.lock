@@ -5534,6 +5534,14 @@ version = "0.1.0"
 [[package]]
 name = "spocky-daemon-app"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spocky-contracts",
+ "spocky-provider-codex",
+ "spocky-session",
+ "spocky-slice-harness",
+ "tokio",
+]
 
 [[package]]
 name = "spocky-differential"
