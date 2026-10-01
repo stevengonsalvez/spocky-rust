@@ -836,7 +836,7 @@
           "integrationHead": "096111d",
           "review": "integration reviewer PASS (verdicts/p3_message_receipts-25820a5.txt)",
           "leadVerification": "gated with pinned node 22.20.0 and dist: spocky-message-receipts 12/12 on 3 consecutive runs, clippy -D warnings, fmt check; scripts/phase3/receipts-differential.test.sh 6/6 cases",
-          "followUps": ["P2 receipts_differential.rs:512 two-instance race order depends on blocking-pool scheduling; barrier both reads or document flake risk", "P3 lib.rs:94 send joins per-key queue on first poll, not at call time; port eagerly or list exception", "P3 receipts-differential.sh:47 record tree cleanliness and fail when dirty", "P3 receipts-differential.test.sh:84 add a fmt failure case"]
+          "followUps": ["P2 receipts_differential.rs:512 two-instance race order depends on blocking-pool scheduling; decided: barrier both reads so the race is deterministic, proved over 20 runs; no flake note", "P3 lib.rs:94 send joins per-key queue on first poll, not at call time; decided: port the call-time join; no compatibility exception", "P3 receipts-differential.sh:47 record tree cleanliness and fail when dirty", "P3 receipts-differential.test.sh:84 add a fmt failure case"]
         },
         {
           "lane": "p3_session",
