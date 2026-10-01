@@ -1,0 +1,1111 @@
+{
+  "durableExecutionId": {
+    "fixed": "a4071e2c-c3ec-5c7a-9c38-8f19dabbf847",
+    "noStep": "94b9d672-46a1-5ebf-93a1-87a5ad462f78",
+    "otherTrigger": "4e40c714-41d3-5112-ae07-e726507cb989"
+  },
+  "execution": {
+    "completedAtKept": true,
+    "conflictingTerminalTransition": false,
+    "finalStatus": "succeeded",
+    "firstTerminal": "succeeded",
+    "idleDeadlineCleared": true,
+    "idleDeadlineSet": true,
+    "initial": "spawning",
+    "runStatus": "succeeded",
+    "runSucceededAgainTransition": false,
+    "runSucceededTransition": true,
+    "runningTransition": true
+  },
+  "github": {
+    "cases": {
+      "arrayBody": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received array\"]}}",
+            "status": 400
+          }
+        ]
+      },
+      "bodyAtLimit": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "9b437a4fa25a5419a6b3a50e3180e6591d2100712a3268a4e60ddab76517fc4b",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "bodyOverLimit": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Payload Too Large",
+            "status": 413
+          }
+        ]
+      },
+      "deliveryHeaderAtLimit": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "deliveryHeaderOverLimit": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "duplicateInstallationKey": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 7,
+            "repo": "a/b",
+            "repositoryId": 1,
+            "signatureHash": "3317a32428885a8c281ffff0fe474042ca17f64dcd2ec36ddf8b60594a776690",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "emptyDeliveryHeader": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "emptyEventHeader": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "emptyRepositoryName": {
+        "accepts": [
+          {
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repo": null,
+            "repositoryId": null,
+            "signatureHash": "31d0d44fcc2c12f25be4e244789e58c3165b946f8067a95442ede90c66b7eacd",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "emptySecret": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "a5c5063ecd60f90e423f3b7480a57aa623331a8e9450de2fbf57becff881d36b",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "eventHeaderOverLimit": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "fanOutTwoEvents": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 2,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "installationIdFractional": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 1.5,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "c98d4cd2a3025dcb4b33fabcba7af61ac8300b1b29cdaca520cd01198f40d933",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "installationIdString": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "installationWithoutId": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "invalidUtf8": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"request body must be valid JSON\"}",
+            "status": 400
+          }
+        ]
+      },
+      "lifecycleInstallation": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [
+          {
+            "event": "installation",
+            "installationId": 42,
+            "signatureHash": "a351f77bf1929f9059f720bd2b48a5962889f45d16342b0892e7fee06a7c9b98",
+            "source": "github.installation"
+          }
+        ],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "lifecycleInstallationRepositories": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [
+          {
+            "event": "installation_repositories",
+            "installationId": 42,
+            "signatureHash": "d837b3e97d02c93705e4d9b58336bf74a805e0ba40764d68342353d5394d0511",
+            "source": "github.installation_repositories"
+          }
+        ],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "longSecret": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "581643094f5b26648edd1e4f96d5823564d9feb177c347598702c17e9d63092c",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "malformedJson": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"request body must be valid JSON\"}",
+            "status": 400
+          }
+        ]
+      },
+      "missingDeliveryHeader": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "missingEventHeader": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "missingInstallation": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Bad Request",
+            "status": 400
+          }
+        ]
+      },
+      "missingSignature": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Unauthorized",
+            "status": 401
+          }
+        ]
+      },
+      "noHandlers": {
+        "accepts": [
+          {
+            "dropReason": "configuration_unavailable",
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "noRepository": {
+        "accepts": [
+          {
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repo": null,
+            "repositoryId": null,
+            "signatureHash": "5d4cf3bdc3fb02160b7fcefeb929ed258e4d05c6e14225c69cf4469377f05776",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "nullBody": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received null\"]}}",
+            "status": 400
+          }
+        ]
+      },
+      "numberBody": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received number\"]}}",
+            "status": 400
+          }
+        ]
+      },
+      "replayAndDistinct": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          },
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          },
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 2,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          },
+          {
+            "body": "OK",
+            "status": 200
+          },
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "repositoryIdString": {
+        "accepts": [
+          {
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repo": null,
+            "repositoryId": null,
+            "signatureHash": "5dd9977b96b8c8fa9ec672a5958ea8019803e1abf7b2ec042ac9472adc4d810c",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "repositoryWithoutId": {
+        "accepts": [
+          {
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repo": null,
+            "repositoryId": null,
+            "signatureHash": "4d7aa00967d60e2c36ccfc99d43026352ca05ceb757e9dfef842d28967ce028c",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "signatureWithoutPrefix": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Unauthorized",
+            "status": 401
+          }
+        ]
+      },
+      "storageFailure": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"webhook_processing_failed\"}",
+            "status": 500
+          }
+        ]
+      },
+      "storageUnavailable": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"database_unavailable\"}",
+            "status": 503
+          }
+        ]
+      },
+      "stringBody": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received string\"]}}",
+            "status": 400
+          }
+        ]
+      },
+      "tamperedBody": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Unauthorized",
+            "status": 401
+          }
+        ]
+      },
+      "truncatedSignature": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Unauthorized",
+            "status": 401
+          }
+        ]
+      },
+      "twoHandlers": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 2,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "unconfiguredSecret": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Service Unavailable",
+            "status": 503
+          }
+        ]
+      },
+      "utf8Bom": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "f455e8816af988d5e5a904ea1c73ee03fffa6966c4cc21c26a406056e4471d9b",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "validDispatch": {
+        "accepts": [
+          {
+            "dropReason": null,
+            "installationId": 42,
+            "repo": "acme/widgets",
+            "repositoryId": 9001,
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a",
+            "source": "github.issue_comment"
+          }
+        ],
+        "dispatchCount": 1,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "OK",
+            "status": 200
+          }
+        ]
+      },
+      "wrongSecretSignature": {
+        "accepts": [],
+        "dispatchCount": 0,
+        "lifecycles": [],
+        "responses": [
+          {
+            "body": "Unauthorized",
+            "status": 401
+          }
+        ]
+      }
+    },
+    "signatureHashSample": "9e809218cbdb074633a2960ff90756f7ee06e1be1141ece2f40157e0cae98675"
+  },
+  "lease": {
+    "blockedBeforeExpiry": true,
+    "currentReleaseAccepted": true,
+    "executionCount": 1,
+    "executionIdIsDurable": true,
+    "leasedBeforeClaim": true,
+    "recoveredAfterExpiry": true,
+    "sameExecution": true,
+    "staleReleaseRejected": true
+  },
+  "manual": {
+    "crossOrgDistinct": true,
+    "fanOutCreated": true,
+    "fanOutDistinct": true,
+    "fanOutReplayCreated": false,
+    "fanOutReplaySameRun": true,
+    "firstCreated": true,
+    "receiptCount": 2,
+    "replayCreated": false,
+    "runCount": 3,
+    "sameReceipt": true
+  },
+  "manualRequests": {
+    "acceptedEvidence": [
+      {
+        "connectionId": null,
+        "deliveryId": "manual-1",
+        "resourceId": null,
+        "source": "discord.mention"
+      }
+    ],
+    "cases": {
+      "accepted": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}",
+        "status": 200
+      },
+      "arrayBody": {
+        "body": "{\"error\":\"Invalid input: expected object, received array\"}",
+        "status": 400
+      },
+      "connectionIdNilUuid": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-nil-connection\"}",
+        "status": 200
+      },
+      "connectionIdNotUuid": {
+        "body": "{\"error\":\"Invalid UUID\"}",
+        "status": 400
+      },
+      "connectionIdNull": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-null-connection\"}",
+        "status": 200
+      },
+      "connectionIdNumber": {
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}",
+        "status": 400
+      },
+      "connectionIdVersionNine": {
+        "body": "{\"error\":\"Invalid UUID\"}",
+        "status": 400
+      },
+      "deliveryIdNumber": {
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}",
+        "status": 400
+      },
+      "duplicateSameOrganization": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}",
+        "status": 200
+      },
+      "emptyDeliveryId": {
+        "body": "{\"error\":\"deliveryId is required and must be a non-empty string\"}",
+        "status": 400
+      },
+      "emptyOrganizationId": {
+        "body": "{\"error\":\"organizationId is required\"}",
+        "status": 400
+      },
+      "emptySource": {
+        "body": "{\"error\":\"source is required and must be a non-empty string\"}",
+        "status": 400
+      },
+      "invalidJson": {
+        "body": "{\"error\":\"request body must be valid JSON\"}",
+        "status": 400
+      },
+      "invalidReceivedAt": {
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}",
+        "status": 400
+      },
+      "missingOrganizationId": {
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}",
+        "status": 400
+      },
+      "multipleInvalidFields": {
+        "body": "{\"error\":\"organizationId is required\"}",
+        "status": 400
+      },
+      "noHandlerDropped": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-idle\"}",
+        "status": 200
+      },
+      "nonNamespacedSource": {
+        "body": "{\"error\":\"source must be provider-namespaced, for example github.issue_comment\"}",
+        "status": 400
+      },
+      "payloadNull": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-null-payload\"}",
+        "status": 200
+      },
+      "payloadOmitted": {
+        "body": "{\"error\":\"Invalid input: expected nonoptional, received undefined\"}",
+        "status": 400
+      },
+      "projectIdMissing": {
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}",
+        "status": 400
+      },
+      "projectIdNotUuid": {
+        "body": "{\"error\":\"projectId is required\"}",
+        "status": 400
+      },
+      "receivedAtDateOnly": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-date-only\"}",
+        "status": 200
+      },
+      "receivedAtImpossibleDate": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}",
+        "status": 200
+      },
+      "receivedAtNull": {
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}",
+        "status": 400
+      },
+      "receivedAtNumber": {
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}",
+        "status": 400
+      },
+      "receivedAtOffset": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-offset\"}",
+        "status": 200
+      },
+      "resourceIdNumber": {
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}",
+        "status": 400
+      },
+      "sameDeliveryOtherOrganization": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}",
+        "status": 200
+      },
+      "sourceMissing": {
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}",
+        "status": 400
+      },
+      "sourceNumber": {
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}",
+        "status": 400
+      },
+      "unknownProject": {
+        "body": "threw: manual project configuration unavailable",
+        "status": 0
+      },
+      "utf8BomBody": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-bom\"}",
+        "status": 200
+      },
+      "validReceivedAt": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-received-at\"}",
+        "status": 200
+      },
+      "withConnectionEvidence": {
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-evidence\"}",
+        "status": 200
+      }
+    },
+    "connectionEvidence": {
+      "connectionId": "7f1b0c1e-2d3a-4b5c-8d6e-9f0a1b2c3d4e",
+      "resourceId": "resource-1"
+    },
+    "handledAfterDuplicate": 2,
+    "handledAfterOtherOrganization": 3,
+    "receipts": {
+      "accepted": {
+        "connectionId": null,
+        "droppedReason": null,
+        "provider": "manual",
+        "resourceId": null,
+        "source": "discord.mention"
+      },
+      "distinctReceiptIds": true,
+      "idle": {
+        "connectionId": null,
+        "droppedReason": "configuration_unavailable",
+        "provider": "manual",
+        "resourceId": null,
+        "source": "discord.mention"
+      },
+      "otherOrganization": {
+        "connectionId": null,
+        "droppedReason": null,
+        "provider": "manual",
+        "resourceId": null,
+        "source": "discord.mention"
+      }
+    },
+    "receivedAtGrid": {
+      "": 400,
+      "+002026-08-06T00:00:00Z": 200,
+      "+275760-09-13T00:00:00.000Z": 200,
+      "+275760-09-13T00:00:00.001Z": 400,
+      "-000000-01-01T00:00:00Z": 400,
+      "-000001-01-01T00:00:00Z": 200,
+      "0000-01-01": 200,
+      "2026": 200,
+      "2026-00-10": 400,
+      "2026-02-30": 200,
+      "2026-02-32": 400,
+      "2026-08": 200,
+      "2026-08-00": 400,
+      "2026-08-06": 200,
+      "2026-08-06T12:00": 200,
+      "2026-08-06T12:00:00": 200,
+      "2026-08-06T12:00:00 Z": 400,
+      "2026-08-06T12:00:00+01": 400,
+      "2026-08-06T12:00:00+0100": 200,
+      "2026-08-06T12:00:00+23:59": 200,
+      "2026-08-06T12:00:00+24:00": 400,
+      "2026-08-06T12:00:00-00:00": 200,
+      "2026-08-06T12:00:00.1234Z": 200,
+      "2026-08-06T12:00:00.Z": 400,
+      "2026-08-06T12:00:00z": 200,
+      "2026-08-06T12:00:60Z": 400,
+      "2026-08-06T12:00Z": 200,
+      "2026-08-06T12:60:00Z": 400,
+      "2026-08-06T12Z": 400,
+      "2026-08-06T24:00:00Z": 200,
+      "2026-08-06T24:00:01Z": 400,
+      "2026-08-06T25:00:00Z": 400,
+      "2026-13-01": 400,
+      "26-08-06": 400,
+      "275760-09-13T00:00:00Z": 400,
+      "9999-12-31T23:59:59.999Z": 200,
+      "not-a-date": 400
+    }
+  },
+  "manualRunMatch": {
+    "actorAllowed": {
+      "configurationRevisionIsCurrent": true,
+      "deliveryId": "delivery-1",
+      "outcome": "matched",
+      "triggers": [
+        "rollback"
+      ]
+    },
+    "actorForbidden": {
+      "code": "actor_forbidden",
+      "outcome": "rejected"
+    },
+    "expectedCurrent": {
+      "configurationRevisionIsCurrent": true,
+      "deliveryId": "delivery-1",
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ]
+    },
+    "expectedStale": {
+      "code": "expected_configuration_not_current",
+      "outcome": "rejected"
+    },
+    "matched": {
+      "configurationRevisionIsCurrent": true,
+      "deliveryId": "delivery-1",
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ]
+    },
+    "noUserFilter": {
+      "code": "actor_forbidden",
+      "outcome": "rejected"
+    },
+    "publicDeliveryKey": {
+      "configurationRevisionIsCurrent": true,
+      "deliveryId": "public-key",
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ]
+    },
+    "revisionMissing": {
+      "code": "configuration_not_found",
+      "outcome": "rejected"
+    },
+    "triggerMissing": {
+      "code": "trigger_not_found",
+      "outcome": "rejected"
+    },
+    "wrongEventTrigger": {
+      "code": "trigger_not_found",
+      "outcome": "rejected"
+    }
+  },
+  "publicManualRun": {
+    "authenticationUnavailable": {
+      "body": null,
+      "code": "authentication_unavailable",
+      "contentType": "application/problem+json",
+      "status": 503,
+      "wwwAuthenticate": null
+    },
+    "forbidden": {
+      "body": null,
+      "code": "insufficient_scope",
+      "contentType": "application/problem+json",
+      "status": 403,
+      "wwwAuthenticate": null
+    },
+    "invalidJson": {
+      "body": null,
+      "code": "invalid_json",
+      "contentType": "application/problem+json",
+      "status": 400,
+      "wwwAuthenticate": null
+    },
+    "missingContentType": {
+      "body": null,
+      "code": "invalid_json",
+      "contentType": "application/problem+json",
+      "status": 400,
+      "wwwAuthenticate": null
+    },
+    "results": {
+      "actor_forbidden": {
+        "body": null,
+        "code": "actor_forbidden",
+        "contentType": "application/problem+json",
+        "status": 403,
+        "wwwAuthenticate": null
+      },
+      "configuration_not_found": {
+        "body": null,
+        "code": "configuration_not_found",
+        "contentType": "application/problem+json",
+        "status": 404,
+        "wwwAuthenticate": null
+      },
+      "daemon_offline": {
+        "body": null,
+        "code": "daemon_offline",
+        "contentType": "application/problem+json",
+        "status": 409,
+        "wwwAuthenticate": null
+      },
+      "dispatch_conflict": {
+        "body": null,
+        "code": "dispatch_conflict",
+        "contentType": "application/problem+json",
+        "status": 409,
+        "wwwAuthenticate": null
+      },
+      "dispatched": {
+        "body": {
+          "configuredTriggerName": "deploy",
+          "deliveryKey": "delivery-1",
+          "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
+          "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
+          "workflowStatus": "running"
+        },
+        "code": null,
+        "contentType": "application/json",
+        "status": 200,
+        "wwwAuthenticate": null
+      },
+      "expected_configuration_not_current": {
+        "body": null,
+        "code": "configuration_changed",
+        "contentType": "application/problem+json",
+        "status": 409,
+        "wwwAuthenticate": null
+      },
+      "infrastructure_unavailable": {
+        "body": null,
+        "code": "infrastructure_unavailable",
+        "contentType": "application/problem+json",
+        "status": 503,
+        "wwwAuthenticate": null
+      },
+      "invalid_input": {
+        "body": null,
+        "code": "invalid_input",
+        "contentType": "application/problem+json",
+        "status": 400,
+        "wwwAuthenticate": null
+      },
+      "project_not_found": {
+        "body": null,
+        "code": "project_not_found",
+        "contentType": "application/problem+json",
+        "status": 404,
+        "wwwAuthenticate": null
+      },
+      "trigger_not_found": {
+        "body": null,
+        "code": "trigger_not_found",
+        "contentType": "application/problem+json",
+        "status": 404,
+        "wwwAuthenticate": null
+      }
+    },
+    "unauthorized": {
+      "body": null,
+      "code": "unauthorized",
+      "contentType": "application/problem+json",
+      "status": 401,
+      "wwwAuthenticate": "Bearer"
+    },
+    "wrongContentType": {
+      "body": null,
+      "code": "invalid_json",
+      "contentType": "application/problem+json",
+      "status": 400,
+      "wwwAuthenticate": null
+    }
+  },
+  "schemaVersion": 1
+}
