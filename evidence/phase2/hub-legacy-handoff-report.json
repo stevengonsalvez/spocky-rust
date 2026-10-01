@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "sourceTreeMutated": false
+  },
+  "storage": {
+    "disposableCopy": true,
+    "baselineDirectoryReusedAcrossProcesses": true
+  },
+  "forwardHandoff": {
+    "status": "supported",
+    "candidateOpenedBaselineDirectory": true
+  },
+  "schemaMigration": {
+    "status": "no-op-current-schema",
+    "beforeJournalRows": 49,
+    "applied": 0,
+    "afterJournalRows": 49
+  },
+  "dataPreservation": {
+    "status": "preserved",
+    "baselineMarker": true,
+    "candidateMarker": true
+  },
+  "reverseRollback": {
+    "status": "supported",
+    "baselineOpenedCandidateDirectory": true,
+    "baselineSawCandidateMarker": true,
+    "observation": {
+      "operation": "baseline-reverse-observe",
+      "opened": true,
+      "journalBeforeMigrate": 49,
+      "journalAfterMigrate": 49,
+      "probeRows": [
+        {
+          "producer": "pinned-baseline",
+          "payload": "baseline-data-preserved"
+        },
+        {
+          "producer": "retained-candidate",
+          "payload": "candidate-data-preserved"
+        }
+      ]
+    }
+  },
+  "rawEvidence": [
+    "hub-legacy-handoff-baseline-produce.json",
+    "hub-legacy-handoff-candidate-forward.json",
+    "hub-legacy-handoff-baseline-reverse.json"
+  ],
+  "compatibilityException": {
+    "status": "required-not-accepted",
+    "capability": "Retain pinned PGlite JavaScript host behind bounded Rust IPC"
+  }
+}

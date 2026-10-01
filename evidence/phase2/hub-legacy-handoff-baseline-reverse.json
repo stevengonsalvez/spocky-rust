@@ -1,0 +1,1 @@
+{"operation":"baseline-reverse-observe","opened":true,"journalBeforeMigrate":49,"journalAfterMigrate":49,"probeRows":[{"producer":"pinned-baseline","payload":"baseline-data-preserved"},{"producer":"retained-candidate","payload":"candidate-data-preserved"}]}
