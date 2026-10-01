@@ -166,3 +166,22 @@ against the plan cap of three. Recommendation: launch `p3_contracts`,
 `p3_slice_harness`, and `p3_provider_codex` first, since they need no other
 lane to start. Start `p3_session` and `p3_daemon_transport` as P2 lanes
 finish, or record a cap revision before launching them.
+
+## 6. G1 lead decisions (2026-10-01)
+
+Decisions on `evidence/phase3/gate-g1.md` "Deviations for lead decision" and
+"Not compared", after read-only Opus review of harness range
+`d6618ba..38b003a`.
+
+| Item | Decision | Reason |
+|---|---|---|
+| `client_metadata` key reorder in stub request bodies | Accepted as the only reorder. It must appear as a named transform in the gate manifest. | Two runs of the same pinned codex binary emit those keys in different orders (hash map). No daemon controls it. Top-level and nested order stay exact, with tests. |
+| Normalized classes beyond the plan list (project, client, Codex turn, window, installation, tools, message ids, daemon keypair, verified creation digests, CLI short id) | Accepted, except constant UUIDs. | Each is generated per run and tested. The recorded run normalized the nil and max UUIDs; the UUID shape must require version 4, 5, or 7 with a valid variant, and no rule may be emitted when both sides hold the same value. G1 parity runs wait for that fix. |
+| Canonical enumeration order of captured state files | Accepted. | The harness lists files; listing order is not daemon output. File content and names stay exact. |
+| `daemon.out` and `daemon.log*` not compared | Accepted for G1 only, recorded as a deviation. | Pino lines carry PIDs, metrics, and timings. Operator log parity belongs to capability `DOPS-001` and needs its own normalization rules before Phase 3 closes. |
+| `codex-home` internals other than `config.toml` not compared | Accepted. | They are the external codex program's state. What the daemon sends codex is compared through the stub request records. |
+
+Before a G1 parity claim: capture `project/` (files, `git status
+--porcelain`, `HEAD`) and a `tmp/` listing; make the `READY` check match a
+whole line; add compare-level negative tests for exit code, stub body, key
+order, missing state file, and state content.
