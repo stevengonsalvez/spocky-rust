@@ -17,6 +17,11 @@ JavaScript glue under Node only to trace which Wasm imports a workload calls.
 It is evidence tooling for lane `p2_pglite_rust_host`, excluded from shipped
 runtime ownership, and not a compatibility runtime exception.
 
+`scripts/phase2/hub-triggers-original.integration.test.ts` imports the pinned
+Hub baseline trigger modules to capture the original-side differential trace.
+It runs only in a disposable copy of the baseline, is excluded from shipped
+runtime ownership, and is not a compatibility runtime exception.
+
 ## Accepted interim
 
 ### Hub retained JavaScript PGlite host
