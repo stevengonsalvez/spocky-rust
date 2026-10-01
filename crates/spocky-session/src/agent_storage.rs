@@ -34,8 +34,9 @@ use crate::timeline::JsTypeError;
 /// on it, as the baseline hands them the same rejection.
 #[derive(Debug, Clone)]
 pub enum StorageError {
-    /// `toStoredAgentRecord` threw.
-    Projection(JsTypeError),
+    /// `toStoredAgentRecord` threw. Shared, so every mutation that
+    /// short-circuits on it holds the same error.
+    Projection(Arc<JsTypeError>),
     /// Writing the record file failed.
     Store(Arc<StoreError>),
 }
@@ -259,7 +260,8 @@ impl AgentStorage {
         A: FnOnce() -> ManagedAgentRecordView + Send + 'static,
     {
         self.queue_record_mutation(agent_id, move |existing| {
-            apply_snapshot_record(&agent(), existing, &overrides).map_err(StorageError::Projection)
+            apply_snapshot_record(&agent(), existing, &overrides)
+                .map_err(|error| StorageError::Projection(Arc::new(error)))
         })
     }
 

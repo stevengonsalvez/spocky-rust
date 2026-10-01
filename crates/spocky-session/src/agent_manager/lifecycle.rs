@@ -516,7 +516,7 @@ impl AgentManager {
             .map_err(|error| match error {
                 crate::agent_storage::StorageError::Projection(error) => AgentError {
                     name: "TypeError".to_owned(),
-                    message: error.0,
+                    message: error.0.clone(),
                 },
                 crate::agent_storage::StorageError::Store(error) => {
                     AgentError::new(error.to_string())
