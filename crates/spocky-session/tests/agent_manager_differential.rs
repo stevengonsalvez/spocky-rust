@@ -1,18 +1,32 @@
 //! Differential check of the agent manager against the pinned build's
-//! `AgentManager`: the same scripted fake provider drives `createAgent`,
-//! `runAgent` and `waitForAgentEvent` on both, and the subscriber feed
-//! (agent payloads and stream events), the provider calls, the timeline,
-//! the run result and the stored record must match.
+//! `AgentManager`: the same scripted fake providers drive both, and the
+//! outcomes, subscriber feeds (agent payloads and stream events), provider
+//! calls, timelines, run and wait results, and stored records must match.
+//!
+//! Scenarios:
+//! - `main`: `createAgent`, a completed `runAgent`, and `waitForAgentEvent`.
+//! - `errors`: the `createAgent` rejections (working directory, unknown,
+//!   unavailable and disabled providers, provider options, tool policy, MCP
+//!   support, agent ids) and the unknown-agent errors.
+//! - `turns`: a failed turn, a canceled turn, coalescing edges, an idle
+//!   `waitForActive`, and aborted waits on a held turn.
 //!
 //! Normalized: wall-clock ISO timestamps (`<ISO>`) and random UUIDs such as
-//! timeline epochs (`<UUID>`), nothing else.
+//! timeline epochs (`<UUID>`), nothing else. The fixed agent ids stay as
+//! they are.
 //!
 //! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` like
 //! `checkout_differential`; without them the test FAILS unless
-//! `SPOCKY_ALLOW_SKIP=1` (exactly).
+//! `SPOCKY_ALLOW_SKIP=1` (exactly). `wait_releases_its_subscription` runs
+//! without them.
 
+use std::collections::VecDeque;
+use std::future::Future;
+use std::path::Path;
+use std::pin::Pin;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use std::time::Duration;
 
 use spocky_session::agent_manager::{
@@ -21,17 +35,24 @@ use spocky_session::agent_manager::{
 };
 use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{
-    AbortSignal, AgentClient, AgentCreateSessionOptions, AgentEventStream, AgentLaunchContext,
-    AgentPromptInput, AgentResult, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
-    FetchCatalogOptions, ProviderRefreshContext, StreamCallback, Unsubscribe,
+    AbortController, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
+    AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentRunOptions,
+    AgentSession, AgentStreamEvent, BoxFuture, FetchCatalogOptions, ProviderRefreshContext,
+    StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::timeline::FetchDirection;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
 const AGENT_ID: &str = "00000000-0000-4000-8000-0000000000a1";
+const OTHER_ID: &str = "00000000-0000-4000-8000-0000000000b2";
+const UNKNOWN_ID: &str = "00000000-0000-4000-8000-0000000000ff";
 
-/// What the fake session emits after `startTurn` resolves, per turn.
+/// The ids the scenarios choose; [`normalize`] keeps them.
+const FIXED_IDS: [&str; 3] = [AGENT_ID, OTHER_ID, UNKNOWN_ID];
+
+/// What the fake session emits after `startTurn` resolves when its script
+/// has no turn left.
 const TURN_EVENTS: &str = r#"[
   {"type":"thread_started","provider":"fake","sessionId":"sess-1"},
   {"type":"turn_started","provider":"fake","turnId":"turn-1"},
@@ -46,6 +67,58 @@ const TURN_EVENTS: &str = r#"[
   {"type":"turn_completed","provider":"fake","turnId":"turn-1","usage":{"inputTokens":3,"outputTokens":5,"totalCostUsd":0.25}}
 ]"#;
 
+/// The `turns` scenario's scripted turns, in `startTurn` order.
+const SCENARIO_TURNS: &str = r#"{
+  "failed": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-2"},
+    {"type":"timeline","provider":"fake","turnId":"turn-2","item":{"type":"assistant_message","text":"partial"}},
+    {"type":"turn_failed","provider":"fake","turnId":"turn-2","error":" boom ","code":"E_FAKE","diagnostic":"stack trace"}
+  ],
+  "canceled": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-3"},
+    {"type":"timeline","provider":"fake","turnId":"turn-3","item":{"type":"assistant_message","text":"half"}},
+    {"type":"turn_canceled","provider":"fake","turnId":"turn-3","reason":"user stopped"}
+  ],
+  "coalesce": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-4"},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"assistant_message","text":"A"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"assistant_message","text":""}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"reasoning","text":"R1"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"reasoning","text":"R2"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"assistant_message","text":"B"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"tool_call","callId":"call-2","name":"shell","status":"running","error":null,"detail":{"type":"shell","command":"pwd"}}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"tool_call","callId":"call-3","name":"shell","status":"running","error":null,"detail":{"type":"shell","command":"id"}}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"tool_call","callId":"call-2","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"pwd","output":"/","exitCode":0}}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"assistant_message","text":"C"}},
+    {"type":"usage_updated","provider":"fake","turnId":"turn-4","usage":{"inputTokens":1}},
+    {"type":"timeline","provider":"fake","turnId":"turn-4","item":{"type":"assistant_message","text":"D"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-4"}
+  ],
+  "held": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-5"}
+  ]
+}"#;
+
+/// `[config, agentId or null]` for each `createAgent` of the `errors`
+/// scenario; `$CWD` stands for the disposable working directory.
+const ERROR_CASES: &str = r#"[
+  [{"provider":"fake","cwd":"/nonexistent/spocky-cwd"}, null],
+  [{"provider":"fake","cwd":"/etc/hosts"}, null],
+  [{"provider":"nope","cwd":"$CWD"}, null],
+  [{"provider":"gone","cwd":"$CWD"}, null],
+  [{"provider":"broken","cwd":"$CWD"}, null],
+  [{"provider":"off","cwd":"$CWD"}, null],
+  [{"provider":"fake","cwd":"$CWD","providerOptions":{"a":1}}, null],
+  [{"provider":"fake","cwd":"$CWD","toolPolicy":{"preapproved":[]}}, null],
+  [{"provider":"tools","cwd":"$CWD","toolPolicy":{"preapproved":[{"kind":"mcp","server":"s","tool":"t"}]}}, null],
+  [{"provider":"tools","cwd":"$CWD","toolPolicy":{"preapproved":[null]}}, null],
+  [{"provider":"tools","cwd":"$CWD","mcpServers":{"s":{"type":"stdio","command":"x"}},"toolPolicy":{"preapproved":[{"kind":"mcp","server":"s","tool":"t"}]}}, "00000000-0000-4000-8000-0000000000b2"],
+  [{"provider":"nomcp","cwd":"$CWD","mcpServers":{"m":{"type":"stdio","command":"x"}}}, null],
+  [{"provider":"fake","cwd":"$CWD"}, "not-a-uuid"],
+  [{"provider":"fake","cwd":"$CWD"}, "00000000-0000-4000-8000-0000000000a1"],
+  [{"provider":"fake","cwd":"$CWD"}, "00000000-0000-4000-8000-0000000000a1"]
+]"#;
+
 const RUNTIME_INFO: &str =
     r#"{"provider":"fake","sessionId":"sess-1","model":"model-default","modeId":"auto"}"#;
 const PERSISTENCE: &str =
@@ -55,21 +128,25 @@ const MODES: &str = r#"[{"id":"auto","label":"Auto"},{"id":"read-only","label":"
 const CATALOG: &str = r#"{"models":[{"provider":"fake","id":"model-a","label":"A"},{"provider":"fake","id":"model-default","label":"D","isDefault":true}],"modes":[]}"#;
 
 const NODE_SCRIPT: &str = r#"
-const [dist, agentId, turnEventsJson, runtimeInfoJson, persistenceJson, capabilitiesJson, modesJson, catalogJson, cwd, home] = process.argv.slice(1);
+const [dist, agentId, unknownId, turnEventsJson, scenarioTurnsJson, errorCasesJson, runtimeInfoJson, persistenceJson, capabilitiesJson, modesJson, catalogJson, cwd, home] = process.argv.slice(1);
+if (process.version !== "v22.20.0") {
+  throw new Error(`node ${process.version} is not the pinned v22.20.0`);
+}
 const { AgentManager } = await import(`${dist}/server/agent/agent-manager.js`);
 const { AgentStorage } = await import(`${dist}/server/agent/agent-storage.js`);
 const { toAgentPayload } = await import(`${dist}/server/agent/agent-projections.js`);
 const fs = await import("node:fs");
 const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
-const calls = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
-  constructor() { this.provider = "fake"; this.id = "sess-1"; this.capabilities = JSON.parse(capabilitiesJson); this.listeners = []; }
+  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; }
   subscribe(callback) { this.listeners.push(callback); return () => {}; }
   async startTurn(prompt, options) {
-    calls.push(["startTurn", prompt, options ?? null]);
-    setTimeout(() => { for (const event of JSON.parse(turnEventsJson)) for (const l of this.listeners) l(event); }, 20);
-    return { turnId: "turn-1" };
+    this.calls.push(["startTurn", prompt, options ?? null]);
+    const events = this.spec.turns.shift() ?? JSON.parse(turnEventsJson);
+    setTimeout(() => { for (const event of events) for (const l of this.listeners) l(event); }, 20);
+    return { turnId: turnIdOf(events) };
   }
   async run() { throw new Error("unused"); }
   async *streamHistory() {}
@@ -81,55 +158,184 @@ class FakeSession {
   async respondToPermission() {}
   describePersistence() { return JSON.parse(persistenceJson); }
   async interrupt() {}
-  async close() { calls.push(["close"]); }
+  async close() { this.calls.push(["close"]); }
 }
-const client = {
-  provider: "fake",
-  capabilities: JSON.parse(capabilitiesJson),
+const spec = (provider, overrides = {}) => ({ provider, capabilities: JSON.parse(capabilitiesJson), available: true, turns: [], ...overrides });
+const fakeClient = (calls, spec) => ({
+  provider: spec.provider,
+  capabilities: spec.capabilities,
   async createSession(config, launchContext, options) {
     calls.push(["createSession", config, launchContext ?? null, options ?? null]);
-    return new FakeSession();
+    return new FakeSession(spec, calls);
   },
   async resumeSession() { throw new Error("unused"); },
   async fetchCatalog(options) { calls.push(["fetchCatalog", options]); return JSON.parse(catalogJson); },
-  async isAvailable() { return true; },
-};
-const registry = new AgentStorage(home, logger);
-const manager = new AgentManager({ logger, registry, clients: { fake: client }, providerDefinitions: { fake: { enabled: true } } });
-const feed = [];
-manager.subscribe((event) => {
-  if (event.type === "agent_state") feed.push(["agent_state", toAgentPayload(event.agent)]);
-  else if (event.type === "agent_stream") feed.push(["agent_stream", event.agentId, event.event, event.seq ?? null, event.epoch ?? null, event.timestamp ?? null]);
-  else feed.push([event.type]);
+  async isAvailable() {
+    if (typeof spec.available === "boolean") return spec.available;
+    throw new Error(spec.available);
+  },
 });
-const created = toAgentPayload(await manager.createAgent(
-  { provider: "fake", cwd, title: "  Fake title  ", model: " default " },
-  agentId,
-  { workspaceId: "wks_1", labels: { surface: "workspace" }, env: { EXTRA: "1" } },
-));
-const run = await manager.runAgent(agentId, "hello", { clientMessageId: "client-1" });
-const wait = await manager.waitForAgentEvent(agentId);
-await sleep(100);
-await manager.flush();
-await registry.flush();
-const record = JSON.parse(fs.readFileSync(`${home}/${fs.readdirSync(home)[0]}/${agentId}.json`, "utf8"));
-process.stdout.write(JSON.stringify({
-  calls,
-  created,
-  run,
-  wait: { status: wait.status, permission: wait.permission, lastMessage: wait.lastMessage },
-  rows: await manager.getTimelineRows(agentId),
-  fetch: manager.fetchTimeline(agentId, { direction: "tail", limit: 3 }),
-  feed,
-  record,
-}));
+const recordFeed = (manager) => {
+  const feed = [];
+  manager.subscribe((event) => {
+    if (event.type === "agent_state") feed.push(["agent_state", toAgentPayload(event.agent)]);
+    else if (event.type === "agent_stream") feed.push(["agent_stream", event.agentId, event.event, event.seq ?? null, event.epoch ?? null, event.timestamp ?? null]);
+    else feed.push([event.type]);
+  });
+  return feed;
+};
+const outcome = async (run) => {
+  try {
+    return { ok: await run() };
+  } catch (error) {
+    return { name: error.name, message: error.message };
+  }
+};
+const waitResult = (wait) => ({ status: wait.status, permission: wait.permission, lastMessage: wait.lastMessage });
+
+const main = async () => {
+  const calls = [];
+  const registry = new AgentStorage(`${home}/main`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  const created = toAgentPayload(await manager.createAgent(
+    { provider: "fake", cwd, title: "  Fake title  ", model: " default " },
+    agentId,
+    { workspaceId: "wks_1", labels: { surface: "workspace" }, env: { EXTRA: "1" } },
+  ));
+  const run = await manager.runAgent(agentId, "hello", { clientMessageId: "client-1" });
+  const wait = await manager.waitForAgentEvent(agentId);
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  const directory = `${home}/main/${fs.readdirSync(`${home}/main`)[0]}`;
+  const record = JSON.parse(fs.readFileSync(`${directory}/${agentId}.json`, "utf8"));
+  return {
+    calls,
+    created,
+    run,
+    wait: waitResult(wait),
+    rows: await manager.getTimelineRows(agentId),
+    fetch: manager.fetchTimeline(agentId, { direction: "tail", limit: 3 }),
+    feed,
+    record,
+  };
+};
+
+const errors = async () => {
+  const calls = [];
+  const registry = new AgentStorage(`${home}/errors`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: {
+      fake: fakeClient(calls, spec("fake")),
+      gone: fakeClient(calls, spec("gone", { available: false })),
+      broken: fakeClient(calls, spec("broken", { available: "missing binary" })),
+      off: fakeClient(calls, spec("off")),
+      tools: fakeClient(calls, spec("tools")),
+      nomcp: fakeClient(calls, spec("nomcp", { capabilities: { ...JSON.parse(capabilitiesJson), supportsMcpServers: false } })),
+    },
+    providerDefinitions: {
+      fake: { enabled: true },
+      gone: { enabled: true },
+      broken: { enabled: true },
+      off: { enabled: false },
+      tools: { enabled: true, applyToolPolicy: (config, toolPolicy) => ({ ...config, toolPolicy }) },
+      nomcp: { enabled: true },
+    },
+  });
+  const results = [];
+  for (const [config, id] of JSON.parse(errorCasesJson.replaceAll("$CWD", cwd))) {
+    results.push(await outcome(async () => (await manager.createAgent(config, id ?? undefined, {})).id));
+  }
+  results.push(await outcome(() => manager.runAgent(unknownId, "hi")));
+  results.push(await outcome(() => manager.waitForAgentEvent(unknownId)));
+  results.push(await outcome(async () => { manager.subscribe(() => {}, { agentId: "bad" }); return null; }));
+  await manager.flush();
+  await registry.flush();
+  return { results, calls };
+};
+
+const turns = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/turns`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.failed, scripted.canceled, scripted.coalesce, scripted.held] })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const run = (text) => outcome(() => manager.runAgent(agentId, text));
+  const wait = (options) => outcome(async () => waitResult(await manager.waitForAgentEvent(agentId, options)));
+  const results = [];
+  results.push(await run("fail"));
+  results.push(await wait());
+  results.push(await run("cancel"));
+  results.push(await wait());
+  results.push(await run("coalesce"));
+  results.push(await wait({ waitForActive: true }));
+  manager.runAgent(agentId, "hold").catch(() => {});
+  const started = (entry) => entry[0] === "agent_stream" && entry[2].type === "turn_started" && entry[2].turnId === "turn-5";
+  for (let tick = 0; !feed.some(started); tick += 1) {
+    if (tick === 2000) throw new Error("turn-5 never started");
+    await sleep(5);
+  }
+  const pre = new AbortController();
+  pre.abort("pre");
+  results.push(await wait({ signal: pre.signal }));
+  const stop = new AbortController();
+  setTimeout(() => stop.abort("stop"), 30);
+  results.push(await wait({ signal: stop.signal }));
+  results.push(await run("again"));
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns() }));
 "#;
 
 fn json(text: &str) -> JsValue {
     parse(text).expect("fixture JSON")
 }
 
+fn text(value: &str) -> JsValue {
+    JsValue::String(value.to_owned())
+}
+
+#[allow(clippy::cast_precision_loss, reason = "sequence numbers are small")]
+fn number(value: i64) -> JsValue {
+    JsValue::Number(value as f64)
+}
+
+/// `isAvailable()`: resolves `Ok`, or rejects with `Err`'s message.
+type Availability = Result<bool, String>;
+
+/// One fake provider: what it reports and the turns its sessions play.
+#[derive(Clone)]
+struct Spec {
+    provider: String,
+    capabilities: JsValue,
+    available: Availability,
+    turns: Arc<Mutex<VecDeque<JsValue>>>,
+}
+
+fn spec(provider: &str) -> Spec {
+    Spec {
+        provider: provider.to_owned(),
+        capabilities: json(CAPABILITIES),
+        available: Ok(true),
+        turns: Arc::new(Mutex::new(VecDeque::new())),
+    }
+}
+
 struct FakeSession {
+    spec: Spec,
     listeners: Arc<Mutex<Vec<StreamCallback>>>,
     calls: Arc<Mutex<Vec<JsValue>>>,
 }
@@ -149,32 +355,40 @@ fn prompt_value(prompt: &AgentPromptInput) -> JsValue {
     }
 }
 
+fn turn_id_of(events: &JsValue) -> String {
+    events
+        .as_array()
+        .expect("events")
+        .iter()
+        .find(|event| event.get("type").and_then(JsValue::as_str) == Some("turn_started"))
+        .and_then(|event| event.get("turnId").and_then(JsValue::as_str))
+        .unwrap_or("turn-1")
+        .to_owned()
+}
+
 impl AgentSession for FakeSession {
     fn provider(&self) -> String {
-        "fake".to_owned()
+        self.spec.provider.clone()
     }
     fn id(&self) -> Option<String> {
         Some("sess-1".to_owned())
     }
     fn capabilities(&self) -> JsValue {
-        json(CAPABILITIES)
+        self.spec.capabilities.clone()
     }
     fn run(
         &self,
         _prompt: AgentPromptInput,
         _options: Option<AgentRunOptions>,
     ) -> BoxFuture<'_, AgentResult<JsValue>> {
-        Box::pin(async { Err(spocky_session::agent_sdk::AgentError::new("unused")) })
+        Box::pin(async { Err(AgentError::new("unused")) })
     }
     fn start_turn(
         &self,
         prompt: AgentPromptInput,
         options: Option<AgentRunOptions>,
     ) -> BoxFuture<'_, AgentResult<String>> {
-        let mut call = vec![
-            JsValue::String("startTurn".to_owned()),
-            prompt_value(&prompt),
-        ];
+        let mut call = vec![text("startTurn"), prompt_value(&prompt)];
         call.push(options.map_or(JsValue::Null, |options| {
             let mut value = JsObject::new();
             if let Some(id) = options.client_message_id {
@@ -183,17 +397,25 @@ impl AgentSession for FakeSession {
             JsValue::Object(value)
         }));
         self.calls.lock().expect("calls").push(JsValue::Array(call));
+        let events = self
+            .spec
+            .turns
+            .lock()
+            .expect("turns")
+            .pop_front()
+            .unwrap_or_else(|| json(TURN_EVENTS));
+        let turn_id = turn_id_of(&events);
         let listeners = Arc::clone(&self.listeners);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(20)).await;
             let callbacks = listeners.lock().expect("listeners").clone();
-            for event in json(TURN_EVENTS).as_array().expect("events") {
+            for event in events.as_array().expect("events") {
                 for callback in &callbacks {
                     callback(event.clone());
                 }
             }
         });
-        Box::pin(async { Ok("turn-1".to_owned()) })
+        Box::pin(async move { Ok(turn_id) })
     }
     fn subscribe(&self, callback: StreamCallback) -> Unsubscribe {
         self.listeners.lock().expect("listeners").push(callback);
@@ -234,21 +456,22 @@ impl AgentSession for FakeSession {
         self.calls
             .lock()
             .expect("calls")
-            .push(JsValue::Array(vec![JsValue::String("close".to_owned())]));
+            .push(JsValue::Array(vec![text("close")]));
         Box::pin(async { Ok(()) })
     }
 }
 
 struct FakeClient {
+    spec: Spec,
     calls: Arc<Mutex<Vec<JsValue>>>,
 }
 
 impl AgentClient for FakeClient {
     fn provider(&self) -> String {
-        "fake".to_owned()
+        self.spec.provider.clone()
     }
     fn capabilities(&self) -> JsValue {
-        json(CAPABILITIES)
+        self.spec.capabilities.clone()
     }
     fn create_session(
         &self,
@@ -274,18 +497,17 @@ impl AgentClient for FakeClient {
             JsValue::Object(value)
         });
         self.calls.lock().expect("calls").push(JsValue::Array(vec![
-            JsValue::String("createSession".to_owned()),
+            text("createSession"),
             config,
             context,
             options,
         ]));
-        let calls = Arc::clone(&self.calls);
-        Box::pin(async move {
-            Ok(Arc::new(FakeSession {
-                listeners: Arc::new(Mutex::new(Vec::new())),
-                calls,
-            }) as Arc<dyn AgentSession>)
-        })
+        let session = FakeSession {
+            spec: self.spec.clone(),
+            listeners: Arc::new(Mutex::new(Vec::new())),
+            calls: Arc::clone(&self.calls),
+        };
+        Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
     }
     fn resume_session(
         &self,
@@ -294,7 +516,7 @@ impl AgentClient for FakeClient {
         _launch_context: Option<AgentLaunchContext>,
         _options: Option<spocky_session::agent_sdk::AgentResumeSessionOptions>,
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>> {
-        Box::pin(async { Err(spocky_session::agent_sdk::AgentError::new("unused")) })
+        Box::pin(async { Err(AgentError::new("unused")) })
     }
     fn fetch_catalog(
         &self,
@@ -304,17 +526,17 @@ impl AgentClient for FakeClient {
         let mut value = JsObject::new();
         match options {
             FetchCatalogOptions::Workspace { cwd, force } => {
-                value.insert("scope", JsValue::String("workspace".to_owned()));
+                value.insert("scope", text("workspace"));
                 value.insert("cwd", JsValue::String(cwd));
                 value.insert("force", JsValue::Bool(force));
             }
             FetchCatalogOptions::Global { force } => {
-                value.insert("scope", JsValue::String("global".to_owned()));
+                value.insert("scope", text("global"));
                 value.insert("force", JsValue::Bool(force));
             }
         }
         self.calls.lock().expect("calls").push(JsValue::Array(vec![
-            JsValue::String("fetchCatalog".to_owned()),
+            text("fetchCatalog"),
             JsValue::Object(value),
         ]));
         Box::pin(async { Ok(json(CATALOG)) })
@@ -324,17 +546,9 @@ impl AgentClient for FakeClient {
         _signal: Option<AbortSignal>,
         _options: Option<FetchCatalogOptions>,
     ) -> BoxFuture<'_, AgentResult<bool>> {
-        Box::pin(async { Ok(true) })
+        let available = self.spec.available.clone();
+        Box::pin(async move { available.map_err(AgentError::new) })
     }
-}
-
-fn text(value: &str) -> JsValue {
-    JsValue::String(value.to_owned())
-}
-
-#[allow(clippy::cast_precision_loss, reason = "sequence numbers are small")]
-fn number(value: i64) -> JsValue {
-    JsValue::Number(value as f64)
 }
 
 fn feed_entry(event: &AgentManagerEvent) -> JsValue {
@@ -363,63 +577,111 @@ fn feed_entry(event: &AgentManagerEvent) -> JsValue {
     }
 }
 
-fn fake_manager(calls: &Arc<Mutex<Vec<JsValue>>>, registry: &AgentStorage) -> AgentManager {
-    AgentManager::new(AgentManagerOptions {
-        clients: vec![(
-            "fake".to_owned(),
-            Arc::new(FakeClient {
+type Calls = Arc<Mutex<Vec<JsValue>>>;
+type Feed = Arc<Mutex<Vec<JsValue>>>;
+
+fn manager_with(
+    calls: &Calls,
+    registry: &AgentStorage,
+    providers: Vec<(Spec, ProviderDefinition)>,
+) -> AgentManager {
+    let (clients, provider_definitions) = providers
+        .into_iter()
+        .map(|(spec, definition)| {
+            let id = spec.provider.clone();
+            let client = Arc::new(FakeClient {
+                spec,
                 calls: Arc::clone(calls),
-            }) as Arc<dyn AgentClient>,
-        )],
-        provider_definitions: vec![(
-            "fake".to_owned(),
-            ProviderDefinition {
-                enabled: true,
-                ..ProviderDefinition::default()
-            },
-        )],
+            }) as Arc<dyn AgentClient>;
+            ((id.clone(), client), (id, definition))
+        })
+        .unzip();
+    AgentManager::new(AgentManagerOptions {
+        clients,
+        provider_definitions,
         registry: Some(registry.clone()),
         ..AgentManagerOptions::default()
     })
 }
 
-/// The `createAgent` config and options both sides use.
-fn create_input(cwd: &str) -> (JsValue, CreateAgentOptions) {
-    let mut env = JsObject::new();
-    env.insert("EXTRA", text("1"));
-    let mut config = JsObject::new();
-    config.insert("provider", text("fake"));
-    config.insert("cwd", text(cwd));
-    config.insert("title", text("  Fake title  "));
-    config.insert("model", text(" default "));
-    let mut labels = JsObject::new();
-    labels.insert("surface", text("workspace"));
-    (
-        JsValue::Object(config),
-        CreateAgentOptions {
-            workspace_id: Some("wks_1".to_owned()),
-            labels: Some(JsValue::Object(labels)),
-            env: Some(env),
-            ..CreateAgentOptions::default()
-        },
-    )
+fn enabled() -> ProviderDefinition {
+    ProviderDefinition {
+        enabled: true,
+        ..ProviderDefinition::default()
+    }
 }
 
-async fn rust_output(cwd: &str, home: &std::path::Path) -> String {
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let registry = AgentStorage::new(home);
-    let manager = fake_manager(&calls, &registry);
+/// Subscribes a recorder of every manager event for the manager's life,
+/// as the JS side never unsubscribes it.
+fn record_feed(manager: &AgentManager) -> Feed {
     let feed = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&feed);
-    let _unsubscribe = manager
+    let unsubscribe = manager
         .subscribe(
             Arc::new(move |event| sink.lock().expect("feed").push(feed_entry(event))),
             SubscribeOptions::default(),
         )
         .expect("subscribe");
-    let (config, options) = create_input(cwd);
+    std::mem::forget(unsubscribe);
+    feed
+}
+
+fn outcome(result: Result<JsValue, AgentError>) -> JsValue {
+    let mut value = JsObject::new();
+    match result {
+        Ok(ok) => value.insert("ok", ok),
+        Err(error) => {
+            value.insert("name", JsValue::String(error.name));
+            value.insert("message", JsValue::String(error.message));
+        }
+    }
+    JsValue::Object(value)
+}
+
+fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
+    let mut out = JsObject::new();
+    for (key, value) in entries {
+        out.insert(key, value);
+    }
+    JsValue::Object(out)
+}
+
+fn read_record(directory: &Path) -> JsValue {
+    let project = std::fs::read_dir(directory)
+        .expect("records")
+        .next()
+        .expect("record directory")
+        .expect("entry")
+        .path();
+    parse(&std::fs::read_to_string(project.join(format!("{AGENT_ID}.json"))).expect("record"))
+        .expect("record JSON")
+}
+
+async fn main_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("main"));
+    let manager = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&manager);
+    let mut env = JsObject::new();
+    env.insert("EXTRA", text("1"));
+    let mut labels = JsObject::new();
+    labels.insert("surface", text("workspace"));
     let created = manager
-        .create_agent(config, Some(AGENT_ID.to_owned()), options)
+        .create_agent(
+            object(vec![
+                ("provider", text("fake")),
+                ("cwd", text(cwd)),
+                ("title", text("  Fake title  ")),
+                ("model", text(" default ")),
+            ]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                workspace_id: Some("wks_1".to_owned()),
+                labels: Some(JsValue::Object(labels)),
+                env: Some(env),
+                ..CreateAgentOptions::default()
+            },
+        )
         .await
         .expect("create");
     let created = to_agent_payload(&created.payload_view(), None).expect("payload");
@@ -441,56 +703,234 @@ async fn rust_output(cwd: &str, home: &std::path::Path) -> String {
     tokio::time::sleep(Duration::from_millis(100)).await;
     manager.flush().await;
     registry.flush().await;
-    let mut run_value = JsObject::new();
-    run_value.insert("sessionId", text(&run.session_id));
-    run_value.insert("finalText", text(&run.final_text));
-    if let Some(usage) = run.usage {
-        run_value.insert("usage", usage);
-    }
-    run_value.insert("timeline", JsValue::Array(run.timeline));
-    run_value.insert("canceled", JsValue::Bool(run.canceled));
-    let mut wait_value = JsObject::new();
-    wait_value.insert("status", text(wait.status.as_str()));
-    wait_value.insert("permission", wait.permission.unwrap_or(JsValue::Null));
-    wait_value.insert(
-        "lastMessage",
-        wait.last_message.as_deref().map_or(JsValue::Null, text),
-    );
-    let record_dir = std::fs::read_dir(home)
-        .expect("home")
-        .next()
-        .expect("record directory")
-        .expect("entry")
-        .path();
-    let record = parse(
-        &std::fs::read_to_string(record_dir.join(format!("{AGENT_ID}.json"))).expect("record"),
-    )
-    .expect("record JSON");
-    let mut output = JsObject::new();
-    output.insert(
-        "calls",
-        JsValue::Array(calls.lock().expect("calls").clone()),
-    );
-    output.insert("created", created);
-    output.insert("run", JsValue::Object(run_value));
-    output.insert("wait", JsValue::Object(wait_value));
-    output.insert(
-        "rows",
-        JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
-    );
-    output.insert(
-        "fetch",
-        manager
-            .fetch_timeline(AGENT_ID, FetchDirection::Tail, None, Some(3))
-            .expect("fetch")
-            .to_js(),
-    );
-    output.insert("feed", JsValue::Array(feed.lock().expect("feed").clone()));
-    output.insert("record", record);
-    stringify(&JsValue::Object(output))
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("calls", JsValue::Array(calls)),
+        ("created", created),
+        ("run", run.to_js()),
+        ("wait", wait.to_js()),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+        (
+            "fetch",
+            manager
+                .fetch_timeline(AGENT_ID, FetchDirection::Tail, None, Some(3))
+                .expect("fetch")
+                .to_js(),
+        ),
+        ("feed", JsValue::Array(feed)),
+        ("record", read_record(&home.join("main"))),
+    ])
 }
 
-/// Replaces ISO timestamps with `<ISO>` and UUIDs with `<UUID>`.
+async fn errors_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("errors"));
+    let mut gone = spec("gone");
+    gone.available = Ok(false);
+    let mut broken = spec("broken");
+    broken.available = Err("missing binary".to_owned());
+    let mut nomcp = spec("nomcp");
+    if let JsValue::Object(capabilities) = &mut nomcp.capabilities {
+        capabilities.insert("supportsMcpServers", JsValue::Bool(false));
+    }
+    let tools = ProviderDefinition {
+        enabled: true,
+        apply_tool_policy: Some(Arc::new(
+            |config: &JsValue, tool_policy: Option<&JsValue>| {
+                let mut config = match config {
+                    JsValue::Object(config) => config.clone(),
+                    _ => JsObject::new(),
+                };
+                config.insert(
+                    "toolPolicy",
+                    tool_policy.cloned().unwrap_or(JsValue::Undefined),
+                );
+                JsValue::Object(config)
+            },
+        )),
+        ..ProviderDefinition::default()
+    };
+    let manager = manager_with(
+        &calls,
+        &registry,
+        vec![
+            (spec("fake"), enabled()),
+            (gone, enabled()),
+            (broken, enabled()),
+            (spec("off"), ProviderDefinition::default()),
+            (spec("tools"), tools),
+            (nomcp, enabled()),
+        ],
+    );
+    let mut results = Vec::new();
+    for case in json(&ERROR_CASES.replace("$CWD", cwd))
+        .as_array()
+        .expect("cases")
+    {
+        let case = case.as_array().expect("case");
+        let agent_id = case[1].as_str().map(str::to_owned);
+        let created = manager
+            .create_agent(case[0].clone(), agent_id, CreateAgentOptions::default())
+            .await
+            .map(|snapshot| text(&snapshot.id));
+        results.push(outcome(created));
+    }
+    results.push(outcome(
+        manager
+            .run_agent(UNKNOWN_ID, AgentPromptInput::Text("hi".to_owned()), None)
+            .await
+            .map(|run| run.to_js()),
+    ));
+    results.push(outcome(
+        manager
+            .wait_for_agent_event(UNKNOWN_ID, WaitForAgentOptions::default())
+            .await
+            .map(|wait| wait.to_js()),
+    ));
+    results.push(outcome(
+        manager
+            .subscribe(
+                Arc::new(|_: &AgentManagerEvent| {}),
+                SubscribeOptions {
+                    agent_id: Some("bad".to_owned()),
+                    replay_state: None,
+                },
+            )
+            .map(|_| JsValue::Null),
+    ));
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+    ])
+}
+
+fn turn_started(feed: &Feed, turn_id: &str) -> bool {
+    feed.lock().expect("feed").iter().any(|entry| {
+        let entry = entry.as_array().expect("entry");
+        entry[0].as_str() == Some("agent_stream")
+            && entry[2].get("type").and_then(JsValue::as_str) == Some("turn_started")
+            && entry[2].get("turnId").and_then(JsValue::as_str) == Some(turn_id)
+    })
+}
+
+async fn wait_for_turn_started(feed: &Feed, turn_id: &str) {
+    for _ in 0..2000 {
+        if turn_started(feed, turn_id) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("{turn_id} never started");
+}
+
+fn scripted(spec: &Spec, names: &[&str]) {
+    let turns = json(SCENARIO_TURNS);
+    let mut queue = spec.turns.lock().expect("turns");
+    for name in names {
+        queue.push_back(turns.get(name).expect("turn").clone());
+    }
+}
+
+async fn turns_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("turns"));
+    let fake = spec("fake");
+    scripted(&fake, &["failed", "canceled", "coalesce", "held"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let run = |prompt: &'static str| {
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .run_agent(AGENT_ID, AgentPromptInput::Text(prompt.to_owned()), None)
+                    .await
+                    .map(|run| run.to_js()),
+            )
+        }
+    };
+    let wait = |options: WaitForAgentOptions| {
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .wait_for_agent_event(AGENT_ID, options)
+                    .await
+                    .map(|wait| wait.to_js()),
+            )
+        }
+    };
+    let mut results = vec![
+        run("fail").await,
+        wait(WaitForAgentOptions::default()).await,
+        run("cancel").await,
+        wait(WaitForAgentOptions::default()).await,
+        run("coalesce").await,
+        wait(WaitForAgentOptions {
+            wait_for_active: true,
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    ];
+    let held = tokio::spawn(run("hold"));
+    wait_for_turn_started(&feed, "turn-5").await;
+    let pre = AbortController::default();
+    pre.abort(text("pre"));
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(pre.signal()),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    let stop = AbortController::default();
+    let signal = stop.signal();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        stop.abort(text("stop"));
+    });
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(signal),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    results.push(run("again").await);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    held.abort();
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+    ])
+}
+
+/// Replaces ISO timestamps with `<ISO>` and UUIDs other than
+/// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
@@ -516,7 +956,12 @@ fn normalize(text: &str) -> String {
             _ => hex(index + offset),
         });
         if uuid {
-            out.push_str("<UUID>");
+            let id = &text[index..index + 36];
+            out.push_str(if FIXED_IDS.contains(&id) {
+                id
+            } else {
+                "<UUID>"
+            });
             index += 36;
             continue;
         }
@@ -525,6 +970,17 @@ fn normalize(text: &str) -> String {
         index += character.len_utf8();
     }
     out
+}
+
+#[test]
+fn normalize_keeps_fixed_ids() {
+    let text = format!(
+        r#"["2026-10-01T12:34:56.789Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","{AGENT_ID}","{UNKNOWN_ID}x"]"#
+    );
+    assert_eq!(
+        normalize(&text),
+        format!(r#"["<ISO>","<UUID>","{AGENT_ID}","{UNKNOWN_ID}x"]"#)
+    );
 }
 
 /// The pinned dist modules this test runs, relative to `SPOCKY_PASEO_DIST`,
@@ -556,7 +1012,7 @@ fn assert_pinned_modules(dist: &std::ffi::OsStr) {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
     for (path, expected) in PINNED_MODULES {
-        let bytes = std::fs::read(std::path::Path::new(dist).join(path)).expect("pinned module");
+        let bytes = std::fs::read(Path::new(dist).join(path)).expect("pinned module");
         let actual = Sha256::digest(&bytes)
             .iter()
             .fold(String::new(), |mut hex, byte| {
@@ -583,7 +1039,7 @@ fn home(name: &str) -> Home {
 }
 
 #[tokio::test]
-async fn create_and_run_match_pinned_manager() {
+async fn scenarios_match_pinned_manager() {
     let (node, dist) = match (
         std::env::var_os("SPOCKY_PINNED_NODE"),
         std::env::var_os("SPOCKY_PASEO_DIST"),
@@ -615,7 +1071,10 @@ async fn create_and_run_match_pinned_manager() {
         .arg(&dist)
         .args([
             AGENT_ID,
+            UNKNOWN_ID,
             TURN_EVENTS,
+            SCENARIO_TURNS,
+            ERROR_CASES,
             RUNTIME_INFO,
             PERSISTENCE,
             CAPABILITIES,
@@ -632,6 +1091,85 @@ async fn create_and_run_match_pinned_manager() {
         String::from_utf8_lossy(&output.stderr)
     );
     let expected = normalize(&String::from_utf8_lossy(&output.stdout));
-    let actual = normalize(&rust_output(&cwd, &rust_home.0).await);
-    assert_eq!(actual, expected);
+    let rust = object(vec![
+        ("main", main_scenario(&cwd, &rust_home.0).await),
+        ("errors", errors_scenario(&cwd, &rust_home.0).await),
+        ("turns", turns_scenario(&cwd, &rust_home.0).await),
+    ]);
+    assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+/// Polls `future` once.
+async fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
+    std::future::poll_fn(|context| {
+        Poll::Ready(match Pin::new(&mut *future).poll(context) {
+            Poll::Ready(output) => Some(output),
+            Poll::Pending => None,
+        })
+    })
+    .await
+}
+
+/// A wait on a busy agent holds one subscription until it settles, is
+/// aborted, or is dropped by its caller; none of those leak it.
+#[tokio::test]
+async fn wait_releases_its_subscription() {
+    let workspace = home("wait-cwd");
+    let records = home("wait-records");
+    let cwd = workspace.0.to_string_lossy().into_owned();
+    let calls = Calls::default();
+    let registry = AgentStorage::new(&records.0);
+    let fake = spec("fake");
+    scripted(&fake, &["held"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(&cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let held = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            manager
+                .run_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+                .await
+        }
+    });
+    wait_for_turn_started(&feed, "turn-5").await;
+    let idle = manager.subscription_count();
+
+    let mut dropped =
+        Box::pin(manager.wait_for_agent_event(AGENT_ID, WaitForAgentOptions::default()));
+    assert!(poll_once(&mut dropped).await.is_none());
+    assert_eq!(manager.subscription_count(), idle + 1);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut dropped)
+            .await
+            .is_err()
+    );
+    drop(dropped);
+    assert_eq!(manager.subscription_count(), idle);
+
+    let controller = AbortController::default();
+    let mut aborted = Box::pin(manager.wait_for_agent_event(
+        AGENT_ID,
+        WaitForAgentOptions {
+            signal: Some(controller.signal()),
+            ..WaitForAgentOptions::default()
+        },
+    ));
+    assert!(poll_once(&mut aborted).await.is_none());
+    assert_eq!(manager.subscription_count(), idle + 1);
+    controller.abort(text("stop"));
+    let error = aborted.await.expect_err("aborted");
+    assert_eq!(
+        (error.name.as_str(), error.message.as_str()),
+        ("AbortError", "stop")
+    );
+    assert_eq!(manager.subscription_count(), idle);
+    held.abort();
 }
