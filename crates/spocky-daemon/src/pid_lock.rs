@@ -739,12 +739,38 @@ mod tests {
         }
     }
 
-    fn live_child() -> Child {
-        Command::new("sleep")
-            .arg("60")
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap()
+    /// A `sleep 60` child that is killed and reaped when the test ends, however
+    /// it ends.
+    struct LiveChild(Child);
+
+    impl std::ops::Deref for LiveChild {
+        type Target = Child;
+        fn deref(&self) -> &Child {
+            &self.0
+        }
+    }
+
+    impl std::ops::DerefMut for LiveChild {
+        fn deref_mut(&mut self) -> &mut Child {
+            &mut self.0
+        }
+    }
+
+    impl Drop for LiveChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn live_child() -> LiveChild {
+        LiveChild(
+            Command::new("sleep")
+                .arg("60")
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        )
     }
 
     fn dead_pid() -> i64 {
