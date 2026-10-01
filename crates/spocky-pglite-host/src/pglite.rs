@@ -352,6 +352,8 @@ fn setup_postgres(
     host_root: Option<&Path>,
 ) -> Result<usize> {
     let fs = Rc::new(RefCell::new(Fs::new()));
+    // PGlite's print and printErr drop output at debug level 0.
+    fs.borrow_mut().console.discard = true;
     fs.borrow_mut()
         .static_init()
         .map_err(|error| fs_step("static init", error))?;
