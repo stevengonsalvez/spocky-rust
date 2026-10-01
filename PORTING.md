@@ -124,11 +124,14 @@ signed commit `2fa22be761a0fbec42fd759df69bff37e248824c`. Phase 2
 differential harness and pilots are implementing. Repeated adversarial reviews
 remain rejected while repairs and runtime evidence continue.
 
-The branded browser gate now enforces exact pixels, interaction, accessibility,
-and failure isolation. Mobile is exact. Desktop remains rejected because the
-pinned baseline produces two 19-pixel Plus-icon modes across fresh runs, with
-no differing DOM, network, font, stylesheet, image, focus, or accessibility
-readiness signal. The shared offline-reload failure remains pinned behavior.
+The branded empty-project Chromium gate accepts exact full-image membership,
+interaction, accessibility, candidate stability, and failure isolation at
+commit `500d4bcb450ba8ca8aaa05f33da46b6752b3b2e5`. Mobile is exact. Desktop
+candidate captures are byte-identical across same-page and fresh contexts and
+match one of two pinned complete baseline images. The two baseline images differ
+by 19 Plus-icon pixels with no distinguishing readiness signal. No mask,
+normalization, threshold, or runtime exception is used. The shared
+offline-reload failure remains pinned behavior.
 Hub installed tables match 50/50 and migration truth is append-only, but engine,
 dialect, constraints, historical PostgreSQL replay, and relational mutation
 parity remain incomplete. The selected plugin wrapper passes settings migration

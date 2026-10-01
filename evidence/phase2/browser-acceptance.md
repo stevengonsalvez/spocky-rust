@@ -5,8 +5,11 @@ full-PNG hash, keyboard activation, dialog-outcome, accessibility, and
 candidate-stability gates. It does not normalize, mask, compare by RMSE, retry
 until a preferred image appears, or accept a pixel-count threshold.
 
-Original and candidate captures activate the Add a project control. The
-original resolves `open-project-submit`; the candidate resolves its first
+Original and candidate captures activate the Add a project control. Accepted
+attempt `20261001T010653Z-80481` ran at candidate and harness commit
+`500d4bcb450ba8ca8aaa05f33da46b6752b3b2e5`. Its canonical comparison SHA-256
+is `72405ffc95d2918b25e0cd5e46625b694337c9e8af46d0b5a34c915ef3d037ce`.
+The original resolves `open-project-submit`; the candidate resolves its first
 semantic project action. The candidate now opens the same pinned Add Project
 method dialog contract instead of replacing the outcome with live-status text.
 The comparison records the dialog label, visible text, and semantic controls.
@@ -129,6 +132,9 @@ sh -n scripts/phase2/browser-runtime-capture.test.sh
 cargo test -p spocky-ui-renderer-pilot --test shell -- --test-threads=1
 ```
 
-The focused renderer tests and script contracts pass. No full browser capture
-was run after the latest semantic repair. Browser runtime, macOS desktop, Linux
-desktop, Windows desktop, iOS, and Android environment evidence remains open.
+The focused renderer tests and script contracts pass. The accepted full capture
+passes exact full-image membership, interaction, accessibility, candidate
+same-page stability, and candidate fresh-context stability in both viewports.
+The browser contract is complete only for the pinned empty-project Chromium
+environment. macOS desktop, Linux desktop, Windows desktop, iOS, and Android
+environment evidence remains open.
