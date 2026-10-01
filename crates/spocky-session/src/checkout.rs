@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use spocky_store::js_value::{JsObject, JsValue, parse};
+use spocky_store::js_value::{JsObject, JsValue, parse, stringify_pretty};
 
 use crate::git::{GitError, GitOptions, run_git};
 use crate::paths::{
@@ -319,79 +319,343 @@ fn git_dir_for_worktree_root(worktree_root: &str) -> Result<String, GitError> {
     Ok(git_path)
 }
 
-/// `z.string().min(1)`.
-fn non_empty_text(value: Option<&JsValue>) -> bool {
-    value
-        .and_then(JsValue::as_str)
-        .is_some_and(|text| !text.is_empty())
+/// One zod 4.4.3 issue, as `ZodError.message` serializes it, and whether it
+/// aborts its schema (type and literal failures abort; checks continue).
+struct Issue {
+    value: JsValue,
+    aborts: bool,
 }
 
-/// An optional field: absent, or present and valid.
-fn optional_field(object: &JsObject, key: &str, valid: impl Fn(&JsValue) -> bool) -> bool {
-    object.get(key).is_none_or(valid)
+fn text(value: &str) -> JsValue {
+    JsValue::String(value.to_owned())
 }
 
-/// `z.number().int().positive()`.
-fn positive_int(value: &JsValue) -> bool {
-    value.as_f64().is_some_and(|number| {
-        number.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&number)
-    })
+fn path_value(path: &[&str]) -> JsValue {
+    JsValue::Array(path.iter().map(|segment| text(segment)).collect())
 }
 
-/// `PaseoWorktreeMetadataSchema` (`z.union([V1, V2])`): accepts exactly what zod accepts.
-fn valid_worktree_metadata(value: &JsValue) -> bool {
-    let Some(object) = value.as_object() else {
-        return false;
-    };
-    let version = object.get("version").and_then(JsValue::as_f64);
-    let is_version =
-        |expected: f64| version.is_some_and(|found| (found - expected).abs() < f64::EPSILON);
-    let lookup_target = |target: &JsValue| {
-        target.as_object().is_some_and(|target| {
-            non_empty_text(target.get("headRef"))
-                && optional_field(target, "headRepositoryOwner", |field| {
-                    non_empty_text(Some(field))
-                })
-                && optional_field(target, "changeRequestNumber", positive_int)
-                && optional_field(target, "localBranchName", |field| {
-                    non_empty_text(Some(field))
-                })
-        })
-    };
-    let common = non_empty_text(object.get("baseRefName"))
-        && optional_field(object, "baseRef", |field| non_empty_text(Some(field)))
-        && optional_field(object, "changeRequestLookupTarget", lookup_target);
-    if is_version(1.0) {
-        return common;
+/// zod's `parsedType` names for JSON values; `None` is a missing key.
+fn received(value: Option<&JsValue>) -> &'static str {
+    match value {
+        None => "undefined",
+        Some(JsValue::Null) => "null",
+        Some(JsValue::Bool(_)) => "boolean",
+        Some(JsValue::Number(_)) => "number",
+        Some(JsValue::String(_)) => "string",
+        Some(JsValue::Array(_)) => "array",
+        Some(JsValue::Object(_)) => "object",
     }
-    if !is_version(2.0) || !common {
-        return false;
+}
+
+fn issue(entries: Vec<(&str, JsValue)>, aborts: bool) -> Issue {
+    let mut object = JsObject::new();
+    for (key, value) in entries {
+        object.insert(key, value);
     }
-    let auto_name = |field: &JsValue| {
-        field.as_object().is_some_and(|auto| {
-            let placeholder = non_empty_text(auto.get("placeholderBranchName"));
-            match auto.get("status").and_then(JsValue::as_str) {
-                Some("pending") => placeholder,
-                Some("attempted") => placeholder && non_empty_text(auto.get("attemptedAt")),
-                _ => false,
+    Issue {
+        value: JsValue::Object(object),
+        aborts,
+    }
+}
+
+fn invalid_type(expected: &str, value: Option<&JsValue>, path: &[&str]) -> Issue {
+    issue(
+        vec![
+            ("expected", text(expected)),
+            ("code", text("invalid_type")),
+            ("path", path_value(path)),
+            (
+                "message",
+                text(&format!(
+                    "Invalid input: expected {expected}, received {}",
+                    received(value)
+                )),
+            ),
+        ],
+        true,
+    )
+}
+
+/// `z.string().min(1)`, required or `.optional()`.
+fn check_text(object: &JsObject, key: &str, optional: bool, path: &[&str], out: &mut Vec<Issue>) {
+    let field_path: Vec<&str> = path.iter().copied().chain([key]).collect();
+    match object.get(key) {
+        None if optional => {}
+        Some(JsValue::String(value)) => {
+            if value.is_empty() {
+                out.push(issue(
+                    vec![
+                        ("origin", text("string")),
+                        ("code", text("too_small")),
+                        ("minimum", JsValue::Number(1.0)),
+                        ("inclusive", JsValue::Bool(true)),
+                        ("path", path_value(&field_path)),
+                        (
+                            "message",
+                            text("Too small: expected string to have >=1 characters"),
+                        ),
+                    ],
+                    false,
+                ));
             }
-        })
+        }
+        value => out.push(invalid_type("string", value, &field_path)),
+    }
+}
+
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+/// `z.number().int().positive()`, required or `.optional()`.
+fn check_positive_int(
+    object: &JsObject,
+    key: &str,
+    optional: bool,
+    path: &[&str],
+    out: &mut Vec<Issue>,
+) {
+    let field_path: Vec<&str> = path.iter().copied().chain([key]).collect();
+    let number = match object.get(key) {
+        None if optional => return,
+        Some(JsValue::Number(number)) => *number,
+        value => {
+            out.push(invalid_type("number", value, &field_path));
+            return;
+        }
     };
-    let runtime = |field: &JsValue| {
-        field
-            .as_object()
-            .is_some_and(|runtime| runtime.get("worktreePort").is_some_and(positive_int))
+    if !number.is_finite() {
+        out.push(issue(
+            vec![
+                ("expected", text("number")),
+                ("code", text("invalid_type")),
+                ("received", text("Infinity")),
+                ("path", path_value(&field_path)),
+                (
+                    "message",
+                    text("Invalid input: expected number, received number"),
+                ),
+            ],
+            true,
+        ));
+        return;
+    }
+    if number.fract() != 0.0 {
+        out.push(issue(
+            vec![
+                ("expected", text("int")),
+                ("format", text("safeint")),
+                ("code", text("invalid_type")),
+                ("path", path_value(&field_path)),
+                (
+                    "message",
+                    text("Invalid input: expected int, received number"),
+                ),
+            ],
+            true,
+        ));
+        return;
+    }
+    let note = text("Integers must be within the safe integer range.");
+    if number > MAX_SAFE_INTEGER {
+        out.push(issue(
+            vec![
+                ("code", text("too_big")),
+                ("maximum", JsValue::Number(MAX_SAFE_INTEGER)),
+                ("note", note),
+                ("origin", text("int")),
+                ("inclusive", JsValue::Bool(true)),
+                ("path", path_value(&field_path)),
+                (
+                    "message",
+                    text("Too big: expected int to be <=9007199254740991"),
+                ),
+            ],
+            false,
+        ));
+    } else if number < -MAX_SAFE_INTEGER {
+        out.push(issue(
+            vec![
+                ("code", text("too_small")),
+                ("minimum", JsValue::Number(-MAX_SAFE_INTEGER)),
+                ("note", note),
+                ("origin", text("int")),
+                ("inclusive", JsValue::Bool(true)),
+                ("path", path_value(&field_path)),
+                (
+                    "message",
+                    text("Too small: expected int to be >=-9007199254740991"),
+                ),
+            ],
+            false,
+        ));
+    }
+    if number <= 0.0 {
+        out.push(issue(
+            vec![
+                ("origin", text("number")),
+                ("code", text("too_small")),
+                ("minimum", JsValue::Number(0.0)),
+                ("inclusive", JsValue::Bool(false)),
+                ("path", path_value(&field_path)),
+                ("message", text("Too small: expected number to be >0")),
+            ],
+            false,
+        ));
+    }
+}
+
+/// A nested `z.object(...)` field, required or `.optional()`; `None` when absent.
+fn nested_object<'a>(
+    object: &'a JsObject,
+    key: &str,
+    path: &[&str],
+    out: &mut Vec<Issue>,
+) -> Option<&'a JsObject> {
+    match object.get(key) {
+        None => None,
+        Some(JsValue::Object(nested)) => Some(nested),
+        value => {
+            let field_path: Vec<&str> = path.iter().copied().chain([key]).collect();
+            out.push(invalid_type("object", value, &field_path));
+            None
+        }
+    }
+}
+
+/// `ChangeRequestLookupTargetSchema.optional()`.
+fn check_lookup_target(object: &JsObject, out: &mut Vec<Issue>) {
+    let path = ["changeRequestLookupTarget"];
+    if let Some(target) = nested_object(object, "changeRequestLookupTarget", &[], out) {
+        check_text(target, "headRef", false, &path, out);
+        check_text(target, "headRepositoryOwner", true, &path, out);
+        check_positive_int(target, "changeRequestNumber", true, &path, out);
+        check_text(target, "localBranchName", true, &path, out);
+    }
+}
+
+/// The `firstAgentBranchAutoName` discriminated union, `.optional()`.
+fn check_auto_name(object: &JsObject, out: &mut Vec<Issue>) {
+    let key = "firstAgentBranchAutoName";
+    let auto = match object.get(key) {
+        None => return,
+        Some(JsValue::Object(auto)) => auto,
+        value => {
+            out.push(issue(
+                vec![
+                    ("code", text("invalid_type")),
+                    ("expected", text("object")),
+                    ("path", path_value(&[key])),
+                    (
+                        "message",
+                        text(&format!(
+                            "Invalid input: expected object, received {}",
+                            received(value)
+                        )),
+                    ),
+                ],
+                true,
+            ));
+            return;
+        }
     };
-    optional_field(object, "firstAgentBranchAutoName", auto_name)
-        && optional_field(object, "runtime", runtime)
+    match auto.get("status").and_then(JsValue::as_str) {
+        Some("pending") => check_text(auto, "placeholderBranchName", false, &[key], out),
+        Some("attempted") => {
+            check_text(auto, "placeholderBranchName", false, &[key], out);
+            check_text(auto, "attemptedAt", false, &[key], out);
+        }
+        _ => out.push(issue(
+            vec![
+                ("code", text("invalid_union")),
+                ("errors", JsValue::Array(Vec::new())),
+                ("note", text("No matching discriminator")),
+                ("discriminator", text("status")),
+                (
+                    "options",
+                    JsValue::Array(vec![text("pending"), text("attempted")]),
+                ),
+                ("path", path_value(&[key, "status"])),
+                (
+                    "message",
+                    text("Invalid discriminator value. Expected 'pending' | 'attempted'"),
+                ),
+            ],
+            true,
+        )),
+    }
+}
+
+/// One branch of the metadata union: `version` literal, then fields in shape order.
+fn branch_issues(value: &JsValue, version: f64) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let Some(object) = value.as_object() else {
+        out.push(invalid_type("object", Some(value), &[]));
+        return out;
+    };
+    let version_matches = object
+        .get("version")
+        .and_then(JsValue::as_f64)
+        .is_some_and(|found| (found - version).abs() < f64::EPSILON);
+    if !version_matches {
+        out.push(issue(
+            vec![
+                ("code", text("invalid_value")),
+                ("values", JsValue::Array(vec![JsValue::Number(version)])),
+                ("path", path_value(&["version"])),
+                (
+                    "message",
+                    text(&format!("Invalid input: expected {version}")),
+                ),
+            ],
+            true,
+        ));
+    }
+    check_text(object, "baseRefName", false, &[], &mut out);
+    check_text(object, "baseRef", true, &[], &mut out);
+    check_lookup_target(object, &mut out);
+    if version > 1.5 {
+        check_auto_name(object, &mut out);
+        if let Some(runtime) = nested_object(object, "runtime", &[], &mut out) {
+            check_positive_int(runtime, "worktreePort", false, &["runtime"], &mut out);
+        }
+    }
+    out
+}
+
+/// `PaseoWorktreeMetadataSchema.parse` (`z.union([V1, V2])`): the issues
+/// `ZodError` carries, or an empty list when the value is valid.
+fn worktree_metadata_issues(value: &JsValue) -> Vec<JsValue> {
+    let branches = [branch_issues(value, 1.0), branch_issues(value, 2.0)];
+    if branches.iter().any(Vec::is_empty) {
+        return Vec::new();
+    }
+    let live: Vec<&Vec<Issue>> = branches
+        .iter()
+        .filter(|issues| !issues.iter().any(|issue| issue.aborts))
+        .collect();
+    if let [only] = live.as_slice() {
+        return only.iter().map(|issue| issue.value.clone()).collect();
+    }
+    let errors = branches
+        .iter()
+        .map(|issues| JsValue::Array(issues.iter().map(|issue| issue.value.clone()).collect()))
+        .collect();
+    vec![
+        issue(
+            vec![
+                ("code", text("invalid_union")),
+                ("errors", JsValue::Array(errors)),
+                ("path", JsValue::Array(Vec::new())),
+                ("message", text("Invalid input")),
+            ],
+            true,
+        )
+        .value,
+    ]
 }
 
 /// `storedBaseRefFromMetadata(readPaseoWorktreeMetadata(worktreeRoot))`.
-///
-/// Acceptance matches the zod schema exactly. Divergence (recorded gap): for
-/// a file that is not JSON or fails the schema, the baseline error text is
-/// V8's `SyntaxError` message or zod's issue JSON; this port rejects the same
-/// files with `Invalid Paseo worktree metadata: <path>`.
+/// Failures carry the baseline text: V8's `JSON.parse` message, or the
+/// `ZodError` message (`JSON.stringify(issues, null, 2)`).
 fn stored_base_ref(worktree_root: &str) -> Result<Option<String>, GitError> {
     let metadata_path = format!(
         "{}/paseo/worktree.json",
@@ -403,12 +667,14 @@ fn stored_base_ref(worktree_root: &str) -> Result<Option<String>, GitError> {
     let text = std::fs::read_to_string(&metadata_path).map_err(|error| GitError {
         message: error.to_string(),
     })?;
-    let invalid = || GitError {
-        message: format!("Invalid Paseo worktree metadata: {metadata_path}"),
-    };
-    let value = parse(&text).map_err(|_| invalid())?;
-    if !valid_worktree_metadata(&value) {
-        return Err(invalid());
+    let value = parse(&text).map_err(|error| GitError {
+        message: error.message,
+    })?;
+    let issues = worktree_metadata_issues(&value);
+    if !issues.is_empty() {
+        return Err(GitError {
+            message: stringify_pretty(&JsValue::Array(issues)),
+        });
     }
     let text_field = |key: &str| value.get(key).and_then(JsValue::as_str).map(str::to_owned);
     Ok(text_field("baseRef").or_else(|| text_field("baseRefName")))
@@ -570,7 +836,7 @@ mod tests {
             ("[]", false),
         ] {
             assert_eq!(
-                super::valid_worktree_metadata(&parse(text).expect("JSON")),
+                super::worktree_metadata_issues(&parse(text).expect("JSON")).is_empty(),
                 valid,
                 "{text}"
             );
