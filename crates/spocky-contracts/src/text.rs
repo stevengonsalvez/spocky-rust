@@ -7,6 +7,8 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::js_value::js_text_utf16;
+
 /// Returns `true` for the `WhiteSpace` and `LineTerminator` code points that
 /// ECMAScript `String.prototype.trim` strips.
 #[must_use]
@@ -38,10 +40,11 @@ pub fn js_trim(value: &str) -> &str {
     value.trim_matches(is_js_whitespace)
 }
 
-/// `String.prototype.length`: UTF-16 code units.
+/// `String.prototype.length` of JavaScript text: UTF-16 code units, with a
+/// lone surrogate counted once (see [`crate::js_value`]).
 #[must_use]
 pub fn js_length(value: &str) -> usize {
-    value.encode_utf16().count()
+    js_text_utf16(value).count()
 }
 
 /// `z.string().min(1)`: a string with at least one UTF-16 code unit.
@@ -170,6 +173,11 @@ mod tests {
     fn length_counts_utf16_code_units() {
         assert_eq!(js_length("a\u{1F600}"), 3);
         assert_eq!(js_length("\u{00E9}"), 1);
+        // A lone surrogate and U+10FFFF as JSON.parse reads them.
+        let lone = crate::js_value::parse(r#""\ud800""#).unwrap();
+        assert_eq!(js_length(lone.as_str().unwrap()), 1);
+        let max = crate::js_value::parse(r#""\udbff\udfff""#).unwrap();
+        assert_eq!(js_length(max.as_str().unwrap()), 2);
     }
 
     #[test]
