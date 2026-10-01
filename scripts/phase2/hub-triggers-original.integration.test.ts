@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import { DatabaseUnavailableError } from "../src/db/errors.js";
 import { createMemoryDatabase } from "../src/db/memory.js";
 import type { Database, ManualEventPersistence } from "../src/db/types.js";
@@ -11,6 +11,14 @@ import { createManualTriggerSource, handleManualTriggerRequest } from "../src/tr
 import { createWebhookSource } from "../src/triggers/github/webhook.js";
 import { createPublicApi } from "../src/public-api/index.js";
 import type { PublicOperations } from "../src/public-operations/index.js";
+
+// Deterministic generated IDs keep the captured trace reproducible byte for byte.
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  let counter = 0;
+  const randomUUID = () => `00000000-0000-4000-8000-${(++counter).toString(16).padStart(12, "0")}`;
+  return { ...actual, default: { ...actual, randomUUID }, randomUUID };
+});
 
 test("captures offline trigger, lease, execution, and GitHub webhook behavior", async () => {
   const database = createMemoryDatabase({ now: () => new Date("2026-08-06T12:00:00.000Z") });
@@ -51,18 +59,19 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
     stepId: "deploy-step",
     ordinal: 0,
     executionId: stableExecutionId,
-    execution: executionInput(orgA, stableExecutionId, 1_000),
+    execution: executionInput(orgA, stableExecutionId, 1_000, 12_000, 20_000),
   });
   const blockedBeforeExpiry =
     (await database.claimWorkflowWakeup(new Date(1_499), 500)) === undefined;
-  const recoveryLease = await database.claimWorkflowWakeup(new Date(1_501), 500);
+  // Exactly the first lease expiry: claimable because the baseline treats expiry <= now as free.
+  const recoveryLease = await database.claimWorkflowWakeup(new Date(1_500), 500);
   assert.ok(recoveryLease);
   const recoveredExecution = await database.createWorkflowStepExecution({
     triggerRunId: firstRun.run.id,
     stepId: "deploy-step",
     ordinal: 0,
     executionId: stableExecutionId,
-    execution: executionInput(orgA, stableExecutionId, 1_501),
+    execution: executionInput(orgA, stableExecutionId, 1_500, 12_000, 20_000),
   });
   await database.releaseWorkflowWakeup(firstRun.run.id, new Date(1_502), firstLease.leaseExpiresAt!);
   const staleReleaseRejected =
@@ -75,14 +84,40 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
   const currentReleaseAccepted =
     (await database.claimWorkflowWakeup(new Date(1_502), 500)) !== undefined;
   // fan-out is created after the lease checks so a second wakeup cannot satisfy them
-  const fanOutRun = await database.createAcceptedTriggerRun({
+  const fanOutInput = {
     ...runInput,
     configuredTriggerName: "rollback",
+    stepIds: ["rollback-step", "rollback-step"],
+  };
+  const fanOutRun = await database.createAcceptedTriggerRun(fanOutInput);
+  const fanOutReplay = await database.createAcceptedTriggerRun(fanOutInput);
+  const fanOutSteps = await database.listWorkflowStepRunsForTriggerRun(fanOutRun.run.id);
+  const fanOutExecutionId = durableExecutionId({
+    triggerRunId: fanOutRun.run.id,
+    configurationRevisionId: orgA.revisionId,
+    triggerName: "rollback",
+    workflowStepRunId: fanOutSteps[1]!.id,
   });
-  const fanOutReplay = await database.createAcceptedTriggerRun({
-    ...runInput,
-    configuredTriggerName: "rollback",
+  const secondStep = await database.createWorkflowStepExecution({
+    triggerRunId: fanOutRun.run.id,
+    stepId: "rollback-step",
+    ordinal: 1,
+    executionId: fanOutExecutionId,
+    execution: executionInput(orgA, fanOutExecutionId, 1_600, 12_000, 20_000),
   });
+  let missingOrdinal: string;
+  try {
+    await database.createWorkflowStepExecution({
+      triggerRunId: fanOutRun.run.id,
+      stepId: "rollback-step",
+      ordinal: 5,
+      executionId: fanOutExecutionId,
+      execution: executionInput(orgA, fanOutExecutionId, 1_600, 12_000, 20_000),
+    });
+    missingOrdinal = "no error";
+  } catch (error) {
+    missingOrdinal = `threw: ${(error as Error).message}`;
+  }
   const otherRun = await database.createAcceptedTriggerRun({
     ...runInput,
     organizationId: orgB.organizationId,
@@ -134,7 +169,6 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
       recoveredAfterExpiry: recoveryLease.triggerRunId === firstRun.run.id,
       leasedBeforeClaim: recoveryLease.leasedBeforeClaim,
       sameExecution: recoveredExecution.execution?.id === firstExecution.execution?.id,
-      executionIdIsDurable: firstExecution.execution?.id === stableExecutionId,
       executionCount: new Set([firstExecution.execution?.id, recoveredExecution.execution?.id])
         .size,
       staleReleaseRejected,
@@ -148,11 +182,28 @@ test("captures offline trigger, lease, execution, and GitHub webhook behavior", 
       finalStatus: conflicting.execution.status,
       completedAtKept: conflicting.execution.completedAt?.getTime() ===
         succeeded.execution.completedAt?.getTime(),
-      idleDeadlineSet: firstExecution.execution!.idleDeadlineAt?.getTime() === 10_000,
+      idleDeadlineAtMs: firstExecution.execution!.idleDeadlineAt?.getTime(),
       idleDeadlineCleared: conflicting.execution.idleDeadlineAt === null,
       runStatus: finalRun?.status,
       runSucceededTransition: runSucceeded?.transitioned,
       runSucceededAgainTransition: runSucceededAgain?.transitioned,
+    },
+    identity: {
+      localOffsetMinutes: -new Date(2026, 7, 6).getTimezoneOffset(),
+      firstRun: {
+        runId: firstRun.run.id,
+        revisionId: orgA.revisionId,
+        stepRunIds: [stepRunId],
+        executionId: firstExecution.execution!.id,
+      },
+      fanOutRun: {
+        runId: fanOutRun.run.id,
+        revisionId: orgA.revisionId,
+        stepRunIds: fanOutSteps.map((step) => step.id),
+        executionId: secondStep.execution?.id,
+        selectedStepRunId: secondStep.stepRun.id,
+        missingOrdinal,
+      },
     },
     durableExecutionId: {
       fixed: durableExecutionId({
@@ -224,7 +275,13 @@ function manualInput(project: PreparedProject, deliveryId: string) {
   };
 }
 
-function executionInput(project: PreparedProject, id: string, startedAt: number) {
+function executionInput(
+  project: PreparedProject,
+  id: string,
+  startedAt: number,
+  deadlineAt: number,
+  idleDeadlineAt: number,
+) {
   return {
     id,
     organizationId: project.organizationId,
@@ -233,8 +290,8 @@ function executionInput(project: PreparedProject, id: string, startedAt: number)
     triggerContext: {},
     outputContext: {},
     configurationRevisionId: project.revisionId,
-    deadlineAt: new Date(10_000),
-    idleDeadlineAt: new Date(10_000),
+    deadlineAt: new Date(deadlineAt),
+    idleDeadlineAt: new Date(idleDeadlineAt),
     startedAt: new Date(startedAt),
   };
 }
@@ -407,6 +464,8 @@ async function manualRequestTrace() {
     payload: null,
   }));
   await record("utf8BomBody", recording, `\uFEFF${delivery(orgA, { deliveryId: "manual-bom" })}`);
+  await record("doubleBomBody", recording, `\uFEFF\uFEFF${delivery(orgA, { deliveryId: "manual-double-bom" })}`);
+  await record("tripleBomBody", recording, `\uFEFF\uFEFF\uFEFF${delivery(orgA, { deliveryId: "manual-triple-bom" })}`);
   await record("unknownProject", recording, delivery(orgA, {
     deliveryId: "manual-unknown-project",
     projectId: "7f1b0c1e-2d3a-4b5c-8d6e-9f0a1b2c3d4e",
@@ -414,17 +473,27 @@ async function manualRequestTrace() {
   await record("invalidJson", recording, "{not json");
   await record("arrayBody", recording, "[]");
   for (const entry of Object.values(cases)) entry.body = stripIds(entry.body);
-  const receivedAtGrid: Record<string, number> = {};
+  const receivedAtGrid: Record<string, { status: number; receivedAtMs: number | null }> = {};
   for (const [index, receivedAt] of RECEIVED_AT_GRID.entries()) {
+    const before = handled.length;
     const result = await deliver(
       recording,
       delivery(orgA, { deliveryId: `manual-grid-${index}`, receivedAt }),
     );
-    receivedAtGrid[receivedAt] = result.status;
+    const event = handled.length > before ? (handled.at(-1) as { receivedAt: Date }) : undefined;
+    receivedAtGrid[receivedAt] = {
+      status: result.status,
+      receivedAtMs: event === undefined ? null : event.receivedAt.getTime(),
+    };
   }
+  const beforeOmitted = handled.length;
+  await deliver(recording, delivery(orgA, { deliveryId: "manual-omitted-received-at" }));
+  const omittedEvent = handled[beforeOmitted] as { receivedAt: Date };
+  const omittedReceivedAtIsNow = Math.abs(omittedEvent.receivedAt.getTime() - Date.now()) < 60_000;
   return {
     cases,
     receivedAtGrid,
+    omittedReceivedAtIsNow,
     handledAfterDuplicate,
     handledAfterOtherOrganization,
     receipts,
@@ -590,7 +659,7 @@ async function publicManualRunTrace() {
   const call = async (
     outcome: "authorized" | "unauthorized" | "forbidden" | "unavailable",
     result: unknown,
-    options: { body?: string; contentType?: string | null } = {},
+    options: { body?: string | Uint8Array; contentType?: string | null } = {},
   ) => {
     const api = createPublicApi(
       { status: "enabled", authenticator: authenticator(outcome) as never },
@@ -626,6 +695,28 @@ async function publicManualRunTrace() {
     invalidJson: await call("authorized", dispatched, { body: "{not json" }),
     wrongContentType: await call("authorized", dispatched, { contentType: "text/plain" }),
     missingContentType: await call("authorized", dispatched, { contentType: null }),
+    bomBody: await call("authorized", dispatched, {
+      body: new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(manualBody)]),
+    }),
+    doubleBomBody: await call("authorized", dispatched, {
+      body: new Uint8Array([
+        0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, ...new TextEncoder().encode(manualBody),
+      ]),
+    }),
+    tripleBomBody: await call("authorized", dispatched, {
+      body: new Uint8Array([
+        0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, ...new TextEncoder().encode(manualBody),
+      ]),
+    }),
+    invalidUtf8InString: await call("authorized", dispatched, {
+      body: new Uint8Array([
+        ...new TextEncoder().encode(
+          '{"projectSlug":"project","trigger":"deploy","actor":"alice","deliveryKey":"delivery-1","input":"',
+        ),
+        0xff,
+        ...new TextEncoder().encode('"}'),
+      ]),
+    }),
   };
 }
 
@@ -691,6 +782,7 @@ function webhookCases(): WebhookCase[] {
     ok("malformedJson", "{not json"),
     ok("invalidUtf8", new Uint8Array([0x7b, 0x22, 0xff, 0x22, 0x7d])),
     ok("utf8Bom", new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(valid)])),
+    ok("doubleUtf8Bom", new Uint8Array([0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf, ...new TextEncoder().encode(valid)])),
     ok("arrayBody", "[]"),
     ok("nullBody", "null"),
     ok("stringBody", '"text"'),
