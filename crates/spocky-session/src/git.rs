@@ -8,19 +8,153 @@
 //! is returned as success), stderr at 2048 bytes, and the call is killed
 //! after 30 s. Failure messages match the baseline text exactly.
 
-// ponytail: the 8-process concurrency limit is kept; the 64-per-second
-// start-rate limit is not, add it if a burst of probes ever exceeds it.
+// Scheduling follows `GitProcessScheduler`: FIFO admission up to the
+// concurrency limit, held until the process exits, then a strict
+// `p-throttle` start-rate window. Only the normal priority exists here; the
+// high-priority queue serves callers outside the slice.
 
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use std::collections::VecDeque;
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncReadExt};
+
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
-/// `GitProcessScheduler` default: at most eight git processes at once.
-static GIT_PROCESS_SLOTS: Semaphore = Semaphore::const_new(8);
+/// `DEFAULT_GIT_PROCESS_POLICY`.
+const DEFAULT_MAX_PROCESSES_PER_SECOND: usize = 64;
+const DEFAULT_MAX_PROCESS_CONCURRENCY: usize = 8;
+const THROTTLE_INTERVAL_MS: u64 = 1_000;
+
+/// `resolveGitProcessPolicy` from the environment: `(per second, concurrency)`.
+fn process_policy() -> (usize, usize) {
+    let read = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| positive_integer(&value))
+    };
+    (
+        read("PASEO_GIT_MAX_PROCESSES_PER_SECOND").unwrap_or(DEFAULT_MAX_PROCESSES_PER_SECOND),
+        read("PASEO_GIT_MAX_PROCESS_CONCURRENCY")
+            .or_else(|| read("PASEO_GIT_CONCURRENCY"))
+            .unwrap_or(DEFAULT_MAX_PROCESS_CONCURRENCY),
+    )
+}
+
+/// `parsePositiveInteger`: `Number(value)` must be an integer above zero.
+/// `Number` trims white space, reads `0x`/`0o`/`0b` prefixed integers and
+/// decimal literals, and gives `NaN` (rejected) for anything else.
+fn positive_integer(value: &str) -> Option<usize> {
+    let trimmed =
+        value.trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}');
+    let radix = [
+        ("0x", 16),
+        ("0X", 16),
+        ("0o", 8),
+        ("0O", 8),
+        ("0b", 2),
+        ("0B", 2),
+    ]
+    .into_iter()
+    .find_map(|(prefix, radix)| trimmed.strip_prefix(prefix).map(|digits| (digits, radix)));
+    let number = match radix {
+        Some((digits, radix)) => u32::from_str_radix(digits, radix).ok().map(f64::from),
+        None if trimmed.is_empty() => None,
+        None if trimmed.contains(['_', 'i', 'I', 'n', 'N']) => None,
+        None => trimmed
+            .parse::<f64>()
+            .ok()
+            .filter(|parsed| parsed.is_finite()),
+    }?;
+    if number.fract() != 0.0 || number <= 0.0 || number > 9_007_199_254_740_991.0 {
+        return None;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "checked to be a positive safe integer above"
+    )]
+    Some(number as usize)
+}
+
+fn admission() -> &'static Semaphore {
+    static SLOTS: OnceLock<Semaphore> = OnceLock::new();
+    SLOTS.get_or_init(|| Semaphore::new(process_policy().1))
+}
+
+/// p-throttle 8.1.0 strict mode without weights.
+#[derive(Debug, Default)]
+struct StrictThrottle {
+    ticks: VecDeque<(u64, u64)>,
+    next_id: u64,
+}
+
+impl StrictThrottle {
+    /// `strictDelay`: returns the delay in ms and the tick to restamp on start.
+    fn delay(&mut self, now: u64, limit: usize) -> (u64, Option<u64>) {
+        if self
+            .ticks
+            .back()
+            .is_some_and(|(_, time)| now.saturating_sub(*time) > THROTTLE_INTERVAL_MS)
+        {
+            self.ticks.clear();
+        }
+        let capacity = limit.max(1);
+        self.next_id += 1;
+        let id = self.next_id;
+        if self.ticks.len() < capacity {
+            self.ticks.push_back((id, now));
+            return (0, None);
+        }
+        let oldest = self.ticks.front().map_or(now, |(_, time)| *time);
+        let most_recent = self.ticks.back().map_or(now, |(_, time)| *time);
+        let base = oldest + THROTTLE_INTERVAL_MS;
+        let min_spacing = THROTTLE_INTERVAL_MS.div_ceil(u64::try_from(capacity).unwrap_or(1));
+        let next = if base <= most_recent {
+            most_recent + min_spacing
+        } else {
+            base
+        };
+        self.ticks.pop_front();
+        self.ticks.push_back((id, next));
+        (next.saturating_sub(now), Some(id))
+    }
+
+    /// Records the actual start time of a delayed call (`tickRecord.time = Date.now()`).
+    fn restamp(&mut self, id: u64, now: u64) {
+        if let Some(tick) = self.ticks.iter_mut().find(|(tick_id, _)| *tick_id == id) {
+            tick.1 = now;
+        }
+    }
+}
+
+fn throttle() -> &'static Mutex<StrictThrottle> {
+    static THROTTLE: OnceLock<Mutex<StrictThrottle>> = OnceLock::new();
+    THROTTLE.get_or_init(Mutex::default)
+}
+
+fn clock_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    u64::try_from(START.get_or_init(Instant::now).elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Waits for the start-rate window, as `startThrottled` does before spawning.
+async fn throttle_start() {
+    let limit = process_policy().0;
+    let (delay, tick) = throttle()
+        .lock()
+        .map_or((0, None), |mut state| state.delay(clock_ms(), limit));
+    if delay > 0 {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
+    if let (Some(id), Ok(mut state)) = (tick, throttle().lock()) {
+        state.restamp(id, clock_ms());
+    }
+}
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_STDOUT_BYTES: usize = 20 * 1024 * 1024;
@@ -107,9 +241,10 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
     for (name, value) in READ_ONLY_GIT_ENV {
         command.env(name, value);
     }
-    let _slot = GIT_PROCESS_SLOTS.acquire().await.map_err(|_| GitError {
+    let _slot = admission().acquire().await.map_err(|_| GitError {
         message: "Git process scheduler is closed".to_owned(),
     })?;
+    throttle_start().await;
     let mut child = command.spawn().map_err(|error| GitError {
         message: spawn_error_message(&error),
     })?;
@@ -313,20 +448,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn strict_throttle_matches_p_throttle() {
+        use super::StrictThrottle;
+        let mut throttle = StrictThrottle::default();
+        // Delays printed by pinned p-throttle 8.1.0 with a stubbed clock:
+        // [0, 0, 980, 980, 0] for calls at 0, 10, 20, 30, and 5000 ms.
+        assert_eq!(throttle.delay(0, 2), (0, None));
+        assert_eq!(throttle.delay(10, 2), (0, None));
+        assert_eq!(throttle.delay(20, 2).0, 980);
+        assert_eq!(throttle.delay(30, 2).0, 980);
+        // After an idle interval the window resets.
+        assert_eq!(throttle.delay(5_000, 2), (0, None));
+    }
+
+    #[test]
+    fn policy_integers_follow_number_semantics() {
+        use super::positive_integer;
+        assert_eq!(positive_integer("8"), Some(8));
+        assert_eq!(positive_integer(" 16 "), Some(16));
+        assert_eq!(positive_integer("0x10"), Some(16));
+        assert_eq!(positive_integer("1e1"), Some(10));
+        assert_eq!(positive_integer("2.5"), None);
+        assert_eq!(positive_integer("0"), None);
+        assert_eq!(positive_integer(""), None);
+        assert_eq!(positive_integer("abc"), None);
+        assert_eq!(positive_integer("0b11"), Some(3));
+        assert_eq!(positive_integer("0o17"), Some(15));
+        assert_eq!(positive_integer("+4"), Some(4));
+        assert_eq!(positive_integer("inf"), None);
+        assert_eq!(positive_integer("Infinity"), None);
+        assert_eq!(positive_integer("1_0"), None);
+    }
+
     #[tokio::test]
-    async fn stdout_over_the_cap_resolves_truncated() {
-        let directory = std::env::temp_dir();
+    async fn streaming_stdout_over_the_cap_is_killed_and_resolves_truncated() {
+        let root = std::env::temp_dir().join(format!("spocky-git-stream-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create repo dir");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        std::fs::write(root.join("big.txt"), "x".repeat(8 * 1024 * 1024)).expect("write blob");
+        git(&["add", "big.txt"]);
+        git(&[
+            "-c",
+            "user.name=S",
+            "-c",
+            "user.email=s@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "big",
+        ]);
+        // `git show` streams 8 MiB, far past a 1 KiB cap and the pipe buffer,
+        // so the process is still writing when the runner kills it.
         let output = run_git(
-            &["--version"],
+            &["show", "HEAD:big.txt"],
             &GitOptions {
-                max_stdout_bytes: 5,
-                ..GitOptions::read_only(&directory)
+                max_stdout_bytes: 1024,
+                ..GitOptions::read_only(&root)
             },
         )
         .await
         .expect("truncated output resolves");
+        std::fs::remove_dir_all(&root).expect("cleanup");
         assert!(output.truncated);
-        assert_eq!(output.stdout, "git v");
+        assert_eq!(output.stdout.len(), 1024);
+        assert_eq!(output.exit_code, None, "killed by SIGKILL, so no exit code");
     }
 
     #[test]
