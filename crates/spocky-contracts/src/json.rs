@@ -362,6 +362,16 @@ impl<V> JsRecord<V> {
     }
 }
 
+impl<V> FromIterator<(String, V)> for JsRecord<V> {
+    fn from_iter<I: IntoIterator<Item = (String, V)>>(iter: I) -> Self {
+        let mut record = Self::new();
+        for (key, value) in iter {
+            record.insert(key, value);
+        }
+        record
+    }
+}
+
 impl<V: Serialize> Serialize for JsRecord<V> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.entries.len()))?;
