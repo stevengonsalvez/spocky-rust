@@ -3,7 +3,8 @@
 //! create in full-access mode, one turn, persistence, close.
 //!
 //! Ignored by default: run with `--include-ignored` on a host with the
-//! pinned binary, which is verified by digest and version and never skipped.
+//! pinned binary, which is verified by digest and by a sandboxed
+//! `--version` probe, and never skipped.
 //!
 //! Hermetic: every codex launch goes through the slice harness's recording
 //! wrapper (which logs each PID) into `sandbox-exec` with the harness's
@@ -35,28 +36,63 @@ const PINNED_CODEX_SHA256: &str =
     "1ad71e5ed117114f9d04cdd8d5dd411515b5ab7ebc725b8ca2f484695d71c838";
 const WAIT: Duration = Duration::from_secs(90);
 
-/// The pinned binary, verified; panics instead of skipping.
+/// Runs `command` to completion within [`WAIT`], killing the child it
+/// spawned (by its own handle) on overrun; returns its stdout.
+fn bounded_stdout(mut command: Command, what: &str) -> String {
+    use std::io::Read;
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap_or_else(|error| panic!("spawn {what}: {error}"));
+    let deadline = Instant::now() + WAIT;
+    while child.try_wait().expect("wait").is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{what} exceeded {WAIT:?}");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let mut stdout = String::new();
+    child
+        .stdout
+        .take()
+        .expect("stdout")
+        .read_to_string(&mut stdout)
+        .expect("read stdout");
+    stdout
+}
+
+/// The pinned binary, verified by digest; panics instead of skipping.
 fn pinned_codex() -> &'static str {
-    let digest = Command::new("/usr/bin/shasum")
-        .args(["-a", "256", PINNED_CODEX_PATH])
-        .output()
-        .expect("shasum of the pinned codex");
+    let mut shasum = Command::new("/usr/bin/shasum");
+    shasum.args(["-a", "256", PINNED_CODEX_PATH]);
     assert_eq!(
-        String::from_utf8_lossy(&digest.stdout)
-            .split_whitespace()
-            .next(),
+        bounded_stdout(shasum, "shasum").split_whitespace().next(),
         Some(PINNED_CODEX_SHA256),
         "pinned codex digest mismatch at {PINNED_CODEX_PATH}"
     );
-    let version = Command::new(PINNED_CODEX_PATH)
+    PINNED_CODEX_PATH
+}
+
+/// `codex --version` through the hermetic launcher, so the probe is
+/// sandboxed and its PID is recorded for the egress check, with a cleared
+/// env and the root's own `HOME` and `CODEX_HOME`.
+fn assert_pinned_version(root: &Root, launcher: &str) {
+    let mut probe = Command::new(launcher);
+    probe
         .arg("--version")
-        .output()
-        .expect("pinned codex --version");
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", root.text("home"))
+        .env("TMPDIR", root.text("home"))
+        .env("CODEX_HOME", root.text("codex-home"));
     assert_eq!(
-        String::from_utf8_lossy(&version.stdout).trim(),
+        bounded_stdout(probe, "codex --version").trim(),
         PINNED_CODEX_VERSION
     );
-    PINNED_CODEX_PATH
 }
 
 /// Awaits `future` for at most [`WAIT`].
@@ -220,10 +256,12 @@ fn hermetic_client(root: &Root, codex: &str) -> CodexAgentClient {
     ]
     .into_iter()
     .collect();
+    let launcher = hermetic_codex(root, codex);
+    assert_pinned_version(root, &launcher);
     CodexAgentClient::new(
         Some(ProviderRuntimeSettings {
             command: Some(ProviderCommand::Replace {
-                argv: vec![hermetic_codex(root, codex)],
+                argv: vec![launcher],
             }),
             env: Some(env),
         }),
