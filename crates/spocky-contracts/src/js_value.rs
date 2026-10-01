@@ -378,8 +378,12 @@ impl PartialEq for JsValue {
 }
 
 impl fmt::Debug for JsValue {
-    /// Writes the value as `JSON.stringify` would.
+    /// Writes the value as `JSON.stringify` would, and a top-level
+    /// `undefined` as `undefined`.
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        if matches!(self, Self::Undefined) {
+            return formatter.write_str("undefined");
+        }
         formatter.write_str(&stringify(self))
     }
 }
@@ -912,17 +916,35 @@ fn newline(out: &mut String, indent: Option<&str>, depth: usize) {
     }
 }
 
+fn assert_defined(value: &JsValue) {
+    assert!(
+        !matches!(value, JsValue::Undefined),
+        "JSON.stringify(undefined) returns undefined, not JSON text"
+    );
+}
+
 /// `JSON.stringify(value)`.
+///
+/// # Panics
+///
+/// Panics when `value` is [`JsValue::Undefined`]: `JSON.stringify(undefined)`
+/// returns `undefined`, not text, so a caller must not write it.
 #[must_use]
 pub fn stringify(value: &JsValue) -> String {
+    assert_defined(value);
     let mut out = String::new();
     write_value(&mut out, value, None);
     out
 }
 
 /// `JSON.stringify(value, null, 2)`.
+///
+/// # Panics
+///
+/// Panics when `value` is [`JsValue::Undefined`], as [`stringify`] does.
 #[must_use]
 pub fn stringify_pretty(value: &JsValue) -> String {
+    assert_defined(value);
     let mut out = String::new();
     write_value(&mut out, value, Some("  "));
     out
@@ -1001,6 +1023,14 @@ mod tests {
         slotted.insert("e", JsValue::Null);
         slotted.insert("m", JsValue::Number(2.0));
         assert_eq!(stringify(&JsValue::Object(slotted)), r#"{"m":2,"e":null}"#);
+    }
+
+    #[test]
+    #[should_panic(expected = "JSON.stringify(undefined) returns undefined")]
+    fn top_level_undefined_has_no_json_text() {
+        // node: JSON.stringify(undefined) === undefined
+        assert_eq!(format!("{:?}", JsValue::Undefined), "undefined");
+        let _ = stringify(&JsValue::Undefined);
     }
 
     #[test]
