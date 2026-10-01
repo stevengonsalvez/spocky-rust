@@ -27,7 +27,6 @@ use std::task::Poll;
 
 use spocky_session::agent_projection::{AgentAttention, ManagedAgentRecordView, SnapshotOverrides};
 use spocky_session::agent_storage::{AgentStorage, StorageError};
-use spocky_store::StoreError;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
 const NODE_SCRIPT: &str = r#"
@@ -185,6 +184,18 @@ fn io_code(error: &io::Error) -> JsValue {
     }
 }
 
+/// The `io::Error` a store error wraps, at any depth.
+fn io_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a io::Error {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(io) = error.downcast_ref::<io::Error>() {
+            return io;
+        }
+        current = error.source();
+    }
+    panic!("store error without an io::Error source")
+}
+
 fn same(left: &StorageError, right: &StorageError) -> bool {
     match (left, right) {
         (StorageError::Projection(left), StorageError::Projection(right)) => left == right,
@@ -205,10 +216,9 @@ fn outcomes<T>(results: &[Result<T, StorageError>]) -> JsValue {
                     Err(error) => {
                         let (name, code) = match error {
                             StorageError::Projection(_) => ("TypeError", JsValue::Null),
-                            StorageError::Store(store) => match store.as_ref() {
-                                StoreError::Io { source, .. } => ("Error", io_code(source)),
-                                other => panic!("unexpected store error {other}"),
-                            },
+                            StorageError::Store(store) => {
+                                ("Error", io_code(io_source(store.as_ref())))
+                            }
                         };
                         out.insert("name", JsValue::String(name.to_owned()));
                         out.insert("code", code);
