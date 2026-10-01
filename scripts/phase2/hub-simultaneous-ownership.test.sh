@@ -27,8 +27,26 @@ read_fixture_ids() {
     esac
   fi
 }
+require_fixture_ids() {
+  read_fixture_ids
+  for fixture_pid in "$owner_pid" "$descendant_pid"; do
+    case "$fixture_pid" in
+      ''|*[!0-9]*|0|1)
+        printf 'signal cleanup fixture PID is missing or invalid: %s\n' "$fixture_pid" >&2
+        return 1
+        ;;
+    esac
+  done
+  if [ "$owner_pid" = "$descendant_pid" ]; then
+    printf 'signal cleanup fixture PIDs are not distinct: %s\n' "$owner_pid" >&2
+    return 1
+  fi
+}
 terminate_signal_fixture() {
   requested_signal=${1:-TERM}
+  expected_status=${2:-143}
+  require_graceful=${3:-false}
+  fallback_required=false
   cleanup_status=0
   if [ -n "$signal_runner" ] && kill -0 "$signal_runner" 2>/dev/null; then
     kill -"$requested_signal" "$signal_runner" 2>/dev/null || cleanup_status=1
@@ -42,6 +60,7 @@ terminate_signal_fixture() {
       sleep 0.05
     done
     if kill -0 "$signal_runner" 2>/dev/null; then
+      fallback_required=true
       kill -KILL "$signal_runner" 2>/dev/null || cleanup_status=1
     fi
   fi
@@ -51,21 +70,33 @@ terminate_signal_fixture() {
     else
       runner_status=$?
     fi
-    case "$runner_status" in
-      0|129|130|137|143) ;;
-      *)
-        printf 'signal cleanup runner exited with status %s\n' "$runner_status" >&2
-        cleanup_status=1
-        ;;
-    esac
+    if [ "$require_graceful" = true ] && [ "$runner_status" -ne "$expected_status" ]; then
+      printf 'signal cleanup runner status %s, expected %s\n' \
+        "$runner_status" "$expected_status" >&2
+      cleanup_status=1
+    elif [ "$require_graceful" != true ]; then
+      case "$runner_status" in
+        0|129|130|137|143) ;;
+        *)
+          printf 'signal cleanup runner exited with status %s\n' "$runner_status" >&2
+          cleanup_status=1
+          ;;
+      esac
+    fi
   fi
   read_fixture_ids
   if [ -n "$owner_pid" ] && {
     kill -0 "$owner_pid" 2>/dev/null || kill -0 -- "-$owner_pid" 2>/dev/null;
   }; then
+    fallback_required=true
     kill -KILL -- "-$owner_pid" 2>/dev/null || cleanup_status=1
   elif [ -n "$descendant_pid" ] && kill -0 "$descendant_pid" 2>/dev/null; then
+    fallback_required=true
     kill -KILL "$descendant_pid" 2>/dev/null || cleanup_status=1
+  fi
+  if [ "$require_graceful" = true ] && [ "$fallback_required" = true ]; then
+    printf 'signal cleanup required fallback after %s\n' "$requested_signal" >&2
+    cleanup_status=1
   fi
   for pid in "$owner_pid" "$descendant_pid"; do
     attempt=0
@@ -114,8 +145,8 @@ while [ ! -s "$signal_output" ] && kill -0 "$signal_runner" 2>/dev/null; do
   fi
   sleep 0.05
 done
-read_fixture_ids
-terminate_signal_fixture HUP
+require_fixture_ids
+terminate_signal_fixture HUP 129 true
 if kill -0 "$owner_pid" 2>/dev/null; then
   printf 'early signal cleanup owner survived: %s\n' "$owner_pid" >&2
   exit 1
@@ -140,8 +171,8 @@ while [ ! -s "$signal_output" ] && kill -0 "$signal_runner" 2>/dev/null; do
   fi
   sleep 0.05
 done
-read_fixture_ids
-terminate_signal_fixture
+require_fixture_ids
+terminate_signal_fixture TERM 143 true
 if kill -0 "$owner_pid" 2>/dev/null; then
   printf 'signal cleanup owner survived: %s\n' "$owner_pid" >&2
   exit 1
