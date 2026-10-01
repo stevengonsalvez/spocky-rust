@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
+pub mod agent_record;
 mod atomic;
+pub mod js_json;
 pub mod path_compare;
 pub mod registry;
 pub mod time;
@@ -230,7 +232,7 @@ impl AgentStore {
     }
 }
 
-fn cwd_key(cwd: &str) -> String {
+pub(crate) fn cwd_key(cwd: &str) -> String {
     let root_end = win32_root_end(cwd);
     let (root, remainder) = cwd.split_at(root_end);
     let remainder = remainder.trim_end_matches(['/', '\\']);
