@@ -387,8 +387,10 @@ struct State {
     persisted_history: Vec<HistoryEntry>,
 }
 
-/// Unported paths seen so far, each recorded once in first-seen order, so a
-/// stream of identical notifications cannot grow it without bound.
+/// Unported paths seen so far, each recorded once in first-seen order. Every
+/// record is a fixed kind plus, at most, a detail drawn from a finite set
+/// (a parsed notification kind, a known item type, a server request method
+/// Paseo handles), never a raw value from Codex, so the log is bounded.
 #[derive(Default)]
 struct UnportedLog(Vec<String>);
 
@@ -1766,9 +1768,10 @@ impl CodexSession {
             if is_root {
                 dispatch(&mut state, &mut events, parsed);
             } else {
-                state
-                    .unported
-                    .push(format!("sub-agent thread notification {method}"));
+                state.unported.push(format!(
+                    "sub-agent thread notification {}",
+                    parsed_kind_name(&parsed)
+                ));
             }
             self.publish(&events);
         }
@@ -1835,6 +1838,33 @@ fn spawn_dispatcher(subscribers: Subscribers) -> (mpsc::Sender<Dispatch>, thread
         }
     });
     (sender, handle.thread().id())
+}
+
+/// The `ParsedCodexNotification` kind, a finite name for any notification.
+fn parsed_kind_name(parsed: &ParsedNotification) -> &'static str {
+    match parsed {
+        ParsedNotification::ThreadStarted { .. } => "thread_started",
+        ParsedNotification::TurnStarted { .. } => "turn_started",
+        ParsedNotification::TurnCompleted { .. } => "turn_completed",
+        ParsedNotification::PlanUpdated { .. } => "plan_updated",
+        ParsedNotification::DiffUpdated { .. } => "diff_updated",
+        ParsedNotification::TokenUsageUpdated { .. } => "token_usage_updated",
+        ParsedNotification::AgentMessageDelta { .. } => "agent_message_delta",
+        ParsedNotification::ReasoningDelta { .. } => "reasoning_delta",
+        ParsedNotification::ItemCompleted { .. } => "item_completed",
+        ParsedNotification::ItemStarted { .. } => "item_started",
+        ParsedNotification::ExecCommandStarted { .. } => "exec_command_started",
+        ParsedNotification::ExecCommandCompleted { .. } => "exec_command_completed",
+        ParsedNotification::ExecCommandOutputDelta { .. } => "exec_command_output_delta",
+        ParsedNotification::TerminalInteraction { .. } => "terminal_interaction",
+        ParsedNotification::PatchApplyStarted { .. } => "patch_apply_started",
+        ParsedNotification::PatchApplyCompleted { .. } => "patch_apply_completed",
+        ParsedNotification::FileChangeOutputDelta { .. } => "file_change_output_delta",
+        ParsedNotification::ThreadRolledBack { .. } => "thread_rolled_back",
+        ParsedNotification::ContextCompacted { .. } => "context_compacted",
+        ParsedNotification::InvalidPayload { .. } => "invalid_payload",
+        ParsedNotification::UnknownMethod { .. } => "unknown_method",
+    }
 }
 
 fn upgrade(weak: &Weak<Inner>) -> Option<CodexSession> {
@@ -3626,9 +3656,21 @@ mod tests {
                 Some(&json!({"threadId": "child", "itemId": "c", "delta": "z"})),
             );
         }
+        session.handle_notification(
+            "item/completed",
+            Some(&json!({"threadId": "child", "item": {"type": "agentMessage"}})),
+        );
+        session.handle_notification(
+            "codex/event/item_completed",
+            Some(&json!({"thread_id": "child", "msg": {"type": "item_completed", "item": {}}})),
+        );
         assert_eq!(
             session.unported(),
-            ["sub-agent thread notification item/agentMessage/delta"]
+            [
+                "sub-agent thread notification agent_message_delta",
+                "sub-agent thread notification item_completed",
+            ],
+            "raw Codex method names never become separate records"
         );
         session.close().expect("close");
     }
