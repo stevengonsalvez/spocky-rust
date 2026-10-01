@@ -77,6 +77,12 @@ const deleteFirst = await scenario("delete-first", async (storage) => {
   await storage.upsert(record("a1", "late"));
   return { settled, afterRemove, afterLate: await title(storage, "a1") };
 });
+const removeFirst = await scenario("remove-first", async (storage, home) => {
+  await storage.upsert(record("a1", "kept"));
+  const settled = await outcomes([storage.remove("a1"), storage.upsert(record("a1", "after"))]);
+  const files = fs.readdirSync(home).flatMap((entry) => fs.readdirSync(path.join(home, entry)));
+  return { settled, afterRemove: await title(storage, "a1"), files };
+});
 const fsError = await scenario("fs-error", async (storage, home) => {
   await storage.upsert(record("a0", "first"));
   const [projectDir] = fs.readdirSync(home);
@@ -95,7 +101,7 @@ const fsError = await scenario("fs-error", async (storage, home) => {
     blocked: fs.statSync(path.join(directory, "a1.json")).isDirectory(),
   };
 });
-process.stdout.write(JSON.stringify({ shortCircuit, deleteFirst, fsError }));
+process.stdout.write(JSON.stringify({ shortCircuit, deleteFirst, removeFirst, fsError }));
 "#;
 
 fn view(id: &str, config: &str) -> ManagedAgentRecordView {
@@ -292,6 +298,37 @@ async fn delete_first(root: &Path) -> JsValue {
     ])
 }
 
+/// `remove` then `upsert` in one synchronous turn after a stored record:
+/// both queue before either runs.
+async fn remove_first(root: &Path) -> JsValue {
+    let (home, storage) = scenario(root, "remove-first").await;
+    storage
+        .upsert(record("a1", "kept"))
+        .await
+        .expect("first write");
+    let remove = storage.remove("a1");
+    let upsert = storage.upsert(record("a1", "after"));
+    let remove = remove.await.map(|failures| assert!(failures.is_empty()));
+    let settled = outcomes(&[remove, upsert.await]);
+    let files = std::fs::read_dir(&home)
+        .expect("home")
+        .flat_map(|entry| std::fs::read_dir(entry.expect("entry").path()).expect("project"))
+        .map(|file| {
+            JsValue::String(
+                file.expect("file")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        })
+        .collect();
+    object(vec![
+        ("settled", settled),
+        ("afterRemove", title(&storage, "a1").await),
+        ("files", JsValue::Array(files)),
+    ])
+}
+
 fn only_entry(directory: &Path) -> PathBuf {
     let entries: Vec<_> = std::fs::read_dir(directory)
         .expect("home")
@@ -312,10 +349,13 @@ async fn fs_error_scenario(root: &Path) -> JsValue {
     let (entered, open, agent) = gated("a1", r#"{"provider":"codex","cwd":"/w"}"#);
     let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
     let upsert = storage.upsert(record("a1", "queued"));
+    // As the JS side's microtask yields: the snapshot's write starts while
+    // the test goes on.
+    let snapshot = tokio::spawn(snapshot);
     wait_entered(entered).await;
     let remove = storage.remove("a1");
     open.send(()).expect("open");
-    let snapshot = snapshot.await;
+    let snapshot = snapshot.await.expect("join");
     let upsert = upsert.await;
     let remove = remove.await;
     let settled = outcomes(&[snapshot, upsert, remove.map(|_| ())]);
@@ -391,6 +431,7 @@ async fn write_chains_match_pinned_storage() {
     let rust = object(vec![
         ("shortCircuit", short_circuit(&rust_root.0).await),
         ("deleteFirst", delete_first(&rust_root.0).await),
+        ("removeFirst", remove_first(&rust_root.0).await),
         ("fsError", fs_error_scenario(&rust_root.0).await),
     ]);
     assert_eq!(
