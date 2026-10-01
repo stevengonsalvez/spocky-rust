@@ -730,7 +730,8 @@ impl WaitWatch {
                 Some("turn_completed" | "turn_canceled") => self.has_started = true,
                 _ => {}
             },
-            AgentManagerEvent::TimelineReplacement { .. } => {}
+            AgentManagerEvent::TimelineReplacement { .. }
+            | AgentManagerEvent::ProviderSubagent(_) => {}
         }
     }
 }

@@ -231,6 +231,7 @@ const recordFeed = (manager) => {
   manager.subscribe((event) => {
     if (event.type === "agent_state") feed.push(["agent_state", toAgentPayload(event.agent)]);
     else if (event.type === "agent_stream") feed.push(["agent_stream", event.agentId, event.event, event.seq ?? null, event.epoch ?? null, event.timestamp ?? null]);
+    else if (event.type === "provider_subagent") feed.push(["provider_subagent", event.event]);
     else feed.push([event.type]);
   });
   return feed;
@@ -759,6 +760,9 @@ fn feed_entry(event: &AgentManagerEvent) -> JsValue {
         ]),
         AgentManagerEvent::TimelineReplacement { .. } => {
             JsValue::Array(vec![text("timeline_replacement")])
+        }
+        AgentManagerEvent::ProviderSubagent(event) => {
+            JsValue::Array(vec![text("provider_subagent"), event.clone()])
         }
     }
 }

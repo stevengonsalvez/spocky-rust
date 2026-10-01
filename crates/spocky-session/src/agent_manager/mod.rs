@@ -40,6 +40,7 @@ pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgent
 use crate::agent_projection::{AgentAttention, AgentPayloadView, ManagedAgentRecordView};
 use crate::agent_sdk::{AgentClient, AgentError, AgentSession, Unsubscribe};
 use crate::agent_storage::AgentStorage;
+use crate::provider_subagents::ProviderSubagentStore;
 use crate::stream_coalescer::{AGENT_STREAM_COALESCE_DEFAULT_WINDOW_MS, AgentStreamCoalescer};
 use crate::timeline::TimelineStore;
 
@@ -170,6 +171,21 @@ pub enum AgentManagerEvent {
         epoch: Option<String>,
         timestamp: Option<String>,
     },
+    /// `{ type: "provider_subagent", event }`: a
+    /// [`ProviderSubagentStore`] event.
+    ProviderSubagent(JsValue),
+}
+
+/// The parent agent a `provider_subagent` store event belongs to.
+fn subagent_parent(event: &JsValue) -> Option<&str> {
+    let holder = if event.get("type").and_then(JsValue::as_str) == Some("upsert") {
+        event.get("subagent")
+    } else {
+        Some(event)
+    };
+    holder
+        .and_then(|holder| holder.get("parentAgentId"))
+        .and_then(JsValue::as_str)
 }
 
 /// `AgentSubscriber`.
@@ -272,6 +288,7 @@ pub(crate) struct State {
     /// `agents`, in map insertion order.
     pub(crate) agents: Vec<(String, ManagedAgent)>,
     pub(crate) timeline: TimelineStore,
+    pub(crate) provider_subagents: ProviderSubagentStore,
     pub(crate) coalescer: AgentStreamCoalescer,
     pub(crate) runs: HashMap<String, run::TrackedRun>,
     subscribers: Vec<SubscriptionRecord>,
@@ -411,6 +428,7 @@ impl AgentManager {
             provider_definitions: options.provider_definitions,
             agents: Vec::new(),
             timeline: TimelineStore::default(),
+            provider_subagents: ProviderSubagentStore::default(),
             coalescer: AgentStreamCoalescer::new(
                 options
                     .agent_stream_coalesce_window_ms
@@ -498,6 +516,9 @@ impl AgentManager {
                 .agent(agent_id)
                 .is_some_and(|agent| agent.snapshot.internal),
             AgentManagerEvent::TimelineReplacement { .. } => false,
+            AgentManagerEvent::ProviderSubagent(event) => subagent_parent(event)
+                .and_then(|parent| state.agent(parent))
+                .is_some_and(|agent| agent.snapshot.internal),
         };
         let callbacks: Vec<AgentSubscriber> = state
             .subscribers
@@ -507,6 +528,9 @@ impl AgentManager {
                     AgentManagerEvent::AgentStream { agent_id, .. } => agent_id == target,
                     AgentManagerEvent::AgentState(agent) => agent.id == *target,
                     AgentManagerEvent::TimelineReplacement { .. } => true,
+                    AgentManagerEvent::ProviderSubagent(event) => {
+                        subagent_parent(event) == Some(target.as_str())
+                    }
                 },
                 None => !belongs_to_internal,
             })
@@ -666,6 +690,98 @@ impl AgentManager {
             .rows(agent_id)
             .map(|rows| rows.iter().map(|row| row.to_js(false)).collect())
             .map_err(|error| AgentError::new(error.to_string()))
+    }
+
+    /// `requirePublicAgent(id)`.
+    fn require_public_agent<'a>(
+        state: &'a State,
+        agent_id: &str,
+    ) -> Result<&'a ManagedAgent, AgentError> {
+        let agent = Self::require_agent(state, agent_id)?;
+        if agent.snapshot.internal {
+            return Err(AgentError::new(format!(
+                "Unknown agent '{}'",
+                agent.snapshot.id
+            )));
+        }
+        Ok(agent)
+    }
+
+    /// `listProviderSubagents(parentAgentId)`.
+    ///
+    /// # Errors
+    ///
+    /// `Unknown agent` for a missing or internal parent.
+    pub fn list_provider_subagents(
+        &self,
+        parent_agent_id: &str,
+    ) -> Result<Vec<JsValue>, AgentError> {
+        let state = self.lock();
+        Self::require_public_agent(&state, parent_agent_id)?;
+        Ok(state.provider_subagents.list(parent_agent_id))
+    }
+
+    /// `listProviderSubagentActivity()`: every child of a public agent.
+    #[must_use]
+    pub fn list_provider_subagent_activity(&self) -> Vec<JsValue> {
+        let state = self.lock();
+        state
+            .provider_subagents
+            .list_all()
+            .into_iter()
+            .filter(|subagent| {
+                subagent
+                    .get("parentAgentId")
+                    .and_then(JsValue::as_str)
+                    .and_then(|parent| state.agent(parent))
+                    .is_some_and(|agent| !agent.snapshot.internal)
+            })
+            .collect()
+    }
+
+    /// `getProviderSubagent(parentAgentId, subagentId)`.
+    ///
+    /// # Errors
+    ///
+    /// `Unknown agent` for a missing or internal parent.
+    pub fn get_provider_subagent(
+        &self,
+        parent_agent_id: &str,
+        subagent_id: &str,
+    ) -> Result<Option<JsValue>, AgentError> {
+        let state = self.lock();
+        Self::require_public_agent(&state, parent_agent_id)?;
+        Ok(state.provider_subagents.get(parent_agent_id, subagent_id))
+    }
+
+    /// `fetchProviderSubagentTimeline(parentAgentId, subagentId, options)`.
+    ///
+    /// # Errors
+    ///
+    /// `Unknown agent` for a missing or internal parent, and the timeline
+    /// store's errors for an unknown child.
+    pub fn fetch_provider_subagent_timeline(
+        &self,
+        parent_agent_id: &str,
+        subagent_id: &str,
+        direction: crate::timeline::FetchDirection,
+        cursor: Option<&crate::timeline::TimelineCursor>,
+        limit: Option<usize>,
+    ) -> Result<crate::timeline::TimelineFetch, AgentError> {
+        let state = self.lock();
+        Self::require_public_agent(&state, parent_agent_id)?;
+        state
+            .provider_subagents
+            .fetch_timeline(parent_agent_id, subagent_id, direction, cursor, limit)
+            .map_err(|error| match error {
+                crate::timeline::TimelineError::Type(error) => AgentError {
+                    name: "TypeError".to_owned(),
+                    message: error.0,
+                },
+                crate::timeline::TimelineError::UnknownAgent(error) => {
+                    AgentError::new(error.to_string())
+                }
+            })
     }
 
     /// `fetchTimeline(id, options)`.
