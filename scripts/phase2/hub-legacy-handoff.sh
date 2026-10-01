@@ -170,8 +170,12 @@ gtimeout 30 jq -n \
   }' >"$fixture_root/report.json"
 
 gtimeout 30 jq -e '
-  .forwardHandoff.status == "supported"
+  .baseline.sourceTreeMutated == false
+  and .forwardHandoff.status == "supported"
   and .schemaMigration.status == "no-op-current-schema"
+  and .schemaMigration.beforeJournalRows == 49
+  and .schemaMigration.applied == 0
+  and .schemaMigration.afterJournalRows == 49
   and .dataPreservation.status == "preserved"
   and .dataPreservation.baselineMarkerPayload == "baseline-data-preserved"
   and .dataPreservation.candidateMarkerPayload == "candidate-data-preserved"

@@ -15,6 +15,9 @@ printf '%s\n' "$plan" | grep -F 'storage: disposable copy only; baseline and .ba
 printf '%s\n' "$plan" | grep -F 'forward: pinned baseline writes, retained candidate opens same directory'
 printf '%s\n' "$plan" | grep -F 'reverse: pinned baseline reopens candidate-mutated directory, bounded to 300s'
 printf '%s\n' "$plan" | grep -F 'acceptance: compatibility exception remains required-not-accepted'
+grep -F '.baseline.sourceTreeMutated == false' "$runner" >/dev/null
+grep -F '.schemaMigration.beforeJournalRows == 49' "$runner" >/dev/null
+grep -F '.schemaMigration.afterJournalRows == 49' "$runner" >/dev/null
 
 gtimeout --kill-after=30 1200 "$runner" >"$output"
 
