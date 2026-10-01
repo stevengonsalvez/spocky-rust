@@ -196,8 +196,12 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
   of the comparison; there is no key sorting and no normalization.
 - `hub_api_evidence` asserts on every run that the Rust trace equals the committed trace
   `evidence/phase2/hub-api-original.json` and that the Rust OpenAPI document equals the committed
-  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (459 HTTP cases, 60
+  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (462 HTTP cases, 62
   scenarios, 10 manifest operations), so an empty or shrunken baseline fails.
+- Trace headers are the response `Headers` iteration: names lower case, sorted by name, equal names
+  combined with `, `. Operation inputs longer than 2,048 UTF-16 units are recorded as
+  `sha256:<UTF-16 length>:<digest of the UTF-8 JSON text>` instead of the text, so for the
+  megabyte-sized string cases the comparison covers the digest, not the characters.
 - Generated values are injected, never rewritten afterwards: identifiers `00000000-0000-4000-8000-<n>`
   (a counter reset for each case or scenario), random bytes taken from SHA-256 of
   `spocky-hub-api-random:<n>`, and a fixed clock starting at `2026-08-06T12:00:00.000Z`. A test checks
@@ -220,7 +224,7 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
 
 Result of the last run of `hub-api-compare.sh`: `matched: true`, `comparison: byte-identical`,
 `normalization: none`. The traces have SHA-256
-`059e42c27ea4239f1535cfbde5d4d84cf05a73a30847e704947c1cf1ef5e8649` and the OpenAPI documents have
+`3f1b7298e7dec2d38315754cb6095c11c91a1415edc71126c4f8096cd1ec93c2` and the OpenAPI documents have
 SHA-256 `7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69` (see
 `hub-api-sha256.txt`). Behavioral tests of the same flows are in `crates/spocky-hub-pilot/tests/hub_api.rs`.
 
@@ -238,12 +242,16 @@ outcome, credential kind, organization and scopes.
 - Operation results that Rust types cannot represent: non-integer versions, workflow statuses outside
   the four known values and structurally invalid results rejected by the baseline's `is*Result`
   guards. Integer versions at or below zero and non-UUID identifiers are covered.
-- JSON strings with lone surrogate escapes: V8 keeps them, Rust replaces them with U+FFFD. Nesting is
-  covered to depth 1,000; deeper values risk the thread stack when dropped or printed.
+- JSON strings with lone surrogate escapes are held by `spocky_contracts::js_value` as an escape pair;
+  no case compares them against the baseline yet. Nesting is covered up to about 1 MB of brackets
+  (500,000 arrays, 200,000 objects and an unterminated run): `js_value` parses, clones and drops
+  iteratively, and the pinned Hub answers 400 `invalid_request` or `invalid_json`.
 - Header values outside Latin-1 and request URLs with credentials cannot occur in fetch and are not
   modelled.
 - Database failures inside the CLI authorization handlers propagate out of the baseline handlers; Rust
   reports only access failures and an unusable verification URL that way.
+- The baseline never prunes `cli_authorizations` records (no delete in `memory.ts`, `pg.ts` or the
+  migrations); neither does Rust. The in-memory list is unbounded and scanned linearly.
 - Failure logging (`reportFailure`) and the framework's response to an exception are not compared.
 - Concurrent decisions, polls and starts. The in-memory state machine is single threaded.
 
