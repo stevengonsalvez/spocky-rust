@@ -15,17 +15,17 @@
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
   "activeChildren": [
     {
-      "id": "p2_relay_ops",
-      "terminal": "term_fae96698",
+      "id": "p2_renderer_linux",
+      "terminal": "term_a8d6b569",
       "model": "gpt-5.6-sol",
       "effort": "medium",
       "approvalPolicy": "never",
       "sandbox": "danger-full-access/unrestricted",
-      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-relay-ops",
-      "branch": "phase2-relay-ops",
-      "paths": ["crates/spocky-relay-pilot/", "scripts/phase2/relay-ops*", "evidence/phase2/relay-ops*"],
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-renderer-linux",
+      "branch": "phase2-renderer-linux",
+      "paths": ["crates/spocky-ui-renderer-pilot/", "scripts/phase2/renderer-platform*", "evidence/phase2/renderer-platform*"],
       "delegation": "forbidden",
-      "state": "running; local TLS, non-loopback, bounded load, and gauges only"
+      "state": "running; Linux Dioxus evidence only, renderer remains unselected"
     },
     {
       "id": "p2_hub_triggers",
@@ -435,11 +435,18 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "danger-full-access/unrestricted",
-          "status": "implementing",
+          "status": "done; local TLS, non-loopback, bounded load, and operational gauges qualified",
           "baseCommit": "42a2519316d4e08ec827061c8efe4ffc54f24a8d",
+          "sourceCommits": ["2576386358dea6a1978f75dd1354a728e204ba0f", "5c6ac61c7495fda94c6664edf8f21701bcbab6c3", "61f272956d34ff5b8e07e3796c3694588c05ec1c"],
+          "integrationCommits": ["c18ed697ae1ea9659e2daa1c4a2e8207dadf8913", "efb0265875f0c89cce7dbebd021bf88ae440f4fc", "3009a94e283b923f489cc0aceaa9c73488a788a8"],
           "dependencies": ["p2_relay_frame_parity"],
           "acceptanceCases": ["qualify local TLS without production deployment", "qualify non-loopback interfaces in an isolated environment", "run bounded load without port 6767", "publish fixed-cardinality operational gauges", "all services and descendants clean up exactly"],
-          "limitations": ["deployment remains outside scope"],
+          "workerVerification": "selected runtime 25/25, relay_frame_parity 8/8, relay_ops 3/3, package format, and all-target clippy passed",
+          "leadVerification": "relay_ops 3/3, relay_frame_parity 8/8, package format, and all-target clippy passed on main",
+          "evidence": ["evidence/phase2/relay-ops.md"],
+          "evidenceSha256": {"markdown": "c62a1f5907dcbb34d0577a11a97b285e9f0bef8fb7b3e7bf9d7653704f0dc239"},
+          "ownershipClassification": {"scripts/phase2/relay-ops-tls-proxy.py": "harness-only TLS edge proxy; excluded from shipped Rust runtime and not a compatibility runtime exception"},
+          "limitations": ["missing in-VM watchdog preserved", "23,001-WebSocket Fly epoch unexecuted", "production TLS and edge behavior unqualified", "DNS and deployment-provider adapters absent", "rolling drain unqualified", "deployment remains outside scope"],
           "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-relay-ops",
           "branch": "phase2-relay-ops",
           "delegation": "forbidden",
@@ -461,6 +468,22 @@
           "branch": "phase2-hub-triggers",
           "delegation": "forbidden",
           "permittedPaths": ["crates/spocky-hub-pilot/src/triggers/ (new files only)", "crates/spocky-hub-pilot/tests/hub_triggers*.rs", "scripts/phase2/hub-triggers*", "evidence/phase2/hub-triggers*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"]
+        },
+        {
+          "task": "p2_renderer_linux",
+          "canonicalThread": "external-codex/p2_renderer_linux",
+          "terminal": "term_a8d6b569",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "approvalPolicy": "never",
+          "sandbox": "danger-full-access/unrestricted",
+          "status": "implementing",
+          "dependencies": ["p2_ui_renderer_full"],
+          "acceptanceCases": ["compare Dioxus Linux visual RMSE against pinned browser baselines", "compare AT-SPI accessibility tree", "qualify one keyboard interaction", "retain renderer as unselected evidence-only pilot", "cap Docker at 3 GB and 2 CPUs with spocky-renderer-linux- identities"],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-renderer-linux",
+          "branch": "phase2-renderer-linux",
+          "delegation": "forbidden",
+          "permittedPaths": ["crates/spocky-ui-renderer-pilot/", "scripts/phase2/renderer-platform*", "evidence/phase2/renderer-platform*"]
         }
       ],
       "blockedBy": null
