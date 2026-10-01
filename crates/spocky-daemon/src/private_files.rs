@@ -57,7 +57,9 @@ pub fn ensure_private_file(file: &Path) {
 pub fn write_private_file_atomic(file: &Path, data: &[u8]) -> io::Result<()> {
     let parent = file.parent().unwrap_or_else(|| Path::new("."));
     ensure_private_directory(parent)?;
-    let name = file.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let name = file
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let temporary = parent.join(format!(".{name}.{}.{}", std::process::id(), Uuid::new_v4()));
     let result = write_new_private(&temporary, data)
         .and_then(|()| fs::rename(&temporary, file))
@@ -124,7 +126,10 @@ mod tests {
         let home = root.path().join("home");
         fs::create_dir_all(home.join("target")).unwrap();
         assert!(write_private_file_atomic(&home.join("target"), b"x").is_err());
-        let names: Vec<_> = fs::read_dir(&home).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let names: Vec<_> = fs::read_dir(&home)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(names, ["target"]);
     }
 
