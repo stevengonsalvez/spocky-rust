@@ -3,19 +3,23 @@
 //! Mirrors pinned Paseo `workspace-registry.ts`: `$PASEO_HOME/projects/projects.json`
 //! and `$PASEO_HOME/projects/workspaces.json` each hold one JSON array written
 //! by `JSON.stringify(records, null, 2)` through an atomic temp file and
-//! rename. Records are parsed with the zod schema semantics of the baseline:
-//! unknown keys are dropped, keys are re-emitted in schema order, and any
-//! invalid record makes the whole file load as empty (the baseline logs and
-//! continues). The cache keeps JavaScript `Map` insertion order.
+//! rename. Files are read with `JSON.parse` semantics ([`crate::js_value`])
+//! and records with the zod schema semantics of the baseline: unknown keys
+//! are dropped, keys are re-emitted in schema order, and any invalid record
+//! makes the whole file load as empty. The baseline then logs the failure
+//! and keeps accepting mutations, so the next write replaces the file; this
+//! port does the same and keeps the failure for the caller to log. The cache
+//! keeps JavaScript `Map` semantics: entries are keyed by the id they were
+//! stored under, in insertion order. String fields hold JavaScript text.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Map, Value};
-
 use crate::StoreError;
 use crate::atomic::write_json_atomic;
+use crate::collate::locale_compare;
+use crate::js_value::{JsObject, JsValue, parse, stringify_pretty};
 use crate::path_compare::are_equivalent_paths;
 use crate::time::parse_iso_millis;
 
@@ -142,10 +146,10 @@ pub trait RegistryRecord: Clone {
     /// # Errors
     ///
     /// Returns the first field that fails validation.
-    fn from_value(value: &Value) -> Result<Self, RecordError>;
+    fn from_value(value: &JsValue) -> Result<Self, RecordError>;
 
     /// Emits the record in schema key order, as zod output.
-    fn to_value(&self) -> Value;
+    fn to_value(&self) -> JsValue;
 
     /// Returns a copy with `updatedAt` and `archivedAt` set to `archived_at`.
     #[must_use]
@@ -159,7 +163,7 @@ impl RegistryRecord for PersistedProjectRecord {
         &self.project_id
     }
 
-    fn from_value(value: &Value) -> Result<Self, RecordError> {
+    fn from_value(value: &JsValue) -> Result<Self, RecordError> {
         let object = as_object(value, "record")?;
         let project_id = required_string(object, "projectId")?;
         let root_path = required_string(object, "rootPath")?;
@@ -181,22 +185,22 @@ impl RegistryRecord for PersistedProjectRecord {
         })
     }
 
-    fn to_value(&self) -> Value {
-        let mut map = Map::new();
-        map.insert("projectId".into(), self.project_id.clone().into());
-        map.insert("rootPath".into(), self.root_path.clone().into());
-        map.insert("kind".into(), self.kind.as_str().into());
-        map.insert("displayName".into(), self.display_name.clone().into());
-        map.insert("projectKey".into(), option_value(self.project_key.as_ref()));
-        map.insert("customName".into(), option_value(self.custom_name.as_ref()));
+    fn to_value(&self) -> JsValue {
+        let mut map = JsObject::new();
+        map.insert("projectId", text(&self.project_id));
+        map.insert("rootPath", text(&self.root_path));
+        map.insert("kind", text(self.kind.as_str()));
+        map.insert("displayName", text(&self.display_name));
+        map.insert("projectKey", option_value(self.project_key.as_ref()));
+        map.insert("customName", option_value(self.custom_name.as_ref()));
         map.insert(
-            "customIconRevision".into(),
+            "customIconRevision",
             option_value(self.custom_icon_revision.as_ref()),
         );
-        map.insert("createdAt".into(), self.created_at.clone().into());
-        map.insert("updatedAt".into(), self.updated_at.clone().into());
-        map.insert("archivedAt".into(), option_value(self.archived_at.as_ref()));
-        Value::Object(map)
+        map.insert("createdAt", text(&self.created_at));
+        map.insert("updatedAt", text(&self.updated_at));
+        map.insert("archivedAt", option_value(self.archived_at.as_ref()));
+        JsValue::Object(map)
     }
 
     fn archived(&self, archived_at: &str) -> Self {
@@ -217,7 +221,7 @@ impl RegistryRecord for PersistedWorkspaceRecord {
         &self.workspace_id
     }
 
-    fn from_value(value: &Value) -> Result<Self, RecordError> {
+    fn from_value(value: &JsValue) -> Result<Self, RecordError> {
         let object = as_object(value, "record")?;
         let workspace_id = required_string(object, "workspaceId")?;
         let project_id = required_string(object, "projectId")?;
@@ -251,54 +255,49 @@ impl RegistryRecord for PersistedWorkspaceRecord {
         })
     }
 
-    fn to_value(&self) -> Value {
-        let mut map = Map::new();
-        map.insert("workspaceId".into(), self.workspace_id.clone().into());
-        map.insert("projectId".into(), self.project_id.clone().into());
-        map.insert("cwd".into(), self.cwd.clone().into());
-        map.insert("kind".into(), self.kind.as_str().into());
-        map.insert("displayName".into(), self.display_name.clone().into());
-        map.insert("title".into(), option_value(self.title.as_ref()));
-        map.insert("branch".into(), option_value(self.branch.as_ref()));
+    fn to_value(&self) -> JsValue {
+        let mut map = JsObject::new();
+        map.insert("workspaceId", text(&self.workspace_id));
+        map.insert("projectId", text(&self.project_id));
+        map.insert("cwd", text(&self.cwd));
+        map.insert("kind", text(self.kind.as_str()));
+        map.insert("displayName", text(&self.display_name));
+        map.insert("title", option_value(self.title.as_ref()));
+        map.insert("branch", option_value(self.branch.as_ref()));
+        map.insert("worktreeRoot", option_value(self.worktree_root.as_ref()));
+        map.insert("baseBranch", option_value(self.base_branch.as_ref()));
         map.insert(
-            "worktreeRoot".into(),
-            option_value(self.worktree_root.as_ref()),
+            "isPaseoOwnedWorktree",
+            JsValue::Bool(self.is_paseo_owned_worktree),
         );
-        map.insert("baseBranch".into(), option_value(self.base_branch.as_ref()));
+        map.insert("mainRepoRoot", option_value(self.main_repo_root.as_ref()));
+        map.insert("createdAt", text(&self.created_at));
+        map.insert("updatedAt", text(&self.updated_at));
+        map.insert("archivedAt", option_value(self.archived_at.as_ref()));
         map.insert(
-            "isPaseoOwnedWorktree".into(),
-            self.is_paseo_owned_worktree.into(),
-        );
-        map.insert(
-            "mainRepoRoot".into(),
-            option_value(self.main_repo_root.as_ref()),
-        );
-        map.insert("createdAt".into(), self.created_at.clone().into());
-        map.insert("updatedAt".into(), self.updated_at.clone().into());
-        map.insert("archivedAt".into(), option_value(self.archived_at.as_ref()));
-        map.insert(
-            "autoArchivedChangeRequestUrl".into(),
+            "autoArchivedChangeRequestUrl",
             option_value(self.auto_archived_change_request_url.as_ref()),
         );
-        map.insert("pinnedAt".into(), option_value(self.pinned_at.as_ref()));
+        map.insert("pinnedAt", option_value(self.pinned_at.as_ref()));
         if let Some(labels) = &self.labels {
             map.insert(
-                "labels".into(),
-                Value::Array(labels.iter().cloned().map(Value::String).collect()),
+                "labels",
+                JsValue::Array(labels.iter().map(|label| text(label)).collect()),
             );
         }
         if let Some(source) = &self.untrusted_source {
-            let mut nested = Map::new();
-            nested.insert("kind".into(), "change_request".into());
-            nested.insert("forge".into(), source.forge.clone().into());
-            nested.insert("number".into(), source.number.into());
-            nested.insert(
-                "headRepository".into(),
-                source.head_repository.clone().into(),
-            );
-            map.insert("untrustedSource".into(), Value::Object(nested));
+            let mut nested = JsObject::new();
+            nested.insert("kind", text("change_request"));
+            nested.insert("forge", text(&source.forge));
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "parsed numbers never exceed Number.MAX_SAFE_INTEGER"
+            )]
+            nested.insert("number", JsValue::Number(source.number as f64));
+            nested.insert("headRepository", text(&source.head_repository));
+            map.insert("untrustedSource", JsValue::Object(nested));
         }
-        Value::Object(map)
+        JsValue::Object(map)
     }
 
     fn archived(&self, archived_at: &str) -> Self {
@@ -314,27 +313,25 @@ impl RegistryRecord for PersistedWorkspaceRecord {
     }
 }
 
-fn as_object<'a>(
-    value: &'a Value,
-    field: &'static str,
-) -> Result<&'a Map<String, Value>, RecordError> {
+fn text(value: &str) -> JsValue {
+    JsValue::String(value.to_owned())
+}
+
+fn as_object<'a>(value: &'a JsValue, field: &'static str) -> Result<&'a JsObject, RecordError> {
     value.as_object().ok_or(RecordError {
         field,
         expected: "object",
     })
 }
 
-fn option_value(value: Option<&String>) -> Value {
-    value.map_or(Value::Null, |inner| Value::String(inner.clone()))
+fn option_value(value: Option<&String>) -> JsValue {
+    value.map_or(JsValue::Null, |inner| JsValue::String(inner.clone()))
 }
 
 /// `z.string()`.
-fn required_string(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<String, RecordError> {
+fn required_string(object: &JsObject, field: &'static str) -> Result<String, RecordError> {
     match object.get(field) {
-        Some(Value::String(value)) => Ok(value.clone()),
+        Some(JsValue::String(value)) => Ok(value.clone()),
         _ => Err(RecordError {
             field,
             expected: "string",
@@ -343,13 +340,10 @@ fn required_string(
 }
 
 /// `z.string().nullable()`: the key is required.
-fn nullable_string(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<Option<String>, RecordError> {
+fn nullable_string(object: &JsObject, field: &'static str) -> Result<Option<String>, RecordError> {
     match object.get(field) {
-        Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(Value::Null) => Ok(None),
+        Some(JsValue::String(value)) => Ok(Some(value.clone())),
+        Some(JsValue::Null) => Ok(None),
         _ => Err(RecordError {
             field,
             expected: "string | null",
@@ -359,13 +353,10 @@ fn nullable_string(
 
 /// `z.string().nullable().optional()` with `?? null`, and
 /// `z.string().nullable().default(null)`: missing and `null` both become null.
-fn nullish_string(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<Option<String>, RecordError> {
+fn nullish_string(object: &JsObject, field: &'static str) -> Result<Option<String>, RecordError> {
     match object.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
+        None | Some(JsValue::Null) => Ok(None),
+        Some(JsValue::String(value)) => Ok(Some(value.clone())),
         Some(_) => Err(RecordError {
             field,
             expected: "string | null | undefined",
@@ -374,10 +365,10 @@ fn nullish_string(
 }
 
 /// `z.boolean().default(false)`.
-fn defaulted_bool(object: &Map<String, Value>, field: &'static str) -> Result<bool, RecordError> {
+fn defaulted_bool(object: &JsObject, field: &'static str) -> Result<bool, RecordError> {
     match object.get(field) {
         None => Ok(false),
-        Some(Value::Bool(value)) => Ok(*value),
+        Some(JsValue::Bool(value)) => Ok(*value),
         Some(_) => Err(RecordError {
             field,
             expected: "boolean | undefined",
@@ -387,7 +378,7 @@ fn defaulted_bool(object: &Map<String, Value>, field: &'static str) -> Result<bo
 
 /// `z.array(z.string()).optional()`.
 fn optional_string_array(
-    object: &Map<String, Value>,
+    object: &JsObject,
     field: &'static str,
 ) -> Result<Option<Vec<String>>, RecordError> {
     let Some(value) = object.get(field) else {
@@ -413,31 +404,27 @@ fn optional_string_array(
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 fn optional_untrusted_source(
-    object: &Map<String, Value>,
+    object: &JsObject,
 ) -> Result<Option<UntrustedWorkspaceSource>, RecordError> {
     let Some(value) = object.get("untrustedSource") else {
         return Ok(None);
     };
     let nested = as_object(value, "untrustedSource")?;
-    match nested.get("kind") {
-        Some(Value::String(kind)) if kind == "change_request" => {}
-        _ => {
-            return Err(RecordError {
-                field: "untrustedSource.kind",
-                expected: "\"change_request\"",
-            });
-        }
+    if nested.get("kind").and_then(JsValue::as_str) != Some("change_request") {
+        return Err(RecordError {
+            field: "untrustedSource.kind",
+            expected: "\"change_request\"",
+        });
     }
     let forge = required_string(nested, "forge")?;
-    let number_error = RecordError {
-        field: "untrustedSource.number",
-        expected: "positive safe integer",
-    };
     let number = nested
         .get("number")
-        .and_then(Value::as_f64)
+        .and_then(JsValue::as_f64)
         .filter(|number| number.fract() == 0.0 && *number >= 1.0 && *number <= MAX_SAFE_INTEGER)
-        .ok_or(number_error)?;
+        .ok_or(RecordError {
+            field: "untrustedSource.number",
+            expected: "positive safe integer",
+        })?;
     let head_repository = required_string(nested, "headRepository")?;
     #[allow(
         clippy::cast_possible_truncation,
@@ -458,7 +445,7 @@ fn optional_untrusted_source(
 ///
 /// Returns an error when the text is not JSON, not an array, or any record fails.
 pub fn parse_registry_file<R: RegistryRecord>(raw: &str) -> Result<Vec<R>, StoreError> {
-    let value: Value = serde_json::from_str(raw).map_err(StoreError::InvalidJson)?;
+    let value = parse(raw).map_err(StoreError::JsonSyntax)?;
     let items = value
         .as_array()
         .ok_or(StoreError::InvalidRecord(RecordError {
@@ -472,20 +459,21 @@ pub fn parse_registry_file<R: RegistryRecord>(raw: &str) -> Result<Vec<R>, Store
 }
 
 /// Renders records exactly as `JSON.stringify(records, null, 2)`.
-///
-/// # Errors
-///
-/// Returns an error if serialization fails.
-pub fn render_registry_file<R: RegistryRecord>(records: &[R]) -> Result<String, StoreError> {
-    let values = Value::Array(records.iter().map(RegistryRecord::to_value).collect());
-    serde_json::to_string_pretty(&values).map_err(StoreError::InvalidJson)
+#[must_use]
+pub fn render_registry_file<R: RegistryRecord>(records: &[R]) -> String {
+    stringify_pretty(&JsValue::Array(
+        records.iter().map(RegistryRecord::to_value).collect(),
+    ))
 }
 
-/// `FileBackedRegistry`: lazy load, insertion-ordered cache, write on change.
+/// `FileBackedRegistry`: lazy load, `Map`-keyed cache, write on change.
 #[derive(Debug)]
 pub struct FileRegistry<R: RegistryRecord> {
     path: PathBuf,
-    cache: Option<Vec<R>>,
+    /// `(key, record)` in `Map` insertion order. The key is the id the
+    /// record was stored under, which an updater may later change.
+    cache: Option<Vec<(String, R)>>,
+    load_failure: Option<StoreError>,
 }
 
 impl<R: RegistryRecord> FileRegistry<R> {
@@ -494,6 +482,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
         Self {
             path: path.into(),
             cache: None,
+            load_failure: None,
         }
     }
 
@@ -507,59 +496,72 @@ impl<R: RegistryRecord> FileRegistry<R> {
         self.path.exists()
     }
 
-    /// Loads the file once. A missing or invalid file yields an empty cache,
-    /// as the baseline does after logging. Returns the load failure, if any,
-    /// so the caller can log it.
-    pub fn initialize(&mut self) -> Option<StoreError> {
-        if self.cache.is_some() {
-            return None;
+    /// Loads the file once. A missing file yields an empty cache silently;
+    /// an unreadable or invalid one yields an empty cache and is kept in
+    /// [`Self::load_failure`], where the baseline logs
+    /// `"Failed to load registry file"`.
+    pub fn initialize(&mut self) -> Option<&StoreError> {
+        if self.cache.is_none() {
+            let (records, failure) = match fs::read(&self.path) {
+                Ok(bytes) => match parse_registry_file::<R>(&String::from_utf8_lossy(&bytes)) {
+                    Ok(records) => (keyed(records), None),
+                    Err(error) => (Vec::new(), Some(error)),
+                },
+                Err(error) if error.kind() == io::ErrorKind::NotFound => (Vec::new(), None),
+                Err(source) => (
+                    Vec::new(),
+                    Some(StoreError::Io {
+                        operation: "read registry file",
+                        source,
+                    }),
+                ),
+            };
+            self.cache = Some(records);
+            self.load_failure = failure;
         }
-        let (records, failure) = match fs::read(&self.path) {
-            Ok(bytes) => match parse_registry_file::<R>(&String::from_utf8_lossy(&bytes)) {
-                Ok(records) => (dedupe_by_id(records), None),
-                Err(error) => (Vec::new(), Some(error)),
-            },
-            Err(error) if error.kind() == io::ErrorKind::NotFound => (Vec::new(), None),
-            Err(source) => (
-                Vec::new(),
-                Some(StoreError::Io {
-                    operation: "read registry file",
-                    source,
-                }),
-            ),
-        };
-        self.cache = Some(records);
-        failure
+        self.load_failure.as_ref()
     }
 
-    fn records(&mut self) -> &mut Vec<R> {
+    /// The failure from the one load, if the file was unreadable or invalid.
+    #[must_use]
+    pub const fn load_failure(&self) -> Option<&StoreError> {
+        self.load_failure.as_ref()
+    }
+
+    fn entries(&mut self) -> &mut Vec<(String, R)> {
         self.initialize();
         self.cache.get_or_insert_with(Vec::new)
     }
 
     pub fn list(&mut self) -> Vec<R> {
-        self.records().clone()
-    }
-
-    pub fn get(&mut self, id: &str) -> Option<R> {
-        self.records()
+        self.entries()
             .iter()
-            .find(|record| record.id() == id)
-            .cloned()
+            .map(|(_, record)| record.clone())
+            .collect()
     }
 
-    /// Sets one record, keeping the position of an existing id.
+    /// `Map.get(id)`: looks up by stored key.
+    pub fn get(&mut self, id: &str) -> Option<R> {
+        self.entries()
+            .iter()
+            .find(|(key, _)| key == id)
+            .map(|(_, record)| record.clone())
+    }
+
+    /// Sets one record under its id, keeping the position of an existing key.
     ///
     /// # Errors
     ///
     /// Returns an error if the atomic write fails; the cache is then unchanged.
     pub fn upsert(&mut self, record: R) -> Result<(), StoreError> {
-        let mut staged = self.records().clone();
-        set_record(&mut staged, record);
+        let mut staged = self.entries().clone();
+        set_entry(&mut staged, record.id().to_owned(), record);
         self.commit(staged)
     }
 
-    /// Replaces an existing record through `updater`.
+    /// Replaces the record stored under `id` through `updater`. The result
+    /// stays under `id` at the same position even if the updater changed
+    /// the record's own id, as `records.set(id, next)` does.
     ///
     /// # Errors
     ///
@@ -569,12 +571,16 @@ impl<R: RegistryRecord> FileRegistry<R> {
         id: &str,
         updater: impl FnOnce(&R) -> R,
     ) -> Result<Option<R>, StoreError> {
-        let mut staged = self.records().clone();
-        let Some(existing) = staged.iter().find(|record| record.id() == id) else {
+        let mut staged = self.entries().clone();
+        let Some(existing) = staged
+            .iter()
+            .find(|(key, _)| key == id)
+            .map(|(_, record)| record)
+        else {
             return Ok(None);
         };
         let next = updater(existing);
-        set_record(&mut staged, next.clone());
+        set_entry(&mut staged, id.to_owned(), next.clone());
         self.commit(staged)?;
         Ok(Some(next))
     }
@@ -592,7 +598,8 @@ impl<R: RegistryRecord> FileRegistry<R> {
         self.update(id, |existing| existing.archived(archived_at))
     }
 
-    /// `archiveIfActive`.
+    /// `archiveIfActive`: an empty `archivedAt` counts as active, as a falsy
+    /// value does in the baseline.
     ///
     /// # Errors
     ///
@@ -603,9 +610,9 @@ impl<R: RegistryRecord> FileRegistry<R> {
         archived_at: &str,
     ) -> Result<Option<R>, StoreError> {
         let active = self
-            .records()
+            .entries()
             .iter()
-            .any(|record| record.id() == id && record.archived_at().is_none_or(str::is_empty));
+            .any(|(key, record)| key == id && record.archived_at().is_none_or(str::is_empty));
         if !active {
             return Ok(None);
         }
@@ -618,40 +625,38 @@ impl<R: RegistryRecord> FileRegistry<R> {
     ///
     /// Returns an error if the atomic write fails.
     pub fn remove_if_present(&mut self, id: &str) -> Result<Option<R>, StoreError> {
-        let mut staged = self.records().clone();
-        let Some(index) = staged.iter().position(|record| record.id() == id) else {
+        let mut staged = self.entries().clone();
+        let Some(index) = staged.iter().position(|(key, _)| key == id) else {
             return Ok(None);
         };
-        let removed = staged.remove(index);
+        let (_, removed) = staged.remove(index);
         self.commit(staged)?;
         Ok(Some(removed))
     }
 
-    fn commit(&mut self, staged: Vec<R>) -> Result<(), StoreError> {
-        write_json_atomic(&self.path, &render_registry_file(&staged)?)?;
+    fn commit(&mut self, staged: Vec<(String, R)>) -> Result<(), StoreError> {
+        let records: Vec<R> = staged.iter().map(|(_, record)| record.clone()).collect();
+        write_json_atomic(&self.path, &render_registry_file(&records))?;
         self.cache = Some(staged);
         Ok(())
     }
 }
 
 /// `Map.set` semantics: replace in place, otherwise append.
-fn set_record<R: RegistryRecord>(records: &mut Vec<R>, record: R) {
-    match records
-        .iter()
-        .position(|existing| existing.id() == record.id())
-    {
-        Some(index) => records[index] = record,
-        None => records.push(record),
+fn set_entry<R>(entries: &mut Vec<(String, R)>, key: String, record: R) {
+    match entries.iter().position(|(existing, _)| *existing == key) {
+        Some(index) => entries[index].1 = record,
+        None => entries.push((key, record)),
     }
 }
 
 /// Loading into a `Map` keeps the first position and the last value of a repeated id.
-fn dedupe_by_id<R: RegistryRecord>(records: Vec<R>) -> Vec<R> {
-    let mut unique = Vec::with_capacity(records.len());
+fn keyed<R: RegistryRecord>(records: Vec<R>) -> Vec<(String, R)> {
+    let mut entries = Vec::with_capacity(records.len());
     for record in records {
-        set_record(&mut unique, record);
+        set_entry(&mut entries, record.id().to_owned(), record);
     }
-    unique
+    entries
 }
 
 pub type ProjectRegistry = FileRegistry<PersistedProjectRecord>;
@@ -686,6 +691,20 @@ impl ProjectAllocation {
 }
 
 impl FileRegistry<PersistedProjectRecord> {
+    /// `FileBackedProjectRegistry.archive`: archives only an active project.
+    /// Returns the archived record to publish, or `None` when nothing changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the atomic write fails.
+    pub fn archive(
+        &mut self,
+        project_id: &str,
+        archived_at: &str,
+    ) -> Result<Option<PersistedProjectRecord>, StoreError> {
+        self.archive_if_active(project_id, archived_at)
+    }
+
     /// Returns the oldest active project at an equivalent root, refreshing its
     /// kind and key when they differ, or creates one with a fresh id.
     ///
@@ -698,14 +717,13 @@ impl FileRegistry<PersistedProjectRecord> {
         mut project_id_factory: impl FnMut() -> String,
     ) -> Result<ProjectAllocation, StoreError> {
         let active = self
-            .records()
-            .iter()
+            .list()
+            .into_iter()
             .filter(|project| {
                 project.archived_at.as_deref().is_none_or(str::is_empty)
                     && are_equivalent_paths(&project.root_path, input.root_path)
             })
-            .min_by(|left, right| compare_projects(left, right))
-            .cloned();
+            .min_by(compare_projects);
         if let Some(active) = active {
             if active.kind == input.kind && active.project_key.as_deref() == input.project_key {
                 return Ok(ProjectAllocation::Existing(active));
@@ -742,8 +760,34 @@ impl FileRegistry<PersistedProjectRecord> {
     }
 }
 
-/// `Date.parse(left.createdAt) - Date.parse(right.createdAt) || localeCompare`.
-/// A `NaN` or zero difference falls through to the id comparison.
+impl FileRegistry<PersistedWorkspaceRecord> {
+    /// `FileBackedWorkspaceRegistry.archive`: stamps `updatedAt` and
+    /// `archivedAt` even on an archived record, and records the consumed
+    /// change request URL when one is given (a truthy value in the baseline).
+    /// Returns the record to publish, or `None` when the id is unknown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the atomic write fails.
+    pub fn archive(
+        &mut self,
+        workspace_id: &str,
+        archived_at: &str,
+        auto_archived_change_request_url: Option<&str>,
+    ) -> Result<Option<PersistedWorkspaceRecord>, StoreError> {
+        self.update(workspace_id, |existing| {
+            let mut next = existing.archived(archived_at);
+            if let Some(url) = auto_archived_change_request_url.filter(|url| !url.is_empty()) {
+                next.auto_archived_change_request_url = Some(url.to_owned());
+            }
+            next
+        })
+    }
+}
+
+/// `Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+/// left.projectId.localeCompare(right.projectId)`. A `NaN` or zero
+/// difference falls through to the id collation.
 fn compare_projects(
     left: &PersistedProjectRecord,
     right: &PersistedProjectRecord,
@@ -753,7 +797,7 @@ fn compare_projects(
         parse_iso_millis(&right.created_at),
     ) {
         (Some(a), Some(b)) if a != b => a.cmp(&b),
-        _ => left.project_id.cmp(&right.project_id),
+        _ => locale_compare(&left.project_id, &right.project_id),
     }
 }
 
