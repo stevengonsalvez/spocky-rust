@@ -1,0 +1,4501 @@
+{
+  "boundary": {
+    "dialect": "PostgreSQL",
+    "engine": "PGlite",
+    "migrations": "baseline journal via framed Rust-to-Node IPC",
+    "schema": "baseline relational"
+  },
+  "failures": {
+    "lostReply": "ReplyLost { request_id: 6, write_may_have_committed: true, cause: \"failed to fill whole buffer\" }",
+    "rollback": {
+      "code": "23505",
+      "details": {
+        "column": null,
+        "constraint": "differential_probe_value_key",
+        "detail": "Key (value)=(kept) already exists.",
+        "hint": null,
+        "name": "error",
+        "position": null,
+        "schema": "public",
+        "severity": "ERROR",
+        "table": "differential_probe"
+      },
+      "message": "duplicate key value violates unique constraint \"differential_probe_value_key\""
+    },
+    "secondOwner": "DIRECTORY_IN_USE"
+  },
+  "identity": {
+    "adapterDependencies": [
+      "node:crypto",
+      "node:fs",
+      "node:fs/promises",
+      "node:os",
+      "node:path",
+      "node:url"
+    ],
+    "arch": "x64",
+    "nodeExecutable": "/usr/local/Cellar/node/26.7.0/bin/node",
+    "nodeExecutableSha256": "9bc2ac1e3fbfe4e9c3e2194283861d3cc7f07daa7a22a59be6ae79229922f540",
+    "nodeVersion": "v26.7.0",
+    "os": "darwin",
+    "package": "@electric-sql/pglite",
+    "packageDependencies": {},
+    "packageVersion": "0.5.4"
+  },
+  "observations": {
+    "catalogTablesRaw": {
+      "affectedRows": 52,
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          {
+            "type": "string",
+            "value": "drizzle.__drizzle_migrations"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.account"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.agent_executions"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.agent_sessions"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.attachment_capabilities"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.audit_events"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.billing_plan_prices"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.billing_plans"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.cli_authorizations"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.configuration_sync_attempts"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.daemon_enrollment_tokens"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.daemons"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.differential_probe"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.discord_connections"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.entitlement_changes"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.execution_authorities"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.execution_credential_leases"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.github_connections"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.github_repositories"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.instance_bootstrap"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.invitation"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.linear_connections"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.machines"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.member"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_api_keys"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_billing_customers"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_cli_credentials"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_connection_attempts"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_entitlements"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_trigger_revisions"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_trigger_routes"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_triggers"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.organization_usage"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.paseo_hub_migrations"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.project_configuration_revisions"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.project_configuration_sources"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.project_trigger_migrations"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.project_trigger_routes"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.projects"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.provider_event_receipts"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.runtime_configuration"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.runtime_provider_activation"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.runtime_provider_configuration"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.session"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.slack_connections"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.trigger_runs"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.trigger_schedules"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.user"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.verification"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.workflow_step_runs"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "public.workflow_wakeups"
+          }
+        ]
+      ]
+    },
+    "constraintsRaw": {
+      "affectedRows": 458,
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          {
+            "type": "string",
+            "value": "account_account_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_provider_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_user_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "account_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_agent_session_id_agent_sessions_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_configuration_revision_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_daemon_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_daemon_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_hub_action_acknowledgements_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_hub_action_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_machine_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_machine_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_output_delivery_attempts_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_output_emissions_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_reply_claim_count_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_revision_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_started_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_workflow_step_run_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_data_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_project_id_projects_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_connection_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_filename_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_locator_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_provider_event_receipt_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_receipt_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_source_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_action_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_actor_identity_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_actor_kind_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_actor_kind_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_evidence_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_project_id_projects_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_subject_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_subject_type_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_active_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_currency_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_interval_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_interval_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_lookup_key_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_plan_id_billing_plans_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_plan_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_unit_amount_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_active_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_marketing_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_synced_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_template_hash_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_template_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_credential_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_device_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_device_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_fingerprint_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_next_poll_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_poll_interval_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_poll_interval_seconds_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_user_code_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_user_code_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_evidence_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_github_connection_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_outcome_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_issued_by_cli_credential_id_organizati"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_verifier_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_credential_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_daemon_public_key_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_enrollment_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_idempotency_key_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_idempotency_key_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_last_seen_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_machine_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_machine_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_presence_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_presence_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_registered_by_cli_credential_id_organization_cli_creden"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_scopes_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_server_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "differential_probe_value_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "differential_probe_value_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_connected_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_connected_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_guild_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_guild_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_guild_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_after_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_source_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_source_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_authorities_data_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_authorities_execution_id_agent_executions_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_authorities_execution_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_credential_leases_data_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_credential_leases_execution_id_agent_executions_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_credential_leases_execution_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_credential_leases_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_account_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_account_login_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_account_type_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_connected_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_connected_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_installation_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_installation_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_connection_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_connection_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_default_branch_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_discovered_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_full_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_repository_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "instance_bootstrap_completion_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "instance_bootstrap_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "instance_bootstrap_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "instance_bootstrap_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "instance_bootstrap_owner_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_email_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_inviter_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_inviter_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_organization_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_role_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitation_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitations_role_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitations_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_access_token_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_app_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_connected_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_connected_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_linear_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_linear_organization_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_linear_organization_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_scopes_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_org_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_source_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_started_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_organization_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_role_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_user_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "member_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "members_role_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_created_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_prefix_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_scopes_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_scopes_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_billing_customers_organization_id_organization_id_"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_created_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_prefix_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempt_activate_configuration_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempt_configuration_snapshot_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_callback_origin_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_configuration_version_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_organization_id_organization_i"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_phase_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_phase_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_return_route_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_session_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_session_id_session_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_shape_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_state_verifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_state_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_granted_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_overrides_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_stamped_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_entitlements_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_slug_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_subscriptions_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_subscriptions_stripe_customer_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_subscriptions_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revision_normalized_configuration_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_content_hash_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_created_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_source_evidence_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_source_kind_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_source_kind_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_trigger_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_trigger_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_version_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_yaml_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_configured_event_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_connection_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_revision_trigger_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_trigger_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_trigger_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_trigger_revision_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_active_revision_id_organization_trigger_r"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_enabled_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_format_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_format_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_runtime_project_id_projects_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_meter_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_period_start_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_used_non_negative"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_used_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "paseo_hub_migrations_applied_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "paseo_hub_migrations_filename_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisio_normalized_configuration_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_content_hash_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_created_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_source_evidence_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_source_kind_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_source_kind_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_version_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sourc_automatic_deployment_enabl_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_authority_shape_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_github_connection_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_kind_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_selected_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_sources_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_configuration_revision_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_migrated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_project_id_projects_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_revision_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_configuration_revision_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_connection_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_revision_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_trigger_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_active_configuration_revision_id_project_configuration"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_active_revision_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_archive_shape_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_created_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_delivery_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_payload_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_received_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_source_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_configuration_auth_secret_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_configuration_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_configuration_singleton_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_configuration_singleton_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_activated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_configuration_version_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_provider_application_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_activation_version_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configurat_verified_external_identity_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_configuration_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_provider_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_provider_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_updated_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_verified_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_version_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "runtime_provider_configuration_version_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_token_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_token_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_user_id_fkey"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_bot_access_token_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_bot_user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_connected_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_connected_by_user_id_user_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_organization_id_organization_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_scopes_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_slug_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_team_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_team_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_team_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_configuration_revision_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_configured_trigger_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_deadline_kind_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_deadline_shape_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_inputs_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_organization_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_outcome_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_outcome_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_output_context_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_project_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_prompt_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_provider_event_receipt_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_receipt_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_revision_project_organization_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_trigger_context_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_values_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_schedules_active_run_id_trigger_runs_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_schedules_trigger_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_schedules_trigger_id_organization_triggers_id_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_email_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_email_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_email_verified_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_is_instance_operator_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_must_change_password_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_name_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_created_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_expires_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_identifier_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_updated_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "verification_value_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_deadline_kind_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_ordinal_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_status_check"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_status_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_step_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_trigger_run_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_trigger_run_id_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_wakeups_available_at_not_null"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_wakeups_trigger_run_fk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_wakeups_trigger_run_id_not_null"
+          }
+        ]
+      ]
+    },
+    "indexesRaw": {
+      "affectedRows": 94,
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_machine_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_project_started_at_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_session_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_executions_status_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "agent_sessions_project_key_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_receipt_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "attachment_capabilities_receipt_provider_source_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_organization_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "audit_events_project_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plan_prices_plan_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "billing_plans_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_credential_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_device_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_fingerprint_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_status_expiry_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "cli_authorizations_user_code_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "configuration_sync_attempts_project_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemon_enrollment_tokens_verifier_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_idempotency_key_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_machine_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "daemons_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "differential_probe_value_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_guild_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "discord_connections_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "entitlement_changes_organization_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "execution_credential_leases_execution_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_installation_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_installation_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_organization_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_connections_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_connection_repository_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "github_repositories_organization_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitations_organization_status_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "invitations_pending_organization_email_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_linear_organization_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_organization_external_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "linear_connections_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_id_org_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_org_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "machines_status_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "members_organization_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "members_organization_user_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "members_user_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_organization_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_api_keys_prefix_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_organization_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_cli_credentials_prefix_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_expiry_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_connection_attempts_state_verifier_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_slug_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_id_trigger_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_trigger_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_revisions_trigger_version_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_resource_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_trigger_routes_shape_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_organization_name_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_triggers_organization_updated_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_organization_id_meter_period_start_pk"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "organization_usage_organization_meter_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_id_project_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_project_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_configuration_revisions_project_version_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_migrations_organization_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_resource_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "project_trigger_routes_shape_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "projects_organization_status_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_organization_delivery_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_organization_received_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_resource_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "provider_event_receipts_signature_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "session_token_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "sessions_active_organization_id_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_id_organization_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_organization_slug_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "slack_connections_team_id_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_project_created_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_receipt_project_configured_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_status_deadline_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_runs_terminal_notification_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "trigger_schedules_due_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "user_email_key"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_agent_execution_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_trigger_ordinal_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_trigger_status_idx"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_step_runs_trigger_step_unique"
+          }
+        ],
+        [
+          {
+            "type": "string",
+            "value": "workflow_wakeups_available_lease_idx"
+          }
+        ]
+      ]
+    },
+    "migration": {
+      "applied": 49,
+      "journalRows": 49
+    },
+    "migrationJournal": [
+      {
+        "createdAt": 1784319580564,
+        "hash": "94aaae6ebbae06670bcb05c06e35f2a4209c12ba1fcdfd93574c884e86241e78"
+      },
+      {
+        "createdAt": 1784324942281,
+        "hash": "df44ee1931672eeddd41b5033c98fc286bc40e729307e37cd22fcc8e3facc5c2"
+      },
+      {
+        "createdAt": 1784338184340,
+        "hash": "bb51d337d93010a14db179a9de72801ce2252c4eca90d6c1a78c4b5a1816d97e"
+      },
+      {
+        "createdAt": 1784390145792,
+        "hash": "b1398c8f08a583abe7dbf8e33c1a8a774855f8a13b86ab0fab2d2cc4bc232a3f"
+      },
+      {
+        "createdAt": 1784420385159,
+        "hash": "8cdc819dd53bd8eac36adc3db35c4de8c08d0499c1663cf8f6a121df050822b9"
+      },
+      {
+        "createdAt": 1784890014031,
+        "hash": "5dc427f08667553485a3dfd69e4130c34755ec084fb24b6527fadbd533eb77a2"
+      },
+      {
+        "createdAt": 1784902807466,
+        "hash": "a418d9f35fe275e9a2e27021e974f7f117814c683d1508c47f4f38d2e5a2250e"
+      },
+      {
+        "createdAt": 1785699882523,
+        "hash": "ef6575f0b1d736112a58bb6738781b29e938718db1c85270a327798b0c97f898"
+      },
+      {
+        "createdAt": 1785703450568,
+        "hash": "f9e77cd0d2a5cd6b0c354792b601a1850c6bc3729e6a592e8a36a096b3af744b"
+      },
+      {
+        "createdAt": 1785710041633,
+        "hash": "4ab1b869faa482f2773c902942a500d88dbd86e592bdc704f1106768f4c1ac08"
+      },
+      {
+        "createdAt": 1785713412794,
+        "hash": "00cc93af8cf0de1c6fa226e7914d88725d8638a2602a29c990986db424392004"
+      },
+      {
+        "createdAt": 1785776361717,
+        "hash": "bea2f311c78f3cdf45041f13e0209809fa5a5a099e4f08ed0ef6506ed095143d"
+      },
+      {
+        "createdAt": 1785835676373,
+        "hash": "bdcf45be01c5bbb4288c33dce7cad662558a4dad3b5f037e77e67cfb114b7db9"
+      },
+      {
+        "createdAt": 1785859079510,
+        "hash": "32ad4020876d0d3d4466c2b6e179043b820044e6e1f1a925ec27b5ac61d21f13"
+      },
+      {
+        "createdAt": 1785863577166,
+        "hash": "e0c0ce20890cb7072f7b5e799c627e16269d830de4df8a4131d4a2cd43e572ad"
+      },
+      {
+        "createdAt": 1785924109846,
+        "hash": "8985f1b43a188a87d52b7f9dd084d01b1a519779dccffff512eb062bfaf335f9"
+      },
+      {
+        "createdAt": 1785927979208,
+        "hash": "b340d0778988269dbf6d9d59416cda07c8b5551bec177a83525f99cbd4b25744"
+      },
+      {
+        "createdAt": 1785930920062,
+        "hash": "50512593279ea41ec4b33256bf7efcfc6e0fb3ce54fdb4e912fde435a6924053"
+      },
+      {
+        "createdAt": 1786007639877,
+        "hash": "4fe71acf8052bc16d902caf5e980cba88b346f4e659eb57dc8185679fb23a7a4"
+      },
+      {
+        "createdAt": 1786008980236,
+        "hash": "8e44b2a27749c9c22cf7b944e55da337fcd44c5b99d91033e5087406ec1f3361"
+      },
+      {
+        "createdAt": 1786015214454,
+        "hash": "dbf1717dddb9e2179ccad8ca96b0f181c7e56bbdc024c7d5e13af7c86dada6dc"
+      },
+      {
+        "createdAt": 1786031867703,
+        "hash": "e09c2b429236c2ca5bd518f53250f013b3f18f9d7de87a967cae8277a170be9f"
+      },
+      {
+        "createdAt": 1786046610670,
+        "hash": "9d7fda2e2809af8ebe416fce582546e3a4c824ed87cec198d6798380fcefa91b"
+      },
+      {
+        "createdAt": 1786046769096,
+        "hash": "39a9251c403f3f31d5c5bf38a80c70c07cbd69eb99c2ca41147cb2ac8de7eb14"
+      },
+      {
+        "createdAt": 1786057714090,
+        "hash": "be1fd467b0ff9f6273404c4f1561bb3e6a62a2a5ef13bf33adb9e9eb0bc5b9a0"
+      },
+      {
+        "createdAt": 1786059695125,
+        "hash": "8666a9a0efedc9b4a1413fc49a04f9acaf7439e740df16cb9612b1bb341e4195"
+      },
+      {
+        "createdAt": 1786062900129,
+        "hash": "0a0dcf6ddf3b034b26a8394c508e25d65069d836a8c068ea76896f5284999ab2"
+      },
+      {
+        "createdAt": 1786071206093,
+        "hash": "d538d1876a7b3681ebe622d34ae636bf42975d45824a161b870e6976887c03fe"
+      },
+      {
+        "createdAt": 1786074362910,
+        "hash": "9c9309efb3042f1135696ceb94abfaa978e975610c57bb80092ccfa896faf4fe"
+      },
+      {
+        "createdAt": 1786084312502,
+        "hash": "a07d5b4de765043337054f2dd2a742dd236fce004a8f30bd93b0a7fa42c65f30"
+      },
+      {
+        "createdAt": 1786093287524,
+        "hash": "1a7d94a5b854137dff9aa7dc7076e0cbd072be6304c789c651aef7b36d91e751"
+      },
+      {
+        "createdAt": 1786104429874,
+        "hash": "9496544e8c62124c51ef8778029ba160a200edf09710d953648f0b89a4ab779d"
+      },
+      {
+        "createdAt": 1786190843844,
+        "hash": "32e386ae789ea6eca9309df48fc73ebe5155f25ecc2f021e2ea6e98646836caa"
+      },
+      {
+        "createdAt": 1786372632385,
+        "hash": "2bec2f9c76ba43c20ea3fd6c377fcc26cbc50e59700a519ab409a5890f02c155"
+      },
+      {
+        "createdAt": 1786649830424,
+        "hash": "b0f2330f9f6a578aec3247b06bc70c746d6856e30c9e486dabf8bfa45d52dc2f"
+      },
+      {
+        "createdAt": 1786715730006,
+        "hash": "ba5769592967f08e177780b46e5d5473220e17d174afd70412f57268cf127611"
+      },
+      {
+        "createdAt": 1786732140122,
+        "hash": "e2802d8bbe52a65d43ada85dea999b29aeb4817b84b19c881447a0593c747fd9"
+      },
+      {
+        "createdAt": 1786744919219,
+        "hash": "b9b0f3c9975b3d47b248ca2e3214d0a22f1ef470fa775469bad803c7db2b9f9e"
+      },
+      {
+        "createdAt": 1786916556431,
+        "hash": "ca75a7f7b6da9fa51d21f2b0e5ff3e6c3a407a875b3ff4320ba3a0de66c18677"
+      },
+      {
+        "createdAt": 1787395487866,
+        "hash": "96d16e97b6ac78fc05c24dd399f5f918dfb5f4d72756d1ad456c36b3a3dbe28a"
+      },
+      {
+        "createdAt": 1787443895467,
+        "hash": "20fca6772f9c7ad59109f209ce4b1af9c1937b701ba4a666b775e93e3235eda6"
+      },
+      {
+        "createdAt": 1787949616226,
+        "hash": "0d3be75ff0c4f681c7ebd7ae6ade788b25d617f086acc380fc900fb4c5f6e577"
+      },
+      {
+        "createdAt": 1788028212397,
+        "hash": "93ab5d642920fca75bc3b852ade6634fdd0a2b0487a63ec12aabf3aa09d223e5"
+      },
+      {
+        "createdAt": 1788028826964,
+        "hash": "e26a08ace8b6d3223cce7432491a5d51cd757a6d8ea5ba6236a210e8d20ba6fb"
+      },
+      {
+        "createdAt": 1788029691057,
+        "hash": "0d82cc7a955b73da0e832bcc5d3957fffab047fe97d30294f104bf22d9536501"
+      },
+      {
+        "createdAt": 1788178040836,
+        "hash": "63e936391459ff6e26d36a53057e7f239d88d0709c936cfccbb887dae88373c5"
+      },
+      {
+        "createdAt": 1788615733084,
+        "hash": "c2999fcb4ccf0c350163ba7a075c4896c71c931abcba04baca6e757bdc9ae352"
+      },
+      {
+        "createdAt": 1788961022620,
+        "hash": "af4fba13043f752d62e632bf586c2e41d00d49a46136eb2d23da289c2b53b1c3"
+      },
+      {
+        "createdAt": 1788991675061,
+        "hash": "03fe8b820230f23211bc0bb7e286cc715ec85d2580a4686924b2f20d8aadf67e"
+      }
+    ],
+    "schemaConstraints": [
+      "account_account_id_not_null",
+      "account_created_at_not_null",
+      "account_id_not_null",
+      "account_provider_id_not_null",
+      "account_updated_at_not_null",
+      "account_user_id_fkey",
+      "account_user_id_not_null",
+      "agent_executions_agent_session_id_agent_sessions_id_fk",
+      "agent_executions_configuration_revision_id_not_null",
+      "agent_executions_daemon_id_fkey",
+      "agent_executions_daemon_organization_fk",
+      "agent_executions_hub_action_acknowledgements_not_null",
+      "agent_executions_hub_action_check",
+      "agent_executions_id_not_null",
+      "agent_executions_machine_id_fkey",
+      "agent_executions_machine_id_idx",
+      "agent_executions_machine_organization_fk",
+      "agent_executions_organization_id_not_null",
+      "agent_executions_output_delivery_attempts_not_null",
+      "agent_executions_output_emissions_not_null",
+      "agent_executions_project_id_not_null",
+      "agent_executions_project_organization_fk",
+      "agent_executions_project_started_at_idx",
+      "agent_executions_reply_claim_count_not_null",
+      "agent_executions_revision_project_organization_fk",
+      "agent_executions_session_idx",
+      "agent_executions_started_at_not_null",
+      "agent_executions_status_idx",
+      "agent_executions_status_not_null",
+      "agent_executions_workflow_step_run_fk",
+      "agent_sessions_data_not_null",
+      "agent_sessions_id_not_null",
+      "agent_sessions_organization_id_not_null",
+      "agent_sessions_project_id_not_null",
+      "agent_sessions_project_id_projects_id_fk",
+      "agent_sessions_project_key_unique",
+      "attachment_capabilities_connection_id_not_null",
+      "attachment_capabilities_created_at_not_null",
+      "attachment_capabilities_filename_not_null",
+      "attachment_capabilities_id_not_null",
+      "attachment_capabilities_locator_not_null",
+      "attachment_capabilities_organization_id_not_null",
+      "attachment_capabilities_organization_id_organization_id_fk",
+      "attachment_capabilities_provider_check",
+      "attachment_capabilities_provider_event_receipt_id_not_null",
+      "attachment_capabilities_provider_not_null",
+      "attachment_capabilities_receipt_idx",
+      "attachment_capabilities_receipt_organization_fk",
+      "attachment_capabilities_receipt_provider_source_unique",
+      "attachment_capabilities_source_id_not_null",
+      "audit_events_action_not_null",
+      "audit_events_actor_identity_not_null",
+      "audit_events_actor_kind_check",
+      "audit_events_actor_kind_not_null",
+      "audit_events_created_at_not_null",
+      "audit_events_evidence_not_null",
+      "audit_events_id_not_null",
+      "audit_events_organization_created_idx",
+      "audit_events_organization_id_not_null",
+      "audit_events_organization_id_organization_id_fk",
+      "audit_events_project_created_idx",
+      "audit_events_project_id_projects_id_fk",
+      "audit_events_project_organization_fk",
+      "audit_events_subject_id_not_null",
+      "audit_events_subject_type_not_null",
+      "billing_plan_prices_active_not_null",
+      "billing_plan_prices_currency_not_null",
+      "billing_plan_prices_id_not_null",
+      "billing_plan_prices_interval_check",
+      "billing_plan_prices_interval_not_null",
+      "billing_plan_prices_lookup_key_not_null",
+      "billing_plan_prices_plan_id_billing_plans_id_fk",
+      "billing_plan_prices_plan_id_idx",
+      "billing_plan_prices_plan_id_not_null",
+      "billing_plan_prices_unit_amount_not_null",
+      "billing_plans_active_not_null",
+      "billing_plans_id_not_null",
+      "billing_plans_marketing_not_null",
+      "billing_plans_name_not_null",
+      "billing_plans_slug_not_null",
+      "billing_plans_slug_unique",
+      "billing_plans_synced_at_not_null",
+      "billing_plans_template_hash_not_null",
+      "billing_plans_template_not_null",
+      "cli_authorizations_created_at_not_null",
+      "cli_authorizations_credential_id_unique",
+      "cli_authorizations_device_verifier_not_null",
+      "cli_authorizations_device_verifier_unique",
+      "cli_authorizations_expires_at_not_null",
+      "cli_authorizations_fingerprint_idx",
+      "cli_authorizations_fingerprint_verifier_not_null",
+      "cli_authorizations_id_not_null",
+      "cli_authorizations_next_poll_at_not_null",
+      "cli_authorizations_poll_interval_check",
+      "cli_authorizations_poll_interval_seconds_not_null",
+      "cli_authorizations_status_check",
+      "cli_authorizations_status_expiry_idx",
+      "cli_authorizations_status_not_null",
+      "cli_authorizations_user_code_verifier_not_null",
+      "cli_authorizations_user_code_verifier_unique",
+      "configuration_sync_attempts_created_at_not_null",
+      "configuration_sync_attempts_evidence_not_null",
+      "configuration_sync_attempts_github_connection_organization_fk",
+      "configuration_sync_attempts_id_not_null",
+      "configuration_sync_attempts_organization_id_not_null",
+      "configuration_sync_attempts_outcome_not_null",
+      "configuration_sync_attempts_project_created_idx",
+      "configuration_sync_attempts_project_id_not_null",
+      "configuration_sync_attempts_project_organization_fk",
+      "daemon_enrollment_tokens_expires_at_not_null",
+      "daemon_enrollment_tokens_id_not_null",
+      "daemon_enrollment_tokens_issued_by_cli_credential_id_organizati",
+      "daemon_enrollment_tokens_verifier_key",
+      "daemon_enrollment_tokens_verifier_not_null",
+      "daemons_created_at_not_null",
+      "daemons_credential_verifier_not_null",
+      "daemons_daemon_public_key_not_null",
+      "daemons_enrollment_verifier_not_null",
+      "daemons_id_not_null",
+      "daemons_id_organization_unique",
+      "daemons_idempotency_key_key",
+      "daemons_idempotency_key_not_null",
+      "daemons_last_seen_at_not_null",
+      "daemons_machine_id_not_null",
+      "daemons_machine_id_unique",
+      "daemons_machine_organization_fk",
+      "daemons_organization_id_not_null",
+      "daemons_organization_slug_unique",
+      "daemons_presence_check",
+      "daemons_presence_not_null",
+      "daemons_registered_by_cli_credential_id_organization_cli_creden",
+      "daemons_scopes_not_null",
+      "daemons_server_id_not_null",
+      "daemons_slug_not_null",
+      "daemons_status_check",
+      "daemons_status_not_null",
+      "differential_probe_value_key",
+      "differential_probe_value_not_null",
+      "discord_connections_connected_at_not_null",
+      "discord_connections_connected_by_user_id_user_id_fk",
+      "discord_connections_guild_id_not_null",
+      "discord_connections_guild_id_unique",
+      "discord_connections_guild_name_not_null",
+      "discord_connections_id_not_null",
+      "discord_connections_id_organization_unique",
+      "discord_connections_organization_id_not_null",
+      "discord_connections_organization_id_organization_id_fk",
+      "discord_connections_organization_slug_unique",
+      "discord_connections_slug_not_null",
+      "discord_connections_updated_at_not_null",
+      "entitlement_changes_after_not_null",
+      "entitlement_changes_created_at_not_null",
+      "entitlement_changes_id_not_null",
+      "entitlement_changes_organization_created_idx",
+      "entitlement_changes_organization_id_not_null",
+      "entitlement_changes_organization_id_organization_id_fk",
+      "entitlement_changes_source_check",
+      "entitlement_changes_source_not_null",
+      "execution_authorities_data_not_null",
+      "execution_authorities_execution_id_agent_executions_id_fk",
+      "execution_authorities_execution_id_not_null",
+      "execution_credential_leases_data_not_null",
+      "execution_credential_leases_execution_id_agent_executions_id_fk",
+      "execution_credential_leases_execution_id_not_null",
+      "execution_credential_leases_execution_idx",
+      "execution_credential_leases_id_not_null",
+      "github_connections_account_id_not_null",
+      "github_connections_account_login_not_null",
+      "github_connections_account_type_not_null",
+      "github_connections_connected_at_not_null",
+      "github_connections_connected_by_user_id_user_id_fk",
+      "github_connections_id_not_null",
+      "github_connections_id_organization_unique",
+      "github_connections_installation_id_not_null",
+      "github_connections_installation_id_unique",
+      "github_connections_installation_unique",
+      "github_connections_organization_id_not_null",
+      "github_connections_organization_id_organization_id_fk",
+      "github_connections_organization_idx",
+      "github_connections_organization_slug_unique",
+      "github_connections_slug_not_null",
+      "github_connections_status_check",
+      "github_connections_status_not_null",
+      "github_connections_updated_at_not_null",
+      "github_repositories_connection_id_not_null",
+      "github_repositories_connection_organization_fk",
+      "github_repositories_connection_repository_unique",
+      "github_repositories_default_branch_not_null",
+      "github_repositories_discovered_at_not_null",
+      "github_repositories_full_name_not_null",
+      "github_repositories_id_not_null",
+      "github_repositories_organization_id_not_null",
+      "github_repositories_organization_idx",
+      "github_repositories_repository_id_not_null",
+      "github_repositories_updated_at_not_null",
+      "instance_bootstrap_completion_check",
+      "instance_bootstrap_created_at_not_null",
+      "instance_bootstrap_id_not_null",
+      "instance_bootstrap_organization_id_organization_id_fk",
+      "instance_bootstrap_owner_user_id_user_id_fk",
+      "invitation_created_at_not_null",
+      "invitation_email_not_null",
+      "invitation_expires_at_not_null",
+      "invitation_id_not_null",
+      "invitation_inviter_id_fkey",
+      "invitation_inviter_id_not_null",
+      "invitation_organization_id_fkey",
+      "invitation_organization_id_not_null",
+      "invitation_role_not_null",
+      "invitation_status_not_null",
+      "invitations_organization_status_idx",
+      "invitations_pending_organization_email_unique",
+      "invitations_role_check",
+      "invitations_status_check",
+      "linear_connections_access_token_not_null",
+      "linear_connections_app_user_id_not_null",
+      "linear_connections_connected_at_not_null",
+      "linear_connections_connected_by_user_id_user_id_fk",
+      "linear_connections_id_not_null",
+      "linear_connections_id_organization_unique",
+      "linear_connections_linear_organization_id_not_null",
+      "linear_connections_linear_organization_id_unique",
+      "linear_connections_linear_organization_name_not_null",
+      "linear_connections_organization_external_unique",
+      "linear_connections_organization_id_not_null",
+      "linear_connections_organization_id_organization_id_fk",
+      "linear_connections_organization_slug_unique",
+      "linear_connections_scopes_not_null",
+      "linear_connections_slug_not_null",
+      "linear_connections_updated_at_not_null",
+      "machines_id_not_null",
+      "machines_id_org_id_unique",
+      "machines_org_id_idx",
+      "machines_org_id_not_null",
+      "machines_source_not_null",
+      "machines_started_at_not_null",
+      "machines_status_idx",
+      "machines_status_not_null",
+      "member_created_at_not_null",
+      "member_id_not_null",
+      "member_organization_id_fkey",
+      "member_organization_id_not_null",
+      "member_role_not_null",
+      "member_user_id_fkey",
+      "member_user_id_not_null",
+      "members_organization_id_idx",
+      "members_organization_user_unique",
+      "members_role_check",
+      "members_user_id_idx",
+      "organization_api_keys_created_at_not_null",
+      "organization_api_keys_created_by_user_id_user_id_fk",
+      "organization_api_keys_id_not_null",
+      "organization_api_keys_name_not_null",
+      "organization_api_keys_organization_created_idx",
+      "organization_api_keys_organization_id_not_null",
+      "organization_api_keys_organization_id_organization_id_fk",
+      "organization_api_keys_prefix_not_null",
+      "organization_api_keys_prefix_unique",
+      "organization_api_keys_scopes_check",
+      "organization_api_keys_scopes_not_null",
+      "organization_api_keys_verifier_not_null",
+      "organization_billing_customers_organization_id_organization_id_",
+      "organization_cli_credentials_created_at_not_null",
+      "organization_cli_credentials_created_by_user_id_user_id_fk",
+      "organization_cli_credentials_id_not_null",
+      "organization_cli_credentials_organization_created_idx",
+      "organization_cli_credentials_organization_id_not_null",
+      "organization_cli_credentials_organization_id_organization_id_fk",
+      "organization_cli_credentials_prefix_not_null",
+      "organization_cli_credentials_prefix_unique",
+      "organization_cli_credentials_verifier_not_null",
+      "organization_connection_attempt_activate_configuration_not_null",
+      "organization_connection_attempt_configuration_snapshot_not_null",
+      "organization_connection_attempts_callback_origin_not_null",
+      "organization_connection_attempts_configuration_version_not_null",
+      "organization_connection_attempts_created_at_not_null",
+      "organization_connection_attempts_expires_at_not_null",
+      "organization_connection_attempts_expiry_idx",
+      "organization_connection_attempts_id_not_null",
+      "organization_connection_attempts_organization_id_not_null",
+      "organization_connection_attempts_organization_id_organization_i",
+      "organization_connection_attempts_phase_check",
+      "organization_connection_attempts_phase_not_null",
+      "organization_connection_attempts_provider_check",
+      "organization_connection_attempts_provider_not_null",
+      "organization_connection_attempts_return_route_not_null",
+      "organization_connection_attempts_session_id_not_null",
+      "organization_connection_attempts_session_id_session_id_fk",
+      "organization_connection_attempts_shape_check",
+      "organization_connection_attempts_state_verifier_not_null",
+      "organization_connection_attempts_state_verifier_unique",
+      "organization_connection_attempts_user_id_not_null",
+      "organization_connection_attempts_user_id_user_id_fk",
+      "organization_created_at_not_null",
+      "organization_entitlements_granted_not_null",
+      "organization_entitlements_organization_id_not_null",
+      "organization_entitlements_organization_id_organization_id_fk",
+      "organization_entitlements_overrides_not_null",
+      "organization_entitlements_stamped_at_not_null",
+      "organization_entitlements_updated_at_not_null",
+      "organization_id_not_null",
+      "organization_name_not_null",
+      "organization_slug_key",
+      "organization_slug_not_null",
+      "organization_subscriptions_organization_id_not_null",
+      "organization_subscriptions_stripe_customer_id_not_null",
+      "organization_subscriptions_updated_at_not_null",
+      "organization_trigger_revision_normalized_configuration_not_null",
+      "organization_trigger_revisions_content_hash_not_null",
+      "organization_trigger_revisions_created_at_not_null",
+      "organization_trigger_revisions_created_by_user_id_user_id_fk",
+      "organization_trigger_revisions_id_not_null",
+      "organization_trigger_revisions_id_trigger_organization_unique",
+      "organization_trigger_revisions_organization_id_not_null",
+      "organization_trigger_revisions_source_evidence_not_null",
+      "organization_trigger_revisions_source_kind_check",
+      "organization_trigger_revisions_source_kind_not_null",
+      "organization_trigger_revisions_trigger_created_idx",
+      "organization_trigger_revisions_trigger_id_not_null",
+      "organization_trigger_revisions_trigger_organization_fk",
+      "organization_trigger_revisions_trigger_version_unique",
+      "organization_trigger_revisions_version_not_null",
+      "organization_trigger_revisions_yaml_not_null",
+      "organization_trigger_routes_configured_event_name_not_null",
+      "organization_trigger_routes_connection_id_not_null",
+      "organization_trigger_routes_id_not_null",
+      "organization_trigger_routes_organization_id_not_null",
+      "organization_trigger_routes_provider_not_null",
+      "organization_trigger_routes_resource_idx",
+      "organization_trigger_routes_revision_trigger_organization_fk",
+      "organization_trigger_routes_shape_unique",
+      "organization_trigger_routes_trigger_id_not_null",
+      "organization_trigger_routes_trigger_organization_fk",
+      "organization_trigger_routes_trigger_revision_id_not_null",
+      "organization_triggers_active_revision_id_organization_trigger_r",
+      "organization_triggers_created_at_not_null",
+      "organization_triggers_enabled_not_null",
+      "organization_triggers_format_check",
+      "organization_triggers_format_not_null",
+      "organization_triggers_id_not_null",
+      "organization_triggers_id_organization_unique",
+      "organization_triggers_name_not_null",
+      "organization_triggers_organization_id_not_null",
+      "organization_triggers_organization_id_organization_id_fk",
+      "organization_triggers_organization_name_unique",
+      "organization_triggers_organization_updated_idx",
+      "organization_triggers_runtime_project_id_projects_id_fk",
+      "organization_triggers_updated_at_not_null",
+      "organization_usage_meter_not_null",
+      "organization_usage_organization_id_meter_period_start_pk",
+      "organization_usage_organization_id_not_null",
+      "organization_usage_organization_id_organization_id_fk",
+      "organization_usage_organization_meter_idx",
+      "organization_usage_period_start_not_null",
+      "organization_usage_used_non_negative",
+      "organization_usage_used_not_null",
+      "paseo_hub_migrations_applied_at_not_null",
+      "paseo_hub_migrations_filename_not_null",
+      "project_configuration_revisio_normalized_configuration_not_null",
+      "project_configuration_revisions_content_hash_not_null",
+      "project_configuration_revisions_created_at_not_null",
+      "project_configuration_revisions_created_by_user_id_user_id_fk",
+      "project_configuration_revisions_id_not_null",
+      "project_configuration_revisions_id_project_organization_unique",
+      "project_configuration_revisions_organization_id_not_null",
+      "project_configuration_revisions_project_created_idx",
+      "project_configuration_revisions_project_id_not_null",
+      "project_configuration_revisions_project_organization_fk",
+      "project_configuration_revisions_project_version_unique",
+      "project_configuration_revisions_source_evidence_not_null",
+      "project_configuration_revisions_source_kind_check",
+      "project_configuration_revisions_source_kind_not_null",
+      "project_configuration_revisions_version_not_null",
+      "project_configuration_sourc_automatic_deployment_enabl_not_null",
+      "project_configuration_sources_authority_shape_check",
+      "project_configuration_sources_created_at_not_null",
+      "project_configuration_sources_github_connection_organization_fk",
+      "project_configuration_sources_kind_not_null",
+      "project_configuration_sources_organization_id_not_null",
+      "project_configuration_sources_project_id_not_null",
+      "project_configuration_sources_project_organization_fk",
+      "project_configuration_sources_selected_by_user_id_user_id_fk",
+      "project_configuration_sources_updated_at_not_null",
+      "project_trigger_migrations_configuration_revision_id_not_null",
+      "project_trigger_migrations_migrated_at_not_null",
+      "project_trigger_migrations_organization_id_not_null",
+      "project_trigger_migrations_organization_id_organization_id_fk",
+      "project_trigger_migrations_organization_idx",
+      "project_trigger_migrations_project_id_not_null",
+      "project_trigger_migrations_project_id_projects_id_fk",
+      "project_trigger_migrations_revision_project_organization_fk",
+      "project_trigger_routes_configuration_revision_id_not_null",
+      "project_trigger_routes_connection_id_not_null",
+      "project_trigger_routes_id_not_null",
+      "project_trigger_routes_organization_id_not_null",
+      "project_trigger_routes_project_id_not_null",
+      "project_trigger_routes_project_organization_fk",
+      "project_trigger_routes_provider_check",
+      "project_trigger_routes_provider_not_null",
+      "project_trigger_routes_resource_idx",
+      "project_trigger_routes_revision_project_organization_fk",
+      "project_trigger_routes_shape_unique",
+      "project_trigger_routes_trigger_name_not_null",
+      "projects_active_configuration_revision_id_project_configuration",
+      "projects_active_revision_project_organization_fk",
+      "projects_archive_shape_check",
+      "projects_created_at_not_null",
+      "projects_created_by_user_id_user_id_fk",
+      "projects_id_not_null",
+      "projects_id_organization_unique",
+      "projects_name_not_null",
+      "projects_organization_id_not_null",
+      "projects_organization_id_organization_id_fk",
+      "projects_organization_slug_unique",
+      "projects_organization_status_idx",
+      "projects_slug_not_null",
+      "projects_status_check",
+      "projects_status_not_null",
+      "projects_updated_at_not_null",
+      "provider_event_receipts_delivery_id_not_null",
+      "provider_event_receipts_id_not_null",
+      "provider_event_receipts_id_organization_unique",
+      "provider_event_receipts_organization_delivery_unique",
+      "provider_event_receipts_organization_id_not_null",
+      "provider_event_receipts_organization_id_organization_id_fk",
+      "provider_event_receipts_organization_received_idx",
+      "provider_event_receipts_payload_not_null",
+      "provider_event_receipts_provider_check",
+      "provider_event_receipts_provider_not_null",
+      "provider_event_receipts_received_at_not_null",
+      "provider_event_receipts_resource_idx",
+      "provider_event_receipts_signature_unique",
+      "provider_event_receipts_source_not_null",
+      "runtime_configuration_auth_secret_not_null",
+      "runtime_configuration_created_at_not_null",
+      "runtime_configuration_singleton_check",
+      "runtime_configuration_singleton_not_null",
+      "runtime_provider_activation_activated_at_not_null",
+      "runtime_provider_activation_configuration_version_not_null",
+      "runtime_provider_activation_provider_application_id_not_null",
+      "runtime_provider_activation_provider_check",
+      "runtime_provider_activation_provider_not_null",
+      "runtime_provider_activation_version_check",
+      "runtime_provider_configurat_verified_external_identity_not_null",
+      "runtime_provider_configuration_configuration_not_null",
+      "runtime_provider_configuration_provider_check",
+      "runtime_provider_configuration_provider_not_null",
+      "runtime_provider_configuration_updated_at_not_null",
+      "runtime_provider_configuration_updated_by_user_id_user_id_fk",
+      "runtime_provider_configuration_verified_at_not_null",
+      "runtime_provider_configuration_version_check",
+      "runtime_provider_configuration_version_not_null",
+      "session_created_at_not_null",
+      "session_expires_at_not_null",
+      "session_id_not_null",
+      "session_token_key",
+      "session_token_not_null",
+      "session_updated_at_not_null",
+      "session_user_id_fkey",
+      "session_user_id_not_null",
+      "sessions_active_organization_id_idx",
+      "slack_connections_bot_access_token_not_null",
+      "slack_connections_bot_user_id_not_null",
+      "slack_connections_connected_at_not_null",
+      "slack_connections_connected_by_user_id_user_id_fk",
+      "slack_connections_id_not_null",
+      "slack_connections_id_organization_unique",
+      "slack_connections_organization_id_not_null",
+      "slack_connections_organization_id_organization_id_fk",
+      "slack_connections_organization_slug_unique",
+      "slack_connections_scopes_not_null",
+      "slack_connections_slug_not_null",
+      "slack_connections_team_id_not_null",
+      "slack_connections_team_id_unique",
+      "slack_connections_team_name_not_null",
+      "slack_connections_updated_at_not_null",
+      "trigger_runs_configuration_revision_id_not_null",
+      "trigger_runs_configured_trigger_name_not_null",
+      "trigger_runs_created_at_not_null",
+      "trigger_runs_deadline_kind_check",
+      "trigger_runs_deadline_shape_check",
+      "trigger_runs_id_not_null",
+      "trigger_runs_inputs_not_null",
+      "trigger_runs_organization_fk",
+      "trigger_runs_organization_id_not_null",
+      "trigger_runs_outcome_check",
+      "trigger_runs_outcome_not_null",
+      "trigger_runs_output_context_not_null",
+      "trigger_runs_project_created_idx",
+      "trigger_runs_project_id_not_null",
+      "trigger_runs_project_organization_fk",
+      "trigger_runs_prompt_not_null",
+      "trigger_runs_provider_event_receipt_id_not_null",
+      "trigger_runs_receipt_organization_fk",
+      "trigger_runs_receipt_project_configured_unique",
+      "trigger_runs_revision_project_organization_fk",
+      "trigger_runs_status_check",
+      "trigger_runs_status_deadline_idx",
+      "trigger_runs_status_not_null",
+      "trigger_runs_terminal_notification_idx",
+      "trigger_runs_trigger_context_not_null",
+      "trigger_runs_values_not_null",
+      "trigger_schedules_active_run_id_trigger_runs_id_fk",
+      "trigger_schedules_due_idx",
+      "trigger_schedules_trigger_id_not_null",
+      "trigger_schedules_trigger_id_organization_triggers_id_fk",
+      "user_created_at_not_null",
+      "user_email_key",
+      "user_email_not_null",
+      "user_email_verified_not_null",
+      "user_id_not_null",
+      "user_is_instance_operator_not_null",
+      "user_must_change_password_not_null",
+      "user_name_not_null",
+      "user_updated_at_not_null",
+      "verification_created_at_not_null",
+      "verification_expires_at_not_null",
+      "verification_id_not_null",
+      "verification_identifier_not_null",
+      "verification_updated_at_not_null",
+      "verification_value_not_null",
+      "workflow_step_runs_agent_execution_unique",
+      "workflow_step_runs_deadline_kind_check",
+      "workflow_step_runs_id_not_null",
+      "workflow_step_runs_ordinal_not_null",
+      "workflow_step_runs_status_check",
+      "workflow_step_runs_status_not_null",
+      "workflow_step_runs_step_id_not_null",
+      "workflow_step_runs_trigger_ordinal_unique",
+      "workflow_step_runs_trigger_run_fk",
+      "workflow_step_runs_trigger_run_id_not_null",
+      "workflow_step_runs_trigger_status_idx",
+      "workflow_step_runs_trigger_step_unique",
+      "workflow_wakeups_available_at_not_null",
+      "workflow_wakeups_available_lease_idx",
+      "workflow_wakeups_trigger_run_fk",
+      "workflow_wakeups_trigger_run_id_not_null"
+    ],
+    "schemaTables": [
+      "public.account",
+      "public.agent_executions",
+      "public.agent_sessions",
+      "public.attachment_capabilities",
+      "public.audit_events",
+      "public.billing_plan_prices",
+      "public.billing_plans",
+      "public.cli_authorizations",
+      "public.configuration_sync_attempts",
+      "public.daemon_enrollment_tokens",
+      "public.daemons",
+      "public.discord_connections",
+      "public.entitlement_changes",
+      "public.execution_authorities",
+      "public.execution_credential_leases",
+      "public.github_connections",
+      "public.github_repositories",
+      "public.instance_bootstrap",
+      "public.invitation",
+      "public.linear_connections",
+      "public.machines",
+      "public.member",
+      "public.organization",
+      "public.organization_api_keys",
+      "public.organization_billing_customers",
+      "public.organization_cli_credentials",
+      "public.organization_connection_attempts",
+      "public.organization_entitlements",
+      "public.organization_trigger_revisions",
+      "public.organization_trigger_routes",
+      "public.organization_triggers",
+      "public.organization_usage",
+      "public.paseo_hub_migrations",
+      "public.project_configuration_revisions",
+      "public.project_configuration_sources",
+      "public.project_trigger_migrations",
+      "public.project_trigger_routes",
+      "public.projects",
+      "public.provider_event_receipts",
+      "public.runtime_configuration",
+      "public.runtime_provider_activation",
+      "public.runtime_provider_configuration",
+      "public.session",
+      "public.slack_connections",
+      "public.trigger_runs",
+      "public.trigger_schedules",
+      "public.user",
+      "public.verification",
+      "public.workflow_step_runs",
+      "public.workflow_wakeups"
+    ]
+  },
+  "operations": {
+    "crossProcessRejection": true,
+    "historicalResume": {
+      "prefixJournalRows": 1,
+      "suffix": {
+        "applied": 48,
+        "journalRows": 49
+      }
+    },
+    "restart": true,
+    "staleOwnerRecovery": true,
+    "transactionRollback": true
+  }
+}

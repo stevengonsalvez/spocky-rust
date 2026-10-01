@@ -1,0 +1,98 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
+{
+  "baseline": "28f6c78833065fd282f9064f92a9aa61875dd359",
+  "exactEngineRuntime": true,
+  "selectionStatus": "retained-host-candidate",
+  "catalogParity": true,
+  "journalParity": true,
+  "scenarioParity": {
+    "restart": true,
+    "crossProcessRejection": true,
+    "transactionRollback": true,
+    "staleOwnerRecovery": true,
+    "historicalResume": true
+  },
+  "runtime": {
+    "adapterDependencies": [
+      "node:crypto",
+      "node:fs",
+      "node:fs/promises",
+      "node:os",
+      "node:path",
+      "node:url"
+    ],
+    "arch": "x64",
+    "nodeExecutable": "/usr/local/Cellar/node/26.7.0/bin/node",
+    "nodeExecutableSha256": "9bc2ac1e3fbfe4e9c3e2194283861d3cc7f07daa7a22a59be6ae79229922f540",
+    "nodeVersion": "v26.7.0",
+    "os": "darwin",
+    "package": "@electric-sql/pglite",
+    "packageDependencies": {},
+    "packageVersion": "0.5.4"
+  },
+  "dependencyGraph": {
+    "version": "0.10.0",
+    "name": "@getpaseo/hub",
+    "dependencies": {
+      "@electric-sql/pglite": {
+        "version": "0.5.4",
+        "resolved": "https://registry.npmjs.org/@electric-sql/pglite/-/pglite-0.5.4.tgz",
+        "overridden": false
+      },
+      "drizzle-orm": {
+        "version": "0.45.2",
+        "resolved": "https://registry.npmjs.org/drizzle-orm/-/drizzle-orm-0.45.2.tgz",
+        "overridden": false,
+        "dependencies": {
+          "@electric-sql/pglite": {
+            "version": "0.5.4"
+          }
+        }
+      }
+    }
+  },
+  "failures": {
+    "lostReply": "ReplyLost { request_id: 6, write_may_have_committed: true, cause: \"failed to fill whole buffer\" }",
+    "rollback": {
+      "code": "23505",
+      "details": {
+        "column": null,
+        "constraint": "differential_probe_value_key",
+        "detail": "Key (value)=(kept) already exists.",
+        "hint": null,
+        "name": "error",
+        "position": null,
+        "schema": "public",
+        "severity": "ERROR",
+        "table": "differential_probe"
+      },
+      "message": "duplicate key value violates unique constraint \"differential_probe_value_key\""
+    },
+    "secondOwner": "DIRECTORY_IN_USE"
+  },
+  "retainedFiles": [
+    "scripts/phase2/hub-embedded-retained-host.mjs",
+    "crates/spocky-hub-pilot/src/retained_pglite.rs"
+  ],
+  "retainedPackageInventory": "hub-embedded-retained-package-sha256.txt",
+  "retainedMigrationInventory": "hub-embedded-retained-migrations-sha256.txt",
+  "unqualifiedResiduals": [
+    "Node executable availability and platform packaging are not qualified",
+    "Framed IPC throughput and latency are not qualified",
+    "Retained JavaScript delivery, updates, and support ownership are not qualified"
+  ],
+  "compatibilityException": {
+    "status": "required-not-accepted",
+    "capability": "Retain pinned PGlite JavaScript host behind bounded Rust IPC",
+    "owner": "Hub storage",
+    "scope": "Vendor PGlite glue plus named retained_pglite adapter only",
+    "removalCondition": "Native Rust host reproduces distributed PGlite runtime contract",
+    "reviewDate": "2026-10-01"
+  }
+}
+92a873c2b3fedec61aa0fcf499d4cbe5d1964b90d47eb81e3a82a770ae97f508  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-original.json
+78192d280645147613180cc991c98311e8a0f57190ae4be6ca28e16f40fbea44  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-candidate.json
+1566a46e335aefa76460384941b5cef4391c7313321ac755fbfa8a68bae8258c  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-comparison.json
+f55c0095950994ea6ecb8358b879d5e44297c1dd9a2b1cf5b982255fdcc623b2  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-dependency-graph.json
+ba5a5bbbd4e82f994a3503066ce69a6a970f416108041ad427e314aeeb337850  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-package-sha256.txt
+a345dc1c2f48e67b921eb84cbe25f24bdb5bfdd68b39c71d170334ba9337bf38  /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/evidence/phase2/hub-embedded-retained-migrations-sha256.txt

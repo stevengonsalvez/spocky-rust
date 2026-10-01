@@ -62,3 +62,53 @@ engine. The probe emits the required compatibility-exception record with status
 `required-not-accepted`, including capability, owner, exact runtime, boundary,
 exchanged data, evidence, risks, tests, platforms, removal condition, and
 review date. No compatibility exception is accepted by this result.
+
+## Retained PGlite host candidate
+
+Run:
+
+```sh
+gtimeout 600 scripts/phase2/hub-embedded-retained.test.sh
+gtimeout 900 scripts/phase2/hub-embedded-retained-evidence.sh
+```
+
+The Rust adapter launches pinned PGlite `0.5.4` through length-prefixed JSON
+IPC. It serializes requests, owns the database directory exclusively, kills the
+child after timeout or lost reply, and never retries a write. Typed values keep
+null, binary, timestamp, numeric, JSON, boolean, column order, and structured
+PostgreSQL errors.
+
+Nine targeted tests pass. They cover all 49 migrations, no-op restart, a real
+one-migration historical database reopening into the remaining 48 migrations,
+future and partial journal outcomes, transaction rollback, concurrent callers,
+exclusive ownership, child crash, parent death, bounded frames, timeout, and
+lost-reply ambiguity.
+
+Original and retained-host captures match 50 installed schema tables, 537
+constraint and index names, and all 49 migration journal rows. Candidate raw
+catalog evidence also records 52 public and Drizzle tables before probe
+filtering, 458 non-primary constraints, and 94 non-primary indexes. The retained
+package inventory records 301 files. The retained migration inventory records
+98 files.
+
+Measured runtime is Node `v26.7.0` on `darwin/x64`, executable
+`/usr/local/Cellar/node/26.7.0/bin/node`, SHA-256
+`9bc2ac1e3fbfe4e9c3e2194283861d3cc7f07daa7a22a59be6ae79229922f540`.
+The dependency graph and every retained package and migration file digest are
+preserved beside the raw captures.
+
+This is a candidate, not an accepted compatibility exception. Node packaging
+and platform availability, IPC performance, and retained JavaScript delivery
+and support ownership remain unqualified. The exception record remains
+`required-not-accepted`.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `hub-embedded-retained-original.json` | 51,030 | `92a873c2b3fedec61aa0fcf499d4cbe5d1964b90d47eb81e3a82a770ae97f508` |
+| `hub-embedded-retained-candidate.json` | 120,323 | `78192d280645147613180cc991c98311e8a0f57190ae4be6ca28e16f40fbea44` |
+| `hub-embedded-retained-comparison.json` | 3,032 | `1566a46e335aefa76460384941b5cef4391c7313321ac755fbfa8a68bae8258c` |
+| `hub-embedded-retained-dependency-graph.json` | 526 | `f55c0095950994ea6ecb8358b879d5e44297c1dd9a2b1cf5b982255fdcc623b2` |
+| `hub-embedded-retained-package-sha256.txt` | 28,332 | `ba5a5bbbd4e82f994a3503066ce69a6a970f416108041ad427e314aeeb337850` |
+| `hub-embedded-retained-migrations-sha256.txt` | 9,131 | `a345dc1c2f48e67b921eb84cbe25f24bdb5bfdd68b39c71d170334ba9337bf38` |
+| `hub-embedded-retained-evidence.log` | 4,388 | `acd251d05301cabd99ef224d9c1073d5170e9d199f50eea21bffb45480b364ae` |
+| `hub-embedded-retained-tests.log` | 1,076 | `24e983418d8b0926d8158b2f12e9adcb1fc5d15c51ab720c8777b14cfc829915` |

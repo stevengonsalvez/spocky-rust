@@ -1,0 +1,21 @@
+{
+  "version": "0.10.0",
+  "name": "@getpaseo/hub",
+  "dependencies": {
+    "@electric-sql/pglite": {
+      "version": "0.5.4",
+      "resolved": "https://registry.npmjs.org/@electric-sql/pglite/-/pglite-0.5.4.tgz",
+      "overridden": false
+    },
+    "drizzle-orm": {
+      "version": "0.45.2",
+      "resolved": "https://registry.npmjs.org/drizzle-orm/-/drizzle-orm-0.45.2.tgz",
+      "overridden": false,
+      "dependencies": {
+        "@electric-sql/pglite": {
+          "version": "0.5.4"
+        }
+      }
+    }
+  }
+}
