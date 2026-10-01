@@ -1108,8 +1108,11 @@
         {
           "date": "2026-10-01",
           "source": "p3_session checkpoint 8 (agent-manager core, f9ab232..aeb550d)",
-          "gap": "Without the durable timeline store, the Rust AgentManager runs handleStreamEvent synchronously per event, so interleavings across agents within one microtask tick may differ from the baseline.",
-          "status": "tracked port gap, NOT an accepted divergence; closes when a node-versus-Rust cross-agent same-tick differential passes (session writer asked to prove it either way, 2026-10-02)",
+          "gap": "Cross-agent same-tick interleaving: node interleaves different agents' handleStreamEvent chains at microtask granularity, while the Rust AgentManager drains each agent's events in turn. CONFIRMED by node-versus-Rust differential (2026-10-02).",
+          "status": "OPEN port gap, NOT an accepted exception (coordinator decision 2026-10-02); closes when a cross-agent same-tick differential matches node",
+          "reachability": "Unreachable for codex, which runs one app-server pipe per session, so not on G1. Reachable only by a provider that multiplexes sessions on one stream (opencode, plugin providers)",
+          "blocks": ["opencode provider gate", "multiplexing plugin provider gates"],
+          "evidence": "repro committed by the p3_session writer; entry to follow from the writer",
           "durableStoreScope": "2026-10-02 coordinator decision: the durable timeline store is OUT OF SCOPE as production-unreachable. Baseline bootstrap.ts never sets durableTimelineStore and no AgentTimelineStore implementation exists outside agent-manager.test.ts, so the baseline daemon also runs without it and its handleStreamEvent path may already be synchronous per event"
         },
         {
