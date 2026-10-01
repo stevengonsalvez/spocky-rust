@@ -1,0 +1,92 @@
+[
+  {
+    "name": "schema-order-strip",
+    "kind": "agent",
+    "input": "{\"zzz\":1,\"lastStatus\":\"idle\",\"updatedAt\":\"u\",\"createdAt\":\"c\",\"cwd\":\"/p\",\"provider\":\"codex\",\"id\":\"a\",\"owner\":{\"executionId\":\"e\",\"kind\":\"daemon\",\"daemonId\":\"d\"},\"archivedAt\":null,\"internal\":false,\"labels\":{\"b\":\"1\",\"2\":\"x\"},\"persistence\":{\"metadata\":{\"k\":1,\"0\":2},\"sessionId\":\"s\",\"provider\":\"codex\",\"nativeHandle\":\"n\",\"junk\":1},\"config\":{\"model\":null,\"modeId\":\"full-access\",\"other\":1},\"runtimeInfo\":{\"sessionId\":null,\"provider\":\"codex\",\"extra\":{}}}"
+  },
+  {
+    "name": "minimal-defaults",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\"}"
+  },
+  {
+    "name": "features-config-full",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"features\":[{\"options\":[{\"metadata\":{\"z\":1},\"label\":\"L\",\"id\":\"o\",\"x\":1}],\"value\":null,\"label\":\"F\",\"id\":\"f\",\"type\":\"select\",\"icon\":\"i\"},{\"type\":\"toggle\",\"value\":true,\"id\":\"t\",\"label\":\"T\"}],\"config\":{\"toolPolicy\":{\"preapproved\":[{\"kind\":\"mcp\",\"server\":\"s\",\"tool\":\"t\"}]},\"systemPrompt\":null,\"mcpServers\":{\"m\":{\"command\":\"x\"}}},\"attentionReason\":null,\"requiresAttention\":true,\"lastError\":null,\"lastModeId\":null,\"title\":null,\"lastUserMessageAt\":null,\"lastActivityAt\":\"l\",\"workspaceId\":\"w\"}"
+  },
+  {
+    "name": "null-last-status",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"lastStatus\":null}"
+  },
+  {
+    "name": "strict-tool-policy",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"toolPolicy\":{\"preapproved\":[{\"kind\":\"mcp\",\"server\":\"s\",\"tool\":\"t\",\"x\":1}]}}}"
+  },
+  {
+    "name": "missing-updated-at",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\"}"
+  },
+  {
+    "name": "javascript-only-input",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"title\":\"split \\ud83d\",\"persistence\":{\"provider\":\"codex\",\"sessionId\":\"s\",\"metadata\":{\"big\":1e400,\"n\":12345678901234567890},\"nativeHandle\":[[[[]]]]}}"
+  },
+  {
+    "name": "labels-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"labels\":{\"__proto__\":\"x\",\"b\":\"y\"}}"
+  },
+  {
+    "name": "provider-options-infinity",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"providerOptions\":{\"a\":1e400}}}"
+  },
+  {
+    "name": "provider-options-nested-infinity",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"providerOptions\":{\"a\":{\"b\":[1e400]}}}}"
+  },
+  {
+    "name": "provider-options-nested-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"providerOptions\":{\"a\":{\"__proto__\":1,\"c\":2}}}}"
+  },
+  {
+    "name": "feature-values-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"featureValues\":{\"__proto__\":1,\"a\":{\"__proto__\":2}}}}"
+  },
+  {
+    "name": "persistence-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"persistence\":{\"provider\":\"p\",\"sessionId\":\"s\",\"nativeHandle\":{\"__proto__\":3},\"metadata\":{\"__proto__\":4,\"m\":{\"__proto__\":5}}}}"
+  },
+  {
+    "name": "top-level-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"__proto__\":{\"x\":1}}"
+  },
+  {
+    "name": "runtime-extra-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"runtimeInfo\":{\"provider\":\"p\",\"sessionId\":null,\"extra\":{\"__proto__\":1}}}"
+  },
+  {
+    "name": "deep-native-handle",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"persistence\":{\"provider\":\"p\",\"sessionId\":\"s\",\"nativeHandle\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}}"
+  },
+  {
+    "name": "bad-owner-kind",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"owner\":{\"kind\":\"user\",\"daemonId\":\"d\",\"executionId\":\"e\"}}"
+  },
+  {
+    "name": "bad-feature-type",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"features\":[{\"type\":\"slider\",\"id\":\"f\",\"label\":\"F\",\"value\":1}]}"
+  }
+]
