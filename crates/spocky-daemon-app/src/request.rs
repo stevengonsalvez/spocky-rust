@@ -9,6 +9,7 @@ use spocky_contracts::number::Int;
 use spocky_contracts::session::{
     RpcError, SessionInbound, SessionOutbound, SessionPing, SessionPong,
 };
+use spocky_contracts::text::JsText;
 use spocky_session::clock::{now_iso, random_uuid};
 
 use crate::authorization::SessionAuthorization;
@@ -40,7 +41,7 @@ pub fn request_type(message: &SessionInbound) -> &'static str {
 
 /// `sessionRequestId(msg)`: every slice message carries a string `requestId`.
 #[must_use]
-pub fn request_id(message: &SessionInbound) -> &str {
+pub fn request_id(message: &SessionInbound) -> &JsText {
     match message {
         SessionInbound::Ping(m) => &m.request_id,
         SessionInbound::WorkspaceCreate(m) => &m.request_id,
@@ -60,6 +61,8 @@ pub fn request_id(message: &SessionInbound) -> &str {
 }
 
 /// Serializes an outbound session message with its construction key order.
+/// Strings stay in the `js_value` encoding of [`JsText`]; the transport
+/// writes the frame through `js_wire_text`, as `frame_text` does.
 ///
 /// # Panics
 ///
@@ -69,13 +72,13 @@ pub fn outbound(message: &SessionOutbound) -> Value {
     serde_json::to_value(message).expect("contract messages serialize to JSON")
 }
 
-fn rpc_error(request_id: String, request_type: &str, error: String, code: &str) -> Value {
+fn rpc_error(request_id: JsText, request_type: &str, error: JsText, code: &str) -> Value {
     outbound(&SessionOutbound::RpcError {
         payload: RpcError {
             request_id,
-            request_type: Some(request_type.to_owned()),
+            request_type: Some(JsText::new(request_type)),
             error,
-            code: Some(code.to_owned()),
+            code: Some(JsText::new(code)),
         },
     })
 }
@@ -83,22 +86,23 @@ fn rpc_error(request_id: String, request_type: &str, error: String, code: &str) 
 /// `handleRequest(msg)`: refuses a message the session may not send with
 /// `access_denied`, otherwise runs `dispatch`. A dispatch error becomes
 /// `rpc_error` with `Request failed: <message>` and `handler_error`, then an
-/// `activity_log` error entry, in that order.
+/// `activity_log` error entry, in that order. The error is JavaScript text,
+/// since handler messages often quote request fields.
 pub fn handle_request(
     authorization: &SessionAuthorization,
     message: SessionInbound,
     emit: &mut dyn FnMut(Value),
-    dispatch: impl FnOnce(SessionInbound, &mut dyn FnMut(Value)) -> Result<(), String>,
+    dispatch: impl FnOnce(SessionInbound, &mut dyn FnMut(Value)) -> Result<(), JsText>,
 ) {
-    let id = request_id(&message).to_owned();
+    let id = request_id(&message).clone();
     let kind = request_type(&message);
     if !authorization.allows_inbound(&message) {
-        let error = format!("Session is not authorized for {kind}");
+        let error = JsText::new(&format!("Session is not authorized for {kind}"));
         emit(rpc_error(id, kind, error, "access_denied"));
         return;
     }
     if let Err(error) = dispatch(message, emit) {
-        let failure = format!("Request failed: {error}");
+        let failure = JsText::from_js(format!("Request failed: {}", error.as_str()));
         emit(rpc_error(id, kind, failure, "handler_error"));
         emit(json!({
             "type": "activity_log",
@@ -106,7 +110,7 @@ pub fn handle_request(
                 "id": random_uuid(),
                 "timestamp": now_iso(),
                 "type": "error",
-                "content": format!("Error: {error}"),
+                "content": format!("Error: {}", error.as_str()),
             }
         }));
     }
@@ -146,6 +150,7 @@ mod tests {
     use spocky_contracts::frame::parse_frame;
     use spocky_contracts::number::Int;
     use spocky_contracts::session::SessionInbound;
+    use spocky_contracts::text::JsText;
     use spocky_contracts::ws::DaemonPermission;
 
     use super::{handle_request, pong};
@@ -158,7 +163,7 @@ mod tests {
     fn run(
         permissions: &[DaemonPermission],
         message: &Value,
-        result: Result<(), String>,
+        result: Result<(), JsText>,
     ) -> (Vec<Value>, bool) {
         let mut emitted = Vec::new();
         let mut called = false;
@@ -193,7 +198,7 @@ mod tests {
         let (emitted, called) = run(
             &DaemonPermission::ALL,
             &json!({"type": "fetch_agent_request", "requestId": "f1", "agentId": "a"}),
-            Err("Agent not found: a".to_owned()),
+            Err(JsText::new("Agent not found: a")),
         );
         assert!(called);
         assert_eq!(emitted.len(), 2);
