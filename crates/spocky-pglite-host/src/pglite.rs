@@ -28,6 +28,13 @@ fn fs_step(step: &str, error: vfs::FsError) -> wasmtime::Error {
 
 pub const PGDATA: &str = "/pglite/data";
 const POSTGRES_MAIN_LONGJMP: i32 = 100;
+/// Interval of the epoch ticker that bounds request time.
+pub const EPOCH_TICK: std::time::Duration = std::time::Duration::from_millis(10);
+/// Epoch deadline used when a request has no time limit.
+const NO_DEADLINE: u64 = u64::MAX / 4;
+/// Swallowed exception texts kept for diagnostics.
+const SWALLOWED_KEPT: usize = 32;
+
 /// Bound on consecutive exceptions the wire loop swallows without reading
 /// input. The glue loops forever in that case; the host stops instead.
 const SWALLOWED_EXCEPTION_LIMIT: u32 = 10_000;
@@ -105,7 +112,20 @@ impl Compiled {
             cache_config.with_directory(directory);
             config.cache(Some(wasmtime::Cache::new(cache_config)?));
         }
+        // Host-side request deadlines: Wasm checks the epoch counter, which a
+        // ticker thread advances every EPOCH_TICK.
+        config.epoch_interruption(true);
         let engine = Engine::new(&config)?;
+        let ticker = engine.clone();
+        std::thread::Builder::new()
+            .name("pglite-epoch".into())
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(EPOCH_TICK);
+                    ticker.increment_epoch();
+                }
+            })
+            .map_err(|error| abort_error(error.to_string()))?;
         let pglite = Module::new(&engine, &package.pglite_wasm)?;
         let initdb = Module::new(&engine, &package.initdb_wasm)?;
         Ok(Self {
@@ -169,6 +189,42 @@ pub struct Pglite {
     pub closed: bool,
     pub initdb_report: Option<InitdbReport>,
     pub types: TypeRegistry,
+    /// Set once an epoch deadline interrupted Wasm; the instance state is
+    /// then unknown and the host must not reuse it.
+    pub interrupted: bool,
+}
+
+/// True when Wasm stopped because the epoch deadline passed.
+#[must_use]
+pub fn is_interrupt(error: &wasmtime::Error) -> bool {
+    error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::Interrupt)
+}
+
+/// Appends `item`, keeping only the newest `limit` entries.
+fn push_bounded(list: &mut Vec<String>, item: String, limit: usize) {
+    list.push(item);
+    if list.len() > limit {
+        let excess = list.len() - limit;
+        list.drain(..excess);
+    }
+}
+
+/// The read callback's copy: `HEAP8.set(input.subarray(...), pointer)`,
+/// which throws a `RangeError` when the target lies outside memory.
+fn copy_input(
+    memory: &mut [u8],
+    pointer: usize,
+    input: &[u8],
+    offset: usize,
+    maximum: usize,
+) -> std::result::Result<usize, String> {
+    let available = input.len().saturating_sub(offset).min(maximum);
+    let slot = pointer
+        .checked_add(available)
+        .and_then(|end| memory.get_mut(pointer..end))
+        .ok_or_else(|| "RangeError: offset is out of bounds".to_owned())?;
+    slot.copy_from_slice(&input[offset..offset + available]);
+    Ok(available)
 }
 
 /// A failed request, shaped like the retained host's `errorPayload`.
@@ -544,6 +600,8 @@ impl Pglite {
             std::fs::create_dir(&root).map_err(|error| HostError::Startup(error.to_string()))?;
         }
         let mut store = Store::new(&compiled.engine, Runtime::new(compiled.engine.clone()));
+        store.epoch_deadline_trap();
+        store.set_epoch_deadline(NO_DEADLINE);
         let main = setup_postgres(&mut store, compiled, Some(&root))?;
         let fs = Rc::clone(&store.data().modules[main].fs);
         let mut initdb_report = None;
@@ -571,6 +629,7 @@ impl Pglite {
             closed: false,
             initdb_report,
             types: TypeRegistry::default(),
+            interrupted: false,
         };
         let array_types = pglite.query_messages(
             "\n      SELECT b.oid, b.typarray\n      FROM pg_catalog.pg_type a\n      LEFT JOIN pg_catalog.pg_type b ON b.oid = a.typelem\n      WHERE a.typcategory = 'A'\n      GROUP BY b.oid, b.typarray\n      ORDER BY b.oid\n    ",
@@ -755,6 +814,16 @@ impl Pglite {
         Ok(results)
     }
 
+    /// Limits Wasm execution of the following requests to about `limit`, or
+    /// removes the limit.
+    pub fn set_deadline(&mut self, limit: Option<std::time::Duration>) {
+        let ticks = limit.map_or(NO_DEADLINE, |limit| {
+            let ticks = limit.as_millis() / EPOCH_TICK.as_millis();
+            u64::try_from(ticks).unwrap_or(NO_DEADLINE).max(1)
+        });
+        self.store.set_epoch_deadline(ticks);
+    }
+
     /// `execProtocolRawSync`.
     ///
     /// # Errors
@@ -789,6 +858,9 @@ impl Pglite {
                 let before = self.store.data().modules[main].io.read_offset;
                 match call_i32(&mut self.store, main, "PostgresMainLoopOnce", &[]) {
                     Ok(_) => swallowed = 0,
+                    Err(error) if is_interrupt(&error) => {
+                        return Err(HostError::Engine(error));
+                    }
                     Err(error) => {
                         let status = error.downcast_ref::<ExitStatus>().map(|status| status.0);
                         if status == Some(POSTGRES_MAIN_LONGJMP) {
@@ -797,7 +869,11 @@ impl Pglite {
                             swallowed = 0;
                         } else {
                             self.store.data_mut().count("wire_loop_swallowed_exception");
-                            self.store.data_mut().swallowed.push(format!("{error:?}"));
+                            push_bounded(
+                                &mut self.store.data_mut().swallowed,
+                                format!("{error:?}"),
+                                SWALLOWED_KEPT,
+                            );
                             if self.store.data().modules[main].io.read_offset == before {
                                 swallowed += 1;
                                 if swallowed >= SWALLOWED_EXCEPTION_LIMIT {
@@ -816,6 +892,16 @@ impl Pglite {
             &[],
         )
         .and_then(|_| call_i32(&mut self.store, main, "pgl_pq_flush", &[]));
+        if let Err(HostError::Engine(error)) = &loop_result
+            && is_interrupt(error)
+        {
+            self.interrupted = true;
+        }
+        if let Err(error) = &finish
+            && is_interrupt(error)
+        {
+            self.interrupted = true;
+        }
         loop_result?;
         finish?;
         let io = &mut self.store.data_mut().modules[main].io;
@@ -1018,10 +1104,8 @@ pub(crate) fn run_callback(
             let memory = caller.data().modules[index].memory;
             let (data, runtime) = memory.data_and_store_mut(&mut caller);
             let io = &mut runtime.modules[index].io;
-            let available = io.input.len().saturating_sub(io.read_offset).min(maximum);
-            if let Some(slot) = data.get_mut(pointer..pointer + available) {
-                slot.copy_from_slice(&io.input[io.read_offset..io.read_offset + available]);
-            }
+            let available = copy_input(data, pointer, &io.input, io.read_offset, maximum)
+                .map_err(abort_error)?;
             io.read_offset += available;
             set(i32::try_from(available).unwrap_or(i32::MAX));
             Ok(())
@@ -1182,4 +1266,32 @@ fn run_postgres_command(
     caller.data_mut().count("initdb_postgres_main");
     let args: Vec<String> = words.collect();
     runtime::call_main(caller, postgres, &args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_callback_copy_raises_range_error_outside_memory() {
+        let mut memory = vec![0_u8; 8];
+        assert_eq!(copy_input(&mut memory, 2, b"abcdef", 1, 3), Ok(3));
+        assert_eq!(&memory[2..5], b"bcd");
+        assert_eq!(
+            copy_input(&mut memory, 6, b"abcdef", 0, 4),
+            Err("RangeError: offset is out of bounds".to_owned())
+        );
+        assert_eq!(copy_input(&mut memory, 8, b"abc", 3, 4), Ok(0));
+    }
+
+    #[test]
+    fn swallowed_exception_log_keeps_the_newest_entries() {
+        let mut list = Vec::new();
+        for item in 0..40 {
+            push_bounded(&mut list, item.to_string(), 32);
+        }
+        assert_eq!(list.len(), 32);
+        assert_eq!(list.first().map(String::as_str), Some("8"));
+        assert_eq!(list.last().map(String::as_str), Some("39"));
+    }
 }
