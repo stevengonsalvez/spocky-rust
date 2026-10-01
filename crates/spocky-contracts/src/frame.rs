@@ -2,7 +2,7 @@
 //! `WSOutboundMessageSchema`, dispatched on the top-level `type`.
 //!
 //! Text is parsed as `JSON.parse` does before typing: a repeated key keeps
-//! its first position and its last value.
+//! its first position and its last value. Outbound frames are emit-only.
 
 use serde::de::{self, Deserializer};
 use serde::ser::{SerializeStruct, Serializer};
@@ -78,22 +78,9 @@ impl Serialize for WsOutbound {
     }
 }
 
-impl<'de> Deserialize<'de> for WsOutbound {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        if frame_type(&value) == Some("session") {
-            SessionEnvelope::<SessionOutbound>::deserialize(value)
-                .map(|envelope| Self::Session(Box::new(envelope.message)))
-                .map_err(de::Error::custom)
-        } else {
-            WsControlOutbound::deserialize(value)
-                .map(Self::Control)
-                .map_err(de::Error::custom)
-        }
-    }
-}
-
-/// Parses frame text into `T` with `JSON.parse` key semantics.
+/// Parses frame text into `T` with `JSON.parse` key semantics. This is the
+/// entry point for inbound frames: derived `Deserialize` impls reject a
+/// repeated key, which `JSON.parse` and zod accept.
 ///
 /// # Errors
 ///
