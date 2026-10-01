@@ -138,6 +138,14 @@ the default. When a one-file split would leave a red intermediate commit, make
 one atomic commit with the fewest files possible and state the reason in the
 commit body. Never commit a red intermediate state.
 
+Checkpoint build scope, 2026-10-01: before a CHECKPOINT, a writer checks its
+own crate plus its direct reverse dependents (found with
+`cargo tree -i <crate>`), not the whole workspace. Each lane builds in its own
+target directory, so a per-lane workspace check compiled everything, wasmtime
+included, and starved the build gate. The lead integration build is the single
+full-workspace check: after every cherry-pick the lead runs
+`cargo check --locked --workspace --all-targets` before main moves.
+
 ## Task states
 
 Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrating`, and `done`. A blocked task names its exact unmet dependency and evidence. The durable ledger is [`porting/tasks.json`](porting/tasks.json).
