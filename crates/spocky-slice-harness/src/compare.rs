@@ -84,6 +84,48 @@ pub fn canonical_client_metadata(record: &str) -> String {
     Value::Object(entry).to_string()
 }
 
+/// The single named non-normalization transform the gate applies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transform {
+    pub id: String,
+    pub target: String,
+    pub reason: String,
+    pub owner: String,
+    /// Where the untransformed bytes are kept.
+    pub raw_retained: String,
+    /// Compared artifacts whose bytes the transform changed, as `<side>:<name>`.
+    pub reordered: Vec<String>,
+}
+
+/// Id of the `client_metadata` key-order transform.
+pub const CLIENT_METADATA_TRANSFORM: &str = "codex-client-metadata-key-order";
+
+/// Describes the `client_metadata` transform and where it changed bytes.
+#[must_use]
+pub fn client_metadata_transform(left: &SideRun, right: &SideRun) -> Transform {
+    let mut reordered = Vec::new();
+    for side in [left, right] {
+        for (index, record) in side.stub_records.iter().enumerate() {
+            if canonical_client_metadata(record) != *record {
+                reordered.push(format!("{}:stub/{index:03}", side.kind.label()));
+            }
+        }
+    }
+    Transform {
+        id: CLIENT_METADATA_TRANSFORM.into(),
+        target: "stub request records: keys of the body's client_metadata object only".into(),
+        reason:
+            "the pinned codex 0.159.0 binary emits client_metadata keys in hash-map order that \
+                 differs run to run with no daemon involved (four direct codex exec runs, four \
+                 orders); the daemon's own codex input is compared byte for byte via codex-io"
+                .into(),
+        owner: "p3_slice_harness".into(),
+        raw_retained: "left-*/side.json and right-*/side.json stub_records, and files/stub".into(),
+        reordered,
+    }
+}
+
 /// Compared artifacts of one side, in canonical order.
 #[must_use]
 pub fn side_artifacts(side: &SideRun) -> Vec<Artifact> {
@@ -234,6 +276,7 @@ pub struct Verdict {
     pub harness_errors: Vec<String>,
     pub expected_counts: ExecutionCounts,
     pub rule_count: usize,
+    pub transforms: Vec<Transform>,
 }
 
 /// Comparison output: the verdict and, when comparison ran, the manifest.
@@ -242,6 +285,7 @@ pub struct Outcome {
     pub verdict: Verdict,
     pub manifest: Option<DifferentialManifest>,
     pub rules: Vec<NormalizationRule>,
+    pub transforms: Vec<Transform>,
 }
 
 /// Collects per-side lines prefixed with the side's daemon label.
@@ -353,6 +397,7 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         && check_failures.is_empty()
         && survivors.is_empty()
         && harness_errors.is_empty();
+    let transforms = vec![client_metadata_transform(left, right)];
     Outcome {
         verdict: Verdict {
             gate: gate.id.to_owned(),
@@ -367,9 +412,11 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
             harness_errors,
             expected_counts,
             rule_count: rules.len(),
+            transforms: transforms.clone(),
         },
         manifest,
         rules,
+        transforms,
     }
 }
 
@@ -592,6 +639,36 @@ mod tests {
         let (left, right) = pair();
         let left = with_record(left, r#"{"model":"m","input":"hi"}"#);
         let right = with_record(right, r#"{"input":"hi","model":"m"}"#);
+        assert!(!compared_only(&left, &right).pass);
+    }
+
+    #[test]
+    fn client_metadata_transform_is_named_and_touches_only_that_object() {
+        let (left, right) = pair();
+        let left = with_record(
+            left,
+            r#"{"model":"m","client_metadata":{"b":"2","a":"1"},"z":1}"#,
+        );
+        let right = with_record(
+            right,
+            r#"{"model":"m","client_metadata":{"a":"1","b":"2"},"z":1}"#,
+        );
+        let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
+        assert!(outcome.verdict.pass);
+        assert_eq!(outcome.verdict.transforms.len(), 1);
+        let transform = &outcome.verdict.transforms[0];
+        assert_eq!(transform.id, CLIENT_METADATA_TRANSFORM);
+        assert_eq!(transform.reordered, vec!["original:stub/000".to_owned()]);
+        // The same metadata reorder plus a key-order swap elsewhere in the body fails.
+        let (left, right) = pair();
+        let left = with_record(
+            left,
+            r#"{"model":"m","client_metadata":{"b":"2","a":"1"},"z":1}"#,
+        );
+        let right = with_record(
+            right,
+            r#"{"client_metadata":{"a":"1","b":"2"},"model":"m","z":1}"#,
+        );
         assert!(!compared_only(&left, &right).pass);
     }
 
