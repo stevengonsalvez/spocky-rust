@@ -1006,3 +1006,86 @@ fn a_backend_may_send_while_it_is_told_a_new_app_version_on_resume() {
     });
     harness.finish();
 }
+
+/// `JSON.parse` error messages from Node 22.20.0, the runtime the pinned daemon
+/// runs on. The wire text is "Invalid message: " followed by these.
+const V8_PARSE_ERRORS: &[(&str, &str)] = &[
+    (
+        "not json",
+        "Unexpected token 'o', \"not json\" is not valid JSON",
+    ),
+    (
+        "{bad",
+        "Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+    ),
+    ("", "Unexpected end of JSON input"),
+    (
+        "{\"a\":1,}",
+        "Expected double-quoted property name in JSON at position 7 (line 1 column 8)",
+    ),
+    (
+        "[1,2",
+        "Expected ',' or ']' after array element in JSON at position 4 (line 1 column 5)",
+    ),
+    ("{\"a\":", "Unexpected end of JSON input"),
+    (
+        "\"unterminated",
+        "Unterminated string in JSON at position 13 (line 1 column 14)",
+    ),
+    (
+        "{\"type\":\"ping\"} x",
+        "Unexpected non-whitespace character after JSON at position 16 (line 1 column 17)",
+    ),
+    ("[,]", "Unexpected token ',', \"[,]\" is not valid JSON"),
+    (
+        "{\"a\" 1}",
+        "Expected ':' after property name in JSON at position 5 (line 1 column 6)",
+    ),
+];
+
+#[test]
+fn unparsable_text_before_hello_closes_with_4002_invalid_hello_and_no_frame() {
+    let harness = start(config());
+    for (text, _) in V8_PARSE_ERRORS {
+        let mut ws = harness.connect(&[]);
+        ws.send(Message::text(*text)).unwrap();
+        match ws.read() {
+            Ok(Message::Close(Some(frame))) => {
+                assert_eq!(u16::from(frame.code), 4002, "{text:?}");
+                assert_eq!(frame.reason.as_str(), "Invalid hello", "{text:?}");
+            }
+            other => panic!("{text:?}: the first thing sent must be the close, got {other:?}"),
+        }
+    }
+    assert!(harness.calls.opens.lock().unwrap().is_empty());
+    harness.finish();
+}
+
+#[test]
+fn unparsable_text_after_hello_is_a_protocol_failure_with_the_v8_message() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("parser"));
+    next_json(&mut ws);
+    for (text, _) in V8_PARSE_ERRORS {
+        ws.send(Message::text(*text)).unwrap();
+    }
+    wait_for("the failures", || {
+        harness.calls.failures.lock().unwrap().len() == V8_PARSE_ERRORS.len()
+    });
+    let failures = harness.calls.failures.lock().unwrap().clone();
+    for ((text, message), (_, failure)) in V8_PARSE_ERRORS.iter().zip(&failures) {
+        assert_eq!(
+            failure.error,
+            format!("Invalid message: {message}"),
+            "{text:?}"
+        );
+        assert_eq!(failure.code, "invalid_message", "{text:?}");
+        assert_eq!(failure.request_id, None, "{text:?}");
+        assert_eq!(failure.request_type, None, "{text:?}");
+    }
+    // The socket stays attached: a parse failure after hello does not close it.
+    send(&mut ws, &json!({"type": "ping"}));
+    assert_eq!(next_json(&mut ws), json!({"type": "pong"}));
+    harness.finish();
+}
