@@ -3,8 +3,14 @@ import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-const [tsx, baselineDriver, candidateBinary, database, eventsPath, processesPath] =
-  process.argv.slice(2);
+const [
+  tsx,
+  baselineDriver,
+  candidateBinary,
+  database,
+  eventsPath,
+  processesPath,
+] = process.argv.slice(2);
 if (!processesPath) throw new Error("six arguments are required");
 
 const candidateEnvironment = {
@@ -16,7 +22,11 @@ const events = [];
 let active = [];
 
 try {
-  const baseline = start("baseline-owner", tsx, [baselineDriver, "hold", database], {
+  const baseline = start("baseline-owner", tsx, [
+    baselineDriver,
+    "hold",
+    database,
+  ], {
     ...process.env,
   });
   const baselineReady = await nextJson(baseline, 90_000);
@@ -56,9 +66,14 @@ try {
   events.push(baselineExcluded);
   const candidateExit = await closeOwner(candidate, 30_000);
 
-  const reverseGuaranteed =
-    baselineExcluded.opened === false && baselineExcluded.error.includes("already in use");
+  const reverseGuaranteed = baselineExcluded.opened === false &&
+    baselineExcluded.error.includes("already in use");
   const report = {
+    scope: "ordered-live-starts-only",
+    limitations: [
+      "simultaneous_pre_owner_record_race_unqualified",
+      "schema_downgrade_unqualified",
+    ],
     forwardExclusion: {
       baselineReady: baselineReady.event === "ready",
       candidateExcluded: candidateExcluded.opened === false,
@@ -67,7 +82,8 @@ try {
     handoff: {
       baselineExit: baselineExit.code === 0 ? "bounded-clean" : "failed",
       directoryRecreated: !unchangedDirectory,
-      candidateOpenedUnchangedDirectory: candidateReady.event === "ready" && unchangedDirectory,
+      candidateOpenedUnchangedDirectory: candidateReady.event === "ready" &&
+        unchangedDirectory,
       baselineMarkerPayload: candidateReady.baselineMarkerPayload,
     },
     reverseExclusion: {
@@ -77,15 +93,20 @@ try {
     },
     compatibilityMechanism: reverseGuaranteed
       ? {
-          status: "not-required",
-          reason: "shared live PID owner record excludes ordered mixed starts",
-        }
+        status: "not-required-for-ordered-starts",
+        reason: "shared live PID owner record excludes ordered mixed starts",
+      }
       : {
-          status: "required",
-          reason: "pinned baseline ignored candidate ownership",
-        },
+        status: "required",
+        reason: "pinned baseline ignored candidate ownership",
+      },
   };
-  processes.push(baselineExit, candidateProbe.process, baselineProbe.process, candidateExit);
+  processes.push(
+    baselineExit,
+    candidateProbe.process,
+    baselineProbe.process,
+    candidateExit,
+  );
   await writeFile(eventsPath, `${JSON.stringify(events, null, 2)}\n`);
   await writeFile(processesPath, `${JSON.stringify(processes, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(report)}\n`);
@@ -110,8 +131,14 @@ async function nextJson(child, timeoutMs) {
   const line = await withTimeout(
     new Promise((resolve, reject) => {
       child.lines.once("line", resolve);
-      child.once("exit", (code, signal) =>
-        reject(new Error(`${child.name} exited before ready: code=${code} signal=${signal}`)),
+      child.once(
+        "exit",
+        (code, signal) =>
+          reject(
+            new Error(
+              `${child.name} exited before ready: code=${code} signal=${signal}`,
+            ),
+          ),
       );
     }),
     timeoutMs,
@@ -128,7 +155,10 @@ async function closeOwner(child, timeoutMs) {
 }
 
 async function run(name, command, args, env, timeoutMs) {
-  const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(command, args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => (stdout += chunk));
@@ -151,8 +181,7 @@ async function waitForExit(child, timeoutMs) {
           exitedAt: new Date().toISOString(),
           code,
           signal,
-        }),
-      ),
+        }))
     ),
     timeoutMs,
     `${child.name ?? "process"} exit`,
@@ -180,7 +209,10 @@ function waitWithoutTimeout(child) {
 function withTimeout(promise, timeoutMs, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
@@ -191,6 +223,8 @@ function delay(milliseconds) {
 
 function parseSingleJson(stdout) {
   const lines = stdout.trim().split("\n");
-  if (lines.length !== 1) throw new Error(`expected one JSON line, got ${lines.length}`);
+  if (lines.length !== 1) {
+    throw new Error(`expected one JSON line, got ${lines.length}`);
+  }
   return JSON.parse(lines[0]);
 }

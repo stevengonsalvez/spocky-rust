@@ -33,7 +33,12 @@ jq -e '
   and .reverseExclusion.candidateReady == true
   and .reverseExclusion.baselineExcluded == true
   and .reverseExclusion.baselineErrorContains == "already in use"
-  and .compatibilityMechanism.status == "not-required"
+  and .scope == "ordered-live-starts-only"
+  and .limitations == [
+    "simultaneous_pre_owner_record_race_unqualified",
+    "schema_downgrade_unqualified"
+  ]
+  and .compatibilityMechanism.status == "not-required-for-ordered-starts"
   and .compatibilityMechanism.reason == "shared live PID owner record excludes ordered mixed starts"
   and (.rawEvidence | sort == [
     "hub-mixed-ownership-events.json",
@@ -42,3 +47,11 @@ jq -e '
 ' "$output" >/dev/null
 
 gtimeout 30 cmp "$output" "$repository_root/evidence/phase2/hub-mixed-ownership-report.json"
+grep -F 'Scope: ordered live starts only.' \
+  "$repository_root/evidence/phase2/hub-mixed-ownership.md" >/dev/null
+grep -F 'Simultaneous pre-owner-record race is unqualified.' \
+  "$repository_root/evidence/phase2/hub-mixed-ownership.md" >/dev/null
+grep -F 'Schema downgrade is unqualified.' \
+  "$repository_root/evidence/phase2/hub-mixed-ownership.md" >/dev/null
+grep -F 'Port 6767 was untouched.' \
+  "$repository_root/evidence/phase2/hub-mixed-ownership.md" >/dev/null

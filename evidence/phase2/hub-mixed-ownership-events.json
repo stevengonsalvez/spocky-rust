@@ -19,6 +19,6 @@
   {
     "operation": "baseline-try-open",
     "opened": false,
-    "error": "Embedded database directory is already in use by another Paseo Hub process (PID 74416): /var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-hub-mixed-ownership.y6k8L9/database. Embedded mode supports one process per data directory."
+    "error": "Embedded database directory is already in use by another Paseo Hub process (PID 82538): /var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-hub-mixed-ownership.iUGerc/database. Embedded mode supports one process per data directory."
   }
 ]

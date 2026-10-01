@@ -10,7 +10,9 @@ const { embeddedDatabaseRuntime } = await import(
   pathToFileURL(join(sourceRoot, "src/db/runtime/index.ts")).href
 );
 const [operation, dataDirectory] = process.argv.slice(2);
-if (!operation || !dataDirectory) throw new Error("operation and data directory are required");
+if (!operation || !dataDirectory) {
+  throw new Error("operation and data directory are required");
+}
 
 if (operation === "hold") {
   const bundle = await embeddedDatabaseRuntime(dataDirectory);
@@ -29,12 +31,19 @@ if (operation === "hold") {
   );
   const journalRows = await journalCount(bundle.runtime);
   const marker = await markerPayload(bundle.runtime);
-  writeJson({ operation: "baseline-hold", event: "ready", journalRows, marker });
+  writeJson({
+    operation: "baseline-hold",
+    event: "ready",
+    journalRows,
+    marker,
+  });
 
   const lines = createInterface({ input: process.stdin });
   const command = await new Promise((resolve) => lines.once("line", resolve));
   lines.close();
-  if (command !== "close") throw new Error(`unexpected hold command: ${command}`);
+  if (command !== "close") {
+    throw new Error(`unexpected hold command: ${command}`);
+  }
   await bundle.runtime.close();
   writeJson({ operation: "baseline-hold", event: "closed" });
 } else if (operation === "try-open") {

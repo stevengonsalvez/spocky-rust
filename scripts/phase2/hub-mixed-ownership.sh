@@ -78,6 +78,8 @@ gtimeout 30 jq -n \
   --slurpfile qualification "$fixture_root/qualification.json" '
   {
     baseline: { commit: $baseline, sourceTreeMutated: $sourceTreeMutated },
+    scope: $qualification[0].scope,
+    limitations: $qualification[0].limitations,
     storage: { disposableCopy: true, sameSchemaJournalRows: 49 },
     forwardExclusion: $qualification[0].forwardExclusion,
     handoff: $qualification[0].handoff,
@@ -91,6 +93,11 @@ gtimeout 30 jq -n \
 
 gtimeout 30 jq -e '
   .baseline.sourceTreeMutated == false
+  and .scope == "ordered-live-starts-only"
+  and .limitations == [
+    "simultaneous_pre_owner_record_race_unqualified",
+    "schema_downgrade_unqualified"
+  ]
   and .storage.sameSchemaJournalRows == 49
   and .forwardExclusion.baselineReady == true
   and .forwardExclusion.candidateExcluded == true
@@ -100,14 +107,40 @@ gtimeout 30 jq -e '
   and .handoff.baselineMarkerPayload == "pinned-baseline-live-owner"
   and .reverseExclusion.candidateReady == true
   and .reverseExclusion.baselineExcluded == true
-  and .compatibilityMechanism.status == "not-required"
+  and .compatibilityMechanism.status == "not-required-for-ordered-starts"
 ' "$fixture_root/report.json" >/dev/null
 
 gtimeout 30 cp "$fixture_root/events.json" "$evidence_root/hub-mixed-ownership-events.json"
 gtimeout 30 cp "$fixture_root/processes.json" "$evidence_root/hub-mixed-ownership-processes.json"
 gtimeout 30 cp "$fixture_root/report.json" "$evidence_root/hub-mixed-ownership-report.json"
+events_hash=$(gtimeout 30 shasum -a 256 "$evidence_root/hub-mixed-ownership-events.json" | awk '{print $1}')
+processes_hash=$(gtimeout 30 shasum -a 256 "$evidence_root/hub-mixed-ownership-processes.json" | awk '{print $1}')
+report_hash=$(gtimeout 30 shasum -a 256 "$evidence_root/hub-mixed-ownership-report.json" | awk '{print $1}')
+gtimeout 30 jq -jnr \
+  --arg eventsHash "$events_hash" \
+  --arg processesHash "$processes_hash" \
+  --arg reportHash "$report_hash" '
+  "# Hub mixed ownership qualification\n\n" +
+  "Run:\n\n```sh\n" +
+  "gtimeout --kill-after=30 1200 scripts/phase2/hub-mixed-ownership.test.sh\n" +
+  "```\n\n" +
+  "Observed sequence: pinned baseline owns the disposable 49-row same-schema directory; " +
+  "candidate is excluded; baseline exits cleanly; candidate opens the unchanged directory; " +
+  "new pinned baseline is excluded.\n\n" +
+  "Scope: ordered live starts only.\n\n" +
+  "Limitations:\n\n" +
+  "- Simultaneous pre-owner-record race is unqualified.\n" +
+  "- Schema downgrade is unqualified.\n\n" +
+  "Port 6767 was untouched.\n\n" +
+  "| Artifact | SHA-256 |\n" +
+  "| --- | --- |\n" +
+  "| `hub-mixed-ownership-events.json` | `\($eventsHash)` |\n" +
+  "| `hub-mixed-ownership-processes.json` | `\($processesHash)` |\n" +
+  "| `hub-mixed-ownership-report.json` | `\($reportHash)` |\n"
+  ' >"$evidence_root/hub-mixed-ownership.md"
 (cd "$evidence_root" && gtimeout 30 shasum -a 256 \
   hub-mixed-ownership-events.json \
   hub-mixed-ownership-processes.json \
-  hub-mixed-ownership-report.json >hub-mixed-ownership-sha256.txt)
+  hub-mixed-ownership-report.json \
+  hub-mixed-ownership.md >hub-mixed-ownership-sha256.txt)
 gtimeout 30 cat "$fixture_root/report.json"

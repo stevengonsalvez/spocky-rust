@@ -3,6 +3,11 @@
     "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
     "sourceTreeMutated": false
   },
+  "scope": "ordered-live-starts-only",
+  "limitations": [
+    "simultaneous_pre_owner_record_race_unqualified",
+    "schema_downgrade_unqualified"
+  ],
   "storage": {
     "disposableCopy": true,
     "sameSchemaJournalRows": 49
@@ -24,7 +29,7 @@
     "baselineErrorContains": "already in use"
   },
   "compatibilityMechanism": {
-    "status": "not-required",
+    "status": "not-required-for-ordered-starts",
     "reason": "shared live PID owner record excludes ordered mixed starts"
   },
   "rawEvidence": [
