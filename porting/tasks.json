@@ -50,6 +50,13 @@
         "authority": "Claude lead, crate-graph owner, at the coordinator's request",
         "change": "One JavaScript-compatible JSON implementation (JSON.parse and JSON.stringify semantics: lone surrogates, overflow numbers, unlimited depth, JS number text, property order) lives in spocky-contracts as src/js_value.rs. No new crate. spocky-store depends on spocky-contracts, which the ownership graph already allows (contracts is the root; store sits below it) and which creates no cycle.",
         "sequence": "1. p3_session's spocky-store js_value.rs integrates first as the only copy on main. 2. p3_contracts moves it into crates/spocky-contracts/src/js_value.rs from main, verbatim plus its tests, then switches inbound WebSocket frame parsing in json.rs to it, one file per commit. 3. Once that integrates, p3_session switches spocky-store to spocky_contracts::js_value, adds the dependency, and deletes its copy in the next checkpoint. Neither lane writes a second implementation meanwhile."
+      },
+      {
+        "date": "2026-10-01",
+        "authority": "Claude coordinator session term_d3e130a0",
+        "change": "Temporary js_value single-owner exception. p3_session commit 5eda6df (exact V8 node 22.20.0 JSON.parse error messages, 83 oracle cases in tests/fixtures/v8-json-errors.json) and later changes edited crates/spocky-store/src/js_value.rs after p3_contracts copied it byte-identical into crates/spocky-contracts/src/js_value.rs, so the copies diverged.",
+        "exception": "After batch v2 lands on main, the p3_session lane alone may edit crates/spocky-contracts/src/js_value.rs and its test file, outside its normal paths, one file per signed commit: (a) apply its js_value changes to the contracts copy; (b) switch spocky-store to spocky_contracts::js_value, adding the dependency in crates/spocky-store/Cargo.toml with the lock in a separate commit; (c) delete crates/spocky-store/src/js_value.rs. During the exception p3_contracts must not edit js_value.rs or its tests.",
+        "endCondition": "The store copy is deleted on main, the 83 V8 cases and the zod fixtures pass against the contracts copy, and the lead integrates that range. Ownership of js_value.rs then returns to p3_contracts."
       }
     ],
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
