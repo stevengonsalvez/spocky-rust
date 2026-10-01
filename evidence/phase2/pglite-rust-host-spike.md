@@ -36,7 +36,7 @@ spike_marker`, a parameterized insert of `(1, 'spike marker')`, a settings
 query, close. The Rust host then reopens its own directory and the copy of the
 Node-made directory.
 
-## Results (measured, 2026-10-01 18:31 to 18:36 local)
+## Results (run 2, measured 2026-10-01 18:31 to 18:36 local)
 
 | Check | Node host | Rust host |
 | --- | --- | --- |
@@ -45,17 +45,18 @@ Node-made directory.
 | Compile, cache warm (second process, same cache directory) | not applicable | 580 ms |
 | Open to ready (includes initdb) | not timed | 10,625 ms cold run, 5,807 ms warm run |
 | `select 1 as one` | `[{"one":1}]` | one row, text `1` |
-| PL/pgSQL `EXCEPTION` block | 1 `_emscripten_throw_longjmp` call | 1 `_emscripten_throw_longjmp` call, 1 caught by an `invoke_*` wrapper (`setThrew`), `NOTICE caught 22012` |
+| PL/pgSQL `EXCEPTION` block | 1 `_emscripten_throw_longjmp` call; run 3: 1 caught by an `invoke_*` wrapper | 1 `_emscripten_throw_longjmp` call, 1 caught by an `invoke_*` wrapper (`setThrew`), `NOTICE caught 22012` |
 | `missing_table` error | `42P01`, `ERROR`, `relation "missing_table" does not exist` | same code, severity and message; reached through `exit(100)` and `PostgresMainLongJmp` (1) |
 | Settings | `TimeZone = Etc/GMT0`, `server_version = 18.3` | same |
-| Side modules | not counted in this workload | 3 `dlopen` and 18 `dlsym`, equal to the counts in the Node import trace (a different workload) |
+| Side modules | run 3: 3 `dlopen` and 18 `dlsym` | 3 `dlopen` and 18 `dlsym` |
 | Close | ok | ok |
 | Reopen own directory | not run | ok, `select 1` returns `1` |
 | Reopen Node-made directory | not applicable | ok, reads `(1, 'spike marker')` written by Node |
 
-The Node report has an `invokeCaughtLongjmp` field that the Node script never
-increments, so its value 0 is not a measurement. Invoke catches and side
-module loads are counted on the Rust side only.
+In this run the Node report's `invokeCaughtLongjmp` field was never
+incremented, so its 0 was not a measurement. Run 3 (below) counts it, and
+`dlopen` and `dlsym`, on Node: an `invoke_*` import that returns normally
+after a thrown longjmp is counted as the catcher.
 
 The spike example prints raw PostgreSQL text. Typed value mapping runs in
 `PgliteHost::query` and is covered by
@@ -167,6 +168,26 @@ was not confirmed by tracing memory in either host.
 Not decoded: the 2 `record.blockdata` bytes (1 in the control) and the 81
 offsets in control classes that differ at other positions.
 
+## Run 3 (Node counters, 2026-10-01 evening)
+
+Same runner after the Node counters were added; artifacts committed under
+`evidence/phase2/pglite-rust-host-spike-raw/run3/`.
+
+| Check | Node versus Rust | Node versus Node (control) |
+| --- | --- | --- |
+| Counters | Node: 1 longjmp, 1 caught by `invoke_*`, 3 `dlopen`, 18 `dlsym`; Rust: the same four counts | not applicable |
+| Tree | 973 files byte-identical; the same two files differ | the same two files differ |
+| `pg_control` bytes | 42 differ, 1 offset outside the control set (in `system_identifier`) | 41 differ |
+| `pg_control` fields | `system_identifier`, `time`, `checkPointCopy.time`, `mock_authentication_nonce`, `crc` | the same five fields |
+| WAL bytes | 6,358 differ, 361 offsets outside the control set | 6,097 differ |
+| WAL record classes outside the control | none | not applicable |
+
+In run 3 the two Node runs also differ in commit records with
+`XLOG_XACT_HAS_INFO` (135 bytes), heap `INPLACE` (41) and standby
+`INVALIDATIONS` (50), the classes that differed only Node versus Rust in the
+run above. Cold compile with an empty cache took 11,555 ms and warm 508 ms;
+open to ready took 8,561 ms cold and 4,341 ms warm.
+
 ## Stack setting
 
 `PgliteHost::open` runs the store on a library-owned thread with a 256 MiB
@@ -204,8 +225,6 @@ child.
   in the import trace).
 - Socket `connect` returns `EHOSTUNREACH` and `listen` aborts, matching Node
   without the `ws` module; none is reached by PostgreSQL in single-user mode.
-- Node-side counts of invoke catches and side module loads for this workload
-  are not instrumented.
 - Not yet run: the 49 migrations, catalog parity (50 tables, 537 names, 49
   journal rows), the 17 retained-host cases, crash survival.
 
@@ -220,7 +239,8 @@ Committed under `evidence/phase2/pglite-rust-host-spike-raw/`:
 | `control-fields.json` | 809,587 | `47284b75052ded3d4b7d20b2d59ffe464f2fb39e3326c8ce46753e9c146117de` |
 | `wal-fields.json` | 509 | `6a49f3ec7a28a521a8da6b63b2b778422d035256062cf6e44438bb2a70f99f77` |
 
-Untracked, `evidence/raw/pglite-rust-host-spike/` (same run):
+Untracked, `evidence/raw/pglite-rust-host-spike/` (same run, since
+overwritten by run 3):
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -228,3 +248,21 @@ Untracked, `evidence/raw/pglite-rust-host-spike/` (same run):
 | `node2.json` | 216,896 | `55a5654f583ad540717f4abab94f49e566972f4385fc974702ef2bca7806a21c` |
 | `rust.json` | 433,832 | `407e8488a163e26a0bc7ccd4ce193a13284a714e3a9cc93b535e426da51215e9` |
 | `rust-warm.json` | 433,829 | `d7d7f7e01e20bbcafc29d176159a9b245b0f6a0774723f71f06c2184f65770a3` |
+
+Run 3, committed under `evidence/phase2/pglite-rust-host-spike-raw/run3/`:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `comparison.json` | 2,538 | `970aa8853255de925760d606e7bd3368a959f9d1aa44b6839c2248ce5727bb83` |
+| `control-node-vs-node.json` | 1,934 | `edbd58d49cf3a6fda15c4cc5902d266a60359b72992ae90ba3a31faf324aa3f5` |
+| `control-fields.json` | 109,050 | `f1385cd16af74b37a5a7bbbfb525720caae23f36fcb7c92f0a351bf365027c44` |
+| `wal-fields.json` | 119 | `8efd56da8fc282c8086d75a52581124ba07e325d5d4d797679840dbd0d7b5f31` |
+
+Run 3, untracked:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `node.json` | 216,930 | `164e55df3a9ddb9d893d7c4dbf7d05f4c871efc059a2b341436dc94dd244c941` |
+| `node2.json` | 216,930 | `5af0fa3dbbdf471b617a4ede39bea21e25c7bbff25c6f2f10512d11ffb215506` |
+| `rust.json` | 433,831 | `f66cefcc5a21d9bef3d22d566e0beabdc9cbe4794495402db8f4bb8bced5a6e9` |
+| `rust-warm.json` | 433,829 | `579a6b4c8eb761281c3fad5da20a02c31ed6b52fba1e597759c71e3400f03eb5` |
