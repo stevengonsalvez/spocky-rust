@@ -17,6 +17,7 @@ signal-hook = "0.3"
 sha1 = "0.10"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-crypto = { path = "../spocky-crypto" }
+spocky-store = { path = "../spocky-store" }
 subtle = "2"
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 url = "2"

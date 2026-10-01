@@ -5544,6 +5544,7 @@ dependencies = [
  "signal-hook",
  "spocky-contracts",
  "spocky-crypto",
+ "spocky-store",
  "subtle",
  "tempfile",
  "tungstenite 0.27.0",
