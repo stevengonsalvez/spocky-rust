@@ -875,6 +875,46 @@
           "followUps": ["P3 output_coalescer test emits clear entries from the harness model; have flush/dispose report cleared timers", "P3 handle(&str) cannot represent a JS lone surrogate; note in module doc", "P3 assert node v22.20.0 in tests/support", "P3 author-model provenance kept per routing.revisions convention (5e51bd4)"]
         },
         {
+          "lane": "p3_e2ee_channel",
+          "date": "2026-10-01",
+          "sourceRange": "2613a28..f68ba1f (14 commits): JS string semantics, JSON.parse acceptance, base64-js quirks, relay encrypted channel port, node-driven differential and evidence runner",
+          "integrationHead": "533cb48",
+          "review": "integration reviewer PASS (verdicts/p3_e2ee_channel-f68ba1f.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and the pinned relay sources: spocky-crypto 43 passed, clippy -D warnings, fmt check; cargo check --workspace --all-targets, rechecked after rebase on wiring",
+          "evidenceLimitation": "commits 2613a28, 6eb2437, 17fa07a, 2f9cc4c and cfbd158 add files compiled only after the next commit registers them; those intermediates are green only vacuously",
+          "followUps": ["P2 channel.rs:983 failed re-hello must rethrow a plaintext-frame transport error and close 1011, or record the gap", "P3 e2ee-differential.sh pin the scenario count and unset SPOCKY_ALLOW_SKIP", "P3 assert the node binary digest in the test (optional)", "P3 js_string.rs and js_json.rs tracked by js_helpers_consolidation"]
+        },
+        {
+          "lane": "p3_contracts",
+          "date": "2026-10-01",
+          "sourceRange": "81c228e..eb79872 (24 commits): JS string length, fixture provenance, G2 permission response and cancel requests, js.rs operators with JsTypeError and strict_equals, permission payloads, G2 outbound cases, zod issue reporting and generated inbound schemas, rejection text compared with zod",
+          "integrationHead": "2365d3f",
+          "review": "integration reviewer PASS (verdicts/p3_contracts-eb79872.txt)",
+          "leadChanges": ["b713d06 landed atomic with the spocky-daemon-app SessionInbound arms as bd09604: agent_permission_response needs workspace.write, cancel_agent_request needs workspace.write or hub.execute (operation-permissions.ts:28, :34); request_id returns None for the baseline null sessionRequestId, so no access_denied or handler_error rpc_error without a requestId while the activity log is still emitted; two request tests added", "706d697 reworded with its atomic justification", "0b73990 Cargo.lock line accepted"],
+          "leadVerification": "gated: spocky-contracts plus spocky-daemon-app 79 passed 1 ignored (pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset), clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "generatorCheck": "2026-10-01 lead: in a disposable git clone of paseo-rewrite at 5de45e208690b0efc51c59a585ae9729325a9204 with the slice-harness node_modules and packages/protocol/dist linked in (messages.js sha256 prefix bd22155340099ad0), scripts/phase3/contracts-zod.mjs --check reports zod_schemas.rs current and scripts/phase3/contracts-capture.mjs --check matches all 140 cases",
+          "followUps": ["P3 contracts check scripts: accept a runtime override or record the runtime path in evidence", "P3 syntax-error rejection text belongs to the daemon differential"]
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-01",
+          "sourceRange": "86a5580..ea0d461 (11 commits, rebased form of 2401743..0749432 plus 8edcc7f..ea0d461): node fs error text in spocky-store, pending-permission scenario, closeAgent, cancelAgentRun, getPendingPermissions, respondToPermission, call-time storage queueing, shared first projection error",
+          "integrationHead": "37ab0fa..2d4f2af rebased; then seam b3f90fc",
+          "review": "integration reviewer PASS (verdicts/p3_session-0749432.txt, verdicts/p3_session-ea0d461.txt); patch-ids of 86a5580..c857591 equal 2401743..0749432",
+          "seam": "AbortReason seam b3f90fc (BREAKING): AbortController::abort takes AbortReason {Value, Error(AgentError)}, AbortSignal::reason returns Option<&AbortReason>; abortMessage reads Error messages and the default DOMException text 'This operation was aborted'; drafted by the session writer, landed by the lead as one atomic commit after the session range; no call site outside spocky-session",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session plus spocky-store 92 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "followUps": ["P3 atomic.rs failing temp-file close not reproduced (optional)"]
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "0d454b6..93cdc9e (3 commits): multi-thread test runtime, same-turn remove then upsert differential, queued storage calls start after their turn",
+          "integrationHead": "62766b0",
+          "review": "integration reviewer PASS (verdicts/p3_session-93cdc9e.txt); remove-deferral P3 withdrawn",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 55 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "documentedCeiling": "AgentStorage Gate: a held, never-polled storage future delays its link in the per-agent chain; unreachable from port callers, which always await; documented in agent_storage.rs, recorded by coordinator decision 2026-10-02"
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
@@ -1269,7 +1309,7 @@
       "capabilities": ["shared JS semantics (truthiness, spread, String, JsTypeError, strict_equals, UTF-16 strings, JSON.parse acceptance)"],
       "dependencies": ["p3_contracts resend with crates/spocky-contracts/src/js.rs landed on main"],
       "priority": 3,
-      "state": "blocked: waiting for contracts js.rs on main",
+      "state": "in progress: contracts js.rs on main at 2365d3f; GO sent to p3_session on 2026-10-01; p3_provider_codex and p3_e2ee_channel switch later, paused for budget",
       "owner": "tracked sweep across lanes p3_session, p3_provider_codex and p3_e2ee_channel; each lane switches its own crate; lead sends GO",
       "copies": [
         "crates/spocky-session (js.rs and the agent manager local strict_equals)",
