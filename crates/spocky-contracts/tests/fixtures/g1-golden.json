@@ -2,11 +2,12 @@
   "provenance": {
     "paseoCommit": "5de45e208690b0efc51c59a585ae9729325a9204",
     "node": "v22.20.0",
+    "nodeBinarySha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
     "zod": "4.4.3",
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "ca930807ead70560c5f5c25ad7eb0dee3b3abb485762394199e4c1dad838239a"
+    "casesSha256": "0b7ecf53fe74730e955785ea4567a3a8a6a0399833e6b03b2858f71e1f802ef2"
   },
   "cases": [
     {
@@ -949,6 +950,150 @@
       "zod": {
         "success": true,
         "output": "{\"type\":\"session\",\"message\":{\"type\":\"subscription.release.request\",\"requestId\":\"r\",\"subscriptionId\":\"s\"}}"
+      }
+    },
+    {
+      "id": "ws.hello.extras_number_text",
+      "direction": "inbound",
+      "source": "WSHelloMessageSchema capabilities passthrough keeps extra values; JSON.stringify number text",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"x\":1e21,\"neg\":-0,\"one\":1.0,\"tiny\":1e-7,\"big\":123456789012345678901234567890,\"f0\":4.658607306269797003e-22,\"f1\":1.840086450705316562e-174,\"f2\":8.3112634102003129e-134,\"f3\":7.41273583631350841e262,\"f4\":1.3936445979811658496e245,\"f5\":7.5593921016370845944e95}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"x\":1e+21,\"neg\":0,\"one\":1,\"tiny\":1e-7,\"big\":1.2345678901234568e+29,\"f0\":4.658607306269797e-22,\"f1\":1.8400864507053167e-174,\"f2\":8.311263410200313e-134,\"f3\":7.412735836313509e+262,\"f4\":1.393644597981166e+245,\"f5\":7.559392101637085e+95}}"
+      }
+    },
+    {
+      "id": "ws.hello.extras_integer_like_keys",
+      "direction": "inbound",
+      "source": "JS engines enumerate array-index keys first, ascending",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"z\":1,\"10\":0,\"voice\":true,\"5\":0,\"01\":2,\"4294967295\":3,\"4294967294\":4,\"hello_rejection\":false,\"a\":{\"2\":1,\"1\":2}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"5\":0,\"10\":0,\"4294967294\":4,\"voice\":true,\"hello_rejection\":false,\"z\":1,\"01\":2,\"4294967295\":3,\"a\":{\"1\":2,\"2\":1}}}"
+      }
+    },
+    {
+      "id": "ws.hello.browser_host_extras_integer_like_keys",
+      "direction": "inbound",
+      "source": "BrowserAutomationHostCapabilitySchema passthrough key order",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":1,\"capabilities\":{\"browser_host\":{\"z\":1,\"7\":-0,\"supportedCommands\":[\"click\"]}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"browser\",\"protocolVersion\":1,\"capabilities\":{\"browser_host\":{\"7\":0,\"supportedCommands\":[\"click\"],\"hostKind\":\"browser host\",\"z\":1}}}"
+      }
+    },
+    {
+      "id": "ws.hello.duplicate_keys_last_value_first_position",
+      "direction": "inbound",
+      "source": "JSON.parse keeps the first position and the last value",
+      "input": "{\"type\":\"hello\",\"clientId\":\"a\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"q\":1,\"voice\":false,\"q\":2,\"voice\":true},\"clientId\":\"b\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"b\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"voice\":true,\"q\":2}}"
+      }
+    },
+    {
+      "id": "ws.duplicate_type_last_wins",
+      "direction": "inbound",
+      "source": "JSON.parse duplicate discriminator",
+      "input": "{\"type\":\"hello\",\"type\":\"ping\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"ping\"}"
+      }
+    },
+    {
+      "id": "ws.hello.duplicate_key_rejected_value_then_valid",
+      "direction": "inbound",
+      "source": "JSON.parse discards the first value before zod sees it",
+      "input": "{\"type\":\"hello\",\"clientId\":\"\",\"clientType\":\"cli\",\"protocolVersion\":1,\"clientId\":\"ok\"}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"ok\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+      }
+    },
+    {
+      "id": "ws.hello.protocol_version_1_0",
+      "direction": "inbound",
+      "source": "z.number().int() on 1.0",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1.0}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+      }
+    },
+    {
+      "id": "ws.hello.protocol_version_negative_zero",
+      "direction": "inbound",
+      "source": "z.number().int() on -0; JSON.stringify(-0) is 0",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":-0}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":0}"
+      }
+    },
+    {
+      "id": "ws.hello.protocol_version_max_safe",
+      "direction": "inbound",
+      "source": "z.number().int() accepts Number.MAX_SAFE_INTEGER",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":9007199254740991}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":9007199254740991}"
+      }
+    },
+    {
+      "id": "ws.hello.reject_protocol_version_2_pow_53",
+      "direction": "inbound",
+      "source": "z.number().int() rejects 2^53",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":9007199254740992}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "too_big",
+            "path": [
+              "protocolVersion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.reject_protocol_version_exponent_overflow",
+      "direction": "inbound",
+      "source": "z.number().int() rejects 1e16",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1e16}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "too_big",
+            "path": [
+              "protocolVersion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "session.agent_create.provider_options_hard_floats",
+      "direction": "inbound",
+      "source": "z.json() provider options keep JSON.parse doubles",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"providerOptions\":{\"floats\":[4.658607306269797003e-22,1.840086450705316562e-174,8.3112634102003129e-134,7.41273583631350841e262,1.3936445979811658496e245,7.5593921016370845944e95,-0,5e-324,1.7976931348623157e308]}}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"providerOptions\":{\"floats\":[4.658607306269797e-22,1.8400864507053167e-174,8.311263410200313e-134,7.412735836313509e+262,1.393644597981166e+245,7.559392101637085e+95,0,5e-324,1.7976931348623157e+308]}},\"labels\":{},\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "session.fetch_agents.duplicate_nested_keys",
+      "direction": "inbound",
+      "source": "JSON.parse duplicate keys inside a record and an object",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"fetch_agents_request\",\"requestId\":\"r\",\"filter\":{\"labels\":{\"b\":\"1\",\"a\":\"2\",\"b\":\"3\"},\"includeArchived\":false,\"includeArchived\":true}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"fetch_agents_request\",\"requestId\":\"r\",\"filter\":{\"labels\":{\"b\":\"3\",\"a\":\"2\"},\"includeArchived\":true}}}"
       }
     }
   ]
