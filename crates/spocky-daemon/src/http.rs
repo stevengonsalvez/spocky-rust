@@ -64,6 +64,7 @@ pub fn parse_head(buffer: &[u8]) -> ParsedHead {
                 UpgradeRequest {
                     method: method.to_owned(),
                     url: url.to_owned(),
+                    http_minor: request.version.unwrap_or(1),
                     headers: request
                         .headers
                         .iter()
@@ -417,6 +418,7 @@ mod tests {
         UpgradeRequest {
             method: method.to_owned(),
             url: url.to_owned(),
+            http_minor: 1,
             headers: headers
                 .iter()
                 .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))

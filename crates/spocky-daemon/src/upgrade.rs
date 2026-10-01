@@ -42,6 +42,8 @@ pub struct UpgradePolicy<'a> {
 pub struct UpgradeRequest {
     pub method: String,
     pub url: String,
+    /// The minor number of `HTTP/1.x` from the request line.
+    pub http_minor: u8,
     pub headers: Vec<(String, String)>,
 }
 
@@ -290,6 +292,7 @@ mod tests {
         UpgradeRequest {
             method: "GET".to_owned(),
             url: "/ws".to_owned(),
+            http_minor: 1,
             headers,
         }
     }
