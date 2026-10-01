@@ -7,7 +7,7 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "0b7ecf53fe74730e955785ea4567a3a8a6a0399833e6b03b2858f71e1f802ef2"
+    "casesSha256": "83906af155c6d368ced34cabee6c52effda220c9ee0bc8ea90176f523add5dcf"
   },
   "cases": [
     {
@@ -1094,6 +1094,95 @@
       "zod": {
         "success": true,
         "output": "{\"type\":\"session\",\"message\":{\"type\":\"fetch_agents_request\",\"requestId\":\"r\",\"filter\":{\"labels\":{\"b\":\"3\",\"a\":\"2\"},\"includeArchived\":true}}}"
+      }
+    },
+    {
+      "id": "ws.hello.lone_surrogate_strings",
+      "direction": "inbound",
+      "source": "JSON.parse keeps lone surrogates; JSON.stringify writes them as \\u escapes",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\\ud800\",\"clientType\":\"cli\",\"protocolVersion\":1,\"appVersion\":\"\\udfff\\ud83d\\ude00\",\"capabilities\":{\"k\\udc00\":\"\\ud801\"}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\\ud800\",\"clientType\":\"cli\",\"protocolVersion\":1,\"appVersion\":\"\\udfff😀\",\"capabilities\":{\"k\\udc00\":\"\\ud801\"}}"
+      }
+    },
+    {
+      "id": "ws.hello.reject_overflowing_protocol_version",
+      "direction": "inbound",
+      "source": "JSON.parse turns 1e400 into Infinity; z.number().int() rejects it",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1e400}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "protocolVersion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.hello.extras_overflowing_numbers",
+      "direction": "inbound",
+      "source": "passthrough keeps Infinity; JSON.stringify writes null",
+      "input": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"big\":1e400,\"small\":-1e400,\"under\":1e-400}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"big\":null,\"small\":null,\"under\":0}}"
+      }
+    },
+    {
+      "id": "session.agent_create.deep_provider_options",
+      "direction": "inbound",
+      "source": "z.json() accepts nesting deeper than 128 levels",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"providerOptions\":{\"deep\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"providerOptions\":{\"deep\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}},\"labels\":{},\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "session.agent_create.reject_infinity_in_json_options",
+      "direction": "inbound",
+      "source": "z.json() rejects a non-finite number",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"providerOptions\":{\"n\":1e400}}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_union",
+            "path": [
+              "message",
+              "config",
+              "providerOptions",
+              "n"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws.reject_trailing_comma",
+      "direction": "inbound",
+      "source": "JSON.parse SyntaxError",
+      "input": "{\"type\":\"ping\",}",
+      "zod": {
+        "success": false,
+        "syntaxError": true,
+        "issues": []
+      }
+    },
+    {
+      "id": "ws.reject_lone_surrogate_escape_truncated",
+      "direction": "inbound",
+      "source": "JSON.parse SyntaxError on a short \\u escape",
+      "input": "{\"type\":\"hello\",\"clientId\":\"\\ud8\",\"clientType\":\"cli\",\"protocolVersion\":1}",
+      "zod": {
+        "success": false,
+        "syntaxError": true,
+        "issues": []
       }
     }
   ]
