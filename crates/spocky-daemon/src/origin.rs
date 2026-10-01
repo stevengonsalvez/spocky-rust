@@ -4,6 +4,7 @@
 //! `websocket-server.ts`.
 
 use std::collections::HashSet;
+use std::hash::BuildHasher;
 
 use url::Url;
 
@@ -135,9 +136,9 @@ pub fn is_web_socket_same_origin(origin: Option<&str>, request_host: Option<&str
 /// A request with no Origin header, or an empty one, is admitted; a browser
 /// always sends one.
 #[must_use]
-pub fn is_origin_allowed(
+pub fn is_origin_allowed<S: BuildHasher>(
     origin: Option<&str>,
-    allowed_origins: &HashSet<String>,
+    allowed_origins: &HashSet<String, S>,
     request_host: Option<&str>,
 ) -> bool {
     let Some(origin) = origin.filter(|origin| !origin.is_empty()) else {
