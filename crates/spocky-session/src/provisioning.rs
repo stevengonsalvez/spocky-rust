@@ -15,9 +15,9 @@ use tokio::sync::Mutex;
 use crate::checkout::{CheckoutContext, CheckoutLite, get_checkout};
 use crate::clock::{generate_project_id, generate_workspace_id, now_iso};
 use crate::git::GitError;
-use crate::git_remote::js_trim;
 use crate::paths::{basename, resolve_from_cwd};
 use crate::project_key::{ProjectKeyInput, derive_project_key};
+use crate::text::js_trim;
 
 /// A provisioning failure. `code` is the wire `errorCode` where one exists.
 #[derive(Debug)]
@@ -68,7 +68,7 @@ impl From<StoreError> for ProvisioningError {
 #[must_use]
 pub fn normalize_branch(branch: Option<&str>) -> Option<String> {
     branch
-        .map(str::trim)
+        .map(js_trim)
         .filter(|branch| !branch.is_empty() && branch.to_uppercase() != "HEAD")
         .map(str::to_owned)
 }
