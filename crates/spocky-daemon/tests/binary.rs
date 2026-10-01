@@ -2,6 +2,8 @@
 //! hello, and stop on SIGTERM or SIGINT. Ports are chosen by the kernel
 //! (`127.0.0.1:0`). No test starts a process on 6767 or 6768.
 
+mod common;
+
 use std::fs;
 use std::net::TcpStream;
 use std::path::Path;
@@ -27,6 +29,7 @@ impl Drop for Daemon {
 }
 
 fn spawn(root: &Path, listen: &str) -> Daemon {
+    common::assert_disposable_listen(listen);
     let home = root.join("home");
     fs::create_dir_all(&home).unwrap();
     fs::write(
