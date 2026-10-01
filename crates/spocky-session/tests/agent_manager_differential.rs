@@ -17,6 +17,9 @@
 //!   canceled by `cancelAgentRun` (twice), a cancel before the turn has
 //!   started, and `closeAgent` (twice).
 //!
+//! - `subagents`: provider sub-agent events during a turn, the four
+//!   sub-agent queries, and `closeAgent` canceling a running child.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves.
@@ -126,6 +129,14 @@ const SCENARIO_TURNS: &str = r#"{
   "slowStart": [
     {"type":"__startDelay","ms":300},
     {"type":"turn_started","provider":"fake","turnId":"turn-9"}
+  ],
+  "subagents": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-10"},
+    {"type":"provider_subagent","provider":"fake","event":{"type":"upsert","id":"child-1","title":"Explore","cwd":"/w/child","status":"running","timestamp":"2026-07-12T10:00:00.000Z"}},
+    {"type":"provider_subagent","provider":"fake","event":{"type":"timeline","id":"child-1","item":{"type":"assistant_message","text":"Found it."},"timestamp":"2026-07-12T10:00:01.000Z"}},
+    {"type":"provider_subagent","provider":"fake","event":{"type":"upsert","id":"child-2","title":"Review","status":"completed","timestamp":"2026-07-12T09:00:00.000Z"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-10","item":{"type":"assistant_message","text":"Delegated."}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-10"}
   ],
   "permission": [
     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
@@ -425,7 +436,36 @@ const lifecycle = async () => {
   return { secondEvents, permissionWait, pending, respond: respond ?? null, thirdEvents, cancel, cancelAgain, cancelStarting, startingResult, rows, fetch, calls, feed, record };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle() }));
+const subagents = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/subagents`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.subagents] })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const run = await outcome(() => manager.runAgent(agentId, "delegate"));
+  await sleep(100);
+  const queries = [
+    await outcome(async () => manager.listProviderSubagents(agentId)),
+    await outcome(async () => manager.listProviderSubagentActivity()),
+    await outcome(async () => manager.getProviderSubagent(agentId, "child-1")),
+    await outcome(async () => manager.getProviderSubagent(agentId, "nope")),
+    await outcome(async () => manager.fetchProviderSubagentTimeline(agentId, "child-1", { direction: "tail", limit: 5 })),
+    await outcome(async () => manager.listProviderSubagents(unknownId)),
+  ];
+  await manager.closeAgent(agentId);
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { run, queries, after: manager.listProviderSubagentActivity(), calls, feed };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1314,6 +1354,86 @@ async fn lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+async fn subagents_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("subagents"));
+    let fake = spec("fake");
+    scripted(&fake, &["subagents"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let run = outcome(
+        manager
+            .run_agent(
+                AGENT_ID,
+                AgentPromptInput::Text("delegate".to_owned()),
+                None,
+            )
+            .await
+            .map(|run| run.to_js()),
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let queries = vec![
+        outcome(
+            manager
+                .list_provider_subagents(AGENT_ID)
+                .map(JsValue::Array),
+        ),
+        outcome(Ok(JsValue::Array(
+            manager.list_provider_subagent_activity(),
+        ))),
+        outcome(
+            manager
+                .get_provider_subagent(AGENT_ID, "child-1")
+                .map(|subagent| subagent.unwrap_or(JsValue::Null)),
+        ),
+        outcome(
+            manager
+                .get_provider_subagent(AGENT_ID, "nope")
+                .map(|subagent| subagent.unwrap_or(JsValue::Null)),
+        ),
+        outcome(
+            manager
+                .fetch_provider_subagent_timeline(
+                    AGENT_ID,
+                    "child-1",
+                    FetchDirection::Tail,
+                    None,
+                    Some(5),
+                )
+                .map(|page| page.to_js()),
+        ),
+        outcome(
+            manager
+                .list_provider_subagents(UNKNOWN_ID)
+                .map(JsValue::Array),
+        ),
+    ];
+    manager.close_agent(AGENT_ID).await.expect("close");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("run", run),
+        ("queries", JsValue::Array(queries)),
+        (
+            "after",
+            JsValue::Array(manager.list_provider_subagent_activity()),
+        ),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1482,6 +1602,7 @@ async fn scenarios_match_pinned_manager() {
         ("turns", turns_scenario(&cwd, &rust_home.0).await),
         ("permission", permission_scenario(&cwd, &rust_home.0).await),
         ("lifecycle", lifecycle_scenario(&cwd, &rust_home.0).await),
+        ("subagents", subagents_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
