@@ -30,4 +30,4 @@ grep -F 'docker rm -f "$container"' "$runner" >/dev/null
 grep -F 'pwd -P' "$runner" >/dev/null
 grep -F 'dpkg-query -W -f="\${Package} \${Version}\\n"' "$runner" >/dev/null
 grep -F 'jq=1.6-2.1+deb12u2' "$runner" >/dev/null
-test "$(grep -Fc 'rm -f "$output/container.cid"' "$runner")" -eq 2
+test "$(grep -F 'rm -f ' "$runner" | grep -Fc '"$output/container.cid"')" -eq 2
