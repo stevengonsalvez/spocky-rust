@@ -178,6 +178,14 @@ impl AgentManager {
             &agent_id.unwrap_or_else(|| (self.inner.id_factory)()),
             "createAgent",
         )?;
+        let internal = config.get("internal").cloned();
+        let config = if self.lock().plugin_lifecycle && !truthy(internal.as_ref()) {
+            let mut parsed = spread(Some(&before_agent_create(&config)?));
+            parsed.insert("internal", internal.unwrap_or(JsValue::Undefined));
+            JsValue::Object(parsed)
+        } else {
+            config
+        };
         self.delete_agent_state(&resolved_agent_id);
         let prepared = self
             .prepare_session_config(
@@ -836,6 +844,27 @@ impl AgentManager {
         }
         Ok(())
     }
+}
+
+/// `pluginLifecycle.before("agent.create", { config, env })` with no plugin
+/// loaded: the request is only parsed by
+/// `CreateAgentRequestMessageSchema.pick({ config, env }).strict()`, so the
+/// config keeps its schema keys, in schema order, and loses any other key.
+/// `env` (a record of strings) parses to itself.
+// ponytail: a config that fails the schema reports serde's message, not
+// zod's issue list; callers pass wire-parsed configs, which never fail.
+fn before_agent_create(config: &JsValue) -> Result<JsValue, AgentError> {
+    let parse_error = |message: String| AgentError {
+        name: "ZodError".to_owned(),
+        message,
+    };
+    let parsed =
+        <spocky_contracts::agent_config::AgentSessionConfig as serde::Deserialize>::deserialize(
+            spocky_contracts::json::JsValueDeserializer(config),
+        )
+        .map_err(|error| parse_error(error.to_string()))?;
+    let text = serde_json::to_string(&parsed).map_err(|error| parse_error(error.to_string()))?;
+    spocky_store::js_value::parse(&text).map_err(|error| parse_error(error.to_string()))
 }
 
 /// The live-agent fields `registerSession` takes from its options.

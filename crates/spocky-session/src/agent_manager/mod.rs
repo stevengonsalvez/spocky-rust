@@ -252,6 +252,10 @@ pub struct AgentManagerOptions {
     pub resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
     pub append_system_prompt: Option<String>,
     pub agent_stream_coalesce_window_ms: Option<f64>,
+    /// `pluginLifecycle` present with no plugin loaded, as the daemon runs
+    /// it: before-hooks then only validate their request (see
+    /// `create_agent`), and lifecycle events go nowhere.
+    pub plugin_lifecycle: bool,
     /// `rescueTimeouts.interruptSessionMs` (default 2000).
     pub rescue_interrupt_session_ms: Option<u64>,
 }
@@ -309,6 +313,7 @@ pub(crate) struct State {
     pub(crate) mcp_base_url: Option<String>,
     pub(crate) paseo_tools_enabled: bool,
     pub(crate) append_system_prompt: String,
+    pub(crate) plugin_lifecycle: bool,
 }
 
 impl State {
@@ -449,6 +454,7 @@ impl AgentManager {
             mcp_base_url: options.mcp_base_url,
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
+            plugin_lifecycle: options.plugin_lifecycle,
         };
         Self {
             inner: Arc::new(Inner {
