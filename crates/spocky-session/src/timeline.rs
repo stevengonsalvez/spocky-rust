@@ -1243,6 +1243,50 @@ mod tests {
         assert_eq!((page.window.max_seq, page.window.next_seq), (top - 1, top));
     }
 
+    /// DIV-002, a recorded safety divergence: at 2^53 the baseline's
+    /// `mergeSeqRanges` loop (`seq += 1` with `seq <= endSeq`) never ends,
+    /// so merging two assistant chunks there hangs the pinned daemon. Here
+    /// the merge returns one row whose source range is `[2^53, 2^53]`.
+    #[test]
+    fn merging_at_two_to_the_53_terminates() {
+        let top = 1_i64 << 53;
+        let mut store = TimelineStore::default();
+        store
+            .initialize(
+                "a",
+                Vec::new(),
+                Some("E".to_owned()),
+                Some(top),
+                Some("T".to_owned()),
+            )
+            .expect("seed");
+        let chunk = |text: &str| {
+            parse(&format!(
+                r#"{{"type":"assistant_message","text":"{text}"}}"#
+            ))
+            .expect("item")
+        };
+        store
+            .append("a", chunk("a"), None, None, None)
+            .expect("append");
+        store
+            .append("a", chunk("b"), None, None, None)
+            .expect("append");
+        let rows = store.rows("a").expect("timeline");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].item.get("text").and_then(|text| text.as_str()),
+            Some("ab")
+        );
+        assert_eq!(
+            rows[0].source_seq_ranges,
+            [SeqRange {
+                start_seq: top,
+                end_seq: top
+            }]
+        );
+    }
+
     #[test]
     fn inverted_source_ranges_add_no_sequence_numbers() {
         // node (pinned store): projected rows x [{1,1}] and y [{5,3}] merge to
