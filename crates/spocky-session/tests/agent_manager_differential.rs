@@ -13,8 +13,13 @@
 //! - `permission`: a wait that finishes on `permission_requested`, then a
 //!   wait that returns the pending permission at once.
 //!
+//! - `lifecycle`: a permission answered by `respondToPermission`, a turn
+//!   canceled by `cancelAgentRun` (twice), a cancel before the turn has
+//!   started, and `closeAgent` (twice).
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
-//! and is never emitted.
+//! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
+//! `startTurn` that long before it resolves.
 //!
 //! Normalized: wall-clock ISO timestamps (`<ISO>`) and random UUIDs such as
 //! timeline epochs (`<UUID>`), nothing else. The fixed agent ids stay as
@@ -36,7 +41,7 @@ use std::time::Duration;
 
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, ProviderDefinition,
-    SubscribeOptions, WaitForAgentOptions,
+    SubscribeOptions, TurnEventStream, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{
@@ -102,6 +107,26 @@ const SCENARIO_TURNS: &str = r#"{
   "held": [
     {"type":"turn_started","provider":"fake","turnId":"turn-5"}
   ],
+  "ask": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-7"},
+    {"type":"permission_requested","provider":"fake","turnId":"turn-7","request":{"id":"perm-1","provider":"fake","name":"shell","kind":"tool","input":{"command":"rm x","empty":{}},"actions":[{"id":"allow","label":"Allow","behavior":"allow"}]}}
+  ],
+  "response": [
+    {"type":"permission_resolved","provider":"fake","turnId":"turn-7","requestId":"perm-1","resolution":{"behavior":"allow"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-7","item":{"type":"assistant_message","text":"Removed."}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-7"}
+  ],
+  "long": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-8"},
+    {"type":"timeline","provider":"fake","turnId":"turn-8","item":{"type":"reasoning","text":"long task"}}
+  ],
+  "interrupt": [
+    {"type":"turn_canceled","provider":"fake","turnId":"turn-8","reason":"interrupted by user"}
+  ],
+  "slowStart": [
+    {"type":"__startDelay","ms":300},
+    {"type":"turn_started","provider":"fake","turnId":"turn-9"}
+  ],
   "permission": [
     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
     {"type":"__delay","ms":100},
@@ -152,15 +177,20 @@ const turnIdOf = (events) => events.find((event) => event.type === "turn_started
 class FakeSession {
   constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; }
   subscribe(callback) { this.listeners.push(callback); return () => {}; }
-  async startTurn(prompt, options) {
-    this.calls.push(["startTurn", prompt, options ?? null]);
-    const events = this.spec.turns.shift() ?? JSON.parse(turnEventsJson);
+  emitLater(events, ms) {
     setTimeout(async () => {
       for (const event of events) {
         if (event.type === "__delay") { await sleep(event.ms); continue; }
+        if (event.type === "__startDelay") continue;
         for (const l of this.listeners) l(event);
       }
-    }, 20);
+    }, ms);
+  }
+  async startTurn(prompt, options) {
+    this.calls.push(["startTurn", prompt, options ?? null]);
+    const events = this.spec.turns.shift() ?? JSON.parse(turnEventsJson);
+    this.emitLater(events, 20);
+    if (events[0]?.type === "__startDelay") await sleep(events[0].ms);
     return { turnId: turnIdOf(events) };
   }
   async run() { throw new Error("unused"); }
@@ -170,9 +200,15 @@ class FakeSession {
   async getCurrentMode() { return "auto"; }
   async setMode() {}
   getPendingPermissions() { return []; }
-  async respondToPermission() {}
+  async respondToPermission(requestId, response) {
+    this.calls.push(["respondToPermission", requestId, response]);
+    if (this.spec.response) this.emitLater(this.spec.response, 200);
+  }
   describePersistence() { return JSON.parse(persistenceJson); }
-  async interrupt() {}
+  async interrupt() {
+    this.calls.push(["interrupt"]);
+    if (this.spec.interrupt) this.emitLater(this.spec.interrupt, 10);
+  }
   async close() { this.calls.push(["close"]); }
 }
 const spec = (provider, overrides = {}) => ({ provider, capabilities: JSON.parse(capabilitiesJson), available: true, turns: [], ...overrides });
@@ -338,7 +374,51 @@ const permission = async () => {
   return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission() }));
+const lifecycle = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/lifecycle`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.ask, scripted.long, scripted.slowStart], response: scripted.response, interrupt: scripted.interrupt })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const second = manager.streamAgent(agentId, "remove x");
+  const secondEvents = [(await second.next()).value];
+  const permissionWait = waitResult(await manager.waitForAgentEvent(agentId));
+  const pending = manager.getPendingPermissions(agentId);
+  const respond = await manager.respondToPermission(agentId, "perm-1", { behavior: "allow" });
+  await collect(second, secondEvents);
+  await sleep(100);
+  const third = manager.streamAgent(agentId, "long task");
+  const thirdEvents = [(await third.next()).value];
+  await sleep(50);
+  const cancel = (await manager.cancelAgentRun(agentId)).status;
+  await collect(third, thirdEvents);
+  const cancelAgain = (await manager.cancelAgentRun(agentId)).status;
+  await sleep(100);
+  const starting = outcome(() => manager.runAgent(agentId, "slow"));
+  await sleep(100);
+  const cancelStarting = (await manager.cancelAgentRun(agentId)).status;
+  const startingResult = await starting;
+  await sleep(400);
+  const rows = await manager.getTimelineRows(agentId);
+  const fetch = manager.fetchTimeline(agentId, { direction: "tail", limit: 3 });
+  await manager.closeAgent(agentId);
+  await manager.closeAgent(agentId);
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  const directory = `${home}/lifecycle/${fs.readdirSync(`${home}/lifecycle`)[0]}`;
+  const record = JSON.parse(fs.readFileSync(`${directory}/${agentId}.json`, "utf8"));
+  return { secondEvents, permissionWait, pending, respond: respond ?? null, thirdEvents, cancel, cancelAgain, cancelStarting, startingResult, rows, fetch, calls, feed, record };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -364,6 +444,10 @@ struct Spec {
     capabilities: JsValue,
     available: Availability,
     turns: Arc<Mutex<VecDeque<JsValue>>>,
+    /// Emitted 200 ms after `respondToPermission`.
+    response: Option<JsValue>,
+    /// Emitted 10 ms after `interrupt`.
+    interrupt: Option<JsValue>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -372,6 +456,8 @@ fn spec(provider: &str) -> Spec {
         capabilities: json(CAPABILITIES),
         available: Ok(true),
         turns: Arc::new(Mutex::new(VecDeque::new())),
+        response: None,
+        interrupt: None,
     }
 }
 
@@ -405,6 +491,46 @@ fn turn_id_of(events: &JsValue) -> String {
         .and_then(|event| event.get("turnId").and_then(JsValue::as_str))
         .unwrap_or("turn-1")
         .to_owned()
+}
+
+fn event_type(event: &JsValue) -> Option<&str> {
+    event.get("type").and_then(JsValue::as_str)
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "scripted delays are small whole milliseconds"
+)]
+fn delay(event: &JsValue) -> Duration {
+    Duration::from_millis(event.get("ms").and_then(JsValue::as_f64).expect("ms") as u64)
+}
+
+impl FakeSession {
+    /// Emits the scripted `events` to every listener after `millis`, as
+    /// `setTimeout`, pausing at `__delay` entries.
+    fn emit_later(&self, events: JsValue, millis: u64) {
+        let listeners = Arc::clone(&self.listeners);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(millis)).await;
+            let callbacks = listeners.lock().expect("listeners").clone();
+            for event in events.as_array().expect("events") {
+                match event_type(event) {
+                    Some("__delay") => tokio::time::sleep(delay(event)).await,
+                    Some("__startDelay") => {}
+                    _ => {
+                        for callback in &callbacks {
+                            callback(event.clone());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn record(&self, call: Vec<JsValue>) {
+        self.calls.lock().expect("calls").push(JsValue::Array(call));
+    }
 }
 
 impl AgentSession for FakeSession {
@@ -446,27 +572,18 @@ impl AgentSession for FakeSession {
             .pop_front()
             .unwrap_or_else(|| json(TURN_EVENTS));
         let turn_id = turn_id_of(&events);
-        let listeners = Arc::clone(&self.listeners);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            let callbacks = listeners.lock().expect("listeners").clone();
-            for event in events.as_array().expect("events") {
-                if event.get("type").and_then(JsValue::as_str) == Some("__delay") {
-                    let millis = event.get("ms").and_then(JsValue::as_f64).expect("ms");
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "scripted delays are small whole milliseconds"
-                    )]
-                    tokio::time::sleep(Duration::from_millis(millis as u64)).await;
-                    continue;
-                }
-                for callback in &callbacks {
-                    callback(event.clone());
-                }
+        let start_delay = events
+            .as_array()
+            .and_then(|events| events.first())
+            .filter(|event| event_type(event) == Some("__startDelay"))
+            .map(delay);
+        self.emit_later(events, 20);
+        Box::pin(async move {
+            if let Some(start_delay) = start_delay {
+                tokio::time::sleep(start_delay).await;
             }
-        });
-        Box::pin(async move { Ok(turn_id) })
+            Ok(turn_id)
+        })
     }
     fn subscribe(&self, callback: StreamCallback) -> Unsubscribe {
         self.listeners.lock().expect("listeners").push(callback);
@@ -492,15 +609,27 @@ impl AgentSession for FakeSession {
     }
     fn respond_to_permission(
         &self,
-        _request_id: &str,
-        _response: JsValue,
+        request_id: &str,
+        response: JsValue,
     ) -> BoxFuture<'_, AgentResult<Option<JsValue>>> {
+        self.record(vec![
+            text("respondToPermission"),
+            text(request_id),
+            response,
+        ]);
+        if let Some(events) = self.spec.response.clone() {
+            self.emit_later(events, 200);
+        }
         Box::pin(async { Ok(None) })
     }
     fn describe_persistence(&self) -> Option<JsValue> {
         Some(json(PERSISTENCE))
     }
     fn interrupt(&self) -> BoxFuture<'_, AgentResult<()>> {
+        self.record(vec![text("interrupt")]);
+        if let Some(events) = self.spec.interrupt.clone() {
+            self.emit_later(events, 10);
+        }
         Box::pin(async { Ok(()) })
     }
     fn close(&self) -> BoxFuture<'_, AgentResult<()>> {
@@ -1030,6 +1159,110 @@ async fn permission_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+async fn collect(stream: &mut TurnEventStream, events: &mut Vec<JsValue>) {
+    while let Some(event) = stream.next().await {
+        events.push(event.expect("stream event"));
+    }
+}
+
+async fn lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("lifecycle"));
+    let turns = json(SCENARIO_TURNS);
+    let mut fake = spec("fake");
+    scripted(&fake, &["ask", "long", "slowStart"]);
+    fake.response = turns.get("response").cloned();
+    fake.interrupt = turns.get("interrupt").cloned();
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let prompt = |text: &str| AgentPromptInput::Text(text.to_owned());
+    let mut second = manager
+        .stream_agent(AGENT_ID, prompt("remove x"), None)
+        .expect("second stream");
+    let mut second_events = vec![second.next().await.expect("first").expect("event")];
+    let permission_wait = manager
+        .wait_for_agent_event(AGENT_ID, WaitForAgentOptions::default())
+        .await
+        .expect("permission wait");
+    let pending = manager.get_pending_permissions(AGENT_ID).expect("pending");
+    let respond = manager
+        .respond_to_permission(
+            AGENT_ID,
+            "perm-1",
+            object(vec![("behavior", text("allow"))]),
+        )
+        .await
+        .expect("respond");
+    collect(&mut second, &mut second_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut third = manager
+        .stream_agent(AGENT_ID, prompt("long task"), None)
+        .expect("third stream");
+    let mut third_events = vec![third.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let cancel = manager.cancel_agent_run(AGENT_ID).await.expect("cancel");
+    collect(&mut third, &mut third_events).await;
+    let cancel_again = manager
+        .cancel_agent_run(AGENT_ID)
+        .await
+        .expect("cancel again");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let starting = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .run_agent(AGENT_ID, AgentPromptInput::Text("slow".to_owned()), None)
+                    .await
+                    .map(|run| run.to_js()),
+            )
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let cancel_starting = manager
+        .cancel_agent_run(AGENT_ID)
+        .await
+        .expect("cancel while starting");
+    let starting_result = starting.await.expect("join");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let rows = manager.get_timeline_rows(AGENT_ID).expect("rows");
+    let fetch = manager
+        .fetch_timeline(AGENT_ID, FetchDirection::Tail, None, Some(3))
+        .expect("fetch")
+        .to_js();
+    manager.close_agent(AGENT_ID).await.expect("close");
+    manager.close_agent(AGENT_ID).await.expect("close again");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("secondEvents", JsValue::Array(second_events)),
+        ("permissionWait", permission_wait.to_js()),
+        ("pending", JsValue::Array(pending)),
+        ("respond", respond.unwrap_or(JsValue::Null)),
+        ("thirdEvents", JsValue::Array(third_events)),
+        ("cancel", text(cancel.as_str())),
+        ("cancelAgain", text(cancel_again.as_str())),
+        ("cancelStarting", text(cancel_starting.as_str())),
+        ("startingResult", starting_result),
+        ("rows", JsValue::Array(rows)),
+        ("fetch", fetch),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        ("record", read_record(&home.join("lifecycle"))),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1197,6 +1430,7 @@ async fn scenarios_match_pinned_manager() {
         ("errors", errors_scenario(&cwd, &rust_home.0).await),
         ("turns", turns_scenario(&cwd, &rust_home.0).await),
         ("permission", permission_scenario(&cwd, &rust_home.0).await),
+        ("lifecycle", lifecycle_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
