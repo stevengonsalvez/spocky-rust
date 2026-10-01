@@ -2,3 +2,14 @@
 //! schemas, and the provider boundary types shared by the daemon, session,
 //! and provider crates. Field names, optional versus null versus missing
 //! semantics, and ordering follow pinned Paseo `5de45e2`.
+//!
+//! Inbound types (client to daemon) mirror zod output: shape key order,
+//! unknown keys stripped. Outbound types (daemon to client) mirror the
+//! object construction order in the pinned daemon, because the client's
+//! zod-aot validator passes the daemon's object through unchanged.
+
+pub mod field;
+pub mod json;
+pub mod number;
+pub mod text;
+pub mod ws;
