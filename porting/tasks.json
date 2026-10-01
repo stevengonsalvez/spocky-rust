@@ -1246,6 +1246,22 @@
       "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
     },
     {
+      "id": "js_helpers_consolidation",
+      "capabilities": ["shared JS semantics (truthiness, spread, String, JsTypeError, strict_equals, UTF-16 strings, JSON.parse acceptance)"],
+      "dependencies": ["p3_contracts resend with crates/spocky-contracts/src/js.rs landed on main"],
+      "priority": 3,
+      "state": "blocked: waiting for contracts js.rs on main",
+      "owner": "tracked sweep across lanes p3_session, p3_provider_codex and p3_e2ee_channel; each lane switches its own crate; lead sends GO",
+      "copies": [
+        "crates/spocky-session (js.rs and the agent manager local strict_equals)",
+        "crates/spocky-provider-codex and crates/spocky-daemon-app via p3_g1_wiring (timeline::JsTypeError)",
+        "crates/spocky-crypto/src/js_string.rs and src/js_json.rs (third family, from p3_e2ee_channel 2613a28..f68ba1f)"
+      ],
+      "scope": "After contracts js.rs lands, every copy switches to spocky_contracts::js in one tracked sweep: each lane adds the spocky-contracts dependency (manifest and lock in one atomic commit), switches call sites, deletes its local copy, and keeps its existing differential tests green. Anything missing from contracts js.rs (UTF-16 string and JSON.parse acceptance helpers) moves into spocky-contracts first through p3_contracts.",
+      "acceptance": "No JS-semantics helper copy remains outside crates/spocky-contracts; cargo check --locked --workspace --all-targets green; every moved lane's differential tests pass unchanged",
+      "recordedBy": "Claude lead, 2026-10-01, coordinator decision on reviewer P3 for p3_e2ee_channel"
+    },
+    {
       "id": "p4_xterm_core",
       "capabilities": [
         "DTRM-002 terminal emulator state",
