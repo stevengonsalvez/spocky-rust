@@ -11,6 +11,7 @@ use crate::agent::{AgentStatus, AttentionReason};
 use crate::field::{Nullable, optional};
 use crate::json::{JsRecord, JsonValue, serialize_passthrough};
 use crate::number::JsNumber;
+use crate::permission::PermissionRequest;
 use crate::text::JsText;
 
 /// `AgentCapabilityFlags`, a `.catchall(z.boolean())` object. `cloneCapabilities`
@@ -279,9 +280,9 @@ pub struct LiveAgentSnapshot {
     #[serde(rename = "availableModes")]
     pub available_modes: Vec<AgentMode>,
     pub features: Vec<AgentFeature>,
-    /// `sanitizePendingPermissions` output, built by the provider.
+    /// `sanitizePendingPermissions` output, in provider construction order.
     #[serde(rename = "pendingPermissions")]
-    pub pending_permissions: Vec<JsonValue>,
+    pub pending_permissions: Vec<PermissionRequest>,
     pub persistence: Option<PersistenceHandle>,
     pub title: Option<JsText>,
     pub labels: JsRecord<JsText>,
@@ -345,7 +346,7 @@ pub struct StoredAgentSnapshot {
     pub available_modes: Vec<AgentMode>,
     /// Always `[]` for a stored agent.
     #[serde(rename = "pendingPermissions")]
-    pub pending_permissions: Vec<JsonValue>,
+    pub pending_permissions: Vec<PermissionRequest>,
     pub persistence: Option<PersistenceHandle>,
     pub title: Option<JsText>,
     #[serde(rename = "requiresAttention")]
