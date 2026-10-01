@@ -30,8 +30,6 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("0 0 0 1.67.9H19"));
     assert!(!first.contains("M18 8v5a6 6"));
     assert!(!first.contains("icon-folder::before"));
-    assert!(first.contains("https://github.com/sponsors/boudra"));
-    assert!(first.contains("https://discord.gg/jz8T2uahpH"));
     assert!(first.contains("viewBox=\"0 -0.5 25 25\""));
     assert!(first.contains("M2 9.5a5.5 5.5"));
     assert!(first.contains("M20.317 4.3698"));
@@ -107,15 +105,46 @@ fn add_project_activation_renders_upstream_dialog_outcome() {
     assert!(!shell.contains("Selected action:"));
     assert!(dialog.contains("role=\"dialog\""));
     assert!(dialog.contains("aria-modal=\"true\""));
-    assert!(dialog.contains("aria-label=\"Add project: method\""));
+    assert!(!dialog.contains("aria-label=\"Add project: method\""));
     assert!(dialog.contains("Add project"));
     assert!(dialog.contains("isolated-baseline"));
     assert!(dialog.contains("Search for directory"));
     assert!(dialog.contains("Find a directory on isolated-baseline"));
     assert!(dialog.contains("Clone from GitHub"));
-    assert!(dialog.contains("Enter a GitHub URL or owner/repo"));
+    assert!(dialog.contains("Search projects available to your GitHub account"));
     assert!(dialog.contains("New directory"));
     assert!(dialog.contains("Create an empty directory on isolated-baseline"));
+    assert!(dialog.contains("↑↓"));
+    assert!(!dialog.contains("↑+↓"));
+    assert_eq!(dialog.matches("<button class=\"dialog-row\"").count(), 3);
+    assert!(!dialog.contains("<div class=\"dialog-row\" role=\"button\""));
+}
+
+#[test]
+fn shell_matches_observed_keyboard_focus_semantics() {
+    let shell = render_shell_html();
+
+    for label in [
+        "Add project",
+        "Import session",
+        "Usage",
+        "Help and support",
+        "Close menu",
+        "Open menu",
+    ] {
+        assert!(shell.contains(&format!("aria-label=\"{label}\"")));
+    }
+    assert!(shell.contains("class=\"desktop-focus-spacer\" tabindex=\"0\""));
+    assert!(!shell.contains("aria-label=\"Import\""));
+    assert!(!shell.contains("aria-label=\"Activity\""));
+    assert!(!shell.contains("aria-label=\"Help\""));
+    assert!(!shell.contains("class=\"action\" role=\"button\""));
+    assert_eq!(
+        shell.matches("<button class=\"community-action\"").count(),
+        3
+    );
+    assert!(!shell.contains("<a href=\"https://github.com/getpaseo/paseo\""));
+    assert!(shell.contains(".dialog-footer { display: none; }"));
 }
 
 #[test]

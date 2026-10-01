@@ -674,7 +674,7 @@ async function captureLayoutGeometry(page, candidate) {
 
 async function waitForProductState(page, candidate) {
   if (candidate) {
-    await page.getByRole("button", { name: /^Add a project/ }).waitFor({
+    await page.locator(".action:nth-child(1)").waitFor({
       state: "visible",
       timeout: 30_000,
     });

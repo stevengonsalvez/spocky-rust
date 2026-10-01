@@ -220,6 +220,8 @@ grep -F 'page.routeWebSocket(/:(6767)' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'sidebar-project-empty-state' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'page.locator(".action:nth-child(1)")' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'layoutGeometry' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'fontWeight: style.fontWeight' \

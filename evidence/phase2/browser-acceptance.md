@@ -9,6 +9,8 @@ original resolves `open-project-submit`; the candidate resolves its first
 semantic project action. The candidate now opens the same pinned Add Project
 method dialog contract instead of replacing the outcome with live-status text.
 The comparison records the dialog label, visible text, and semantic controls.
+Focused renderer contracts pin the candidate to the latest observed original
+DOM semantics. A full capture has not verified that repair yet.
 
 The contract test injects and rejects these regressions:
 
@@ -49,6 +51,18 @@ not create a visual exception.
 
 ## Desktop baseline evidence
 
+Attempt `20260930T235823Z-10020` cleanly reached every acceptance gate. Candidate
+same-page and fresh-context screenshots had zero differing pixels in both
+viewports. Mobile matched the original at zero pixels. Desktop differed by 19
+pixels. Direct difference coordinates are `x=20..28`, `y=46..57`, inside the
+History icon row. No mask or exception is applied.
+
+The same attempt rejected candidate interaction and accessibility. Its candidate
+dialog used a label, a different GitHub subtitle and key hint, and `div`
+controls. Its focus cycle used different footer labels, menu controls, card
+roles, and community link elements. Focused contracts now pin the candidate to
+the recorded original values. This remains unverified by a later full capture.
+
 Two rejected branded attempts show two original desktop pixel modes. Attempt
 `20260930T225932Z-86610` captured `fad844b5` first and `59709577` on repeat.
 Attempt `20260930T231716Z-32848` captured `fad844b5` for both original passes.
@@ -75,6 +89,6 @@ sh -n scripts/phase2/browser-runtime-capture.test.sh
 cargo test -p spocky-ui-renderer-pilot --test shell -- --test-threads=1
 ```
 
-The focused renderer tests and script contracts pass. The full browser capture
-was not run. Browser runtime, macOS desktop, Linux desktop, Windows desktop,
-iOS, and Android environment evidence remains open.
+The focused renderer tests and script contracts pass. No full browser capture
+was run after the latest semantic repair. Browser runtime, macOS desktop, Linux
+desktop, Windows desktop, iOS, and Android environment evidence remains open.

@@ -30,7 +30,9 @@ button, a { font: inherit; }
 .footer-icon { display: block; width: 16px; height: 16px; flex: none; color: #71717a; }
 .sidebar-footer .nav-button:first-child .footer-icon, .sidebar-footer .nav-button:nth-child(2) .footer-icon { width: 14px; height: 14px; }
 .icon-button { width: 28px; min-width: 28px; height: 28px; min-height: 0; justify-content: center; padding: 4px; }
+.desktop-focus-spacer { position: absolute; width: 0; height: 0; overflow: hidden; }
 .mobile-menu { display: flex; position: absolute; z-index: 2; top: 4.5px; left: 324px; width: 26px; height: 26px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #71717a; cursor: pointer; }
+.mobile-menu.mobile-menu-control { display: none; }
 .desktop-menu-icon { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .mobile-menu-icon { position: relative; width: 16px; height: 12px; display: none; }
 .mobile-menu-line { position: absolute; top: 0; left: 0; width: 16px; height: 1px; border-radius: 999px; background: currentColor; }
@@ -50,11 +52,11 @@ button, a { font: inherit; }
 .action-title { display: block; font-size: 14px; line-height: normal; color: #1a1a1e; }
 .action-detail { display: block; color: #71717a; font-size: 14px; line-height: 18px; }
 .community { position: absolute; right: 0; bottom: 44px; left: 0; display: flex; justify-content: center; gap: 0; color: #71717a; font-size: 14px; }
-.community a { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; color: inherit; text-decoration: none; }
+.community-action { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: inherit; text-decoration: none; cursor: pointer; }
 .community-icon, .community-icon svg { display: block; width: 14px; height: 14px; flex: none; }
 .community-icon-fill svg { fill: currentColor; }
 .community-icon-stroke svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.community a:hover, .community a:focus-visible { color: #292a30; text-decoration: underline; outline: none; }
+.community-action:hover, .community-action:focus-visible { color: #292a30; text-decoration: underline; outline: none; }
 .dialog-overlay { position: fixed; z-index: 10; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 48px; background: rgb(0 0 0 / 50%); }
 .dialog-panel { width: min(560px, calc(100% - 32px)); max-height: calc(100vh - 96px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e4e4e7; border-radius: 12px; background: #fff; color: #1a1a1e; }
 .dialog-header { padding: 16px; border-bottom: 1px solid #e4e4e7; }
@@ -71,6 +73,8 @@ button, a { font: inherit; }
   .shell { display: block; }
   .sidebar { display: none; }
   .sidebar-empty { display: none; }
+  .desktop-focus-spacer, .mobile-menu.desktop-menu-control { display: none; }
+  .mobile-menu.mobile-menu-control { display: flex; }
   .mobile-menu { top: 19.5px; left: 8px; width: 32px; height: 32px; border-radius: 6px; }
   .desktop-menu-icon { display: none; }
   .mobile-menu-icon { display: block; }
@@ -81,6 +85,7 @@ button, a { font: inherit; }
   .actions { margin-top: -4px; }
   .action { width: 100%; min-height: 0; padding: 16px; }
   .community { bottom: 72px; }
+  .dialog-footer { display: none; }
 }
 "#;
 
@@ -270,19 +275,22 @@ pub fn SpockyShell() -> Element {
                     }
                 }
                 div { class: "sidebar-footer",
-                    button { class: "nav-button", span { class: "footer-icon", {sidebar_icon(SidebarIcon::FolderPlus)} } "Add project" }
+                    button { class: "nav-button", aria_label: "Add project", span { class: "footer-icon", {sidebar_icon(SidebarIcon::FolderPlus)} } "Add project" }
                     button { class: "nav-button icon-button", aria_label: "Hosts", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Server)} } }
-                    button { class: "nav-button icon-button", aria_label: "Import", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Import)} } }
-                    button { class: "nav-button icon-button", aria_label: "Activity", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Gauge)} } }
-                    button { class: "nav-button icon-button", aria_label: "Help", span { class: "footer-icon", {sidebar_icon(SidebarIcon::CircleHelp)} } }
+                    button { class: "nav-button icon-button", aria_label: "Import session", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Import)} } }
+                    button { class: "nav-button icon-button", aria_label: "Usage", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Gauge)} } }
+                    button { class: "nav-button icon-button", aria_label: "Help and support", span { class: "footer-icon", {sidebar_icon(SidebarIcon::CircleHelp)} } }
                     button { class: "nav-button icon-button", aria_label: "Settings", span { class: "footer-icon", {sidebar_icon(SidebarIcon::Settings)} } }
                 }
             }
-            button { class: "mobile-menu", aria_label: "Open menu",
+            div { class: "desktop-focus-spacer", tabindex: "0" }
+            button { class: "mobile-menu desktop-menu-control", aria_label: "Close menu",
                 svg { class: "desktop-menu-icon", view_box: "0 0 24 24",
                     rect { width: "18", height: "18", x: "3", y: "3", rx: "2" }
                     path { d: "M9 3v18" }
                 }
+            }
+            button { class: "mobile-menu mobile-menu-control", aria_label: "Open menu",
                 span { class: "mobile-menu-icon", aria_hidden: "true",
                     span { class: "mobile-menu-line" }
                     span { class: "mobile-menu-line" }
@@ -298,7 +306,6 @@ pub fn SpockyShell() -> Element {
                         for (index, action) in PROJECT_ACTIONS.iter().enumerate() {
                             div {
                                 class: "action",
-                                role: "button",
                                 tabindex: "0",
                                 onclick: move |_| {
                                     if index == 0 {
@@ -320,9 +327,9 @@ pub fn SpockyShell() -> Element {
                     }
                 }
                 footer { class: "community",
-                    a { href: "https://github.com/getpaseo/paseo", span { class: "community-icon community-icon-fill", aria_hidden: "true", svg { view_box: "0 -0.5 25 25", path { d: GITHUB_ICON_PATH } } } "Star" }
-                    a { href: "https://github.com/sponsors/boudra", span { class: "community-icon community-icon-stroke", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: HEART_ICON_PATH } } } "Sponsor" }
-                    a { href: "https://discord.gg/jz8T2uahpH", span { class: "community-icon community-icon-fill", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: DISCORD_ICON_PATH } } } "Community" }
+                    button { class: "community-action", span { class: "community-icon community-icon-fill", aria_hidden: "true", svg { view_box: "0 -0.5 25 25", path { d: GITHUB_ICON_PATH } } } "Star" }
+                    button { class: "community-action", span { class: "community-icon community-icon-stroke", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: HEART_ICON_PATH } } } "Sponsor" }
+                    button { class: "community-action", span { class: "community-icon community-icon-fill", aria_hidden: "true", svg { view_box: "0 0 24 24", path { d: DISCORD_ICON_PATH } } } "Community" }
                 }
                 span { class: "sr-only", {APP_TITLE} }
             }
@@ -340,28 +347,27 @@ fn AddProjectDialog() -> Element {
             class: "dialog-overlay",
             role: "dialog",
             aria_modal: "true",
-            aria_label: "Add project: method",
             div { class: "dialog-panel",
                 div { class: "dialog-header",
                     div { class: "dialog-title", "Add project" }
                     div { class: "dialog-host", "isolated-baseline" }
                 }
                 div { class: "dialog-results",
-                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "true",
+                    button { class: "dialog-row", aria_selected: "true",
                         div { class: "dialog-row-title", "Search for directory" }
                         div { class: "dialog-row-detail", "Find a directory on isolated-baseline" }
                     }
-                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "false",
+                    button { class: "dialog-row", aria_selected: "false",
                         div { class: "dialog-row-title", "Clone from GitHub" }
-                        div { class: "dialog-row-detail", "Enter a GitHub URL or owner/repo" }
+                        div { class: "dialog-row-detail", "Search projects available to your GitHub account" }
                     }
-                    div { class: "dialog-row", role: "button", tabindex: "0", aria_selected: "false",
+                    button { class: "dialog-row", aria_selected: "false",
                         div { class: "dialog-row-title", "New directory" }
                         div { class: "dialog-row-detail", "Create an empty directory on isolated-baseline" }
                     }
                 }
                 div { class: "dialog-footer",
-                    span { "↑+↓" }
+                    span { "↑↓" }
                     span { "Navigate" }
                     span { "⏎" }
                     span { "Select" }
