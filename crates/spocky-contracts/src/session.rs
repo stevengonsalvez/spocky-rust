@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::field::optional;
 use crate::number::Int;
+use crate::request::{
+    AgentCreateRequest, CreateAgentRequest, CreationSubscribeRequest, FetchAgentRequest,
+    FetchAgentTimelineRequest, FetchAgentsRequest, FetchWorkspacesRequest, SendAgentMessageRequest,
+    SessionEventsSetSubscriptionRequest, SetAgentTimelineSubscriptionRequest,
+    SubscriptionReleaseRequest, WaitForFinishRequest, WorkspaceCreateRequest,
+};
 use crate::ws::ServerInfo;
 
 /// Session-level `ping` (`PingMessageSchema`), answered with [`SessionPong`].
@@ -80,6 +86,32 @@ pub enum StatusPayload {
 pub enum SessionInbound {
     #[serde(rename = "ping")]
     Ping(SessionPing),
+    #[serde(rename = "workspace.create.request")]
+    WorkspaceCreate(Box<WorkspaceCreateRequest>),
+    #[serde(rename = "fetch_workspaces_request")]
+    FetchWorkspaces(FetchWorkspacesRequest),
+    #[serde(rename = "create_agent_request")]
+    CreateAgent(Box<CreateAgentRequest>),
+    #[serde(rename = "agent.create.request")]
+    AgentCreate(Box<AgentCreateRequest>),
+    #[serde(rename = "creation.subscribe.request")]
+    CreationSubscribe(CreationSubscribeRequest),
+    #[serde(rename = "send_agent_message_request")]
+    SendAgentMessage(SendAgentMessageRequest),
+    #[serde(rename = "wait_for_finish_request")]
+    WaitForFinish(WaitForFinishRequest),
+    #[serde(rename = "fetch_agents_request")]
+    FetchAgents(FetchAgentsRequest),
+    #[serde(rename = "fetch_agent_request")]
+    FetchAgent(FetchAgentRequest),
+    #[serde(rename = "fetch_agent_timeline_request")]
+    FetchAgentTimeline(FetchAgentTimelineRequest),
+    #[serde(rename = "agent.timeline.set_subscription.request")]
+    SetAgentTimelineSubscription(SetAgentTimelineSubscriptionRequest),
+    #[serde(rename = "session.events.set_subscription.request")]
+    SetSessionEventsSubscription(SessionEventsSetSubscriptionRequest),
+    #[serde(rename = "subscription.release.request")]
+    SubscriptionRelease(SubscriptionReleaseRequest),
 }
 
 /// Daemon-to-client session messages in the slice.
