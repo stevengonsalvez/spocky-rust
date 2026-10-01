@@ -79,7 +79,7 @@ pub struct Compiled {
     pub package: Arc<PinnedPackage>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EngineOptions {
     /// Wasm stack limit; `invoke_*` re-entry also consumes native stack.
     pub max_wasm_stack: usize,
