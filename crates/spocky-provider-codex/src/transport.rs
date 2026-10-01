@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
@@ -118,7 +119,8 @@ struct ExitState {
 }
 
 struct Shared {
-    stdin: Mutex<Option<ChildStdin>>,
+    /// Lines queued for the stdin writer thread; `None` once stdin is closed.
+    writer: Mutex<Option<mpsc::Sender<String>>>,
     pending: Mutex<HashMap<u64, PendingSender>>,
     request_handlers: Mutex<HashMap<String, RequestHandler>>,
     notification_handler: Mutex<Option<NotificationHandler>>,
@@ -158,7 +160,7 @@ impl AppServerClient {
             ));
         };
         let shared = Arc::new(Shared {
-            stdin: Mutex::new(Some(stdin)),
+            writer: Mutex::new(Some(spawn_stdin_writer(stdin))),
             pending: Mutex::new(HashMap::new()),
             request_handlers: Mutex::new(HashMap::new()),
             notification_handler: Mutex::new(None),
@@ -206,12 +208,18 @@ impl AppServerClient {
         params: Option<Value>,
         timeout: Duration,
     ) -> Result<Value, ClientError> {
-        if self.shared.disposed.load(Ordering::SeqCst) {
-            return Err(ClientError::plain(CLIENT_CLOSED_MESSAGE));
-        }
-        let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
         let (sender, receiver) = mpsc::channel();
-        lock(&self.shared.pending).insert(id, sender);
+        let id = {
+            // Check and register under the pending lock so a concurrent
+            // dispose either rejects this request or is seen here.
+            let mut pending = lock(&self.shared.pending);
+            if self.shared.disposed.load(Ordering::SeqCst) {
+                return Err(ClientError::plain(CLIENT_CLOSED_MESSAGE));
+            }
+            let id = self.shared.next_id.fetch_add(1, Ordering::SeqCst);
+            pending.insert(id, sender);
+            id
+        };
         let mut payload = Map::new();
         payload.insert("id".to_owned(), Value::from(id));
         payload.insert("method".to_owned(), Value::String(method.to_owned()));
@@ -254,7 +262,9 @@ impl AppServerClient {
         self.shared.reading.store(false, Ordering::SeqCst);
         self.shared
             .reject_pending(&ClientError::plain(CLIENT_CLOSED_MESSAGE));
-        lock(&self.shared.stdin).take();
+        // Dropping the sender lets the writer flush queued lines, then close
+        // stdin, as Node's `stdin.end()` does.
+        lock(&self.shared.writer).take();
         if self.shared.has_exited() {
             return Ok(());
         }
@@ -284,12 +294,8 @@ impl Shared {
             return;
         };
         line.push('\n');
-        if let Some(stdin) = lock(&self.stdin).as_mut() {
-            // Node reports write failures asynchronously and the exit handler
-            // rejects the request; a broken pipe here is handled the same way.
-            let _ = stdin
-                .write_all(line.as_bytes())
-                .and_then(|()| stdin.flush());
+        if let Some(writer) = lock(&self.writer).as_ref() {
+            let _ = writer.send(line);
         }
     }
 
@@ -336,7 +342,9 @@ impl Shared {
         self.reject_pending(error);
         let handler = lock(&self.termination_handler).take();
         if let Some(handler) = handler {
-            handler(error.clone());
+            // Paseo logs and ignores a throwing termination handler.
+            let error = error.clone();
+            let _ = catch_unwind(AssertUnwindSafe(move || handler(error)));
         }
     }
 
@@ -375,7 +383,12 @@ impl Shared {
                     id: id.clone(),
                 };
                 match handler {
-                    Some(handler) => handler(raw.get("params").cloned(), id.clone(), responder),
+                    Some(handler) => {
+                        let params = raw.get("params").cloned();
+                        let id = id.clone();
+                        // A panicking handler must not stop the reader.
+                        let _ = catch_unwind(AssertUnwindSafe(|| handler(params, id, responder)));
+                    }
                     None => responder.respond(Ok(Some(Value::Object(Map::new())))),
                 }
                 return;
@@ -386,7 +399,9 @@ impl Shared {
         {
             let handler = lock(&self.notification_handler).clone();
             if let Some(handler) = handler {
-                handler(method, raw.get("params").cloned());
+                // Paseo catches and logs a failing line handler and keeps reading.
+                let params = raw.get("params").cloned();
+                let _ = catch_unwind(AssertUnwindSafe(|| handler(method, params)));
             }
         }
     }
@@ -427,6 +442,21 @@ pub(crate) fn js_truthy(value: &Value) -> bool {
         Value::String(text) => !text.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
+}
+
+/// Owns the child's stdin: writes queued lines in order, ignoring write
+/// errors (Node reports them asynchronously; the exit handler settles
+/// requests), and closes stdin when the queue is dropped.
+fn spawn_stdin_writer(mut stdin: ChildStdin) -> mpsc::Sender<String> {
+    let (sender, receiver) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for line in receiver {
+            let _ = stdin
+                .write_all(line.as_bytes())
+                .and_then(|()| stdin.flush());
+        }
+    });
+    sender
 }
 
 fn spawn_stdout_reader(shared: Arc<Shared>, stdout: ChildStdout) {
@@ -628,6 +658,58 @@ fn send_signal(pid: u32, signal: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spawn(script: &str) -> AppServerClient {
+        let child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn test child");
+        AppServerClient::new(child).expect("client")
+    }
+
+    #[test]
+    fn requests_racing_dispose_always_settle() {
+        // `cat` echoes each request back; the echo is a server request the
+        // client answers with `{}`, which `cat` echoes as the response.
+        let client = spawn("exec cat");
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let client = client.clone();
+                thread::spawn(move || client.request("ping", None, Duration::from_secs(10)))
+            })
+            .collect();
+        client.dispose().expect("dispose");
+        for worker in workers {
+            match worker.join().expect("worker") {
+                Ok(result) => assert_eq!(result, serde_json::json!({})),
+                Err(error) => assert_eq!(error.message, CLIENT_CLOSED_MESSAGE),
+            }
+        }
+        assert_eq!(
+            client.request("late", None, Duration::from_secs(1)),
+            Err(ClientError::plain(CLIENT_CLOSED_MESSAGE))
+        );
+    }
+
+    #[test]
+    fn a_panicking_notification_handler_does_not_stop_the_reader() {
+        let client =
+            spawn("sleep 1; printf '{\"method\":\"boom\"}\\n{\"method\":\"after\"}\\n'; sleep 5");
+        let (seen, received) = mpsc::channel();
+        client.set_notification_handler(Arc::new(move |method, _| {
+            assert!(method != "boom", "handler panic");
+            let _ = seen.send(method.to_owned());
+        }));
+        assert_eq!(
+            received.recv_timeout(Duration::from_secs(5)).as_deref(),
+            Ok("after")
+        );
+        client.dispose().expect("dispose");
+    }
 
     #[test]
     fn exit_message_matches_paseo_wording() {
