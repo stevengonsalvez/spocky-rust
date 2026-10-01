@@ -1,0 +1,1310 @@
+{
+  "schemaVersion": 1,
+  "manual": {
+    "firstCreated": true,
+    "replayCreated": false,
+    "sameReceipt": true,
+    "crossOrgDistinct": true,
+    "receiptCount": 2,
+    "runCount": 4,
+    "fanOutDistinct": true,
+    "fanOutCreated": true,
+    "fanOutReplayCreated": false,
+    "fanOutReplaySameRun": true
+  },
+  "lease": {
+    "blockedBeforeExpiry": true,
+    "recoveredAfterExpiry": true,
+    "leasedBeforeClaim": true,
+    "sameExecution": true,
+    "executionCount": 1,
+    "staleReleaseRejected": true,
+    "currentReleaseAccepted": true
+  },
+  "execution": {
+    "initial": "spawning",
+    "runningTransition": true,
+    "firstTerminal": "succeeded",
+    "conflictingTerminalTransition": false,
+    "finalStatus": "succeeded",
+    "completedAtKept": true,
+    "idleDeadlineAtMs": 10000,
+    "idleDeadlineCleared": true,
+    "executionBeforeRunBeforeIdle": {
+      "deadlineAtMs": 5000,
+      "idleDeadlineAtMs": 5000
+    },
+    "runStatus": "succeeded",
+    "runSucceededTransition": true,
+    "runSucceededAgainTransition": false
+  },
+  "identity": {
+    "localOffsetMinutes": 60,
+    "januaryOffsetMinutes": 0,
+    "firstRun": {
+      "runId": "00000000-0000-4000-8000-000000000007",
+      "revisionId": "00000000-0000-4000-8000-000000000002",
+      "stepRunIds": [
+        "00000000-0000-4000-8000-000000000008"
+      ],
+      "executionId": "f22588c5-138f-5901-bbb9-0fe01a59d382"
+    },
+    "fanOutRun": {
+      "runId": "00000000-0000-4000-8000-000000000009",
+      "revisionId": "00000000-0000-4000-8000-000000000002",
+      "stepRunIds": [
+        "00000000-0000-4000-8000-00000000000a",
+        "00000000-0000-4000-8000-00000000000b"
+      ],
+      "executionId": "172779e4-9ca7-5df9-84b8-9896ad7c6fa0",
+      "selectedStepRunId": "00000000-0000-4000-8000-00000000000b",
+      "missingOrdinal": "threw: workflow step run not found"
+    }
+  },
+  "durableExecutionId": {
+    "fixed": "a4071e2c-c3ec-5c7a-9c38-8f19dabbf847",
+    "noStep": "94b9d672-46a1-5ebf-93a1-87a5ad462f78",
+    "otherTrigger": "4e40c714-41d3-5112-ae07-e726507cb989"
+  },
+  "manualRequests": {
+    "cases": {
+      "accepted": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}"
+      },
+      "duplicateSameOrganization": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}"
+      },
+      "sameDeliveryOtherOrganization": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}"
+      },
+      "noHandlerDropped": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-idle\"}"
+      },
+      "withConnectionEvidence": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-evidence\"}"
+      },
+      "nonNamespacedSource": {
+        "status": 400,
+        "body": "{\"error\":\"source must be provider-namespaced, for example github.issue_comment\"}"
+      },
+      "emptySource": {
+        "status": 400,
+        "body": "{\"error\":\"source is required and must be a non-empty string\"}"
+      },
+      "emptyDeliveryId": {
+        "status": 400,
+        "body": "{\"error\":\"deliveryId is required and must be a non-empty string\"}"
+      },
+      "emptyOrganizationId": {
+        "status": 400,
+        "body": "{\"error\":\"organizationId is required\"}"
+      },
+      "projectIdNotUuid": {
+        "status": 400,
+        "body": "{\"error\":\"projectId is required\"}"
+      },
+      "invalidReceivedAt": {
+        "status": 400,
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}"
+      },
+      "receivedAtNumber": {
+        "status": 400,
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}"
+      },
+      "validReceivedAt": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-received-at\"}"
+      },
+      "missingOrganizationId": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}"
+      },
+      "connectionIdNotUuid": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid UUID\"}"
+      },
+      "connectionIdNumber": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}"
+      },
+      "connectionIdNull": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-null-connection\"}"
+      },
+      "connectionIdNilUuid": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-nil-connection\"}"
+      },
+      "connectionIdVersionNine": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid UUID\"}"
+      },
+      "resourceIdNumber": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}"
+      },
+      "sourceMissing": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}"
+      },
+      "sourceNumber": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}"
+      },
+      "deliveryIdNumber": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received number\"}"
+      },
+      "projectIdMissing": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected string, received undefined\"}"
+      },
+      "receivedAtNull": {
+        "status": 400,
+        "body": "{\"error\":\"receivedAt must be an ISO date string when provided\"}"
+      },
+      "receivedAtDateOnly": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-date-only\"}"
+      },
+      "receivedAtOffset": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-offset\"}"
+      },
+      "receivedAtImpossibleDate": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-1\"}"
+      },
+      "multipleInvalidFields": {
+        "status": 400,
+        "body": "{\"error\":\"organizationId is required\"}"
+      },
+      "payloadOmitted": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected nonoptional, received undefined\"}"
+      },
+      "payloadNull": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-null-payload\"}"
+      },
+      "utf8BomBody": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-bom\"}"
+      },
+      "doubleBomBody": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-double-bom\"}"
+      },
+      "tripleBomBody": {
+        "status": 400,
+        "body": "{\"error\":\"request body must be valid JSON\"}"
+      },
+      "unknownProject": {
+        "status": 0,
+        "body": "threw: manual project configuration unavailable"
+      },
+      "invalidJson": {
+        "status": 400,
+        "body": "{\"error\":\"request body must be valid JSON\"}"
+      },
+      "arrayBody": {
+        "status": 400,
+        "body": "{\"error\":\"Invalid input: expected object, received array\"}"
+      }
+    },
+    "receivedAtGrid": {
+      "2026": {
+        "status": 200,
+        "receivedAtMs": 1767225600000
+      },
+      "2026-08": {
+        "status": 200,
+        "receivedAtMs": 1785542400000
+      },
+      "2026-08-06": {
+        "status": 200,
+        "receivedAtMs": 1785974400000
+      },
+      "2026-08-06T12:00": {
+        "status": 200,
+        "receivedAtMs": 1786014000000
+      },
+      "2026-08-06T12:00:00": {
+        "status": 200,
+        "receivedAtMs": 1786014000000
+      },
+      "2026-08-06T12:00Z": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00:00z": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00:00+0100": {
+        "status": 200,
+        "receivedAtMs": 1786014000000
+      },
+      "2026-08-06T24:00:00Z": {
+        "status": 200,
+        "receivedAtMs": 1786060800000
+      },
+      "2026-08-06T12:00:00.1234Z": {
+        "status": 200,
+        "receivedAtMs": 1786017600123
+      },
+      "2026-02-30": {
+        "status": 200,
+        "receivedAtMs": 1772409600000
+      },
+      "+002026-08-06T00:00:00Z": {
+        "status": 200,
+        "receivedAtMs": 1785974400000
+      },
+      "-000001-01-01T00:00:00Z": {
+        "status": 200,
+        "receivedAtMs": -62198755200000
+      },
+      "2026-08-06T12:00:00+23:59": {
+        "status": 200,
+        "receivedAtMs": 1785931260000
+      },
+      "2026-08-06T12:00:00-00:00": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "9999-12-31T23:59:59.999Z": {
+        "status": 200,
+        "receivedAtMs": 253402300799999
+      },
+      "0000-01-01": {
+        "status": 200,
+        "receivedAtMs": -62167219200000
+      },
+      "+275760-09-13T00:00:00.000Z": {
+        "status": 200,
+        "receivedAtMs": 8640000000000000
+      },
+      "2026-08-06T12Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00+01": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T24:00:01Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T25:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:60:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:60Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00.Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-02-32": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-13-01": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-00-10": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-00": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "-000000-01-01T00:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "275760-09-13T00:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "+275760-09-13T00:00:00.001Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00 Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00+24:00": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "26-08-06": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "not-a-date": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-01-15T12:00:00": {
+        "status": 200,
+        "receivedAtMs": 1768478400000
+      },
+      "2026-03-29T00:59:59": {
+        "status": 200,
+        "receivedAtMs": 1774745999000
+      },
+      "2026-03-29T01:00:00": {
+        "status": 200,
+        "receivedAtMs": 1774746000000
+      },
+      "2026-03-29T01:30:00": {
+        "status": 200,
+        "receivedAtMs": 1774747800000
+      },
+      "2026-03-29T02:00:00": {
+        "status": 200,
+        "receivedAtMs": 1774746000000
+      },
+      "2026-10-25T00:59:59": {
+        "status": 200,
+        "receivedAtMs": 1792886399000
+      },
+      "2026-10-25T01:00:00": {
+        "status": 200,
+        "receivedAtMs": 1792886400000
+      },
+      "2026-10-25T01:30:00": {
+        "status": 200,
+        "receivedAtMs": 1792888200000
+      },
+      "2026-10-25T02:00:00": {
+        "status": 200,
+        "receivedAtMs": 1792893600000
+      },
+      "1800-01-01T00:00:00": {
+        "status": 200,
+        "receivedAtMs": -5364662325000
+      }
+    },
+    "omittedReceivedAtIsNow": true,
+    "handledAfterDuplicate": 2,
+    "handledAfterOtherOrganization": 3,
+    "receipts": {
+      "accepted": {
+        "provider": "manual",
+        "source": "discord.mention",
+        "droppedReason": null,
+        "connectionId": null,
+        "resourceId": null
+      },
+      "idle": {
+        "provider": "manual",
+        "source": "discord.mention",
+        "droppedReason": "configuration_unavailable",
+        "connectionId": null,
+        "resourceId": null
+      },
+      "otherOrganization": {
+        "provider": "manual",
+        "source": "discord.mention",
+        "droppedReason": null,
+        "connectionId": null,
+        "resourceId": null
+      },
+      "distinctReceiptIds": true
+    },
+    "acceptedEvidence": [
+      {
+        "connectionId": null,
+        "resourceId": null,
+        "source": "discord.mention",
+        "deliveryId": "manual-1"
+      }
+    ],
+    "connectionEvidence": {
+      "connectionId": "7f1b0c1e-2d3a-4b5c-8d6e-9f0a1b2c3d4e",
+      "resourceId": "resource-1"
+    }
+  },
+  "manualRunMatch": {
+    "matched": {
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ],
+      "deliveryId": "delivery-1",
+      "configurationRevisionIsCurrent": true
+    },
+    "publicDeliveryKey": {
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ],
+      "deliveryId": "public-key",
+      "configurationRevisionIsCurrent": true
+    },
+    "expectedCurrent": {
+      "outcome": "matched",
+      "triggers": [
+        "deploy"
+      ],
+      "deliveryId": "delivery-1",
+      "configurationRevisionIsCurrent": true
+    },
+    "expectedStale": {
+      "outcome": "rejected",
+      "code": "expected_configuration_not_current"
+    },
+    "revisionMissing": {
+      "outcome": "rejected",
+      "code": "configuration_not_found"
+    },
+    "triggerMissing": {
+      "outcome": "rejected",
+      "code": "trigger_not_found"
+    },
+    "actorForbidden": {
+      "outcome": "rejected",
+      "code": "actor_forbidden"
+    },
+    "actorAllowed": {
+      "outcome": "matched",
+      "triggers": [
+        "rollback"
+      ],
+      "deliveryId": "delivery-1",
+      "configurationRevisionIsCurrent": true
+    },
+    "noUserFilter": {
+      "outcome": "rejected",
+      "code": "actor_forbidden"
+    },
+    "wrongEventTrigger": {
+      "outcome": "rejected",
+      "code": "trigger_not_found"
+    }
+  },
+  "publicManualRun": {
+    "results": {
+      "dispatched": {
+        "status": 200,
+        "contentType": "application/json",
+        "wwwAuthenticate": null,
+        "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+      },
+      "project_not_found": {
+        "status": 404,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/project-not-found\",\"title\":\"Project not found\",\"status\":404,\"detail\":\"No active project with that slug exists in the credential's organization.\",\"code\":\"project_not_found\",\"requestId\":\"request-1\"}"
+      },
+      "actor_forbidden": {
+        "status": 403,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/actor-forbidden\",\"title\":\"Actor forbidden\",\"status\":403,\"detail\":\"The configured manual trigger does not allow this actor.\",\"code\":\"actor_forbidden\",\"requestId\":\"request-1\"}"
+      },
+      "daemon_offline": {
+        "status": 409,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/daemon-offline\",\"title\":\"Daemon offline\",\"status\":409,\"detail\":\"The selected daemon is not connected. Reconnect it before retrying.\",\"code\":\"daemon_offline\",\"requestId\":\"request-1\"}"
+      },
+      "expected_configuration_not_current": {
+        "status": 409,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/configuration-changed\",\"title\":\"Configuration changed\",\"status\":409,\"detail\":\"expectedVersionId is not the configuration version selected for this delivery.\",\"code\":\"configuration_changed\",\"requestId\":\"request-1\"}"
+      },
+      "configuration_not_found": {
+        "status": 404,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/configuration-not-found\",\"title\":\"Configuration not found\",\"status\":404,\"detail\":\"The requested configuration revision is not available.\",\"code\":\"configuration_not_found\",\"requestId\":\"request-1\"}"
+      },
+      "trigger_not_found": {
+        "status": 404,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/trigger-not-found\",\"title\":\"Trigger not found\",\"status\":404,\"detail\":\"The active configuration has no matching manual trigger.\",\"code\":\"trigger_not_found\",\"requestId\":\"request-1\"}"
+      },
+      "dispatch_conflict": {
+        "status": 409,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/dispatch-conflict\",\"title\":\"Run not dispatched\",\"status\":409,\"detail\":\"The durable event exists but no matching run is available yet. Retry with the same deliveryKey.\",\"code\":\"dispatch_conflict\",\"requestId\":\"request-1\"}"
+      },
+      "invalid_input": {
+        "status": 400,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/invalid-input\",\"title\":\"Invalid trigger input\",\"status\":400,\"detail\":\"Run f83dc934-02a0-4849-8de7-699110be24ed rejected the submitted input.\",\"code\":\"invalid_input\",\"requestId\":\"request-1\",\"issues\":[]}"
+      },
+      "infrastructure_unavailable": {
+        "status": 503,
+        "contentType": "application/problem+json",
+        "wwwAuthenticate": null,
+        "body": "{\"type\":\"https://paseo.sh/problems/infrastructure-unavailable\",\"title\":\"Service unavailable\",\"status\":503,\"detail\":\"The operation could not reach durable storage. Retry the request later.\",\"code\":\"infrastructure_unavailable\",\"requestId\":\"request-1\"}"
+      }
+    },
+    "unauthorized": {
+      "status": 401,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": "Bearer",
+      "body": "{\"type\":\"https://paseo.sh/problems/unauthorized\",\"title\":\"Authentication required\",\"status\":401,\"detail\":\"Provide an active Paseo organization credential in the Authorization: Bearer header.\",\"code\":\"unauthorized\",\"requestId\":\"request-1\"}"
+    },
+    "forbidden": {
+      "status": 403,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/insufficient-scope\",\"title\":\"Insufficient scope\",\"status\":403,\"detail\":\"This operation requires the runs:dispatch scope.\",\"code\":\"insufficient_scope\",\"requestId\":\"request-1\"}"
+    },
+    "authenticationUnavailable": {
+      "status": 503,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/authentication-unavailable\",\"title\":\"Authentication unavailable\",\"status\":503,\"detail\":\"Bearer-credential authentication is currently unavailable. Retry the request later.\",\"code\":\"authentication_unavailable\",\"requestId\":\"request-1\"}"
+    },
+    "invalidJson": {
+      "status": 400,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "wrongContentType": {
+      "status": 400,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "missingContentType": {
+      "status": 400,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "bomBody": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+    },
+    "doubleBomBody": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+    },
+    "tripleBomBody": {
+      "status": 400,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "invalidUtf8InString": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+    }
+  },
+  "github": {
+    "signatureHashSample": "9e809218cbdb074633a2960ff90756f7ee06e1be1141ece2f40157e0cae98675",
+    "cases": {
+      "validDispatch": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "unconfiguredSecret": {
+        "responses": [
+          {
+            "status": 503,
+            "body": "Service Unavailable"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "missingSignature": {
+        "responses": [
+          {
+            "status": 401,
+            "body": "Unauthorized"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "wrongSecretSignature": {
+        "responses": [
+          {
+            "status": 401,
+            "body": "Unauthorized"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "truncatedSignature": {
+        "responses": [
+          {
+            "status": 401,
+            "body": "Unauthorized"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "signatureWithoutPrefix": {
+        "responses": [
+          {
+            "status": 401,
+            "body": "Unauthorized"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "tamperedBody": {
+        "responses": [
+          {
+            "status": 401,
+            "body": "Unauthorized"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "longSecret": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "581643094f5b26648edd1e4f96d5823564d9feb177c347598702c17e9d63092c"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "emptySecret": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "a5c5063ecd60f90e423f3b7480a57aa623331a8e9450de2fbf57becff881d36b"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "bodyAtLimit": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "9b437a4fa25a5419a6b3a50e3180e6591d2100712a3268a4e60ddab76517fc4b"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "bodyOverLimit": {
+        "responses": [
+          {
+            "status": 413,
+            "body": "Payload Too Large"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "missingDeliveryHeader": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "emptyDeliveryHeader": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "missingEventHeader": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "emptyEventHeader": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "deliveryHeaderAtLimit": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "deliveryHeaderOverLimit": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "eventHeaderOverLimit": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "malformedJson": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"request body must be valid JSON\"}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "invalidUtf8": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"request body must be valid JSON\"}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "utf8Bom": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "f455e8816af988d5e5a904ea1c73ee03fffa6966c4cc21c26a406056e4471d9b"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "doubleUtf8Bom": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"request body must be valid JSON\"}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "arrayBody": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received array\"]}}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "nullBody": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received null\"]}}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "stringBody": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received string\"]}}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "numberBody": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"invalid webhook payload\",\"issues\":{\"_errors\":[\"Invalid input: expected object, received number\"]}}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "missingInstallation": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "installationIdString": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "installationWithoutId": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "Bad Request"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "installationIdFractional": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 1.5,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "c98d4cd2a3025dcb4b33fabcba7af61ac8300b1b29cdaca520cd01198f40d933"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "duplicateInstallationKey": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 7,
+            "repositoryId": 1,
+            "repo": "a/b",
+            "signatureHash": "3317a32428885a8c281ffff0fe474042ca17f64dcd2ec36ddf8b60594a776690"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 1
+      },
+      "lifecycleInstallation": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [
+          {
+            "event": "installation",
+            "source": "github.installation",
+            "installationId": 42,
+            "signatureHash": "a351f77bf1929f9059f720bd2b48a5962889f45d16342b0892e7fee06a7c9b98"
+          }
+        ],
+        "dispatchCount": 0
+      },
+      "lifecycleInstallationRepositories": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [
+          {
+            "event": "installation_repositories",
+            "source": "github.installation_repositories",
+            "installationId": 42,
+            "signatureHash": "d837b3e97d02c93705e4d9b58336bf74a805e0ba40764d68342353d5394d0511"
+          }
+        ],
+        "dispatchCount": 0
+      },
+      "noRepository": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repositoryId": null,
+            "repo": null,
+            "signatureHash": "5d4cf3bdc3fb02160b7fcefeb929ed258e4d05c6e14225c69cf4469377f05776"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "emptyRepositoryName": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repositoryId": null,
+            "repo": null,
+            "signatureHash": "31d0d44fcc2c12f25be4e244789e58c3165b946f8067a95442ede90c66b7eacd"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "repositoryWithoutId": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repositoryId": null,
+            "repo": null,
+            "signatureHash": "4d7aa00967d60e2c36ccfc99d43026352ca05ceb757e9dfef842d28967ce028c"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "repositoryIdString": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": "no_trigger_for_source",
+            "installationId": 42,
+            "repositoryId": null,
+            "repo": null,
+            "signatureHash": "5dd9977b96b8c8fa9ec672a5958ea8019803e1abf7b2ec042ac9472adc4d810c"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "noHandlers": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": "configuration_unavailable",
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "twoHandlers": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 2
+      },
+      "fanOutTwoEvents": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 2
+      },
+      "storageUnavailable": {
+        "responses": [
+          {
+            "status": 503,
+            "body": "{\"error\":\"database_unavailable\"}"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "storageFailure": {
+        "responses": [
+          {
+            "status": 500,
+            "body": "{\"error\":\"webhook_processing_failed\"}"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 0
+      },
+      "replayAndDistinct": {
+        "responses": [
+          {
+            "status": 200,
+            "body": "OK"
+          },
+          {
+            "status": 200,
+            "body": "OK"
+          },
+          {
+            "status": 200,
+            "body": "OK"
+          }
+        ],
+        "accepts": [
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          },
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          },
+          {
+            "source": "github.issue_comment",
+            "dropReason": null,
+            "installationId": 42,
+            "repositoryId": 9001,
+            "repo": "acme/widgets",
+            "signatureHash": "df75453b09b44099129bf5e9c7e21a0b1d1565f174dddd2e5716f8a370e6936a"
+          }
+        ],
+        "lifecycles": [],
+        "dispatchCount": 2
+      }
+    }
+  }
+}
