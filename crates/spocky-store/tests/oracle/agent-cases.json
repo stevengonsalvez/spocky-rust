@@ -88,5 +88,15 @@
     "name": "bad-feature-type",
     "kind": "agent",
     "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"features\":[{\"type\":\"slider\",\"id\":\"f\",\"label\":\"F\",\"value\":1}]}"
+  },
+  {
+    "name": "toolpolicy-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"toolPolicy\":{\"preapproved\":[],\"__proto__\":{}}}}"
+  },
+  {
+    "name": "toolpolicy-entry-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"toolPolicy\":{\"preapproved\":[{\"kind\":\"mcp\",\"server\":\"s\",\"tool\":\"t\",\"__proto__\":{\"x\":1}}]}}}"
   }
 ]
