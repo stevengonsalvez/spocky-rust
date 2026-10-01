@@ -55,6 +55,14 @@ impl JsClock {
         Self { zone }
     }
 
+    /// A clock for a named zone, for tests.
+    #[cfg(test)]
+    pub(crate) fn for_zone(name: &str) -> Self {
+        Self {
+            zone: TimeZone::get(name).expect("zone"),
+        }
+    }
+
     /// Offset of local time from UTC in milliseconds at UTC time `ms`.
     fn offset_ms(&self, ms: f64) -> f64 {
         let clamped = ms.clamp(
@@ -69,7 +77,8 @@ impl JsClock {
     /// `Date.prototype.getTimezoneOffset` in minutes.
     #[must_use]
     pub fn timezone_offset_minutes(&self, ms: f64) -> f64 {
-        -self.offset_ms(ms) / 60_000.0
+        // V8 divides the millisecond offset by 60000 in integer arithmetic.
+        (-self.offset_ms(ms) / 60_000.0).trunc() + 0.0
     }
 
     /// `LocalTime(t)`.
@@ -217,6 +226,10 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// ECMAScript `MakeDay`.
+pub(crate) fn make_day_public(year: f64, month: f64, date: f64) -> f64 {
+    make_day(year, month, date)
+}
+
 fn make_day(year: f64, month: f64, date: f64) -> f64 {
     if !year.is_finite() || !month.is_finite() || !date.is_finite() {
         return f64::NAN;
