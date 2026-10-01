@@ -6,9 +6,9 @@
 
 use std::fmt;
 
-use super::json::Json;
 use super::message::Headers;
 use super::validation::Issue;
+use super::value::{JsValueExt as _, Json};
 use crate::ApiKeyScope;
 
 /// Every scope, in the order the Hub declares them.

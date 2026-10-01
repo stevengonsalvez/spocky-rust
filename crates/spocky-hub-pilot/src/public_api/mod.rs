@@ -7,12 +7,12 @@ mod api;
 mod cli_authorizations;
 mod contracts;
 mod credentials;
-mod json;
 mod manifest;
 mod message;
 mod openapi;
 mod operations;
 mod validation;
+mod value;
 
 pub use api::{Composition, IdSource, OperationsRequired, PublicApi, random_ids};
 pub use cli_authorizations::{
@@ -30,7 +30,6 @@ pub use credentials::{
     ApiKeyAuthorizer, CLI_CREDENTIAL_PREFIX, CliCredentialRecord, CliCredentialStore,
     PublicCredentialAuthenticator, cli_credential_parts, hash_secret,
 };
-pub use json::{Json, decode_request_json, number_text, parse as parse_json};
 pub use manifest::{MANIFEST, OperationDefinition, OperationId, RequestSchema, definition};
 pub use message::{ApiRequest, ApiResponse, Headers, InvalidUrl};
 pub use openapi::{document, document_text};
@@ -43,4 +42,6 @@ pub use operations::{
     SetupResources, TriggerFormat, ValidateConfigurationResult, ValidateTriggerResult,
     WorkflowStatus, scope_name,
 };
+pub use spocky_contracts::js_value::{JsObject, JsValue, parse as parse_json, stringify_pretty};
 pub use validation::{Issue, PathPart};
+pub use value::{JsValueExt, Json, decode_request_json};

@@ -23,13 +23,13 @@ use spocky_hub_pilot::public_api::{
     AccessFailure, ApiKeyAuthorizer, ApiRequest, ApiResponse, AuthorizationOutcome, BrowserAccess,
     CLIENT_ADDRESS_HEADER, CliAuthorizations, Composition, ConfigurationResources, CredentialKind,
     DispatchManualRunResult, GithubResource, Headers, InstallConfigurationResult,
-    InstallTriggerResult, Issue, IssueEnrollmentTokenResult, Json,
+    InstallTriggerResult, Issue, IssueEnrollmentTokenResult, JsValueExt as _, Json,
     ListConfigurationResourcesResult, ListProjectsResult, ListSetupResourcesResult,
     ListTriggersResult, MANIFEST, MemoryCliAuthorizations, OperationAuthenticator, OperationError,
     OperationId, OrganizationAccess, PathPart, PublicApi, PublicAuthorization,
     PublicCredentialAuthenticator, PublicOperations, PublicProject, PublicTrigger, SetupResources,
     TriggerFormat, ValidateConfigurationResult, ValidateTriggerResult, WorkflowStatus,
-    document_text, parse_json, scope_name,
+    document_text, parse_json, scope_name, stringify_pretty,
 };
 use spocky_hub_pilot::{
     AccountId, ApiKeyAuthorization, ApiKeyScope, Bootstrap, EmbeddedFileStore, HubPilot,
@@ -53,7 +53,8 @@ fn text(value: &Json) -> &str {
 }
 
 fn member<'a>(value: &'a Json, key: &str) -> &'a Json {
-    value.get(key).unwrap_or(&Json::Null)
+    static NULL: Json = Json::Null;
+    value.get(key).unwrap_or(&NULL)
 }
 
 fn items(value: &Json) -> &[Json] {
@@ -87,51 +88,6 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
-/// `JSON.stringify(value, null, 2)`.
-fn pretty(value: &Json) -> String {
-    fn write(value: &Json, depth: usize, out: &mut String) {
-        let pad = |level: usize| "  ".repeat(level);
-        match value {
-            Json::Array(values) if values.is_empty() => out.push_str("[]"),
-            Json::Object(fields) if fields.is_empty() => out.push_str("{}"),
-            Json::Array(values) => {
-                out.push_str("[\n");
-                for (index, item) in values.iter().enumerate() {
-                    out.push_str(&pad(depth + 1));
-                    write(item, depth + 1, out);
-                    out.push_str(if index + 1 == values.len() {
-                        "\n"
-                    } else {
-                        ",\n"
-                    });
-                }
-                out.push_str(&pad(depth));
-                out.push(']');
-            }
-            Json::Object(fields) => {
-                out.push_str("{\n");
-                for (index, (key, item)) in fields.iter().enumerate() {
-                    out.push_str(&pad(depth + 1));
-                    out.push_str(&Json::string(key).stringify());
-                    out.push_str(": ");
-                    write(item, depth + 1, out);
-                    out.push_str(if index + 1 == fields.len() {
-                        "\n"
-                    } else {
-                        ",\n"
-                    });
-                }
-                out.push_str(&pad(depth));
-                out.push('}');
-            }
-            scalar => out.push_str(&scalar.stringify()),
-        }
-    }
-    let mut out = String::new();
-    write(value, 0, &mut out);
-    out
-}
-
 fn counter_ids() -> Box<dyn FnMut() -> String> {
     let counter = Rc::new(Cell::new(0_u64));
     Box::new(move || {
@@ -160,11 +116,13 @@ fn materialize(body: &Json, substitute: &dyn Fn(&str) -> String) -> Vec<u8> {
     }
     if let Some(repeat) = body.get("repeat") {
         let count = usize::try_from(integer(member(repeat, "count"))).expect("count");
+        let close = repeat.get("closeFill").map_or("", text);
         return format!(
-            "{}{}{}",
+            "{}{}{}{}",
             text(member(repeat, "prefix")),
             text(member(repeat, "fill")).repeat(count),
-            text(member(repeat, "suffix"))
+            text(member(repeat, "suffix")),
+            close.repeat(count)
         )
         .into_bytes();
     }
@@ -201,7 +159,7 @@ fn response_trace(response: &ApiResponse) -> Vec<(String, Json)> {
         ),
         (
             "headers".to_owned(),
-            Json::Object(
+            Json::from_pairs(
                 response
                     .headers
                     .sorted()
@@ -654,7 +612,7 @@ fn run_case(spec: &Json) -> Json {
         "operationCalls".to_owned(),
         Json::Array(operation_calls.borrow().clone()),
     ));
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
 // ---- scenarios ----
@@ -939,7 +897,7 @@ fn scenario_fields(first: Vec<(&str, Json)>, rest: Vec<(String, Json)>) -> Json 
         .map(|(key, value)| (key.to_owned(), value))
         .collect();
     fields.extend(rest);
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
 fn optional_text(value: &Json) -> Json {
@@ -1104,7 +1062,7 @@ fn run_scenario(spec: &Json) -> Json {
                     ("count", Json::integer(count)),
                     (
                         "statuses",
-                        Json::Object(
+                        Json::from_pairs(
                             statuses
                                 .into_iter()
                                 .map(|(status, total)| (status.to_string(), Json::integer(total)))
@@ -1294,7 +1252,7 @@ fn manifest_trace() -> Json {
                     ("hasRequestSchema", Json::Bool(definition.request.is_some())),
                     (
                         "responses",
-                        Json::Object(
+                        Json::from_pairs(
                             definition
                                 .responses
                                 .iter()
@@ -1359,7 +1317,7 @@ fn build_trace(openapi: &str) -> String {
                 ("status", Json::integer(i64::from(response.status))),
                 (
                     "headers",
-                    Json::Object(
+                    Json::from_pairs(
                         response
                             .headers
                             .sorted()
@@ -1378,10 +1336,10 @@ fn build_trace(openapi: &str) -> String {
                 ),
             ]),
         ),
-        ("cases", Json::Object(cases)),
-        ("scenarios", Json::Object(scenarios)),
+        ("cases", Json::from_pairs(cases)),
+        ("scenarios", Json::from_pairs(scenarios)),
     ]);
-    format!("{}\n", pretty(&trace))
+    format!("{}\n", stringify_pretty(&trace))
 }
 
 fn baseline(variable: &str, committed: &str) -> String {

@@ -1,7 +1,9 @@
 //! The slice of zod 4 behavior the Hub request schemas use: issue wording, issue order and the
 //! checks that still run on values of the wrong type.
 
-use super::json::{Json, number_text};
+use spocky_contracts::js_value::{JsObject, js_number, js_text_utf16};
+
+use super::value::{JsValueExt as _, Json};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PathPart {
@@ -81,10 +83,10 @@ pub fn js_trim(text: &str) -> &str {
     })
 }
 
-/// JavaScript string length: UTF-16 code units.
+/// JavaScript string length: UTF-16 code units, counting a lone surrogate as one.
 #[must_use]
 pub fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
+    js_text_utf16(text).count()
 }
 
 /// zod 4 `z.uuid()`: versions 1 to 8 with a variant nibble of 8 to b, plus the nil and the
@@ -136,7 +138,7 @@ fn to_number(value: &Json) -> f64 {
         Json::Number(number) => *number,
         Json::String(text) => string_to_number(text),
         Json::Array(items) => string_to_number(&array_to_string(items)),
-        Json::Object(_) => f64::NAN,
+        Json::Undefined | Json::Object(_) => f64::NAN,
     }
 }
 
@@ -145,7 +147,7 @@ fn array_to_string(items: &[Json]) -> String {
     items
         .iter()
         .map(|item| match item {
-            Json::Null => String::new(),
+            Json::Null | Json::Undefined => String::new(),
             Json::Bool(flag) => flag.to_string(),
             Json::Number(number) if number.is_infinite() => if *number > 0.0 {
                 "Infinity"
@@ -153,7 +155,7 @@ fn array_to_string(items: &[Json]) -> String {
                 "-Infinity"
             }
             .to_owned(),
-            Json::Number(number) => number_text(*number),
+            Json::Number(number) => js_number(*number),
             Json::String(text) => text.clone(),
             Json::Array(nested) => array_to_string(nested),
             Json::Object(_) => "[object Object]".to_owned(),
@@ -377,7 +379,7 @@ pub fn object_fields<'a>(
     value: Option<&'a Json>,
     path: &[PathPart],
     issues: &mut Vec<Issue>,
-) -> Option<&'a [(String, Json)]> {
+) -> Option<&'a JsObject> {
     if let Some(Json::Object(fields)) = value {
         return Some(fields);
     }
@@ -387,14 +389,14 @@ pub fn object_fields<'a>(
 
 /// The strict object check. `__proto__` is never reported, matching zod on the baseline runtime.
 pub fn unrecognized_keys(
-    fields: &[(String, Json)],
+    fields: &JsObject,
     known: &[&str],
     path: &[PathPart],
     issues: &mut Vec<Issue>,
 ) {
     let unknown: Vec<String> = fields
         .iter()
-        .map(|(name, _)| name.as_str())
+        .map(|(name, _)| name)
         .filter(|name| *name != "__proto__" && !known.contains(name))
         .map(|name| format!("\"{name}\""))
         .collect();
@@ -414,7 +416,7 @@ pub fn unrecognized_keys(
 #[cfg(test)]
 mod tests {
     use super::{Issue, PathPart, StringRule, js_trim, string_field};
-    use crate::public_api::json::Json;
+    use crate::public_api::value::Json;
 
     #[test]
     fn trims_like_javascript() {

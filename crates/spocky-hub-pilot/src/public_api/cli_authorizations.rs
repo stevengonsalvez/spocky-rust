@@ -19,8 +19,8 @@ use super::credentials::{
     CLI_CREDENTIAL_PREFIX, CliCredentialRecord, CliCredentialStore, cli_credential_parts,
     hash_secret,
 };
-use super::json::{Json, decode_request_json};
 use super::message::{ApiRequest, ApiResponse};
+use super::value::{JsValueExt as _, Json, decode_request_json};
 
 const LIFETIME_SECONDS: u64 = 10 * 60;
 const INITIAL_POLL_INTERVAL_SECONDS: u64 = 5;
@@ -544,7 +544,7 @@ impl CliAuthorizations {
             fields.push(("credential".to_owned(), Json::String(credential)));
             fields.push(("organizationId".to_owned(), Json::String(organization_id)));
         }
-        ApiResponse::json(200, &Json::Object(fields).stringify(), &[])
+        ApiResponse::json(200, &Json::from_pairs(fields).stringify(), &[])
     }
 
     /// `POST /cli-authorizations/inspect`.

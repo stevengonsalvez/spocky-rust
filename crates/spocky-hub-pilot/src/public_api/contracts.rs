@@ -4,7 +4,8 @@
 //! schema key order; a value that breaks its response schema yields `None`, which the Hub reports
 //! as an internal error.
 
-use super::json::Json;
+use spocky_contracts::js_value::JsObject;
+
 use super::operations::{
     ConfigurationResources, GithubResource, PublicProject, PublicTrigger, SetupResources,
     TriggerFormat,
@@ -13,6 +14,7 @@ use super::validation::{
     Issue, PathPart, StringRule, array_field, array_length, index, invalid_type, is_uuid, key,
     object_fields, string_field, unrecognized_keys, utf16_len,
 };
+use super::value::{JsValueExt as _, Json};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TriggerYamlInput {
@@ -59,7 +61,7 @@ impl InstallConfigurationInput {
                     .collect(),
             ),
         ));
-        Json::Object(fields)
+        Json::from_pairs(fields)
     }
 }
 
@@ -84,15 +86,12 @@ impl DispatchManualRunInput {
         fields.push(("actor".to_owned(), Json::string(&self.actor)));
         fields.push(("deliveryKey".to_owned(), Json::string(&self.delivery_key)));
         fields.push(("input".to_owned(), self.input.clone()));
-        Json::Object(fields)
+        Json::from_pairs(fields)
     }
 }
 
-fn field<'a>(fields: &'a [(String, Json)], name: &str) -> Option<&'a Json> {
-    fields
-        .iter()
-        .find(|(candidate, _)| candidate == name)
-        .map(|(_, value)| value)
+fn field<'a>(fields: &'a JsObject, name: &str) -> Option<&'a Json> {
+    fields.get(name)
 }
 
 const SLUG: StringRule = StringRule {
@@ -546,7 +545,7 @@ pub fn validated_configuration_body(project_slug: &str, would_create_project: bo
     if would_create_project {
         fields.push(("wouldCreateProject".to_owned(), Json::Bool(true)));
     }
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
 #[must_use]

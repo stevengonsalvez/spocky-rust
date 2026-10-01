@@ -9,7 +9,6 @@ use super::contracts::{
     parse_install_configuration, parse_trigger_yaml, projects_body, setup_resources_body,
     triggers_body, validated_configuration_body, validated_trigger_body,
 };
-use super::json::{Json, decode_request_json};
 use super::manifest::{MANIFEST, OperationDefinition, OperationId, RequestSchema, definition};
 use super::message::{ApiRequest, ApiResponse};
 use super::openapi::document_text;
@@ -21,6 +20,7 @@ use super::operations::{
     ValidateTriggerResult, scope_name,
 };
 use super::validation::{Issue, js_trim};
+use super::value::{JsValueExt as _, Json, decode_request_json};
 
 /// `PublicApiComposition`.
 pub enum Composition {
@@ -677,5 +677,5 @@ fn problem(
     if status == 401 {
         headers.push(("www-authenticate", "Bearer"));
     }
-    ApiResponse::json(status, &Json::Object(fields).stringify(), &headers)
+    ApiResponse::json(status, &Json::from_pairs(fields).stringify(), &headers)
 }

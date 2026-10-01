@@ -4,9 +4,9 @@
 //! same document is built from the manifest and explicit component definitions, with the same key
 //! order and the same component registration order.
 
-use super::json::Json;
 use super::manifest::{MANIFEST, OperationDefinition};
 use super::operations::scope_name;
+use super::value::{JsValueExt as _, Json};
 
 fn string_schema(format: Option<&str>, min: Option<u64>, max: Option<u64>) -> Json {
     let mut fields = vec![("type".to_owned(), Json::string("string"))];
@@ -19,7 +19,7 @@ fn string_schema(format: Option<&str>, min: Option<u64>, max: Option<u64>) -> Js
     if let Some(max) = max {
         fields.push(("maxLength".to_owned(), number(max)));
     }
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -70,7 +70,7 @@ fn array_of(items: Json, min: Option<u64>, max: Option<u64>) -> Json {
     if let Some(max) = max {
         fields.push(("maxItems".to_owned(), number(max)));
     }
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
 fn reference(name: &str) -> Json {
@@ -88,7 +88,7 @@ fn strict_object(properties: Vec<(&str, Json, bool)>) -> Json {
         ("type".to_owned(), Json::string("object")),
         (
             "properties".to_owned(),
-            Json::Object(
+            Json::from_pairs(
                 properties
                     .into_iter()
                     .map(|(name, schema, _)| (name.to_owned(), schema))
@@ -100,24 +100,23 @@ fn strict_object(properties: Vec<(&str, Json, bool)>) -> Json {
         fields.push(("required".to_owned(), Json::Array(required)));
     }
     fields.push(("additionalProperties".to_owned(), Json::Bool(false)));
-    Json::Object(fields)
+    Json::from_pairs(fields)
 }
 
-fn annotated(schema: Json, description: Option<&str>, example: Option<Json>) -> Json {
-    let Json::Object(mut fields) = schema else {
-        return schema;
-    };
-    if let Some(description) = description {
-        fields.push(("description".to_owned(), Json::string(description)));
+fn annotated(mut schema: Json, description: Option<&str>, example: Option<Json>) -> Json {
+    if let Json::Object(object) = &mut schema {
+        if let Some(description) = description {
+            object.insert("description", Json::string(description));
+        }
+        if let Some(example) = example {
+            object.insert("example", example);
+        }
     }
-    if let Some(example) = example {
-        fields.push(("example".to_owned(), example));
-    }
-    Json::Object(fields)
+    schema
 }
 
 fn named_strings(pairs: &[(&str, &str)]) -> Json {
-    Json::Object(
+    Json::from_pairs(
         pairs
             .iter()
             .map(|(name, value)| ((*name).to_owned(), Json::string(value)))
@@ -472,7 +471,7 @@ fn component(name: &str) -> Json {
                 ("trigger", string_schema(None, Some(1), Some(200)), true),
                 ("actor", string_schema(None, Some(1), Some(200)), true),
                 ("deliveryKey", string_schema(None, Some(1), Some(200)), true),
-                ("input", Json::Object(Vec::new()), false),
+                ("input", Json::from_pairs(Vec::new()), false),
             ]),
             None,
             Some(Json::object([
@@ -561,21 +560,14 @@ fn request_id_header() -> Json {
     ])
 }
 
-fn json_content(media_type: &str, component: &str) -> Json {
-    Json::object([(
-        "content",
-        Json::Object(vec![(
+fn content_pair(media_type: &str, component: &str) -> (String, Json) {
+    (
+        "content".to_owned(),
+        Json::from_pairs(vec![(
             media_type.to_owned(),
             Json::object([("schema", reference(component))]),
         )]),
-    )])
-}
-
-fn content_pair(media_type: &str, component: &str) -> (String, Json) {
-    let Json::Object(mut fields) = json_content(media_type, component) else {
-        unreachable!("json_content builds an object");
-    };
-    fields.remove(0)
+    )
 }
 
 fn manifest_response(definition: &OperationDefinition, status: u16, description: &str) -> Json {
@@ -603,9 +595,9 @@ fn manifest_response(definition: &OperationDefinition, status: u16, description:
         }
         content_pair("application/problem+json", "Problem")
     };
-    Json::Object(vec![
+    Json::from_pairs(vec![
         ("description".to_owned(), Json::string(description)),
-        ("headers".to_owned(), Json::Object(headers)),
+        ("headers".to_owned(), Json::from_pairs(headers)),
         content,
     ])
 }
@@ -640,7 +632,7 @@ fn cli_operation(
             ("requestBody", request_body(request)),
             (
                 "responses",
-                Json::Object(
+                Json::from_pairs(
                     responses
                         .into_iter()
                         .map(|(status, text, schema)| {
@@ -648,7 +640,7 @@ fn cli_operation(
                             if let Some(schema) = schema {
                                 fields.push(content_pair("application/json", schema));
                             }
-                            (status.to_string(), Json::Object(fields))
+                            (status.to_string(), Json::from_pairs(fields))
                         })
                         .collect(),
                 ),
@@ -689,7 +681,7 @@ fn manifest_operation(definition: &OperationDefinition) -> Json {
     }
     fields.push((
         "responses".to_owned(),
-        Json::Object(
+        Json::from_pairs(
             definition
                 .responses
                 .iter()
@@ -702,7 +694,10 @@ fn manifest_operation(definition: &OperationDefinition) -> Json {
                 .collect(),
         ),
     ));
-    Json::Object(vec![(definition.method.to_owned(), Json::Object(fields))])
+    Json::from_pairs(vec![(
+        definition.method.to_owned(),
+        Json::from_pairs(fields),
+    )])
 }
 
 const START_RESPONSES: [(u16, &str, Option<&str>); 3] = [
@@ -841,12 +836,12 @@ pub fn document() -> Json {
                         ]),
                     )]),
                 ),
-                ("schemas", Json::Object(schemas)),
-                ("parameters", Json::Object(Vec::new())),
+                ("schemas", Json::from_pairs(schemas)),
+                ("parameters", Json::from_pairs(Vec::new())),
             ]),
         ),
-        ("paths", Json::Object(paths())),
-        ("webhooks", Json::Object(Vec::new())),
+        ("paths", Json::from_pairs(paths())),
+        ("webhooks", Json::from_pairs(Vec::new())),
     ])
 }
 

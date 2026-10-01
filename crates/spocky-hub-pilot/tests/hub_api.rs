@@ -7,10 +7,10 @@ use std::rc::Rc;
 
 use spocky_hub_pilot::public_api::{
     AccessFailure, ApiKeyAuthorizer, ApiRequest, ApiResponse, AuthorizationOutcome, BrowserAccess,
-    CliAuthorizations, Composition, CredentialKind, Headers, Json, ListProjectsResult,
-    MemoryCliAuthorizations, OperationAuthenticator, OperationError, OrganizationAccess, PublicApi,
-    PublicAuthorization, PublicCredentialAuthenticator, PublicOperations, PublicProject, document,
-    parse_json, random_ids,
+    CliAuthorizations, Composition, CredentialKind, Headers, JsValueExt as _, Json,
+    ListProjectsResult, MemoryCliAuthorizations, OperationAuthenticator, OperationError,
+    OrganizationAccess, PublicApi, PublicAuthorization, PublicCredentialAuthenticator,
+    PublicOperations, PublicProject, document, parse_json, random_ids,
 };
 use spocky_hub_pilot::{ApiKeyAuthorization, ApiKeyScope};
 
@@ -426,7 +426,7 @@ fn openapi_document_lists_every_operation_with_its_scope_and_documented_statuses
     for definition in spocky_hub_pilot::public_api::MANIFEST {
         let item = paths
             .iter()
-            .find(|(path, _)| path == definition.path)
+            .find(|(path, _)| *path == definition.path)
             .map(|(_, item)| item)
             .expect("manifest path is documented");
         let operation = item.get(definition.method).expect("method is documented");
@@ -443,10 +443,7 @@ fn openapi_document_lists_every_operation_with_its_scope_and_documented_statuses
         let Some(Json::Object(responses)) = operation.get("responses") else {
             panic!("responses expected");
         };
-        let documented: Vec<&str> = responses
-            .iter()
-            .map(|(status, _)| status.as_str())
-            .collect();
+        let documented: Vec<&str> = responses.iter().map(|(status, _)| status).collect();
         let expected: Vec<String> = definition
             .responses
             .iter()
