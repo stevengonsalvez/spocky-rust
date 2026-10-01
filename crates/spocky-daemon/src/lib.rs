@@ -6,6 +6,7 @@
 pub mod admission;
 pub mod bearer;
 pub mod config_file;
+pub mod daemon_keypair;
 pub mod hostnames;
 pub mod http;
 pub mod iso_time;
