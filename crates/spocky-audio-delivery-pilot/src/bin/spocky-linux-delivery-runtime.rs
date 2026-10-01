@@ -1,16 +1,23 @@
+#[cfg(target_os = "linux")]
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
+#[cfg(target_os = "linux")]
 use spocky_audio_delivery_pilot::{
     DISPOSABLE_ROOT_ENV, LinuxDebLifecycleConfig, run_linux_delivery_qualification,
 };
 
+#[cfg(target_os = "linux")]
 const USAGE: &str = "usage: spocky-linux-delivery-runtime OUTPUT_ROOT [WORK_ROOT]";
 
+#[cfg(not(target_os = "linux"))]
+fn main() -> Result<(), &'static str> {
+    Err("Linux host required for dpkg delivery execution")
+}
+
+#[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if !cfg!(target_os = "linux") {
-        return Err("Linux host required for dpkg delivery execution".into());
-    }
     let mut arguments = std::env::args_os().skip(1);
     let output_root = PathBuf::from(arguments.next().ok_or(USAGE)?);
     let work_root = arguments
