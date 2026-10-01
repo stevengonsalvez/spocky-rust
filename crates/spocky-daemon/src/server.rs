@@ -241,6 +241,11 @@ struct Shared {
     /// the socket is terminated (`MAX_PHYSICAL_SOCKET_BUFFERED_BYTES`).
     max_buffered_bytes: AtomicUsize,
     janitor_started: AtomicBool,
+    /// Serializes the "find or create the session for this client" step of a
+    /// hello with the grace-period cleanup, so two hellos for one client cannot
+    /// both create a session and a resume cannot land on a session being
+    /// cleaned up. Always taken before `registry`.
+    hello_lock: Mutex<()>,
     registry: Mutex<Registry>,
     stop: AtomicBool,
     /// `formatListenTarget(boundListenTarget)` and whether it is TCP.
@@ -308,8 +313,13 @@ impl Shared {
     /// Ends a session: detach its sockets, forget its key, call `cleanup`.
     fn cleanup_connection(&self, connection: &Arc<SessionConnection>, message: &str) {
         {
+            let _hello = lock(&self.hello_lock);
             let mut registry = lock(&self.registry);
             let mut state = lock(&connection.state);
+            // A hello that resumed the session since the caller looked wins.
+            if !state.sockets.is_empty() || state.cleanup_at.is_none_or(|at| at > Instant::now()) {
+                return;
+            }
             state.cleanup_at = None;
             for socket in state.sockets.drain(..) {
                 registry.attached.remove(&socket);
@@ -535,6 +545,7 @@ impl Server {
             max_connections: AtomicUsize::new(default_max_connections()),
             max_buffered_bytes: AtomicUsize::new(MAX_BUFFERED_BYTES),
             janitor_started: AtomicBool::new(false),
+            hello_lock: Mutex::new(()),
             registry: Mutex::new(Registry::default()),
             stop: AtomicBool::new(false),
             listen: Mutex::new((String::new(), true)),
@@ -1374,6 +1385,7 @@ impl SocketTask {
             .capabilities
             .as_ref()
             .and_then(|capabilities| serde_json::to_value(capabilities).ok());
+        let _serialized = lock(&self.shared.hello_lock);
         let existing = lock(&self.shared.registry)
             .by_key
             .get(&session_key)
