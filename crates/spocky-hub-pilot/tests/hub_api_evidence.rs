@@ -1421,3 +1421,36 @@ fn rust_trace_equals_the_pinned_hub_trace_byte_for_byte() {
         first_difference(&trace, &expected_trace)
     );
 }
+
+/// The only inputs the capture and the Rust run are given instead of fresh randomness and the wall
+/// clock: request and record identifiers `00000000-0000-4000-8000-<n>`, random bytes taken from
+/// SHA-256 of a counter, and a fixed clock. Nothing in either trace is rewritten afterwards. This
+/// test checks the committed baseline values against those sequences.
+#[test]
+fn generated_values_in_the_baseline_trace_follow_the_documented_sequences() {
+    let trace = parse_json(COMMITTED_TRACE).expect("baseline trace is JSON");
+    let steps = match member(member(&trace, "scenarios"), "approve-disclose-once") {
+        Json::Array(steps) => steps,
+        other => panic!("scenario steps expected, got {other:?}"),
+    };
+    let started = parse_json(text(member(&steps[0], "body"))).expect("start body");
+    let first_draw = deterministic_bytes()(32);
+    assert_eq!(
+        text(member(&started, "deviceCode")),
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(first_draw)
+    );
+    // The clock starts at 2026-08-06T12:00:00.000Z and a request lives ten minutes.
+    assert_eq!(
+        text(member(&started, "expiresAt")),
+        "2026-08-06T12:10:00.000Z"
+    );
+    assert_eq!(counter_ids()(), "00000000-0000-4000-8000-000000000001");
+    assert!(
+        member(
+            member(member(&trace, "cases"), "request-id/success/absent"),
+            "headers"
+        )
+        .get("x-request-id")
+            == Some(&Json::string("00000000-0000-4000-8000-000000000001"))
+    );
+}
