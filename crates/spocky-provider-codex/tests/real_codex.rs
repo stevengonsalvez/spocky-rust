@@ -4,7 +4,7 @@
 
 mod support;
 
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -387,39 +387,64 @@ fn watchdog_child() {
     std::thread::sleep(Duration::from_secs(30));
 }
 
-#[test]
-fn watchdog_aborts_a_test_past_its_deadline() {
-    use std::io::Read;
-    use std::os::unix::process::ExitStatusExt;
-    let mut child = Command::new(std::env::current_exe().expect("test binary"))
-        .args(["--exact", "watchdog_child", "--nocapture"])
-        .env("SPOCKY_P3_WATCHDOG_CHILD", "1")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("re-run test binary");
+/// Re-runs one test of this binary with `env` applied, bounded at 20 s,
+/// returning its exit status and combined output.
+fn rerun(test: &str, extra: &[&str], env: &[(&str, Option<&str>)]) -> (ExitStatus, String) {
+    let mut command = Command::new(std::env::current_exe().expect("test binary"));
+    command
+        .args(["--exact", test, "--nocapture"])
+        .args(extra)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (key, value) in env {
+        match value {
+            Some(value) => command.env(key, value),
+            None => command.env_remove(key),
+        };
+    }
+    let mut child = command.spawn().expect("re-run test binary");
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    let status = loop {
-        if let Some(status) = child.try_wait().expect("wait for child") {
-            break status;
-        }
+    while child.try_wait().expect("wait for child").is_none() {
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("watchdog did not abort the child within 20 s");
+            panic!("re-run of {test} did not finish within 20 s");
         }
         std::thread::sleep(Duration::from_millis(20));
-    };
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .expect("child stderr")
-        .read_to_string(&mut stderr)
-        .expect("read child stderr");
+    }
+    // Exited: the remaining output is already buffered in the pipes.
+    let output = child.wait_with_output().expect("child output");
+    let combined = String::from_utf8_lossy(&output.stdout).into_owned()
+        + &String::from_utf8_lossy(&output.stderr);
+    (output.status, combined)
+}
+
+#[test]
+fn watchdog_aborts_a_test_past_its_deadline() {
+    use std::os::unix::process::ExitStatusExt;
+    let (status, output) = rerun(
+        "watchdog_child",
+        &[],
+        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("1"))],
+    );
     assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
     assert!(
-        stderr.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; aborting"),
-        "{stderr}"
+        output.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; aborting"),
+        "{output}"
+    );
+}
+
+#[test]
+fn real_codex_tests_fail_without_the_opt_in() {
+    // Codex is never launched: the gate is the first thing `real_codex` checks.
+    let (status, output) = rerun(
+        "turn_start_without_a_model_is_rejected_by_codex",
+        &["--include-ignored"],
+        &[(support::REAL_CODEX_GATE, None)],
+    );
+    assert!(!status.success(), "{output}");
+    assert!(
+        output.contains("SPOCKY_REAL_CODEX=1 is required to run real-codex tests"),
+        "{output}"
     );
 }
