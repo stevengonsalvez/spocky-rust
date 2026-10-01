@@ -142,8 +142,12 @@ struct MemoryState {
     /// Keyed by device verifier and kept in insertion order, like the baseline `Map`: setting an
     /// existing key replaces its value in place, and a lookup by user code finds the oldest match.
     /// Records are never removed; the baseline has no code path that prunes them.
+    // ponytail: unbounded and scanned linearly, as the baseline Map is unbounded; only active
+    // records count against the limits and a lookup is O(records). Add a device and user code
+    // index (keeping first-insertion order) if a long-running process needs it.
     authorizations: Vec<(String, StoredAuthorization)>,
-    /// Credentials created when an approved authorization was first polled, keyed by prefix.
+    /// Credentials created when an approved authorization was first polled, keyed by prefix. Only
+    /// looked up by prefix or searched for a boolean, never listed, so key order is not observable.
     credentials: BTreeMap<String, CliCredentialRecord>,
 }
 
