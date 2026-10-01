@@ -99,9 +99,12 @@ process, 30 s grace for every owned process, exact `tmux kill-session -t
   has members other than its reaped leader, so a reused group ID is never
   signalled.
 - Tests with live processes: an unrelated decoy whose environment mentions the
-  root, and a program named `tmux` inside the owned tree, both survive the
-  sweep while the owned process dies; a decoy PID written into the daemon pid
-  file is refused; zombies and reused PIDs are never targets.
+  root, an unrelated decoy whose argv names a path under the root (confirmed
+  in `ps -o command=`), and a program named `tmux` inside the owned tree all
+  survive the sweep while the owned process dies; the argv decoy runs in its
+  own process group and its cleanup asserts no leaked grandchild; a decoy PID
+  written into the daemon pid file is refused; zombies and reused PIDs are
+  never targets.
 
 Positive checks per side: every step exits 0, `run` reports
 `status: completed`, `logs` has a line exactly `READY` (the prompt echo alone
