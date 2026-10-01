@@ -4,7 +4,12 @@
 //
 // Usage (Node 22.20.0, the binary pinned by the slice harness):
 //   ~/.nvm/versions/node/v22.20.0/bin/node scripts/phase3/contracts-capture.mjs \
-//     --runtime <paseo-runtime> [--check]
+//     --runtime <paseo-runtime> --server-dist <built paseo root> [--check]
+//
+// --server-dist is a disposable build of the same commit (the slice harness
+// builds one with scripts/phase3/build-original.sh). Cases with a `build`
+// function get their input from pinned server code there, such as
+// toAgentPayload and buildStoredAgentPayload, instead of hand-written JSON.
 //
 // For every case in contracts-cases.mjs it records the exact input text and
 // what the pinned validators produce:
@@ -40,11 +45,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const args = { runtime: null, check: false };
+  const args = { runtime: null, serverRoot: null, check: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--runtime") {
       args.runtime = argv[index + 1];
+      index += 1;
+    } else if (arg === "--server-dist") {
+      args.serverRoot = argv[index + 1];
       index += 1;
     } else if (arg === "--check") {
       args.check = true;
@@ -53,6 +61,7 @@ function parseArgs(argv) {
     }
   }
   if (!args.runtime) fail("--runtime <paseo-runtime checkout> is required");
+  if (!args.serverRoot) fail("--server-dist <built paseo root> is required");
   return args;
 }
 
@@ -82,9 +91,33 @@ function outcome(result) {
   };
 }
 
-function caseInput(testCase) {
+function caseInput(testCase, pinned) {
   if (typeof testCase.raw === "string") return testCase.raw;
+  if (typeof testCase.build === "function") return JSON.stringify(testCase.build(pinned));
   return JSON.stringify(testCase.input);
+}
+
+async function loadPinnedServer(serverRoot) {
+  const marker = readFileSync(join(serverRoot, ".spocky-build"), "utf8");
+  if (!marker.includes(`commit=${PASEO_COMMIT}\n`)) fail(`${serverRoot} is not a build of ${PASEO_COMMIT}`);
+  if (!marker.includes(`node=${NODE_BINARY_SHA256}\n`)) fail(`${serverRoot} was not built with the pinned node`);
+  const dist = join(serverRoot, "packages/server/dist/server/server");
+  const projectionsPath = join(dist, "agent/agent-projections.js");
+  const placementPath = join(dist, "workspace-registry-model.js");
+  const projections = await import(pathToFileURL(projectionsPath).href);
+  const placement = await import(pathToFileURL(placementPath).href);
+  return {
+    api: {
+      toAgentPayload: projections.toAgentPayload,
+      buildStoredAgentPayload: projections.buildStoredAgentPayload,
+      checkoutFromPersistedWorkspacePlacement: placement.checkoutFromPersistedWorkspacePlacement,
+    },
+    provenance: {
+      buildMarkerSha256: createHash("sha256").update(marker).digest("hex"),
+      agentProjectionsJsSha256: sha256(projectionsPath),
+      workspaceRegistryModelJsSha256: sha256(placementPath),
+    },
+  };
 }
 
 async function main() {
@@ -107,13 +140,14 @@ async function main() {
   const aotPath = join(dist, "validation/ws-outbound.js");
   const aotGeneratedPath = join(dist, "generated/validation/ws-outbound.aot.js");
   const messages = await import(pathToFileURL(messagesPath).href);
+  const server = await loadPinnedServer(resolve(args.serverRoot));
   const { validateWSOutboundMessage } = await import(pathToFileURL(aotPath).href);
 
   const seen = new Set();
   const cases = CASES.map((testCase) => {
     if (seen.has(testCase.id)) fail(`duplicate case id ${testCase.id}`);
     seen.add(testCase.id);
-    const input = caseInput(testCase);
+    const input = caseInput(testCase, server.api);
     const record = {
       id: testCase.id,
       direction: testCase.direction,
@@ -150,6 +184,7 @@ async function main() {
       messagesJsSha256: sha256(messagesPath),
       wsOutboundAotJsSha256: sha256(aotGeneratedPath),
       casesSha256: sha256(join(here, "contracts-cases.mjs")),
+      pinnedServer: server.provenance,
     },
     cases,
   };
