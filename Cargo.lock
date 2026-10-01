@@ -5156,6 +5156,16 @@ dependencies = [
 [[package]]
 name = "spocky-session"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "spocky-contracts",
+ "spocky-domain",
+ "spocky-store",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "spocky-slice-harness"
@@ -5540,6 +5550,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
