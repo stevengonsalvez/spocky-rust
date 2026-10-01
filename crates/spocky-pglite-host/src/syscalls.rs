@@ -9,9 +9,8 @@ use std::rc::Rc;
 use wasmtime::{Caller, Engine, FuncType, Ref, Val, ValType};
 
 use crate::runtime::{
-    self, Abort, ExitStatus, Longjmp, Runtime, abort_error, c_string, read_i32, read_i64, read_u32,
-    string_to_utf8, to_int32, write_bytes, write_i16, write_i32, write_i64, write_u8, write_u32,
-    zero_value,
+    self, Longjmp, Runtime, abort_error, c_string, read_i32, read_u32, string_to_utf8, to_int32,
+    write_bytes, write_i16, write_i32, write_i64, write_u8, write_u32, zero_value,
 };
 use crate::vfs::{self, Fs, FsError, FsResult};
 
@@ -252,7 +251,10 @@ impl Context<'_, '_> {
         for (offset, time) in [(40, stat.atime), (56, stat.mtime), (72, stat.ctime)] {
             let seconds = (time / 1000.0).floor();
             let remainder = time % 1000.0;
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "Math.floor of a stat time in seconds is integral and within i64"
+            )]
             write_i64(memory, address + offset, seconds as i64);
             write_i32(
                 memory,
@@ -266,7 +268,10 @@ impl Context<'_, '_> {
 
 fn to_int32_i64(value: i64) -> i32 {
     // Exact for |value| < 2^53, the range of these JavaScript numbers.
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "these JavaScript numbers are below 2^53, so the conversion is exact"
+    )]
     to_int32(value as f64)
 }
 
@@ -327,7 +332,10 @@ fn invoke(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one match arm per host import, mirroring the glue import object"
+)]
 fn call(
     context: &mut Context<'_, '_>,
     host: HostFn,
@@ -429,7 +437,10 @@ fn call(
             } else {
                 context.caller.data().origin.elapsed().as_secs_f64() * 1000.0
             };
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "rounded nanoseconds of a clock reading fit in i64, as BigInt does in the glue"
+            )]
             let nanoseconds = (milliseconds * 1e3 * 1e3).round() as i64;
             let address = arg_u32(params, 2);
             write_i64(context.memory(), address, nanoseconds);
@@ -600,7 +611,10 @@ fn tzset(context: &mut Context<'_, '_>, params: &[Val]) {
     let name = |offset: f64| {
         let sign = if offset >= 0.0 { '-' } else { '+' };
         let absolute = offset.abs();
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "floor of an absolute offset in hours is a small integer"
+        )]
         let hours = (absolute / 60.0).floor() as i64;
         format!("UTC{sign}{hours:02}{:02}", absolute % 60.0)
     };
@@ -629,7 +643,10 @@ fn tzset(context: &mut Context<'_, '_>, params: &[Val]) {
 fn date_value_from_seconds(seconds: i64) -> f64 {
     match i53(seconds) {
         // Exact below 2^53.
-        #[allow(clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "i53 checked the value is below 2^53, so the conversion is exact"
+        )]
         Some(seconds) => seconds as f64 * 1000.0,
         None => f64::NAN,
     }
@@ -759,7 +776,10 @@ fn mktime(
         )));
     }
     if let Some(slot) = results.first_mut() {
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "the value was checked integral above, as BigInt(seconds) requires"
+        )]
         let value = seconds as i64;
         *slot = Val::I64(value);
     }
@@ -849,7 +869,10 @@ fn munmap(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<i32
     Ok(0)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one match arm per filesystem syscall, mirroring the glue"
+)]
 fn filesystem_call(
     context: &mut Context<'_, '_>,
     host: HostFn,
@@ -1652,9 +1675,4 @@ fn newselect(
         write_i32(memory, except_set + 4, out_except_high);
     }
     Ok(total)
-}
-
-#[allow(dead_code)]
-fn unused(_: ExitStatus, _: Abort, _: i64) -> i64 {
-    read_i64(&[], 0)
 }
