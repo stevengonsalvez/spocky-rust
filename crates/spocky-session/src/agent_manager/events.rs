@@ -619,7 +619,15 @@ impl AgentManager {
         event: &JsValue,
     ) -> Result<(), AgentError> {
         if event_type(event) == Some("provider_subagent") {
-            // Provider sub-agents are not ported; the event is dropped.
+            let update = state
+                .provider_subagents
+                .apply(
+                    agent_id,
+                    &js_string(event.get("provider")),
+                    event.get("event").unwrap_or(&JsValue::Undefined),
+                )
+                .map_err(timeline_error)?;
+            self.dispatch(state, AgentManagerEvent::ProviderSubagent(update));
             return Ok(());
         }
         let turn_id = raw_turn_id(event).filter(|turn| !turn.is_null());
