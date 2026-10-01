@@ -10,6 +10,11 @@
 //!   support, agent ids) and the unknown-agent errors.
 //! - `turns`: a failed turn, a canceled turn, coalescing edges, an idle
 //!   `waitForActive`, and aborted waits on a held turn.
+//! - `permission`: a wait that finishes on `permission_requested`, then a
+//!   wait that returns the pending permission at once.
+//!
+//! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
+//! and is never emitted.
 //!
 //! Normalized: wall-clock ISO timestamps (`<ISO>`) and random UUIDs such as
 //! timeline epochs (`<UUID>`), nothing else. The fixed agent ids stay as
@@ -96,6 +101,11 @@ const SCENARIO_TURNS: &str = r#"{
   ],
   "held": [
     {"type":"turn_started","provider":"fake","turnId":"turn-5"}
+  ],
+  "permission": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-6"},
+    {"type":"__delay","ms":100},
+    {"type":"permission_requested","provider":"fake","turnId":"turn-6","request":{"id":"perm-1","provider":"fake","name":"shell","kind":"tool","title":"Run rm","input":{"command":"rm -rf build"},"actions":[{"id":"allow","label":"Allow","behavior":"allow"},{"id":"deny","label":"Deny","behavior":"deny"}]}}
   ]
 }"#;
 
@@ -145,7 +155,12 @@ class FakeSession {
   async startTurn(prompt, options) {
     this.calls.push(["startTurn", prompt, options ?? null]);
     const events = this.spec.turns.shift() ?? JSON.parse(turnEventsJson);
-    setTimeout(() => { for (const event of events) for (const l of this.listeners) l(event); }, 20);
+    setTimeout(async () => {
+      for (const event of events) {
+        if (event.type === "__delay") { await sleep(event.ms); continue; }
+        for (const l of this.listeners) l(event);
+      }
+    }, 20);
     return { turnId: turnIdOf(events) };
   }
   async run() { throw new Error("unused"); }
@@ -297,7 +312,33 @@ const turns = async () => {
   return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns() }));
+const permission = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/permission`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.permission] })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  manager.runAgent(agentId, "ask").catch(() => {});
+  const started = (entry) => entry[0] === "agent_stream" && entry[2].type === "turn_started" && entry[2].turnId === "turn-6";
+  for (let tick = 0; !feed.some(started); tick += 1) {
+    if (tick === 2000) throw new Error("turn-6 never started");
+    await sleep(5);
+  }
+  const wait = () => outcome(async () => waitResult(await manager.waitForAgentEvent(agentId)));
+  const results = [await wait(), await wait()];
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -410,6 +451,16 @@ impl AgentSession for FakeSession {
             tokio::time::sleep(Duration::from_millis(20)).await;
             let callbacks = listeners.lock().expect("listeners").clone();
             for event in events.as_array().expect("events") {
+                if event.get("type").and_then(JsValue::as_str) == Some("__delay") {
+                    let millis = event.get("ms").and_then(JsValue::as_f64).expect("ms");
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "scripted delays are small whole milliseconds"
+                    )]
+                    tokio::time::sleep(Duration::from_millis(millis as u64)).await;
+                    continue;
+                }
                 for callback in &callbacks {
                     callback(event.clone());
                 }
@@ -929,6 +980,56 @@ async fn turns_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+async fn permission_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("permission"));
+    let fake = spec("fake");
+    scripted(&fake, &["permission"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let asking = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            manager
+                .run_agent(AGENT_ID, AgentPromptInput::Text("ask".to_owned()), None)
+                .await
+        }
+    });
+    wait_for_turn_started(&feed, "turn-6").await;
+    let mut results = Vec::new();
+    for _ in 0..2 {
+        results.push(outcome(
+            manager
+                .wait_for_agent_event(AGENT_ID, WaitForAgentOptions::default())
+                .await
+                .map(|wait| wait.to_js()),
+        ));
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    asking.abort();
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1095,6 +1196,7 @@ async fn scenarios_match_pinned_manager() {
         ("main", main_scenario(&cwd, &rust_home.0).await),
         ("errors", errors_scenario(&cwd, &rust_home.0).await),
         ("turns", turns_scenario(&cwd, &rust_home.0).await),
+        ("permission", permission_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
