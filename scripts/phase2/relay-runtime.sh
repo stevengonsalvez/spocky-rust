@@ -2,7 +2,14 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-baseline="$repo_root/.baselines/relay"
+baseline=${PASEO_RELAY_BASELINE_ROOT:-}
+if [[ -z "$baseline" ]]; then
+  if [[ -d "$repo_root/.baselines/relay" ]]; then
+    baseline="$repo_root/.baselines/relay"
+  else
+    baseline="/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust/.baselines/relay"
+  fi
+fi
 expected_relay_commit=3fc41c96c8c63f3a7109e832899cc57d473c4531
 raw_dir="$repo_root/evidence/raw/phase2"
 raw_log="$raw_dir/relay-runtime.log"

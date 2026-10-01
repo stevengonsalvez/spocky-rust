@@ -1,7 +1,8 @@
 # Selected relay runtime checkpoint
 
-Status: selected Linux process checkpoint passes locally. This closes a bounded
-subset of `P2-RELAY-01`; production deployment remains unselected.
+Status: selected Linux process checkpoint and relay residual differential pass
+locally. This closes a bounded subset of `P2-RELAY-01`; production deployment
+remains unselected.
 
 ## Runtime boundary
 
@@ -19,7 +20,7 @@ drain, below the live peer floor, and after bounded peer-loss detection.
 
 ## Measured behavior
 
-The ten selected-runtime tests prove:
+The twelve selected-runtime tests prove:
 
 1. V2 control receives `sync`, `connected`, and `disconnected`; client frames
    buffer until data attachment and cross unchanged in both directions.
@@ -45,6 +46,11 @@ The ten selected-runtime tests prove:
    reject overflow with `1013 Relay ingress capacity`, and reconcile on close.
 10. Drain closes readiness and rejects only new upgrades with `503 draining`.
     Established opaque links survive, and cancelling drain reopens admission.
+11. Escaped JSON spellings of top-level handshake keys and values receive the
+    same semantic validation as their unescaped forms. Accepted payload bytes
+    still cross unchanged; invalid keys close with `1008 Invalid handshake key`.
+12. The pinned original and Rust runtime agree byte-for-byte below, at, and one
+    byte above the 33,554,418-byte assembled fragmented-message ceiling.
 
 The existing network and in-memory suites retain HTTP `409` reroute, `1012
 Session owner moved`, `1013 Slow consumer`, ordered ciphertext forwarding, and
@@ -57,8 +63,23 @@ events contain only counts, node IDs, states, and sequence numbers.
 scripts/phase2/relay-selected-runtime.sh
 ```
 
-Result: selected runtime 10/10, prior relay tests 15/15, package clippy with
-warnings denied, and package formatting check pass.
+Result: selected runtime 12/12, relay residual differential 7/7, prior relay
+tests 15/15, package clippy with warnings denied, and package formatting check
+pass.
+
+The differential executes the pinned relay commit
+`3fc41c96c8c63f3a7109e832899cc57d473c4531` and the Rust peer over real
+loopback WebSockets. It compares raw output without normalization. Captured
+baseline, Rust, and comparison outputs each have SHA-256
+`8535bef866f8583d1ff2d65dfc464f2837e7f83883029a618230adb51723ee3b`:
+
+- `evidence/phase2/relay-residual-baseline.tsv`
+- `evidence/phase2/relay-residual-rust.tsv`
+- `evidence/phase2/relay-residual-comparison.tsv`
+
+The pinned relay closes an assembled fragmented message one byte above its
+limit with code `1009` and an empty reason. Rust deliberately preserves this
+observable defect.
 
 ## Preserved defects and residuals
 
@@ -69,7 +90,5 @@ warnings denied, and package formatting check pass.
 - Static peer discovery has no DNS or deployment-provider adapter.
 - Attached delivery wait and inflight-byte gauges remain absent; the new ingress
   ledger owns the bounded pre-attach queue.
-- Escaped JSON handshake spellings and fragmented-message limit parity remain
-  outside the selected differential.
 - Production service packaging, non-loopback qualification, TLS, deployment,
   and external-service evidence remain absent.
