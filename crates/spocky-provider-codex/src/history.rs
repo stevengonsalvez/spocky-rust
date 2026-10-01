@@ -30,11 +30,11 @@ pub struct HistoryProjection {
     pub unported: Vec<String>,
 }
 
-/// Validated `CodexThreadReadResponseSchema` turns: each turn object and
-/// its `items` (default `[]`).
 /// One turn object and its items.
 type Turn<'a> = (&'a Map<String, Value>, Vec<&'a Value>);
 
+/// Validated `CodexThreadReadResponseSchema` turns: each turn object and
+/// its `items` (default `[]`).
 fn parse_turns(response: &Value) -> Result<Vec<Turn<'_>>, String> {
     let invalid = || "Invalid Codex thread/read response".to_owned();
     let record = response.as_object().ok_or_else(invalid)?;
@@ -137,11 +137,10 @@ fn iso_date_time_is_valid(text: &str) -> Option<bool> {
         if date.starts_with('-') && year == 0 {
             return Some(false);
         }
-        (year, &rest[6..])
+        (if date.starts_with('-') { -year } else { year }, &rest[6..])
     } else {
         (fixed_digits(date.get(..4)?, 4)?, &date[4..])
     };
-    let _ = year;
     let mut parts = rest.split('-').skip(1);
     if !rest.is_empty() && !rest.starts_with('-') {
         return None;
@@ -219,7 +218,7 @@ fn iso_date_time_is_valid(text: &str) -> Option<bool> {
 /// result depends on V8's legacy parser.
 ///
 /// # Errors
-/// Returns the non-ISO string so the caller can record it as unported.
+/// Returns the unported kind for a non-ISO string; the log keys by kind.
 pub fn normalize_replay_timestamp(value: Option<&Value>) -> Result<Option<String>, String> {
     match value {
         Some(Value::String(text)) => {
@@ -230,7 +229,7 @@ pub fn normalize_replay_timestamp(value: Option<&Value>) -> Result<Option<String
             match iso_date_time_is_valid(trimmed) {
                 Some(true) => Ok(Some(trimmed.to_owned())),
                 Some(false) => Ok(None),
-                None => Err(format!("non-ISO history timestamp {trimmed}")),
+                None => Err("non-ISO history timestamp".to_owned()),
             }
         }
         Some(Value::Number(number)) => {
@@ -371,6 +370,19 @@ mod tests {
         assert_eq!(
             normalize_replay_timestamp(Some(&json!("2026-02-30"))),
             Ok(None)
+        );
+        assert_eq!(
+            normalize_replay_timestamp(Some(&json!("-000004-02-29"))),
+            Ok(Some("-000004-02-29".to_owned())),
+            "year -4 is a leap year"
+        );
+        assert_eq!(
+            normalize_replay_timestamp(Some(&json!("-000003-02-29"))),
+            Ok(None)
+        );
+        assert_eq!(
+            normalize_replay_timestamp(Some(&json!("Oct 1 2026"))),
+            Err("non-ISO history timestamp".to_owned())
         );
         assert_eq!(
             normalize_replay_timestamp(Some(&json!("2024-02-29T00:00:00.5+01:00"))),
