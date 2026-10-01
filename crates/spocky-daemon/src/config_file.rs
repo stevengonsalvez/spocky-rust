@@ -183,7 +183,7 @@ fn hostnames_field(value: &Value, path: &str) -> Result<Hostnames, String> {
     match value {
         Value::Bool(true) => Ok(Hostnames::Any),
         Value::Array(_) => string_list(value, path).map(Hostnames::Patterns),
-        other => Err(format!("{path}: Invalid input, received {}", kind(other))),
+        _ => Err(format!("{path}: Invalid input")),
     }
 }
 
@@ -373,6 +373,18 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn a_bad_hostnames_value_reports_zod_invalid_input_without_a_received_suffix() {
+        let (home, result) = load(Some(r#"{"daemon":{"hostnames":false}}"#));
+        assert_eq!(
+            result.unwrap_err().0,
+            format!(
+                "[Config] Invalid config in {}:\n  - daemon.hostnames: Invalid input",
+                home.path().join("config.json").display()
+            )
+        );
     }
 
     #[test]
