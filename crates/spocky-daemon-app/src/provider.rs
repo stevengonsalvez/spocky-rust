@@ -95,19 +95,97 @@ fn is_provider_override(value: &Value) -> bool {
         && is_optional(field("order"), Value::is_number)
 }
 
+const BUILTIN_PROVIDER_IDS: [&str; 6] = ["claude", "codex", "copilot", "opencode", "pi", "omp"];
+
+/// `/^[a-z][a-z0-9-]*$/`.
+fn is_provider_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|first| first.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// `ProviderOverridesSchema`: every entry parses as a `ProviderOverride`,
+/// then the `superRefine` rules. Returns every issue, in entry order.
+fn provider_issues(providers: &Map<String, Value>) -> Vec<String> {
+    let mut issues = Vec::new();
+    for (id, entry) in providers {
+        if !is_provider_override(entry) {
+            issues.push(format!("{id}: not a valid provider override"));
+            continue;
+        }
+        let field = |key: &str| entry.get(key).and_then(Value::as_str);
+        if !is_provider_id(id) {
+            issues.push(format!(
+                "{id}: Provider ID \"{id}\" must match /^[a-z][a-z0-9-]*$/."
+            ));
+        }
+        let builtin = BUILTIN_PROVIDER_IDS.contains(&id.as_str());
+        if !builtin && field("extends").is_none_or(str::is_empty) {
+            issues.push(format!(
+                "{id}.extends: Custom provider \"{id}\" must declare extends."
+            ));
+        }
+        if !builtin && field("label").is_none_or(str::is_empty) {
+            issues.push(format!(
+                "{id}.label: Custom provider \"{id}\" must declare label."
+            ));
+        }
+        if let Some(extends) = field("extends").filter(|extends| !extends.is_empty()) {
+            if extends != "acp" && !BUILTIN_PROVIDER_IDS.contains(&extends) {
+                issues.push(format!(
+                    "{id}.extends: Provider \"{id}\" extends unknown provider \"{extends}\"."
+                ));
+            }
+            if extends == "acp" && entry.get("command").is_none() {
+                issues.push(format!(
+                    "{id}.command: Provider \"{id}\" extending \"acp\" must declare command."
+                ));
+            }
+        }
+    }
+    issues
+}
+
 /// The merged runtime settings of the built-in `codex` provider, from the
-/// persisted config's `agents.providers`. `None` when no valid `codex`
+/// persisted config's `agents.providers`. `Ok(None)` when no `codex`
 /// override sets `command` or `env`, as both baseline helpers return
 /// `undefined` then.
-#[must_use]
-pub fn codex_runtime_settings(persisted: &Value) -> Option<ProviderRuntimeSettings> {
-    let entry = persisted
-        .get("agents")
-        .and_then(|agents| agents.get("providers"))
-        .and_then(Value::as_object)
-        .and_then(|providers| providers.get(CODEX))
-        .filter(|entry| is_provider_override(entry))?
-        .as_object()?;
+///
+/// # Errors
+///
+/// Any provider entry that fails `ProviderOverridesSchema`, or a
+/// non-object `agents` or `agents.providers`. The baseline refuses to start
+/// on such a config (`[Config] Invalid config in <path>`, from
+/// `persisted-config.ts`); the config loader owns that message and runs
+/// first. This check is a fail-closed backstop so codex never launches from
+/// a config the baseline would reject. Legacy `{ command: { mode, argv } }`
+/// entries must be normalized by the loader first; here they are rejected.
+pub fn codex_runtime_settings(
+    persisted: &Value,
+) -> Result<Option<ProviderRuntimeSettings>, String> {
+    let Some(agents) = persisted.get("agents") else {
+        return Ok(None);
+    };
+    let agents = agents
+        .as_object()
+        .ok_or("[Config] Invalid config: agents must be an object")?;
+    let Some(providers) = agents.get("providers") else {
+        return Ok(None);
+    };
+    let providers = providers
+        .as_object()
+        .ok_or("[Config] Invalid config: agents.providers must be an object")?;
+    let issues = provider_issues(providers);
+    if !issues.is_empty() {
+        let lines: Vec<String> = issues
+            .iter()
+            .map(|issue| format!("  - agents.providers.{issue}"))
+            .collect();
+        return Err(format!("[Config] Invalid config:\n{}", lines.join("\n")));
+    }
+    let Some(entry) = providers.get(CODEX).and_then(Value::as_object) else {
+        return Ok(None);
+    };
     let command =
         entry
             .get("command")
@@ -127,9 +205,9 @@ pub fn codex_runtime_settings(persisted: &Value) -> Option<ProviderRuntimeSettin
     // override with settings built from the same override: the command and
     // every env key are unchanged by the spread.
     if command.is_none() && env.is_none() {
-        return None;
+        return Ok(None);
     }
-    Some(ProviderRuntimeSettings { command, env })
+    Ok(Some(ProviderRuntimeSettings { command, env }))
 }
 
 fn string_record(entries: &Map<String, Value>) -> std::collections::BTreeMap<String, String> {
@@ -146,6 +224,10 @@ mod tests {
 
     use super::codex_runtime_settings;
 
+    fn providers(entries: &serde_json::Value) -> serde_json::Value {
+        json!({"agents": {"providers": entries}})
+    }
+
     #[test]
     fn harness_config_yields_env_only_settings() {
         // `config.json` written by the slice harness for both daemons.
@@ -157,7 +239,9 @@ mod tests {
                 "OPENAI_API_KEY": "test-key"
             }}}}
         });
-        let settings = codex_runtime_settings(&persisted).expect("settings");
+        let settings = codex_runtime_settings(&persisted)
+            .expect("valid")
+            .expect("settings");
         assert_eq!(settings.command, None);
         let env = settings.env.expect("env");
         assert_eq!(env.len(), 3);
@@ -167,58 +251,110 @@ mod tests {
 
     #[test]
     fn command_becomes_a_replace_command() {
-        let persisted =
-            json!({"agents": {"providers": {"codex": {"command": ["/bin/codex", "-x"]}}}});
+        let persisted = providers(&json!({"codex": {"command": ["/bin/codex", "-x"]}}));
         assert_eq!(
             codex_runtime_settings(&persisted),
-            Some(ProviderRuntimeSettings {
+            Ok(Some(ProviderRuntimeSettings {
                 command: Some(ProviderCommand::Replace {
                     argv: vec!["/bin/codex".to_owned(), "-x".to_owned()]
                 }),
                 env: None,
-            })
+            }))
         );
     }
 
     #[test]
     fn absent_or_settingless_overrides_yield_none() {
-        assert_eq!(codex_runtime_settings(&json!({})), None);
-        assert_eq!(codex_runtime_settings(&json!({"agents": {}})), None);
-        let other = json!({"agents": {"providers": {"claude": {"env": {"A": "b"}}}}});
-        assert_eq!(codex_runtime_settings(&other), None);
-        let label_only = json!({"agents": {"providers": {"codex": {"label": "Codex", "disallowedTools": ["x"]}}}});
-        assert_eq!(codex_runtime_settings(&label_only), None);
+        assert_eq!(codex_runtime_settings(&json!({})), Ok(None));
+        assert_eq!(codex_runtime_settings(&json!({"agents": {}})), Ok(None));
+        let other = providers(&json!({"claude": {"env": {"A": "b"}}}));
+        assert_eq!(codex_runtime_settings(&other), Ok(None));
+        let label_only = providers(&json!({"codex": {"label": "Codex", "disallowedTools": ["x"]}}));
+        assert_eq!(codex_runtime_settings(&label_only), Ok(None));
     }
 
     #[test]
-    fn an_override_failing_its_schema_is_dropped_whole() {
-        // `extractProviderOverrides` drops entries whose safeParse fails, so
-        // valid env beside an invalid field is ignored too.
+    fn an_invalid_codex_entry_refuses_the_config() {
+        // The baseline refuses to start rather than launch codex without
+        // its configured CODEX_HOME and model endpoint.
         for invalid in [
-            json!({"env": {"A": "b"}, "enabled": "yes"}),
-            json!({"env": {"A": 1}}),
-            json!({"env": {"A": "b"}, "command": []}),
-            json!({"env": {"A": "b"}, "command": [""]}),
-            json!({"env": {"A": "b"}, "label": null}),
-            json!({"env": {"A": "b"}, "params": []}),
-            json!({"env": {"A": "b"}, "models": [{"id": "", "label": "m"}]}),
-            json!({"env": {"A": "b"}, "paseoTools": {"disabledTools": [1]}}),
+            json!({"env": {"CODEX_HOME": "/r"}, "enabled": "yes"}),
+            json!({"env": {"CODEX_HOME": 1}}),
+            json!({"env": {"CODEX_HOME": "/r"}, "command": []}),
+            json!({"env": {"CODEX_HOME": "/r"}, "command": [""]}),
+            json!({"env": {"CODEX_HOME": "/r"}, "label": null}),
+            json!({"env": {"CODEX_HOME": "/r"}, "params": []}),
+            json!({"env": {"CODEX_HOME": "/r"}, "models": [{"id": "", "label": "m"}]}),
+            json!({"env": {"CODEX_HOME": "/r"}, "paseoTools": {"disabledTools": [1]}}),
+            json!({"env": {"CODEX_HOME": "/r"}, "extends": "nope"}),
+            json!({"command": {"mode": "replace", "argv": ["/bin/codex"]}}),
             json!(["env"]),
         ] {
-            let persisted = json!({"agents": {"providers": {"codex": invalid}}});
-            assert_eq!(codex_runtime_settings(&persisted), None, "{invalid}");
+            let error = codex_runtime_settings(&providers(&json!({"codex": invalid})))
+                .expect_err(&invalid.to_string());
+            assert!(
+                error.starts_with("[Config] Invalid config:\n  - agents.providers.codex"),
+                "{error}"
+            );
         }
     }
 
     #[test]
-    fn unknown_keys_do_not_fail_the_override() {
-        let persisted = json!({"agents": {"providers": {"codex": {
-            "env": {"A": "b"},
-            "somethingNew": [1, 2],
-            "models": [{"id": "m", "label": "M", "thinkingOptions": [{"id": "low", "label": "Low"}]}],
-            "order": 2.5
-        }}}});
-        let settings = codex_runtime_settings(&persisted).expect("settings");
+    fn any_invalid_provider_entry_refuses_the_config() {
+        let valid_codex = json!({"env": {"CODEX_HOME": "/r"}});
+        for (id, entry, issue) in [
+            (
+                "claude",
+                json!({"enabled": 1}),
+                "claude: not a valid provider override",
+            ),
+            (
+                "My",
+                json!({"extends": "codex", "label": "M"}),
+                "My: Provider ID \"My\" must match",
+            ),
+            (
+                "mine",
+                json!({"label": "Mine"}),
+                "mine.extends: Custom provider \"mine\" must declare extends.",
+            ),
+            (
+                "mine",
+                json!({"extends": "codex"}),
+                "mine.label: Custom provider \"mine\" must declare label.",
+            ),
+            (
+                "tool",
+                json!({"extends": "acp", "label": "T"}),
+                "tool.command: Provider \"tool\" extending \"acp\" must declare command.",
+            ),
+        ] {
+            let persisted = providers(&json!({"codex": valid_codex, id: entry}));
+            let error = codex_runtime_settings(&persisted).expect_err(id);
+            assert!(
+                error.contains(&format!("  - agents.providers.{issue}")),
+                "{error}"
+            );
+        }
+        assert!(codex_runtime_settings(&json!({"agents": []})).is_err());
+        assert!(codex_runtime_settings(&json!({"agents": {"providers": "x"}})).is_err());
+    }
+
+    #[test]
+    fn unknown_keys_and_valid_custom_providers_pass() {
+        let persisted = providers(&json!({
+            "codex": {
+                "env": {"A": "b"},
+                "somethingNew": [1, 2],
+                "models": [{"id": "m", "label": "M", "thinkingOptions": [{"id": "low", "label": "Low"}]}],
+                "order": 2.5
+            },
+            "codex-stub": {"extends": "codex", "label": "Codex Stub"},
+            "tool": {"extends": "acp", "label": "Tool", "command": ["tool"]}
+        }));
+        let settings = codex_runtime_settings(&persisted)
+            .expect("valid")
+            .expect("settings");
         assert_eq!(settings.env.expect("env")["A"], "b");
     }
 }
