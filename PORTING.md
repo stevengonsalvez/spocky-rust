@@ -138,8 +138,10 @@ is a defensible candidate, but its exception remains unaccepted while lock,
 request-delivery timeout, graceful close, typed JSON, failure evidence,
 reproducibility, platform delivery, and performance repairs remain. Full schema
 definitions and relational mutation parity remain incomplete. The selected
-plugin wrapper passes settings migration
-success and failure plus binary IPC. The selected relay runtime passes control,
+plugin wrapper passes settings migration success and failure plus binary IPC.
+Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
+all-target compilation passes, but native Windows runtime qualification remains
+open. The selected relay runtime passes control,
 pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
 protocol residuals and production qualification remain. Full renderer
 platforms, cross-platform plugin clients, audio, native, and delivery cases
