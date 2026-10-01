@@ -4,7 +4,7 @@
 use spocky_store::js_value::{JsObject, JsValue};
 use url::Url;
 
-use crate::js::{js_string, spread, spread_into, truthy};
+use spocky_contracts::js::{js_string, spread, spread_into, truthy};
 
 const PASEO_MCP_SERVER_NAME: &str = "paseo";
 const PASEO_MCP_PATHNAME: &str = "/mcp/agents";
