@@ -53,6 +53,15 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 | `spocky-relay-cloudflare` | Cloudflare fallback, cutover, routing, protocol limits, deployment inputs |
 | `spocky-delivery` | Packages, containers, installers, signing inputs, updates, rollout, rollback |
 
+## Recorded dependency edges
+
+| Edge | Reason | Recorded |
+|---|---|---|
+| `spocky-store` -> `spocky-contracts` | single JavaScript-compatible JSON implementation, `spocky-contracts/src/js_value.rs` | 2026-10-01, `porting/tasks.json` routing revision |
+| `spocky-hub-pilot` -> `spocky-contracts` | the Hub public API uses `js_value` instead of its own `public_api/json.rs`, which is deleted | 2026-10-01, coordinator decision on the `p2_hub_api` review |
+
+No crate may carry a second JavaScript-compatible JSON parser or writer.
+
 ## Architecture freeze rule
 
 Names describe ownership boundaries, not a commitment to one crate per row. Contract and tool-selection pilots may split crates or revise dependency direction. They may not merge direct Hub transport into relay, terminate endpoint encryption in relay, or move compatibility logic into presentation code.
