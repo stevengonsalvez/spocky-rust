@@ -23,6 +23,7 @@
 
 mod create;
 mod events;
+mod lifecycle;
 mod run;
 
 use std::collections::HashMap;
@@ -33,6 +34,7 @@ use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
 pub use create::CreateAgentOptions;
+pub use lifecycle::AgentRunCancellationResult;
 pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgentResult};
 
 use crate::agent_projection::{AgentAttention, AgentPayloadView, ManagedAgentRecordView};
@@ -233,6 +235,8 @@ pub struct AgentManagerOptions {
     pub resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
     pub append_system_prompt: Option<String>,
     pub agent_stream_coalesce_window_ms: Option<f64>,
+    /// `rescueTimeouts.interruptSessionMs` (default 2000).
+    pub rescue_interrupt_session_ms: Option<u64>,
 }
 
 /// A live agent: the snapshot fields plus what never leaves the manager.
@@ -278,6 +282,12 @@ pub(crate) struct State {
     pub(crate) accepting_agent_registrations: bool,
     /// Ids for run tokens and turn waiters.
     pub(crate) next_token: u64,
+    /// `lifecycleMutationTails`: one first-in first-out lane per agent.
+    pub(crate) lifecycle_lanes: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// `foregroundMutationTails`.
+    pub(crate) foreground_lanes: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// `inFlightAgentCloses`.
+    pub(crate) inflight_closes: HashMap<String, lifecycle::SharedClose>,
     pub(crate) mcp_base_url: Option<String>,
     pub(crate) paseo_tools_enabled: bool,
     pub(crate) append_system_prompt: String,
@@ -318,6 +328,9 @@ enum DispatchBatch {
 pub(crate) struct Inner {
     pub(crate) state: Mutex<State>,
     dispatch_tx: mpsc::UnboundedSender<DispatchBatch>,
+    /// Batches sent to the dispatcher and not yet run.
+    dispatch_pending: Arc<AtomicUsize>,
+    dispatch_idle: Arc<Notify>,
     pub(crate) id_factory: IdFactory,
     pub(crate) registry: Option<AgentStorage>,
     pub(crate) on_agent_attention: Option<AttentionCallback>,
@@ -326,6 +339,9 @@ pub(crate) struct Inner {
     pub(crate) resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
     background_tasks: AtomicUsize,
     background_idle: Notify,
+    /// Signalled when an agent's session event queue empties.
+    pub(crate) drain_idle: Notify,
+    pub(crate) interrupt_session_ms: u64,
 }
 
 /// `AgentManager`. Cloning shares the manager.
@@ -366,6 +382,10 @@ impl AgentManager {
     #[must_use]
     pub fn new(options: AgentManagerOptions) -> Self {
         let (dispatch_tx, mut dispatch_rx) = mpsc::unbounded_channel::<DispatchBatch>();
+        let dispatch_pending = Arc::new(AtomicUsize::new(0));
+        let dispatch_idle = Arc::new(Notify::new());
+        let pending = Arc::clone(&dispatch_pending);
+        let idle = Arc::clone(&dispatch_idle);
         tokio::spawn(async move {
             while let Some(batch) = dispatch_rx.recv().await {
                 match batch {
@@ -375,6 +395,9 @@ impl AgentManager {
                         }
                     }
                     DispatchBatch::Call(call) => call(),
+                }
+                if pending.fetch_sub(1, Ordering::SeqCst) == 1 {
+                    idle.notify_waiters();
                 }
             }
         });
@@ -401,6 +424,9 @@ impl AgentManager {
             paseo_tool_policies: HashMap::new(),
             accepting_agent_registrations: true,
             next_token: 0,
+            lifecycle_lanes: HashMap::new(),
+            foreground_lanes: HashMap::new(),
+            inflight_closes: HashMap::new(),
             mcp_base_url: options.mcp_base_url,
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
@@ -409,6 +435,8 @@ impl AgentManager {
             inner: Arc::new(Inner {
                 state: Mutex::new(state),
                 dispatch_tx,
+                dispatch_pending,
+                dispatch_idle,
                 id_factory: options
                     .id_factory
                     .unwrap_or_else(|| Arc::new(crate::clock::random_uuid)),
@@ -419,6 +447,10 @@ impl AgentManager {
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
                 background_tasks: AtomicUsize::new(0),
                 background_idle: Notify::new(),
+                drain_idle: Notify::new(),
+                interrupt_session_ms: options
+                    .rescue_interrupt_session_ms
+                    .unwrap_or(lifecycle::INTERRUPT_SESSION_TIMEOUT_MS),
             }),
         }
     }
@@ -481,10 +513,25 @@ impl AgentManager {
             .map(|subscriber| Arc::clone(&subscriber.callback))
             .collect();
         if !callbacks.is_empty() {
-            let _ = self
-                .inner
-                .dispatch_tx
-                .send(DispatchBatch::Event(callbacks, Arc::new(event)));
+            self.send_batch(DispatchBatch::Event(callbacks, Arc::new(event)));
+        }
+    }
+
+    fn send_batch(&self, batch: DispatchBatch) {
+        self.inner.dispatch_pending.fetch_add(1, Ordering::SeqCst);
+        if self.inner.dispatch_tx.send(batch).is_err() {
+            self.inner.dispatch_pending.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Resolves once every subscriber callback dispatched so far has run.
+    pub async fn dispatched(&self) {
+        loop {
+            let idle = self.inner.dispatch_idle.notified();
+            if self.inner.dispatch_pending.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            idle.await;
         }
     }
 
@@ -535,7 +582,7 @@ impl AgentManager {
                     .collect(),
             };
             for event in replay {
-                let _ = self.inner.dispatch_tx.send(DispatchBatch::Event(
+                self.send_batch(DispatchBatch::Event(
                     vec![Arc::clone(&callback)],
                     Arc::new(event),
                 ));
@@ -667,15 +714,17 @@ impl AgentManager {
     }
 
     /// `flush()`: flushes coalesced stream chunks, then waits for background
-    /// work, including work started while waiting.
+    /// work, including work started while waiting, and for the subscriber
+    /// callbacks dispatched so far (the baseline runs those synchronously).
     pub async fn flush(&self) {
         self.flush_coalescer_all();
         loop {
             let idle = self.inner.background_idle.notified();
             if self.inner.background_tasks.load(Ordering::SeqCst) == 0 {
-                return;
+                break;
             }
             idle.await;
         }
+        self.dispatched().await;
     }
 }

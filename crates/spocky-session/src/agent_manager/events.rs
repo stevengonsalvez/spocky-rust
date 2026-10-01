@@ -13,7 +13,7 @@ use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
 use super::run::TrackedRun;
-use super::{AgentAttentionNotice, AgentLifecycle, AgentManager, AgentManagerEvent, State, lock};
+use super::{AgentAttentionNotice, AgentLifecycle, AgentManager, AgentManagerEvent, State};
 use crate::agent_labels::is_delegated_agent;
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
 use crate::agent_prompt::is_system_injected_envelope;
@@ -304,7 +304,7 @@ impl AgentManager {
     }
 
     /// The coalescer's `onFlush`: record, dispatch, and notify waiters.
-    fn apply_coalescer_flushes(
+    pub(crate) fn apply_coalescer_flushes(
         &self,
         state: &mut State,
         flushes: Vec<CoalescerFlush>,
@@ -460,35 +460,7 @@ impl AgentManager {
         agent_id: &str,
         overrides: SnapshotOverrides,
     ) -> Result<(), AgentError> {
-        let Some(registry) = self.inner.registry.clone() else {
-            return Ok(());
-        };
-        let Some(fallback) = self.get_agent(agent_id) else {
-            return Ok(());
-        };
-        if fallback.internal {
-            return Ok(());
-        }
-        let inner = Arc::clone(&self.inner);
-        let id = agent_id.to_owned();
-        registry
-            .apply_snapshot(
-                agent_id,
-                move || {
-                    lock(&inner.state).agent(&id).map_or_else(
-                        || fallback.record_view(),
-                        |agent| agent.snapshot.record_view(),
-                    )
-                },
-                overrides,
-            )
-            .await
-            .map_err(|error| match error {
-                crate::agent_storage::StorageError::Projection(error) => type_error(&error),
-                crate::agent_storage::StorageError::Store(error) => {
-                    AgentError::new(error.to_string())
-                }
-            })
+        self.persist_snapshot_of(agent_id, None, overrides).await
     }
 
     /// `refreshRuntimeInfo(agent, { emit })`: a failed read keeps the
@@ -639,6 +611,8 @@ impl AgentManager {
             };
             let Some(event) = queue.events.pop_front() else {
                 state.session_queues.remove(agent_id);
+                drop(state);
+                self.inner.drain_idle.notify_waiters();
                 return;
             };
             let live = state
@@ -652,7 +626,7 @@ impl AgentManager {
     }
 
     /// `dispatchSessionEvent(agent, event)`.
-    fn dispatch_session_event_locked(
+    pub(crate) fn dispatch_session_event_locked(
         &self,
         state: &mut State,
         agent_id: &str,
@@ -1403,7 +1377,7 @@ impl AgentManager {
     }
 
     /// `resolvePendingPermissionsForAgent(agent, provider, options, message)`.
-    fn resolve_pending_permissions_for_agent(
+    pub(crate) fn resolve_pending_permissions_for_agent(
         &self,
         state: &mut State,
         agent_id: &str,

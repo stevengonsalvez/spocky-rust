@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex};
 
 use spocky_store::js_value::{JsObject, JsValue};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
 use super::events::{
@@ -35,16 +35,42 @@ pub(crate) enum RunStart {
     Failed(String),
 }
 
-/// `TrackedAgentRun`.
+/// `TrackedAgentRun`. `settled` turns true when the run is cleared
+/// (`settledPromise`).
 pub(crate) enum TrackedRun {
     Foreground {
         token: u64,
         start: RunStart,
         staged: Vec<JsValue>,
+        settled: watch::Sender<bool>,
     },
     Autonomous {
         turn_id: Option<String>,
+        settled: watch::Sender<bool>,
     },
+}
+
+impl TrackedRun {
+    /// A receiver that sees the run settle.
+    pub(crate) fn settled(&self) -> watch::Receiver<bool> {
+        match self {
+            Self::Foreground { settled, .. } | Self::Autonomous { settled, .. } => {
+                settled.subscribe()
+            }
+        }
+    }
+
+    /// `runs.getTurnId`: the autonomous turn, or the started foreground turn.
+    pub(crate) fn turn_id(&self) -> Option<String> {
+        match self {
+            Self::Autonomous { turn_id, .. } => turn_id.clone(),
+            Self::Foreground {
+                start: RunStart::Started(turn_id),
+                ..
+            } => Some(turn_id.clone()),
+            Self::Foreground { .. } => None,
+        }
+    }
 }
 
 /// `AgentRunResult`.
@@ -157,15 +183,14 @@ impl AgentManager {
                 }
                 _ => true,
             },
-            Some(TrackedRun::Autonomous { turn_id: run_turn }) => {
-                run_turn.as_ref().is_some_and(|run_turn| {
-                    turn_id.is_some()
-                        && turn_id.and_then(JsValue::as_str) != Some(run_turn.as_str())
-                })
-            }
+            Some(TrackedRun::Autonomous {
+                turn_id: run_turn, ..
+            }) => run_turn.as_ref().is_some_and(|run_turn| {
+                turn_id.is_some() && turn_id.and_then(JsValue::as_str) != Some(run_turn.as_str())
+            }),
         };
         if !keep {
-            state.runs.remove(agent_id);
+            Self::clear_run(state, agent_id);
         }
     }
 
@@ -174,14 +199,28 @@ impl AgentManager {
         state
             .runs
             .entry(agent_id.to_owned())
-            .or_insert(TrackedRun::Autonomous { turn_id });
+            .or_insert_with(|| TrackedRun::Autonomous {
+                turn_id,
+                settled: watch::channel(false).0,
+            });
     }
 
     /// `runs.settleForegroundRun(agentId, token)`.
-    fn settle_foreground_run(state: &mut State, agent_id: &str, token: u64) {
+    pub(crate) fn settle_foreground_run(state: &mut State, agent_id: &str, token: u64) {
         if matches!(state.runs.get(agent_id), Some(TrackedRun::Foreground { token: current, .. }) if *current == token)
         {
-            state.runs.remove(agent_id);
+            Self::clear_run(state, agent_id);
+        }
+    }
+
+    /// `clearRun`: drops the run and settles it.
+    pub(crate) fn clear_run(state: &mut State, agent_id: &str) {
+        if let Some(run) = state.runs.remove(agent_id) {
+            match run {
+                TrackedRun::Foreground { settled, .. } | TrackedRun::Autonomous { settled, .. } => {
+                    settled.send_replace(true);
+                }
+            }
         }
     }
 
@@ -283,6 +322,7 @@ impl AgentManager {
                 token,
                 start: RunStart::Pending,
                 staged: Vec::new(),
+                settled: watch::channel(false).0,
             },
         );
         Ok(TurnEventStream {
