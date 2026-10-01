@@ -114,13 +114,21 @@ async function main() {
     if (seen.has(testCase.id)) fail(`duplicate case id ${testCase.id}`);
     seen.add(testCase.id);
     const input = caseInput(testCase);
-    const value = JSON.parse(input);
     const record = {
       id: testCase.id,
       direction: testCase.direction,
       source: testCase.source,
       input,
     };
+    let value;
+    try {
+      value = JSON.parse(input);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // The daemon never reaches zod: JSON.parse throws first.
+      record.zod = { success: false, syntaxError: true, issues: [] };
+      return record;
+    }
     if (testCase.direction === "inbound") {
       record.zod = outcome(messages.WSInboundMessageSchema.safeParse(value));
     } else if (testCase.direction === "outbound") {
