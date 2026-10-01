@@ -282,7 +282,7 @@ fn a_ping_or_session_message_before_hello_closes_with_4002() {
     let harness = start(config());
     for frame in [
         json!({"type": "ping"}),
-        json!({"type": "session", "message": {"type": "fetch_agents_request"}}),
+        json!({"type": "session", "message": {"type": "fetch_agents_request", "requestId": "r1"}}),
         json!({"type": "recording_state", "isRecording": true}),
     ] {
         let mut ws = harness.connect(&[]);
