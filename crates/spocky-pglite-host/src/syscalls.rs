@@ -298,12 +298,9 @@ fn invoke(
     let saved = runtime::stack_save(caller, index)?;
     let table = caller.data().modules[index].table;
     let slot = u64::from(arg_u32(params, 0));
-    let func = match table.get(&mut *caller, slot) {
-        Some(Ref::Func(Some(func))) => func,
-        _ => {
-            runtime::stack_restore(caller, index, saved)?;
-            return Err(abort_error(format!("table index {slot} is not a function")));
-        }
+    let Some(Ref::Func(Some(func))) = table.get(&mut *caller, slot) else {
+        runtime::stack_restore(caller, index, saved)?;
+        return Err(abort_error(format!("table index {slot} is not a function")));
     };
     match func.call(&mut *caller, &params[1..], results) {
         Ok(()) => Ok(()),
@@ -444,7 +441,7 @@ fn call(
             Ok(())
         }
         HostFn::ResizeHeap => {
-            let grown = runtime::resize_heap(context.caller, index, arg_u32(params, 0))?;
+            let grown = runtime::resize_heap(context.caller, index, arg_u32(params, 0));
             set_i32(results, i32::from(grown));
             Ok(())
         }
@@ -507,9 +504,18 @@ fn call(
             set_i32(results, 0);
             Ok(())
         }
-        HostFn::TzsetJs => tzset(context, params),
-        HostFn::LocaltimeJs => localtime(context, params),
-        HostFn::GmtimeJs => gmtime(context, params),
+        HostFn::TzsetJs => {
+            tzset(context, params);
+            Ok(())
+        }
+        HostFn::LocaltimeJs => {
+            localtime(context, params);
+            Ok(())
+        }
+        HostFn::GmtimeJs => {
+            gmtime(context, params);
+            Ok(())
+        }
         HostFn::MktimeJs => mktime(context, params, results),
         HostFn::DlopenJs => {
             let status = crate::dylink::dlopen(context.caller, index, arg_i32(params, 0))?;
@@ -585,7 +591,7 @@ fn env_strings(runtime: &mut Runtime, index: usize) -> Vec<String> {
     strings
 }
 
-fn tzset(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()> {
+fn tzset(context: &mut Context<'_, '_>, params: &[Val]) {
     let clock = &context.caller.data().clock;
     let now = vfs::date_now();
     let year = clock.local_fields(now).map_or(1970, |fields| fields.year);
@@ -606,7 +612,11 @@ fn tzset(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()> 
         arg_u32(params, 0),
         to_int32(maximum * 60.0).cast_unsigned(),
     );
-    write_i32(memory, arg_u32(params, 1), i32::from(january != july));
+    write_i32(
+        memory,
+        arg_u32(params, 1),
+        i32::from(january.total_cmp(&july).is_ne()),
+    );
     let (standard, daylight) = if july < january {
         (january_name, july_name)
     } else {
@@ -614,7 +624,6 @@ fn tzset(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()> 
     };
     string_to_utf8(memory, &standard, arg_u32(params, 2), 17);
     string_to_utf8(memory, &daylight, arg_u32(params, 3), 17);
-    Ok(())
 }
 
 fn date_value_from_seconds(seconds: i64) -> f64 {
@@ -626,7 +635,7 @@ fn date_value_from_seconds(seconds: i64) -> f64 {
     }
 }
 
-fn localtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()> {
+fn localtime(context: &mut Context<'_, '_>, params: &[Val]) {
     let value = date_value_from_seconds(arg_i64(params, 0));
     let address = arg_u32(params, 1);
     let clock = &context.caller.data().clock;
@@ -635,7 +644,8 @@ fn localtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<
         Some(fields) => {
             let offset = clock.timezone_offset_minutes(value);
             let (january, july) = clock.january_july_offsets(f64::from(fields.year));
-            let dst = july != january && (offset - january.min(july)).abs() < f64::EPSILON;
+            let dst = july.total_cmp(&january).is_ne()
+                && (offset - january.min(july)).abs() < f64::EPSILON;
             (offset, dst)
         }
         None => (f64::NAN, false),
@@ -661,10 +671,9 @@ fn localtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<
     }
     write_i32(memory, address + 36, to_int32(-(offset * 60.0)));
     write_i32(memory, address + 32, i32::from(dst));
-    Ok(())
 }
 
-fn gmtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()> {
+fn gmtime(context: &mut Context<'_, '_>, params: &[Val]) {
     let value = date_value_from_seconds(arg_i64(params, 0));
     let address = arg_u32(params, 1);
     let memory = context.memory();
@@ -672,7 +681,7 @@ fn gmtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()>
         for position in 0..8 {
             write_i32(memory, address + position * 4, 0);
         }
-        return Ok(());
+        return;
     }
     let fields = crate::jsdate::utc_fields(value);
     let values = [
@@ -692,7 +701,6 @@ fn gmtime(context: &mut Context<'_, '_>, params: &[Val]) -> wasmtime::Result<()>
             *value,
         );
     }
-    Ok(())
 }
 
 fn mktime(
@@ -723,7 +731,7 @@ fn mktime(
     let mut write_dst = None;
     if isdst < 0 {
         write_dst = Some(i32::from(
-            july != january && (minimum - offset).abs() < f64::EPSILON,
+            july.total_cmp(&january).is_ne() && (minimum - offset).abs() < f64::EPSILON,
         ));
     } else if (isdst > 0) != ((minimum - offset).abs() < f64::EPSILON) {
         let maximum = january.max(july);
@@ -1262,10 +1270,12 @@ fn filesystem_call(
                 Ok(position) => {
                     write_i64(context.memory(), out, position);
                     let mut fs = fs_handle.borrow_mut();
-                    if let Some(stream) = fs.get_stream_mut(fd) {
-                        if stream.getdents.is_some() && offset == 0 && whence == 0 {
-                            stream.getdents = None;
-                        }
+                    if let Some(stream) = fs.get_stream_mut(fd)
+                        && stream.getdents.is_some()
+                        && offset == 0
+                        && whence == 0
+                    {
+                        stream.getdents = None;
                     }
                     Ok(0)
                 }
@@ -1276,11 +1286,11 @@ fn filesystem_call(
             let result = fs_handle.borrow_mut().fd_sync(arg_i32(params, 0));
             wasi_result(result)
         }
-        HostFn::Socket => syscall_result(fs_handle.borrow_mut().create_socket(
-            arg_i32(params, 0),
-            arg_i32(params, 1),
-            arg_i32(params, 2),
-        )),
+        HostFn::Socket => syscall_result(
+            fs_handle
+                .borrow_mut()
+                .create_socket(arg_i32(params, 1), arg_i32(params, 2)),
+        ),
         HostFn::Bind
         | HostFn::Connect
         | HostFn::Listen
@@ -1487,7 +1497,7 @@ fn ioctl(
             }
             Ok(0)
         }
-        21506 | 21507 | 21508 => Ok(if tty.is_some() { 0 } else { -vfs::ENOTTY }),
+        21506..=21508 => Ok(if tty.is_some() { 0 } else { -vfs::ENOTTY }),
         21519 => {
             if tty.is_none() {
                 return Ok(-vfs::ENOTTY);
@@ -1548,7 +1558,6 @@ fn socket_call(
         HostFn::Bind => Ok(0),
         HostFn::Connect => Ok(-vfs::EHOSTUNREACH),
         HostFn::Listen => Err(abort_error("Cannot find module 'ws'")),
-        HostFn::Accept4 => Ok(-vfs::EINVAL),
         HostFn::Recvfrom | HostFn::Sendto => Ok(-vfs::ENOTCONN),
         _ => Ok(-vfs::EINVAL),
     }
@@ -1601,30 +1610,29 @@ fn newselect(
                     5
                 }
             }
-            vfs::StreamOps::Socket => 5,
             _ => 5,
         };
         if flags & 1 != 0 && pick(fd, read_low, read_high, mask) != 0 {
             if fd < 32 {
-                out_read_low |= mask
+                out_read_low |= mask;
             } else {
-                out_read_high |= mask
+                out_read_high |= mask;
             }
             total += 1;
         }
         if flags & 4 != 0 && pick(fd, write_low, write_high, mask) != 0 {
             if fd < 32 {
-                out_write_low |= mask
+                out_write_low |= mask;
             } else {
-                out_write_high |= mask
+                out_write_high |= mask;
             }
             total += 1;
         }
         if flags & 2 != 0 && pick(fd, except_low, except_high, mask) != 0 {
             if fd < 32 {
-                out_except_low |= mask
+                out_except_low |= mask;
             } else {
-                out_except_high |= mask
+                out_except_high |= mask;
             }
             total += 1;
         }
