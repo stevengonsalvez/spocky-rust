@@ -8,6 +8,7 @@ pub mod hostnames;
 pub mod js;
 pub mod listen;
 pub mod local_credential;
+pub mod log;
 pub mod origin;
 pub mod private_files;
 pub mod server_id;
