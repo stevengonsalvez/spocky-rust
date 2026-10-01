@@ -10,6 +10,12 @@ serde_json = { version = "1.0.145", features = ["preserve_order"] }
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
+tokio = { version = "1.53.1", features = ["rt"] }
+
+[dev-dependencies]
+spocky-provider-codex = { path = "../spocky-provider-codex", features = ["test-hooks"] }
+spocky-slice-harness = { path = "../spocky-slice-harness" }
+tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [lints.rust]
 unsafe_code = "forbid"
