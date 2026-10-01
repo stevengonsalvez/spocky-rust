@@ -10,7 +10,7 @@ use crate::agent_config::{AgentSessionConfig, CreateAgentWorktreeTarget, GitSetu
 use crate::attachment::{AgentAttachment, ImageAttachment, LenientAttachments};
 use crate::field::{Nullable, optional};
 use crate::id::{WorkspaceId, ZodUuid};
-use crate::json::{JsRecord, JsonValue};
+use crate::json::{JsRecord, JsonValue, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::{NonNegativeInt, PageLimit, PositiveInt};
 use crate::text::{BoundedString, NonEmptyString};
@@ -631,7 +631,7 @@ pub enum WorktreeAction {
 }
 
 /// `WorkspaceCreateRequestSchema.source`, discriminated by `kind`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum WorkspaceSource {
     /// An existing local directory or checkout.
@@ -650,6 +650,22 @@ pub enum WorkspaceSource {
     #[serde(rename = "worktree")]
     Worktree(WorktreeSource),
 }
+
+deserialize_tagged!(WorkspaceSource, "kind", {
+    "directory" => |input| {
+        #[derive(Deserialize)]
+        struct Fields {
+            path: String,
+            #[serde(rename = "projectId", default, with = "optional")]
+            project_id: Option<String>,
+        }
+        Fields::deserialize(input).map(|fields| WorkspaceSource::Directory {
+            path: fields.path,
+            project_id: fields.project_id,
+        })
+    },
+    "worktree" => |input| WorktreeSource::deserialize(input).map(WorkspaceSource::Worktree),
+});
 
 /// The `worktree` arm of [`WorkspaceSource`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
