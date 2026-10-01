@@ -195,6 +195,12 @@ fn load_failure_is_kept_for_logging() {
     assert!(registry.initialize().is_some());
 }
 
+/// Known baseline defect, kept for exact parity (coordinator decision,
+/// 2026-10-01): pinned Paseo `workspace-registry.ts:285-355` logs a failed
+/// load, marks the registry loaded with an empty cache, and lets the next
+/// mutation write. A corrupt or schema-invalid registry file therefore loses
+/// every record on the next write. Files `JSON.parse` accepts do not reach
+/// this path.
 #[test]
 fn invalid_file_loads_empty_and_next_write_replaces_it() {
     let home = TestDir::new("registry-invalid");
