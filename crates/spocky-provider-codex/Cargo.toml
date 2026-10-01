@@ -9,6 +9,14 @@ rust-version = "1.94"
 spocky-contracts = { path = "../spocky-contracts" }
 serde_json = { version = "1", features = ["preserve_order"] }
 
+[features]
+# Hooks that let integration tests drive notifications and wait for event
+# delivery. Never enabled by the daemon.
+test-hooks = []
+
+[dev-dependencies]
+spocky-provider-codex = { path = ".", features = ["test-hooks"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 
