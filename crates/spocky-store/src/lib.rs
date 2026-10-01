@@ -1,9 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -16,8 +14,6 @@ pub mod registry;
 pub mod time;
 
 pub use registry::RecordError;
-
-static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -57,8 +53,15 @@ impl Error for StoreError {
     }
 }
 
+/// The P2 agent record view. Parsing and storage go through
+/// [`agent_record`] (`JSON.parse` plus `STORED_AGENT_SCHEMA`), so the record
+/// is exactly what the baseline loads. [`Self::as_value`] is a `serde_json`
+/// view kept for the P2 differential driver: it writes a non-finite number as
+/// `null` and a lone surrogate as U+FFFD. New code uses
+/// [`agent_record::AgentRecordStore`] and [`Self::as_js_value`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredAgentRecord {
+    record: js_value::JsValue,
     value: Value,
     id: String,
     provider: String,
@@ -69,31 +72,42 @@ pub struct StoredAgentRecord {
 }
 
 impl StoredAgentRecord {
-    /// Parses the baseline JSON shape while retaining every recognized and unknown field.
+    /// Parses one record file as the baseline loads it.
     ///
     /// # Errors
     ///
-    /// Returns an error for invalid JSON or a missing required string field.
+    /// Returns an error for text `JSON.parse` rejects, a missing required
+    /// string field, or any other `STORED_AGENT_SCHEMA` failure.
     pub fn from_json(source: &str) -> Result<Self, StoreError> {
-        let value: Value = serde_json::from_str(source).map_err(StoreError::InvalidJson)?;
-        let id = required_string(&value, "id")?;
-        let provider = required_string(&value, "provider")?;
-        let cwd = required_string(&value, "cwd")?;
-        let created_at = required_string(&value, "createdAt")?;
-        let updated_at = required_string(&value, "updatedAt")?;
-        let last_status = value
-            .get("lastStatus")
-            .and_then(Value::as_str)
-            .unwrap_or("closed")
-            .to_owned();
+        let parsed = js_value::parse(source).map_err(StoreError::JsonSyntax)?;
+        let record = agent_record::parse_stored_agent_record(&parsed).map_err(|error| {
+            if error.expected == "string" {
+                StoreError::MissingString(error.field)
+            } else {
+                StoreError::InvalidRecord(error)
+            }
+        })?;
+        Self::from_parsed(record)
+    }
+
+    fn from_parsed(record: js_value::JsValue) -> Result<Self, StoreError> {
+        let text = |field: &'static str| {
+            record
+                .get(field)
+                .and_then(js_value::JsValue::as_str)
+                .map(str::to_owned)
+                .ok_or(StoreError::MissingString(field))
+        };
+        let value = serde_json::from_str(&js_value::stringify(&record)).unwrap_or(Value::Null);
         Ok(Self {
+            id: text("id")?,
+            provider: text("provider")?,
+            cwd: text("cwd")?,
+            created_at: text("createdAt")?,
+            updated_at: text("updatedAt")?,
+            last_status: text("lastStatus")?,
             value,
-            id,
-            provider,
-            cwd,
-            created_at,
-            updated_at,
-            last_status,
+            record,
         })
     }
 
@@ -127,20 +141,20 @@ impl StoredAgentRecord {
         &self.last_status
     }
 
+    /// The `serde_json` view described on the type.
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.value
     }
+
+    /// The exact parsed record.
+    #[must_use]
+    pub const fn as_js_value(&self) -> &js_value::JsValue {
+        &self.record
+    }
 }
 
-fn required_string(value: &Value, field: &'static str) -> Result<String, StoreError> {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or(StoreError::MissingString(field))
-}
-
+/// The P2 agent store, a thin wrapper over [`agent_record::AgentRecordStore`].
 #[derive(Debug, Clone)]
 pub struct AgentStore {
     base: PathBuf,
@@ -152,87 +166,27 @@ impl AgentStore {
         Self { base: base.into() }
     }
 
-    /// Atomically writes one record using the baseline working-directory key layout.
+    /// Atomically writes one record in the baseline `<cwd-key>/<id>.json` layout.
     ///
     /// # Errors
     ///
-    /// Returns an error if directory creation, serialization, writing, or rename fails.
+    /// Returns an error if directory creation, writing, or rename fails.
     pub fn write(&self, record: &StoredAgentRecord) -> Result<PathBuf, StoreError> {
-        let directory = self.base.join(cwd_key(record.cwd()));
-        fs::create_dir_all(&directory).map_err(|source| StoreError::Io {
-            operation: "create agent directory",
-            source,
-        })?;
-        let destination = directory.join(format!("{}.json", record.id()));
-        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let temporary = directory.join(format!(
-            ".{}.json.{}.{}.tmp",
-            record.id(),
-            std::process::id(),
-            sequence
-        ));
-        let bytes =
-            serde_json::to_vec_pretty(record.as_value()).map_err(StoreError::InvalidJson)?;
-        if let Err(source) = fs::write(&temporary, bytes) {
-            return Err(StoreError::Io {
-                operation: "write temporary agent record",
-                source,
-            });
-        }
-        if let Err(source) = fs::rename(&temporary, &destination) {
-            let _ = fs::remove_file(&temporary);
-            return Err(StoreError::Io {
-                operation: "rename temporary agent record",
-                source,
-            });
-        }
-        Ok(destination)
+        agent_record::AgentRecordStore::new(&self.base)
+            .write(record.as_js_value().clone())?
+            .ok_or(StoreError::MissingString("id"))
     }
 
-    /// Loads an agent by scanning baseline working-directory buckets.
+    /// Loads an agent by scanning the store as the baseline does at startup.
     ///
     /// # Errors
     ///
-    /// Returns an error if the store cannot be scanned or a matching record is invalid.
+    /// Returns an error if the matching record cannot be re-read.
     pub fn load(&self, id: &str) -> Result<Option<StoredAgentRecord>, StoreError> {
-        let directories = match fs::read_dir(&self.base) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => {
-                return Err(StoreError::Io {
-                    operation: "read agent store",
-                    source,
-                });
-            }
-        };
-        for entry in directories {
-            let entry = entry.map_err(|source| StoreError::Io {
-                operation: "read agent store entry",
-                source,
-            })?;
-            if !entry
-                .file_type()
-                .map_err(|source| StoreError::Io {
-                    operation: "read agent store entry type",
-                    source,
-                })?
-                .is_dir()
-            {
-                continue;
-            }
-            let path = entry.path().join(format!("{id}.json"));
-            match fs::read_to_string(&path) {
-                Ok(source) => return StoredAgentRecord::from_json(&source).map(Some),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(source) => {
-                    return Err(StoreError::Io {
-                        operation: "read agent record",
-                        source,
-                    });
-                }
-            }
-        }
-        Ok(None)
+        agent_record::AgentRecordStore::new(&self.base)
+            .get(id)
+            .map(StoredAgentRecord::from_parsed)
+            .transpose()
     }
 }
 
