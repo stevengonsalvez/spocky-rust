@@ -13,6 +13,7 @@ spocky-session = { path = "../spocky-session" }
 tokio = { version = "1.53.1", features = ["rt"] }
 
 [dev-dependencies]
+sha2 = "0.10.9"
 spocky-provider-codex = { path = "../spocky-provider-codex", features = ["test-hooks"] }
 spocky-slice-harness = { path = "../spocky-slice-harness" }
 tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread", "time"] }
