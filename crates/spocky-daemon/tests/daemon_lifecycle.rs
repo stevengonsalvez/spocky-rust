@@ -199,13 +199,15 @@ fn a_fresh_home_with_the_default_config_is_refused_not_bound() {
     );
 }
 
+const HASH: &str = "$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234";
+
 #[test]
 fn a_configured_password_is_refused_until_bcrypt_is_available() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
     write_config(
         &home,
-        &json!({"listen": "127.0.0.1:0", "auth": {"password": "$2a$12$x"}}),
+        &json!({"listen": "127.0.0.1:0", "auth": {"password": HASH}}),
     );
     let error = start_daemon(&env(&home, &[])).err().expect("must refuse");
     assert!(error.contains("cannot verify bcrypt"));
@@ -215,6 +217,72 @@ fn a_configured_password_is_refused_until_bcrypt_is_available() {
         .err()
         .expect("must refuse");
     assert!(error.contains("cannot verify bcrypt"));
+}
+
+#[test]
+fn a_blank_environment_password_is_unset_and_an_empty_config_password_is_an_error() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    write_config(&home, &json!({"listen": "127.0.0.1:0"}));
+    let daemon = start_daemon(&env(&home, &[("PASEO_PASSWORD", "   ")])).unwrap();
+    daemon.stop();
+    for bad in ["", "not-a-hash"] {
+        write_config(
+            &home,
+            &json!({"listen": "127.0.0.1:0", "auth": {"password": bad}}),
+        );
+        let error = start_daemon(&env(&home, &[]))
+            .err()
+            .expect("must refuse, not open the daemon");
+        assert!(
+            error.contains("daemon.auth.password: Expected a bcrypt hash"),
+            "{error}"
+        );
+        assert!(!home.join("paseo.pid").exists());
+    }
+}
+
+#[test]
+fn debug_output_of_the_environment_never_shows_values() {
+    let shown = format!(
+        "{:?}",
+        env(Path::new("/tmp/h"), &[("PASEO_PASSWORD", "hunter2")])
+    );
+    assert!(shown.contains("PASEO_PASSWORD"));
+    assert!(!shown.contains("hunter2"), "{shown}");
+}
+
+#[test]
+fn a_failed_lock_publication_undoes_the_start() {
+    use spocky_daemon::daemon::start_with;
+    use spocky_daemon::pid_lock::PidLockError;
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    write_config(&home, &json!({"listen": "127.0.0.1:0"}));
+    let seen_listen = std::sync::Mutex::new(String::new());
+    let logger: Arc<dyn Logger> = Arc::new(NullLogger);
+    let result = start_with(
+        &env(&home, &[]),
+        Arc::new(NoSessionBackend),
+        &logger,
+        &|_, patch| {
+            if let spocky_daemon::pid_lock::PidLockPatch::Listening { listen, .. } = patch {
+                *seen_listen.lock().unwrap() = listen.clone();
+            }
+            Err(PidLockError::Io(std::io::Error::other("disk full")))
+        },
+    );
+    assert_eq!(result.err().expect("must fail").0, "disk full");
+    let listen = seen_listen.lock().unwrap().clone();
+    assert!(!listen.is_empty());
+    assert!(
+        !home.join("local-credential").exists(),
+        "credential removed"
+    );
+    assert!(!home.join("paseo.pid").exists(), "lock released");
+    assert!(TcpStream::connect(&listen).is_err(), "listener closed");
+    let again = start_daemon(&env(&home, &[])).unwrap();
+    again.stop();
 }
 
 #[test]
