@@ -73,7 +73,7 @@
       "branch": "phase2-renderer-linux",
       "paths": ["crates/spocky-ui-renderer-pilot/", "scripts/phase2/renderer-platform*", "evidence/phase2/renderer-platform*"],
       "delegation": "forbidden",
-      "state": "running; Linux Dioxus evidence only, renderer remains unselected; moving to a Claude writer under the 2026-10-01 routing revision, prior Sol output uncommitted in the worktree"
+      "state": "paused 2026-10-01 by the coordinator to keep the 9-writer cap; evidence through 69a43ff integrated in batch v2; network-per-run P1 open before any rerun"
     },
     {
       "id": "p2_hub_triggers",
@@ -169,6 +169,17 @@
       "paths": ["crates/spocky-hub-pilot/src/public_api/ (new files only)", "crates/spocky-hub-pilot/tests/hub_api*.rs", "scripts/phase2/hub-api*", "evidence/phase2/hub-api*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"],
       "delegation": "forbidden",
       "state": "running; base 1af3d7a; shared spocky-hub-pilot lib.rs registration line resolved by the lead at integration"
+    },
+    {
+      "id": "p3_g1_wiring",
+      "terminal": "term_baf89f0a",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-g1-wiring",
+      "paths": ["crates/spocky-daemon-app/"],
+      "delegation": "forbidden",
+      "state": "running; prerequisites routed: p3_session agent-manager with rows seed, p3_daemon_transport removes its spocky-daemon bin, codex-to-stub config.toml routing"
     },
     {
       "id": "p2_hub_triggers_followups",
@@ -887,8 +898,8 @@
         "p3_provider_codex"
       ],
       "priority": 3,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches",
+      "state": "implementing",
+      "owner": "claude-opus-5-5 high, terminal term_baf89f0a, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-g1-wiring, launched 2026-10-01",
       "permittedPaths": [
         "crates/spocky-daemon-app/",
         "Cargo.lock (entries from this crate only)"
