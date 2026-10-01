@@ -122,6 +122,21 @@ valid_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs
 printf '%s\n' "$valid_output" | grep -F '"accepted":true' >/dev/null
 printf '%s\n' "$valid_output" | grep -F '"classification":"shared-pinned-failure"' >/dev/null
 
+blank_focus_fixture="$fixture_dir/blank-focus.json"
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const blank = { tag: "div", role: null, label: null, text: "", disabled: false };
+  for (const name of ["original-desktop", "candidate-desktop"]) {
+    result.captures.find((capture) => capture.name === name)
+      .keyboardFocus.entries.push(blank);
+  }
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$blank_focus_fixture"
+blank_focus_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --validate-result "$blank_focus_fixture")
+printf '%s\n' "$blank_focus_output" | grep -F '"accepted":true' >/dev/null
+
 expect_rejected() {
   label=$1
   rejected_fixture=$2
@@ -185,6 +200,15 @@ node -e '
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/incomplete-focus.json"
 expect_rejected 'incomplete focus cycle' "$fixture_dir/incomplete-focus.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  delete result.captures.find((capture) => capture.name === "candidate-desktop")
+    .keyboardFocus.entries[0].disabled;
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/malformed-focus.json"
+expect_rejected 'malformed focus entry' "$fixture_dir/malformed-focus.json"
 
 node -e '
   const fs = require("node:fs");

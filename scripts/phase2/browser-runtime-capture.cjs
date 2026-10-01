@@ -20,6 +20,19 @@ function valuesMatch(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function focusEntryIsComplete(focus) {
+  return (
+    focus !== null &&
+    typeof focus === "object" &&
+    typeof focus.tag === "string" &&
+    focus.tag.length > 0 &&
+    Object.hasOwn(focus, "role") &&
+    Object.hasOwn(focus, "label") &&
+    Object.hasOwn(focus, "text") &&
+    typeof focus.disabled === "boolean"
+  );
+}
+
 function activationSelector(candidate) {
   return candidate ? ".action:nth-child(1)" : '[data-testid="open-project-submit"]';
 }
@@ -64,10 +77,11 @@ function comparisonState(captures, visual = null) {
         candidateAccessibility?.reducedMotion === true &&
         originalAccessibility.keyboardFocus?.completed === true &&
         candidateAccessibility.keyboardFocus?.completed === true &&
+        Array.isArray(originalAccessibility.keyboardFocus.entries) &&
         originalAccessibility.keyboardFocus.entries.length > 0 &&
-        originalAccessibility.keyboardFocus.entries.every(
-          (focus) => focus.tag && (focus.label || focus.text),
-        ) &&
+        originalAccessibility.keyboardFocus.entries.every(focusEntryIsComplete) &&
+        Array.isArray(candidateAccessibility.keyboardFocus.entries) &&
+        candidateAccessibility.keyboardFocus.entries.every(focusEntryIsComplete) &&
         valuesMatch(originalAccessibility.keyboardFocus, candidateAccessibility.keyboardFocus),
     };
 

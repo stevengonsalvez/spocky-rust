@@ -10,7 +10,8 @@ semantic project action. The candidate now opens the same pinned Add Project
 method dialog contract instead of replacing the outcome with live-status text.
 The comparison records the dialog label, visible text, and semantic controls.
 Focused renderer contracts pin the candidate to the latest observed original
-DOM semantics. A full capture has not verified that repair yet.
+DOM semantics. Attempt `20261001T001233Z-50366` verifies the exact dialog
+outcome in both viewports and the exact mobile accessibility cycle.
 
 The contract test injects and rejects these regressions:
 
@@ -18,6 +19,7 @@ The contract test injects and rejects these regressions:
 - mobile pixel mismatch
 - mobile keyboard activation failure
 - desktop accessible focus-label mismatch
+- malformed keyboard focus entry
 - incomplete keyboard focus cycle
 - dialog shape or content mismatch
 - consecutive same-page candidate instability
@@ -50,6 +52,23 @@ captures remain diagnostic evidence for the two observed upstream modes and do
 not create a visual exception.
 
 ## Desktop baseline evidence
+
+Attempt `20261001T001233Z-50366` verifies exact interaction in both viewports,
+zero mobile pixel difference, zero mobile accessibility difference, and zero
+candidate same-page and fresh-context instability. Its original and candidate
+desktop focus payloads are byte-for-byte equal. Both include the pinned
+source's unnamed focusable `div`. The former completeness predicate rejected
+that valid source entry because it required a label or text. The focused
+contract now accepts complete unnamed entries, rejects missing captured fields,
+and retains exact whole-payload equality. A later full capture has not verified
+the corrected gate.
+
+The same attempt has 19 desktop pixel differences at `x=20..28`, `y=46..57`,
+inside the History icon. The candidate path data already matched pinned
+`lucide-react-native` 0.546.0. The renderer now emits the pinned root and child
+SVG presentation attributes directly. Focused renderer contracts pin those
+attributes. A later full capture has not verified the icon repair. No mask,
+threshold, normalization, or visual exception is applied.
 
 Attempt `20260930T235823Z-10020` cleanly reached every acceptance gate. Candidate
 same-page and fresh-context screenshots had zero differing pixels in both

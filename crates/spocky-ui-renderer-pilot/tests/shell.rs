@@ -37,6 +37,12 @@ fn shell_renders_deterministic_semantic_html() {
     assert!(!first.contains("icon-sponsor::before"));
     assert!(!first.contains("icon-community::before"));
     assert!(first.contains("M3 12a9 9 0 1 0"));
+    assert!(first.contains("class=\"history-icon\""));
+    assert!(first.contains("width=\"14\" height=\"14\""));
+    assert!(first.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+    assert!(first.contains(
+        "fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M3 12a9 9 0 1 0"
+    ));
     assert!(first.contains("M16 14v2.2l1.6 1"));
     assert!(first.contains("M20 20a2 2 0 0 0 2-2V8"));
     assert!(first.contains("M9.09 9a3 3 0 0 1 5.83 1"));
