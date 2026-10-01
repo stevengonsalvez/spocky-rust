@@ -5,8 +5,10 @@
 //! empty daemon system prompt. A codex client (the pinned codex
 //! capabilities) records `createSession(config, launchContext, options)`
 //! for a full-access agent, an agent whose config carries keys outside the
-//! schema in another order, and an internal agent, which skips the plugin
-//! parse.
+//! schema in another order, an internal agent, which skips the plugin
+//! parse, and two configs the parse rejects with zod's issue list (an
+//! unknown key in the strict tool policy; a wrong type and a malformed MCP
+//! server).
 //!
 //! Normalized: wall-clock ISO timestamps and random UUIDs, nothing else.
 //!
@@ -34,7 +36,15 @@ use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 const AGENT_ID: &str = "00000000-0000-4000-8000-0000000000c1";
 const SECOND_ID: &str = "00000000-0000-4000-8000-0000000000c2";
 const INTERNAL_ID: &str = "00000000-0000-4000-8000-0000000000c3";
-const FIXED_IDS: [&str; 3] = [AGENT_ID, SECOND_ID, INTERNAL_ID];
+const UNKNOWN_KEY_ID: &str = "00000000-0000-4000-8000-0000000000c4";
+const WRONG_TYPE_ID: &str = "00000000-0000-4000-8000-0000000000c5";
+const FIXED_IDS: [&str; 5] = [
+    AGENT_ID,
+    SECOND_ID,
+    INTERNAL_ID,
+    UNKNOWN_KEY_ID,
+    WRONG_TYPE_ID,
+];
 
 /// `CODEX_APP_SERVER_CAPABILITIES` from the pinned codex provider.
 const CODEX_CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsSessionListing":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true,"supportsRewindConversation":true,"supportsRewindFiles":false,"supportsRewindBoth":false}"#;
@@ -55,7 +65,13 @@ const CREATES: &str = r#"[
    {"workspaceId":"wks_1","env":{"B":"2","A":"1"}}],
   ["00000000-0000-4000-8000-0000000000c3",
    {"provider":"codex","cwd":"$CWD","internal":true,"extraneous":true},
-   {}]
+   {}],
+  ["00000000-0000-4000-8000-0000000000c4",
+   {"provider":"codex","cwd":"$CWD","toolPolicy":{"preapproved":[],"unknown":1}},
+   {}],
+  ["00000000-0000-4000-8000-0000000000c5",
+   {"provider":"codex","cwd":"$CWD","modeId":5,"mcpServers":{"m":{"type":"stdio"}}},
+   {"env":{"A":"1"}}]
 ]"#;
 
 const NODE_SCRIPT: &str = r#"
