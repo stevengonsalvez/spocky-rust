@@ -1,0 +1,18 @@
+{
+  "records": {
+    "xact": 196,
+    "heap.inplace": 8,
+    "standby.invalidations": 6
+  },
+  "layoutProblems": [],
+  "differingBytesByField": {
+    "xact: xact_time": 766,
+    "xact: inval.snapshot.padding": 434,
+    "xact: inval.catcache.unused": 34,
+    "heap.inplace: inval.catcache.unused": 42,
+    "heap.inplace: inval.relcache.unused": 15,
+    "standby.invalidations: inval.catcache.unused": 29,
+    "standby.invalidations: inval.relcache.unused": 16
+  },
+  "fieldsOtherThanTimePaddingOrUnused": []
+}
