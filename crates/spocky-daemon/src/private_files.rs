@@ -55,7 +55,11 @@ pub fn ensure_private_file(file: &Path) {
 ///
 /// Returns the first error from creating the directory, writing, or renaming.
 pub fn write_private_file_atomic(file: &Path, data: &[u8]) -> io::Result<()> {
-    let parent = file.parent().unwrap_or_else(|| Path::new("."));
+    // `path.dirname("name")` is `"."`, while `Path::parent` gives an empty path.
+    let parent = file
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     ensure_private_directory(parent)?;
     let name = file
         .file_name()
@@ -141,5 +145,16 @@ mod tests {
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
         ensure_private_file(&file);
         assert_eq!(mode(&file), 0o600);
+    }
+
+    #[test]
+    fn a_bare_file_name_is_written_in_the_current_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root.path()).unwrap();
+        let result = write_private_file_atomic(Path::new("bare-name"), b"x");
+        std::env::set_current_dir(previous).unwrap();
+        result.unwrap();
+        assert_eq!(fs::read(root.path().join("bare-name")).unwrap(), b"x");
     }
 }
