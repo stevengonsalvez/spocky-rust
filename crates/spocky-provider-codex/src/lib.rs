@@ -7,6 +7,7 @@ pub mod items;
 pub mod launch;
 pub mod notification;
 pub mod session;
+pub mod tools;
 pub mod transport;
 
 pub use launch::{CodexGates, CustomProvider, ProviderCommand, ProviderRuntimeSettings};
