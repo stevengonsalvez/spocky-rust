@@ -615,6 +615,63 @@ mod tests {
         side
     }
 
+    fn with_codex_input(mut side: SideRun, stdin: &str) -> SideRun {
+        let mut bytes = b"argv:\napp-server\nstdin:\n".to_vec();
+        bytes.extend_from_slice(stdin.as_bytes());
+        side.state.push(CapturedFile {
+            path: "codex-io/invocation".into(),
+            bytes,
+        });
+        side
+    }
+
+    #[test]
+    fn codex_input_key_order_swap_fails() {
+        let rpc = |params: &str| {
+            format!("{{\"id\":8,\"method\":\"thread/start\",\"params\":{params}}}\n")
+        };
+        let (left, right) = pair();
+        let ordered = rpc(r#"{"model":"m","approvalPolicy":"never"}"#);
+        let same = compared_only(
+            &with_codex_input(left.clone(), &ordered),
+            &with_codex_input(right.clone(), &ordered),
+        );
+        assert!(same.pass, "{same:?}");
+        let swapped = rpc(r#"{"approvalPolicy":"never","model":"m"}"#);
+        let verdict = compared_only(
+            &with_codex_input(left, &ordered),
+            &with_codex_input(right, &swapped),
+        );
+        assert!(differs_at(&verdict, "state"), "{verdict:?}");
+    }
+
+    #[test]
+    fn nested_key_order_swaps_in_stub_bodies_fail() {
+        let cases = [
+            // Inside an input item.
+            (
+                r#"{"input":[{"type":"message","role":"user"}],"client_metadata":{"a":"1"}}"#,
+                r#"{"input":[{"role":"user","type":"message"}],"client_metadata":{"a":"1"}}"#,
+            ),
+            // Inside a client_metadata value: only top-level metadata keys reorder.
+            (
+                r#"{"client_metadata":{"a":{"q":1,"p":2},"b":"2"}}"#,
+                r#"{"client_metadata":{"b":"2","a":{"p":2,"q":1}}}"#,
+            ),
+        ];
+        for (left_body, right_body) in cases {
+            let (left, right) = pair();
+            let verdict = compared_only(
+                &with_record(left, left_body),
+                &with_record(right, right_body),
+            );
+            assert!(
+                differs_at(&verdict, "artifacts"),
+                "{left_body} vs {right_body}"
+            );
+        }
+    }
+
     #[test]
     fn comparison_alone_passes_equivalent_sides() {
         let (left, right) = pair();
