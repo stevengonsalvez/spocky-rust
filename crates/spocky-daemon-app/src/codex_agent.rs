@@ -97,13 +97,39 @@ async fn blocking<T: Send + 'static>(
 
 /// `CodexAppServerAgentSession`.
 pub struct CodexAgentSession {
-    session: CodexSession,
+    session: BlockingDrop,
 }
 
 impl CodexAgentSession {
     #[must_use]
     pub fn new(session: CodexSession) -> Self {
-        Self { session }
+        Self {
+            session: BlockingDrop(Some(session)),
+        }
+    }
+}
+
+/// Owns the adapter's session handle. Dropping the last handle disposes the
+/// app-server, which blocks, so inside a tokio runtime the drop moves to the
+/// blocking pool instead of stalling an executor thread.
+struct BlockingDrop(Option<CodexSession>);
+
+impl std::ops::Deref for BlockingDrop {
+    type Target = CodexSession;
+
+    fn deref(&self) -> &CodexSession {
+        self.0.as_ref().expect("the session is present until drop")
+    }
+}
+
+impl Drop for BlockingDrop {
+    fn drop(&mut self) {
+        let Some(session) = self.0.take() else {
+            return;
+        };
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            drop(runtime.spawn_blocking(move || drop(session)));
+        }
     }
 }
 
@@ -559,6 +585,38 @@ mod tests {
                 .expect(handle);
             assert_eq!(error.message, "Codex resume handle has no sessionId");
         }
+    }
+
+    #[tokio::test]
+    async fn dropping_the_last_handle_disposes_off_the_executor_thread() {
+        // A subscriber's captures drop with the provider session, so this
+        // guard reports the thread that ran the final drop.
+        struct Probe(Arc<Mutex<Option<std::thread::ThreadId>>>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                *self.0.lock().unwrap() = Some(std::thread::current().id());
+            }
+        }
+        let dropped_on = Arc::new(Mutex::new(None));
+        let session = primed_session("full-access");
+        let probe = Probe(Arc::clone(&dropped_on));
+        session.subscribe(Arc::new(move |_| {
+            let _ = &probe;
+        }));
+        drop(CodexAgentSession::new(session));
+        let executor = std::thread::current().id();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let thread = loop {
+            if let Some(thread) = *dropped_on.lock().unwrap() {
+                break thread;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "session never dropped"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        assert_ne!(thread, executor);
     }
 
     #[test]
