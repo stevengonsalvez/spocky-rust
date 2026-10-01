@@ -7,14 +7,27 @@ normalization is applied.
 
 ## Boundary
 
-`scripts/phase2/renderer-platform-linux.sh` runs one disposable container from
-the pinned `rust:1.94-bookworm` digest
-`sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55`
-with 2 CPUs, 3 GB memory, and a 1,200 second bound. The repository, the two
-pinned browser PNGs, and the pinned browser comparison JSON are mounted
-read-only. Cargo output lives in two named Docker volumes
-(`spocky-renderer-linux-target`, `spocky-renderer-linux-cargo-home`) because
-the Colima VM shares only `$HOME` with macOS.
+`scripts/phase2/renderer-platform-linux.sh --build-image` builds a derived image
+from `scripts/phase2/renderer-platform-linux.Dockerfile`. The base is the pinned
+`rust:1.94-bookworm` digest
+`sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55`. The
+build installs the apt packages, generates the `en_US.UTF-8` locale, installs the
+Rust `1.94.0` toolchain that the repository `rust-toolchain.toml` pins (the base
+ships `1.94.1`), and builds every locked dependency. This is the only networked
+step. The image is pinned by its local image ID in
+`scripts/phase2/renderer-platform-linux.image-id`
+(`sha256:289345c3127809ad4ecbaa16e7730db7a108cf59b8a3c68f3d8be5888ce001d4`). A
+local image ID is a content digest of the image config, not a registry digest.
+`image-packages.txt` lists every installed package version.
+
+`scripts/phase2/renderer-platform-linux.sh` then runs one disposable container
+from that image with `--network none`, 2 CPUs, 3 GB memory, `--memory-swap 3g`,
+and a 1,200 second bound, and refuses to run if the local image ID differs from
+the pin. The repository, the two pinned browser PNGs, and the pinned browser
+comparison JSON are mounted read-only. The run builds the pilot offline
+(`cargo build --locked --offline`). An earlier version of the runner ran apt and
+let rustup download `1.94.0` on every run. Those downloads are now baked into the
+image.
 
 The environment is Xvfb `1280x800x24` at 96 dpi, no window manager, a private
 D-Bus session with the AT-SPI registry, `en_US.UTF-8`, `GTK_THEME=Adwaita:light`,
@@ -40,9 +53,10 @@ membership is false.
 | `original-repeat-desktop.png` | 91009 | 0.05431467328743619 | 0,0,1280,781 |
 
 The method is complete PNG SHA-256 equality plus
-`sqrt(mean squared RGBA byte difference) / 255`. The candidate hash was
-identical in every run that reached capture after the rendering settings were
-added (runs 3, 5, 6, 7, and 8).
+`sqrt(mean squared RGBA byte difference) / 255`. The candidate PNG,
+`visual.json`, and `atspi.json` from the offline pinned-image run are
+byte-identical to the files committed from the earlier run that downloaded its
+packages (commits `f919db1`, `af5606f`, `e1ea511`).
 
 Observed cause of the largest difference: the Dioxus desktop host adds a GTK
 menu bar (`Window`, `Edit`, `Help`) above the web view. In the screenshot the
@@ -102,23 +116,26 @@ trace, the Tab walk, and the baseline comparison.
 | `renderer-platform-linux/candidate.png` | `a5bede533dce1a6e70fe44f020918b2bc3a80496484802f7fc7578dcda191bfe` |
 | `renderer-platform-linux/visual.json` | `39d85d24834f099cb8627004ba0ce069e4e8a78a26ac30a895d23ba43005dd7b` |
 | `renderer-platform-linux/atspi.json` | `afdc728d2694f3c12d792e1ed8f80da64bb3129a708ef8ce2cccb7689365719c` |
-| `renderer-platform-linux/container.log` | `188ed10fa3a20b5755ebf01ae2a4433cd80b1cf16b968af10681181d8ac97fa7` |
-| `renderer-platform-linux/container-state.json` | `1555babfd1ef08612f09adf5fe162540bfe12b197bf732c6d000a51ded1fa246` |
+| `renderer-platform-linux/container.log` | `a039117f9680b2b28ab281d39c94228e560988870da68b6bfcf0d19f2c311d49` |
+| `renderer-platform-linux/container-state.json` | `9479a14a17c29cb7cf9e045506207eaf60670b53ba17ee6625f71e1fef983e60` |
+| `renderer-platform-linux/image-packages.txt` | `a60bb8190c87f2cc47965ebc24a2dc187318cef27f1aef957d8130032209d981` |
+| `renderer-platform-linux.image-id` (under `scripts/phase2/`) | `0be2aa5196ebb51395400e81f47274151bbb34f4d083c8ff23ea3d3552eadb2f` |
 
 `application.log` is empty (SHA-256 `e3b0c442...b855`), so the application
 wrote nothing to stdout or stderr. The container exited 0 and was not
-OOM-killed.
+OOM-killed. The run took about 45 seconds.
 
-The debug binary SHA-256 differed between runs, so it is not an evidence key.
-The cause is unverified. Runs before the final one recorded an empty difference
-box because of a defect in the comparison script (Pillow `getbbox` on RGBA
-reads only alpha). That defect is fixed and the table above comes from the
-final run.
+The debug binary SHA-256 (`45e108d2...ebc1` in this run) is not an evidence
+key. It differed between earlier runs that used different Cargo home paths.
+The cause of that difference is unverified. The difference box in
+`visual.json` is computed on the RGB channels, because Pillow `getbbox` on RGBA
+reads only alpha and returns an empty box.
 
 Reproduce with:
 
 ```text
 sh scripts/phase2/renderer-platform-linux.test.sh
+scripts/phase2/renderer-platform-linux.sh --build-image
 scripts/phase2/renderer-platform-linux.sh
 ```
 
