@@ -471,6 +471,26 @@ fn embedded_sql_recovers_stale_and_incomplete_owner_records() {
 }
 
 #[test]
+#[cfg(unix)]
+fn embedded_sql_replaces_stale_owner_inode_before_claiming_directory() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let root = TestDir::new();
+    let lock_path = root.0.join(".paseo-hub.lock");
+    fs::write(&lock_path, r#"{"pid":2147483647,"token":"dead-owner"}"#).expect("write stale owner");
+    let stale_inode = fs::metadata(&lock_path).expect("stale metadata").ino();
+
+    let store = EmbeddedSqlStore::open(&root.0).expect("recover stale owner");
+
+    assert_ne!(
+        fs::metadata(&lock_path).expect("current metadata").ino(),
+        stale_inode,
+        "claim must use legacy-compatible exclusive owner-file creation"
+    );
+    drop(store);
+}
+
+#[test]
 fn embedded_sql_rejects_live_owner_record_before_opening_database() {
     let root = TestDir::new();
     let lock_path = root.0.join(".paseo-hub.lock");

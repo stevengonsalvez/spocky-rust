@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -66,19 +66,45 @@ impl DataDirectoryLock {
             guard.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
 
-        let mut owner_file = options.open(data_directory.join(LOCK_FILE))?;
+        let owner_path = data_directory.join(LOCK_FILE);
+        let mut owner_file = loop {
+            let mut owner_options = OpenOptions::new();
+            owner_options.read(true).write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+
+                owner_options.mode(0o600);
+            }
+            match owner_options.open(&owner_path) {
+                Ok(file) => break file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+
+            let mut existing = match OpenOptions::new().read(true).write(true).open(&owner_path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if read_legacy_owner(&mut existing)?
+                .is_some_and(|owner| owner.protocol.is_none() && process_is_running(owner.pid))
+            {
+                return Err(DirectoryLockError::Busy);
+            }
+            drop(existing);
+            match fs::remove_file(&owner_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        };
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
 
             owner_file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
-        if read_legacy_owner(&mut owner_file)?
-            .is_some_and(|owner| owner.protocol.is_none() && process_is_running(owner.pid))
-        {
-            return Err(DirectoryLockError::Busy);
-        }
-
         let owner = LockOwner {
             pid: std::process::id(),
             token: Uuid::new_v4().to_string(),
