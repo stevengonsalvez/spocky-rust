@@ -20,7 +20,7 @@ fi
 
 work=$(gtimeout 30 mktemp -d "${TMPDIR:-/tmp}/spocky-pglite-spike.XXXXXX")
 cleanup() {
-  gtimeout 60 rm -rf "$work"
+  gtimeout 600 rm -rf "$work"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -53,4 +53,6 @@ gtimeout 120 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-hos
   "$raw/node.json" "$raw/rust.json" >"$raw/comparison.json"
 gtimeout 600 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike-control.mjs" \
   "$package" "$work/node-data" "$work/node2-data" "$work/rust-snapshot" "$work" >"$raw/control-fields.json"
+gtimeout 120 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike-wal-decode.mjs" \
+  "$raw/control-fields.json" >"$raw/wal-fields.json"
 cat "$raw/comparison.json"
