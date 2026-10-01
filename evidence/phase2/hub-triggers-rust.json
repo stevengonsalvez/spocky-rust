@@ -17,7 +17,6 @@
     "recoveredAfterExpiry": true,
     "leasedBeforeClaim": true,
     "sameExecution": true,
-    "executionIdIsDurable": true,
     "executionCount": 1,
     "staleReleaseRejected": true,
     "currentReleaseAccepted": true
@@ -29,11 +28,33 @@
     "conflictingTerminalTransition": false,
     "finalStatus": "succeeded",
     "completedAtKept": true,
-    "idleDeadlineSet": true,
+    "idleDeadlineAtMs": 10000,
     "idleDeadlineCleared": true,
     "runStatus": "succeeded",
     "runSucceededTransition": true,
     "runSucceededAgainTransition": false
+  },
+  "identity": {
+    "localOffsetMinutes": 0,
+    "firstRun": {
+      "runId": "00000000-0000-4000-8000-000000000007",
+      "revisionId": "00000000-0000-4000-8000-000000000002",
+      "stepRunIds": [
+        "00000000-0000-4000-8000-000000000008"
+      ],
+      "executionId": "f22588c5-138f-5901-bbb9-0fe01a59d382"
+    },
+    "fanOutRun": {
+      "runId": "00000000-0000-4000-8000-000000000009",
+      "revisionId": "00000000-0000-4000-8000-000000000002",
+      "stepRunIds": [
+        "00000000-0000-4000-8000-00000000000a",
+        "00000000-0000-4000-8000-00000000000b"
+      ],
+      "executionId": "172779e4-9ca7-5df9-84b8-9896ad7c6fa0",
+      "selectedStepRunId": "00000000-0000-4000-8000-00000000000b",
+      "missingOrdinal": "threw: workflow step run not found"
+    }
   },
   "durableExecutionId": {
     "fixed": "a4071e2c-c3ec-5c7a-9c38-8f19dabbf847",
@@ -170,6 +191,14 @@
         "status": 200,
         "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-bom\"}"
       },
+      "doubleBomBody": {
+        "status": 200,
+        "body": "{\"status\":\"accepted\",\"deliveryId\":\"manual-double-bom\"}"
+      },
+      "tripleBomBody": {
+        "status": 400,
+        "body": "{\"error\":\"request body must be valid JSON\"}"
+      },
       "unknownProject": {
         "status": 0,
         "body": "threw: manual project configuration unavailable"
@@ -184,44 +213,156 @@
       }
     },
     "receivedAtGrid": {
-      "2026": 200,
-      "2026-08": 200,
-      "2026-08-06": 200,
-      "2026-08-06T12:00": 200,
-      "2026-08-06T12:00:00": 200,
-      "2026-08-06T12:00Z": 200,
-      "2026-08-06T12:00:00z": 200,
-      "2026-08-06T12:00:00+0100": 200,
-      "2026-08-06T24:00:00Z": 200,
-      "2026-08-06T12:00:00.1234Z": 200,
-      "2026-02-30": 200,
-      "+002026-08-06T00:00:00Z": 200,
-      "-000001-01-01T00:00:00Z": 200,
-      "2026-08-06T12:00:00+23:59": 200,
-      "2026-08-06T12:00:00-00:00": 200,
-      "9999-12-31T23:59:59.999Z": 200,
-      "0000-01-01": 200,
-      "+275760-09-13T00:00:00.000Z": 200,
-      "2026-08-06T12Z": 400,
-      "2026-08-06T12:00:00+01": 400,
-      "2026-08-06T24:00:01Z": 400,
-      "2026-08-06T25:00:00Z": 400,
-      "2026-08-06T12:60:00Z": 400,
-      "2026-08-06T12:00:60Z": 400,
-      "2026-08-06T12:00:00.Z": 400,
-      "2026-02-32": 400,
-      "2026-13-01": 400,
-      "2026-00-10": 400,
-      "2026-08-00": 400,
-      "-000000-01-01T00:00:00Z": 400,
-      "275760-09-13T00:00:00Z": 400,
-      "+275760-09-13T00:00:00.001Z": 400,
-      "2026-08-06T12:00:00 Z": 400,
-      "2026-08-06T12:00:00+24:00": 400,
-      "26-08-06": 400,
-      "": 400,
-      "not-a-date": 400
+      "2026": {
+        "status": 200,
+        "receivedAtMs": 1767225600000
+      },
+      "2026-08": {
+        "status": 200,
+        "receivedAtMs": 1785542400000
+      },
+      "2026-08-06": {
+        "status": 200,
+        "receivedAtMs": 1785974400000
+      },
+      "2026-08-06T12:00": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00:00": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00Z": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00:00z": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "2026-08-06T12:00:00+0100": {
+        "status": 200,
+        "receivedAtMs": 1786014000000
+      },
+      "2026-08-06T24:00:00Z": {
+        "status": 200,
+        "receivedAtMs": 1786060800000
+      },
+      "2026-08-06T12:00:00.1234Z": {
+        "status": 200,
+        "receivedAtMs": 1786017600123
+      },
+      "2026-02-30": {
+        "status": 200,
+        "receivedAtMs": 1772409600000
+      },
+      "+002026-08-06T00:00:00Z": {
+        "status": 200,
+        "receivedAtMs": 1785974400000
+      },
+      "-000001-01-01T00:00:00Z": {
+        "status": 200,
+        "receivedAtMs": -62198755200000
+      },
+      "2026-08-06T12:00:00+23:59": {
+        "status": 200,
+        "receivedAtMs": 1785931260000
+      },
+      "2026-08-06T12:00:00-00:00": {
+        "status": 200,
+        "receivedAtMs": 1786017600000
+      },
+      "9999-12-31T23:59:59.999Z": {
+        "status": 200,
+        "receivedAtMs": 253402300799999
+      },
+      "0000-01-01": {
+        "status": 200,
+        "receivedAtMs": -62167219200000
+      },
+      "+275760-09-13T00:00:00.000Z": {
+        "status": 200,
+        "receivedAtMs": 8640000000000000
+      },
+      "2026-08-06T12Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00+01": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T24:00:01Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T25:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:60:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:60Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00.Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-02-32": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-13-01": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-00-10": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-00": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "-000000-01-01T00:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "275760-09-13T00:00:00Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "+275760-09-13T00:00:00.001Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00 Z": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "2026-08-06T12:00:00+24:00": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "26-08-06": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "": {
+        "status": 400,
+        "receivedAtMs": null
+      },
+      "not-a-date": {
+        "status": 400,
+        "receivedAtMs": null
+      }
     },
+    "omittedReceivedAtIsNow": true,
     "handledAfterDuplicate": 2,
     "handledAfterOtherOrganization": 3,
     "receipts": {
@@ -417,6 +558,30 @@
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
       "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "bomBody": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+    },
+    "doubleBomBody": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
+    },
+    "tripleBomBody": {
+      "status": 400,
+      "contentType": "application/problem+json",
+      "wwwAuthenticate": null,
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
+    },
+    "invalidUtf8InString": {
+      "status": 200,
+      "contentType": "application/json",
+      "wwwAuthenticate": null,
+      "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
     }
   },
   "github": {
@@ -706,6 +871,17 @@
         ],
         "lifecycles": [],
         "dispatchCount": 1
+      },
+      "doubleUtf8Bom": {
+        "responses": [
+          {
+            "status": 400,
+            "body": "{\"error\":\"request body must be valid JSON\"}"
+          }
+        ],
+        "accepts": [],
+        "lifecycles": [],
+        "dispatchCount": 0
       },
       "arrayBody": {
         "responses": [
