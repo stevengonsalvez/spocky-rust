@@ -1083,6 +1083,7 @@
         "cargo clippy --locked -p spocky-crypto --all-targets -- -D warnings",
         "cargo fmt --package spocky-crypto -- --check"
       ],
+      "reviewQueue": "2613a28..f68ba1f queued with the integration reviewer 2026-10-01",
       "recordedBy": "Claude lead, 2026-10-01, coordinator request for next dependency-ready lanes",
       "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
     },
@@ -1151,8 +1152,8 @@
         "DSDK-001 partial (no daemon needed for this deliverable)"
       ],
       "priority": 5,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches",
+      "state": "implementing",
+      "owner": "claude-sonnet-5-5 high, terminal term_7d8450b0, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-cli-offline, launched 2026-10-01 at load 17; scope: command tree, help, version, usage errors and daemon-unreachable exit codes byte-compared with the pinned CLI 0.10.0; identity renames go through one tested mapping table",
       "permittedPaths": [
         "crates/spocky-cli/",
         "scripts/phase4/cli-*",
