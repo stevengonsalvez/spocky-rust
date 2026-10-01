@@ -254,15 +254,6 @@ pub fn read_i16(memory: &[u8], address: u32) -> i16 {
         .map_or(0, |bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
-pub fn read_i64(memory: &[u8], address: u32) -> i64 {
-    let start = address as usize;
-    memory.get(start..start + 8).map_or(0, |bytes| {
-        let mut array = [0_u8; 8];
-        array.copy_from_slice(bytes);
-        i64::from_le_bytes(array)
-    })
-}
-
 pub fn write_bytes(memory: &mut [u8], address: u32, bytes: &[u8]) {
     let start = address as usize;
     if let Some(slot) = memory.get_mut(start..start + bytes.len()) {
