@@ -24,6 +24,10 @@
 //!   history: already primed (a no-op), forced with and without broadcast,
 //!   and an unknown agent.
 //!
+//! - `resume`: `resumeAgentFromPersistence` priming from history, an
+//!   archived agent resumed for history without its working directory,
+//!   and the id, client and availability errors.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves.
@@ -48,15 +52,16 @@ use std::time::Duration;
 
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
-    HydrateTimelineOptions, ProviderDefinition, SubscribeOptions, TurnEventStream,
-    WaitForAgentOptions,
+    HydrateTimelineOptions, ProviderDefinition, ResumeAgentOptions, SubscribeOptions,
+    TurnEventStream, WaitForAgentOptions,
 };
-use spocky_session::agent_projection::to_agent_payload;
+use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
     AbortController, AbortReason, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
-    AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentRunOptions,
-    AgentSession, AgentStreamEvent, BoxFuture, FetchCatalogOptions, ProviderRefreshContext,
-    StreamCallback, Unsubscribe,
+    AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentResumePurpose,
+    AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
+    FetchCatalogOptions, ImportedTimelineEntry, ProviderRefreshContext, StreamCallback,
+    Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::timeline::FetchDirection;
@@ -187,7 +192,7 @@ const MODES: &str = r#"[{"id":"auto","label":"Auto"},{"id":"read-only","label":"
 const CATALOG: &str = r#"{"models":[{"provider":"fake","id":"model-a","label":"A"},{"provider":"fake","id":"model-default","label":"D","isDefault":true}],"modes":[]}"#;
 
 const NODE_SCRIPT: &str = r#"
-const [dist, agentId, unknownId, turnEventsJson, scenarioTurnsJson, errorCasesJson, runtimeInfoJson, persistenceJson, capabilitiesJson, modesJson, catalogJson, cwd, home] = process.argv.slice(1);
+const [dist, agentId, otherId, unknownId, turnEventsJson, scenarioTurnsJson, errorCasesJson, runtimeInfoJson, persistenceJson, capabilitiesJson, modesJson, catalogJson, cwd, home] = process.argv.slice(1);
 if (process.version !== "v22.20.0") {
   throw new Error(`node ${process.version} is not the pinned v22.20.0`);
 }
@@ -199,7 +204,7 @@ const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, wa
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
-  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; }
+  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline; }
   subscribe(callback) { this.listeners.push(callback); return () => {}; }
   emitLater(events, ms) {
     setTimeout(async () => {
@@ -243,7 +248,10 @@ const fakeClient = (calls, spec) => ({
     calls.push(["createSession", config, launchContext ?? null, options ?? null]);
     return new FakeSession(spec, calls);
   },
-  async resumeSession() { throw new Error("unused"); },
+  async resumeSession(handle, overrides, launchContext, options) {
+    calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
+    return new FakeSession(spec, calls);
+  },
   async fetchCatalog(options) { calls.push(["fetchCatalog", options]); return JSON.parse(catalogJson); },
   async isAvailable() {
     if (typeof spec.available === "boolean") return spec.available;
@@ -506,7 +514,52 @@ const hydration = async () => {
   return { steps, subagents: manager.listProviderSubagents(agentId), feed };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration() }));
+const resume = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/resume`, logger);
+  const fakeSpec = spec("fake", { history: scripted.history, initialTimeline: [{ item: { type: "assistant_message", text: "startup row" }, timestamp: "2026-07-12T07:00:00.000Z" }] });
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, fakeSpec), gone: fakeClient(calls, spec("gone", { available: false })) },
+    providerDefinitions: { fake: { enabled: true }, gone: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  const handle = { provider: "fake", sessionId: "sess-r", nativeHandle: "thread-r", metadata: { cwd, model: "model-a", title: "Stored" } };
+  const results = [];
+  results.push(await outcome(async () => toAgentPayload(await manager.resumeAgentFromPersistence(
+    handle,
+    { modeId: "auto" },
+    agentId,
+    {
+      createdAt: new Date(1700000000000),
+      updatedAt: new Date(1700000005000),
+      lastUserMessageAt: new Date(1700000004000),
+      labels: { surface: "workspace" },
+      workspaceId: "wks_9",
+      attention: { requiresAttention: true, attentionReason: "finished", attentionTimestamp: new Date(1700000006000) },
+    },
+    { purpose: "interactive" },
+  ))));
+  results.push(await manager.getTimelineRows(agentId));
+  results.push(await outcome(async () => { await manager.hydrateTimelineFromProvider(agentId); return null; }));
+  await registry.upsert({ id: otherId, provider: "fake", cwd: "/nonexistent/spocky-archived", archivedAt: "2026-07-01T00:00:00.000Z" });
+  results.push(await outcome(async () => toAgentPayload(await manager.resumeAgentFromPersistence(
+    { provider: "fake", sessionId: "sess-a", metadata: { cwd: "/nonexistent/spocky-archived" } },
+    undefined,
+    otherId,
+  ))));
+  results.push(await outcome(async () => (await manager.resumeAgentFromPersistence({ provider: "nope", sessionId: "x", metadata: { cwd } })).id));
+  results.push(await outcome(async () => (await manager.resumeAgentFromPersistence({ provider: "gone", sessionId: "x", metadata: { cwd } })).id));
+  results.push(await outcome(async () => (await manager.resumeAgentFromPersistence(handle, undefined, "not-a-uuid")).id));
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { results, calls, feed, stored: await registry.get(agentId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -538,6 +591,8 @@ struct Spec {
     interrupt: Option<JsValue>,
     /// What `streamHistory()` yields.
     history: Option<JsValue>,
+    /// `session.initialTimeline`: `[{ item, timestamp }]`.
+    initial_timeline: Option<JsValue>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -549,6 +604,7 @@ fn spec(provider: &str) -> Spec {
         response: None,
         interrupt: None,
         history: None,
+        initial_timeline: None,
     }
 }
 
@@ -722,6 +778,22 @@ impl AgentSession for FakeSession {
         }
         Box::pin(async { Ok(None) })
     }
+    fn initial_timeline(&self) -> Option<Vec<ImportedTimelineEntry>> {
+        self.spec.initial_timeline.as_ref().map(|entries| {
+            entries
+                .as_array()
+                .expect("entries")
+                .iter()
+                .map(|entry| ImportedTimelineEntry {
+                    item: entry.get("item").cloned().expect("item"),
+                    timestamp: entry
+                        .get("timestamp")
+                        .and_then(JsValue::as_str)
+                        .map(str::to_owned),
+                })
+                .collect()
+        })
+    }
     fn describe_persistence(&self) -> Option<JsValue> {
         Some(json(PERSISTENCE))
     }
@@ -739,6 +811,19 @@ impl AgentSession for FakeSession {
             .push(JsValue::Array(vec![text("close")]));
         Box::pin(async { Ok(()) })
     }
+}
+
+fn launch_context_value(launch_context: Option<AgentLaunchContext>) -> JsValue {
+    launch_context.map_or(JsValue::Null, |context| {
+        let mut value = JsObject::new();
+        if let Some(agent_id) = context.agent_id {
+            value.insert("agentId", JsValue::String(agent_id));
+        }
+        if let Some(env) = context.env {
+            value.insert("env", JsValue::Object(env));
+        }
+        JsValue::Object(value)
+    })
 }
 
 struct FakeClient {
@@ -759,16 +844,7 @@ impl AgentClient for FakeClient {
         launch_context: Option<AgentLaunchContext>,
         options: Option<AgentCreateSessionOptions>,
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>> {
-        let context = launch_context.map_or(JsValue::Null, |context| {
-            let mut value = JsObject::new();
-            if let Some(agent_id) = context.agent_id {
-                value.insert("agentId", JsValue::String(agent_id));
-            }
-            if let Some(env) = context.env {
-                value.insert("env", JsValue::Object(env));
-            }
-            JsValue::Object(value)
-        });
+        let context = launch_context_value(launch_context);
         let options = options.map_or(JsValue::Null, |options| {
             let mut value = JsObject::new();
             if let Some(persist) = options.persist_session {
@@ -791,12 +867,37 @@ impl AgentClient for FakeClient {
     }
     fn resume_session(
         &self,
-        _handle: JsValue,
-        _overrides: Option<JsValue>,
-        _launch_context: Option<AgentLaunchContext>,
-        _options: Option<spocky_session::agent_sdk::AgentResumeSessionOptions>,
+        handle: JsValue,
+        overrides: Option<JsValue>,
+        launch_context: Option<AgentLaunchContext>,
+        options: Option<spocky_session::agent_sdk::AgentResumeSessionOptions>,
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>> {
-        Box::pin(async { Err(AgentError::new("unused")) })
+        let options = options.map_or(JsValue::Null, |options| {
+            let mut value = JsObject::new();
+            if let Some(purpose) = options.purpose {
+                value.insert(
+                    "purpose",
+                    text(match purpose {
+                        AgentResumePurpose::Interactive => "interactive",
+                        AgentResumePurpose::History => "history",
+                    }),
+                );
+            }
+            JsValue::Object(value)
+        });
+        self.calls.lock().expect("calls").push(JsValue::Array(vec![
+            text("resumeSession"),
+            handle,
+            overrides.unwrap_or(JsValue::Null),
+            launch_context_value(launch_context),
+            options,
+        ]));
+        let session = FakeSession {
+            spec: self.spec.clone(),
+            listeners: Arc::new(Mutex::new(Vec::new())),
+            calls: Arc::clone(&self.calls),
+        };
+        Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
     }
     fn fetch_catalog(
         &self,
@@ -1551,6 +1652,149 @@ async fn hydration_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+/// The resume errors: an unregistered client, an unavailable provider,
+/// and a malformed agent id.
+/// An archived agent resumed for history: its working directory is gone.
+async fn resume_archived(manager: &AgentManager, registry: &AgentStorage) -> JsValue {
+    registry
+        .upsert(object(vec![
+            ("id", text(OTHER_ID)),
+            ("provider", text("fake")),
+            ("cwd", text("/nonexistent/spocky-archived")),
+            ("archivedAt", text("2026-07-01T00:00:00.000Z")),
+        ]))
+        .await
+        .expect("archived record");
+    outcome(
+        manager
+            .resume_agent_from_persistence(
+                object(vec![
+                    ("provider", text("fake")),
+                    ("sessionId", text("sess-a")),
+                    (
+                        "metadata",
+                        object(vec![("cwd", text("/nonexistent/spocky-archived"))]),
+                    ),
+                ]),
+                None,
+                Some(OTHER_ID.to_owned()),
+                ResumeAgentOptions::default(),
+                None,
+            )
+            .await
+            .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+    )
+}
+
+async fn resume_errors(manager: &AgentManager, handle: &JsValue, cwd: &str) -> Vec<JsValue> {
+    let mut results = Vec::new();
+    for (provider, agent_id) in [("nope", None), ("gone", None), ("fake", Some("not-a-uuid"))] {
+        let handle = if provider == "fake" {
+            handle.clone()
+        } else {
+            object(vec![
+                ("provider", text(provider)),
+                ("sessionId", text("x")),
+                ("metadata", object(vec![("cwd", text(cwd))])),
+            ])
+        };
+        results.push(outcome(
+            manager
+                .resume_agent_from_persistence(
+                    handle,
+                    None,
+                    agent_id.map(str::to_owned),
+                    ResumeAgentOptions::default(),
+                    None,
+                )
+                .await
+                .map(|agent| text(&agent.id)),
+        ));
+    }
+    results
+}
+
+async fn resume_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("resume"));
+    let mut fake = spec("fake");
+    fake.history = json(SCENARIO_TURNS).get("history").cloned();
+    fake.initial_timeline = Some(json(
+        r#"[{"item":{"type":"assistant_message","text":"startup row"},"timestamp":"2026-07-12T07:00:00.000Z"}]"#,
+    ));
+    let mut gone = spec("gone");
+    gone.available = Ok(false);
+    let manager = manager_with(
+        &calls,
+        &registry,
+        vec![(fake, enabled()), (gone, enabled())],
+    );
+    let feed = record_feed(&manager);
+    let handle = object(vec![
+        ("provider", text("fake")),
+        ("sessionId", text("sess-r")),
+        ("nativeHandle", text("thread-r")),
+        (
+            "metadata",
+            object(vec![
+                ("cwd", text(cwd)),
+                ("model", text("model-a")),
+                ("title", text("Stored")),
+            ]),
+        ),
+    ]);
+    let mut results = vec![outcome(
+        manager
+            .resume_agent_from_persistence(
+                handle.clone(),
+                Some(object(vec![("modeId", text("auto"))])),
+                Some(AGENT_ID.to_owned()),
+                ResumeAgentOptions {
+                    created_at_millis: Some(1_700_000_000_000),
+                    updated_at_millis: Some(1_700_000_005_000),
+                    last_user_message_at_millis: Some(1_700_000_004_000),
+                    labels: Some(object(vec![("surface", text("workspace"))])),
+                    workspace_id: Some("wks_9".to_owned()),
+                    owner: None,
+                    attention: Some(AgentAttention::Required {
+                        reason: "finished".to_owned(),
+                        timestamp_millis: 1_700_000_006_000,
+                    }),
+                },
+                Some(AgentResumeSessionOptions {
+                    purpose: Some(AgentResumePurpose::Interactive),
+                }),
+            )
+            .await
+            .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+    )];
+    results.push(JsValue::Array(
+        manager.get_timeline_rows(AGENT_ID).expect("rows"),
+    ));
+    results.push(outcome(
+        manager
+            .hydrate_timeline_from_provider(AGENT_ID, HydrateTimelineOptions::default())
+            .await
+            .map(|()| JsValue::Null),
+    ));
+    results.push(resume_archived(&manager, &registry).await);
+    results.extend(resume_errors(&manager, &handle, cwd).await);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "stored",
+            registry.get(AGENT_ID).await.unwrap_or(JsValue::Null),
+        ),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1693,6 +1937,7 @@ async fn scenarios_match_pinned_manager() {
         .arg(&dist)
         .args([
             AGENT_ID,
+            OTHER_ID,
             UNKNOWN_ID,
             TURN_EVENTS,
             SCENARIO_TURNS,
@@ -1721,6 +1966,7 @@ async fn scenarios_match_pinned_manager() {
         ("lifecycle", lifecycle_scenario(&cwd, &rust_home.0).await),
         ("subagents", subagents_scenario(&cwd, &rust_home.0).await),
         ("hydration", hydration_scenario(&cwd, &rust_home.0).await),
+        ("resume", resume_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
