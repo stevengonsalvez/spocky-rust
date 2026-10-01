@@ -16,15 +16,15 @@
 //! | `sha256-<kind>-of-<id class>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of a paired generated id |
 //! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
-//! | `wall-clock-<format>-<n>` | wall clock | the n-th distinct instant of one format inside the side's run window, paired by first appearance |
+//! | `wall-clock-<format>` | wall clock | instants of one format inside the side's run window (never paired: same-millisecond collisions differ between identical runs) |
 //!
 //! A class whose left and right values are identical emits no rule: the value
 //! is not generated per run and must match exactly.
 //!
 //! Discovery fails, which fails the gate, when the sides differ in generated
 //! id count, in the shape at any pairing position, in which derived digests
-//! or short prefixes exist, in the count of wall-clock instants per format, or
-//! in which extracted secrets exist. Any other 64-hex value (for example a content
+//! or short prefixes exist, in which wall-clock formats occur, or in which
+//! extracted secrets exist. Any other 64-hex value (for example a content
 //! hash) is never normalized and must match exactly. Wall-clock values outside
 //! the run window (for example fixed fixture dates) also stay literal.
 
@@ -783,24 +783,25 @@ pub fn value_classes(
                 .collect()
         };
         let (left_values, right_values) = (of(&left_clock), of(&right_clock));
-        if left_values.len() != right_values.len() {
+        // One class per format, not per instant: two original runs differ in
+        // how many instants share a millisecond (G1 self-checks
+        // g1-20261001T161513Z, 8 against 6, and g1-20261001T161957Z, 6
+        // against 7), so pairing instants by appearance fails identical
+        // daemons. A format present on one side only still fails discovery.
+        if left_values.is_empty() || right_values.is_empty() {
             return Err(format!(
-                "wall-clock format {format} count differs: left {} right {}",
+                "wall-clock format {format} occurs on one side only: left {} right {}",
                 left_values.len(),
                 right_values.len()
             ));
         }
-        for (index, (left_value, right_value)) in
-            left_values.into_iter().zip(right_values).enumerate()
-        {
-            classes.push(pair(
-                &format!("wall-clock-{format}-{}", index + 1),
-                NormalizationCategory::WallClock,
-                "wall-clock instant of one format inside the run window, paired by first appearance",
-                left_value,
-                right_value,
-            ));
-        }
+        classes.push(ValueClass {
+            id: format!("wall-clock-{format}"),
+            category: NormalizationCategory::WallClock,
+            reason: "wall-clock instant of one format inside the run window".into(),
+            left: left_values,
+            right: right_values,
+        });
     }
     Ok(classes)
 }
@@ -1347,24 +1348,19 @@ mod tests {
     }
 
     #[test]
-    fn wall_clock_instants_pair_by_first_appearance_per_format() {
+    fn wall_clock_instants_share_one_class_per_format() {
         let early = "2026-10-01T13:51:43.463Z";
         let late = "2026-10-01T13:51:44.001Z";
-        // Same structure: created then updated later on both sides.
         let left = one(format!("c={early} u={late}"));
-        let right = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:46.200Z".into());
-        assert_eq!(equivalent(&left, &right), Ok(true));
-        // Left reuses one instant where right has two: count differs.
-        let reused = one(format!("c={early} u={early}"));
-        assert!(equivalent(&reused, &right).is_err());
-        // Two distinct instants in either order are isomorphic.
-        let swapped = one(format!("c={late} u={early}"));
-        let ordered = one(format!("c={early} u={late}"));
-        assert_eq!(equivalent(&ordered, &swapped), Ok(true));
-        // Reusing the first instant versus the second is a mismatch.
-        let mixed = one(format!("c={early} u={late} again={early}"));
-        let other = one(format!("c={early} u={late} again={late}"));
-        assert_eq!(equivalent(&mixed, &other), Ok(false));
+        // Same-millisecond collisions on one side only must not fail.
+        let collided = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:45.100Z".into());
+        assert_eq!(equivalent(&left, &collided), Ok(true));
+        // A format the other side lacks fails discovery.
+        let seconds = one("c=2026-10-01T13:51:45Z u=2026-10-01T13:51:46Z".into());
+        assert!(equivalent(&left, &seconds).is_err());
+        // Mixed formats on one side against one format on the other fail.
+        let mixed = one(format!("c={early} u=2026-10-01T13:51:46Z"));
+        assert!(equivalent(&left, &mixed).is_err());
     }
 
     #[test]
