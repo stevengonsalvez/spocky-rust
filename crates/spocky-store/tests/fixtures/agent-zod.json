@@ -106,5 +106,17 @@
     "kind": "agent",
     "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"features\":[{\"type\":\"slider\",\"id\":\"f\",\"label\":\"F\",\"value\":1}]}",
     "output": null
+  },
+  {
+    "name": "toolpolicy-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"toolPolicy\":{\"preapproved\":[],\"__proto__\":{}}}}",
+    "output": "{\n  \"id\": \"a\",\n  \"provider\": \"p\",\n  \"cwd\": \"/\",\n  \"createdAt\": \"c\",\n  \"updatedAt\": \"u\",\n  \"labels\": {},\n  \"lastStatus\": \"closed\",\n  \"config\": {\n    \"toolPolicy\": {\n      \"preapproved\": []\n    }\n  }\n}"
+  },
+  {
+    "name": "toolpolicy-entry-proto",
+    "kind": "agent",
+    "input": "{\"id\":\"a\",\"provider\":\"p\",\"cwd\":\"/\",\"createdAt\":\"c\",\"updatedAt\":\"u\",\"config\":{\"toolPolicy\":{\"preapproved\":[{\"kind\":\"mcp\",\"server\":\"s\",\"tool\":\"t\",\"__proto__\":{\"x\":1}}]}}}",
+    "output": "{\n  \"id\": \"a\",\n  \"provider\": \"p\",\n  \"cwd\": \"/\",\n  \"createdAt\": \"c\",\n  \"updatedAt\": \"u\",\n  \"labels\": {},\n  \"lastStatus\": \"closed\",\n  \"config\": {\n    \"toolPolicy\": {\n      \"preapproved\": [\n        {\n          \"kind\": \"mcp\",\n          \"server\": \"s\",\n          \"tool\": \"t\"\n        }\n      ]\n    }\n  }\n}"
   }
 ]
