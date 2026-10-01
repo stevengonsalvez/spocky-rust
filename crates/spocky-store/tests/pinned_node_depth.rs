@@ -3,8 +3,9 @@
 //! between 3,000 and 5,000 levels on node 22.20.0), so pinned Paseo must still
 //! read such a record back. `JSON.parse` in node 22 is iterative.
 //!
-//! Gated on `SPOCKY_PINNED_NODE`, the path of the pinned node 22.20.0 binary.
-//! The lane acceptance command sets it, so the gate always runs this test.
+//! Needs `SPOCKY_PINNED_NODE`, the path of the pinned node 22.20.0 binary,
+//! which the lane acceptance command sets. Without it the test FAILS; set
+//! `SPOCKY_ALLOW_SKIP=1` to skip it explicitly outside the gate.
 
 use std::fs;
 use std::path::PathBuf;
@@ -19,7 +20,11 @@ const DEPTH: usize = 10_000;
 #[test]
 fn pinned_node_reads_a_rust_written_10k_deep_record() {
     let Some(node) = std::env::var_os("SPOCKY_PINNED_NODE") else {
-        eprintln!("SKIPPED: set SPOCKY_PINNED_NODE to the pinned node 22.20.0 binary");
+        assert!(
+            std::env::var_os("SPOCKY_ALLOW_SKIP").is_some(),
+            "set SPOCKY_PINNED_NODE to the pinned node 22.20.0 binary (or SPOCKY_ALLOW_SKIP=1)"
+        );
+        eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: pinned node check not run");
         return;
     };
     let version = Command::new(&node)
@@ -55,7 +60,13 @@ fn pinned_node_reads_a_rust_written_10k_deep_record() {
         let depth = 0;\
         for (let value = record.persistence.nativeHandle; Array.isArray(value); value = value[0]) depth += 1;\
         process.stdout.write(String(depth));";
-    let output = Command::new("gtimeout")
+    // `gtimeout` on macOS with coreutils, else `timeout`.
+    let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
+        "gtimeout"
+    } else {
+        "timeout"
+    };
+    let output = Command::new(timeout)
         .args(["--kill-after=5", "60"])
         .arg(&node)
         .args(["-e", script])
