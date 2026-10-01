@@ -68,7 +68,15 @@ waited=0
 until mkdir "$lock" 2>/dev/null; do
   owner=$(cat "$lock/pid" 2>/dev/null || true)
   if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-    rm -rf "$lock"
+    # Move first so a lock another process creates meanwhile is never removed.
+    stale=$lock.stale.$$
+    if mv "$lock" "$stale" 2>/dev/null; then
+      if [ "$(cat "$stale/pid" 2>/dev/null || true)" = "$owner" ]; then
+        rm -rf "$stale"
+      else
+        mv "$stale" "$lock" 2>/dev/null || true
+      fi
+    fi
     continue
   fi
   [ "$waited" -lt 3600 ] || p3_fail "build lock $lock still held after 3600 s by PID ${owner:-unknown}"
