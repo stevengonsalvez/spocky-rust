@@ -2,7 +2,9 @@
 //! `agent/agent-timeline-content.ts`: tool-call shell output, failed shell
 //! error content, and plain-text detail text are cut to 64 Ki UTF-16 units.
 
-use spocky_store::js_value::{JsObject, JsValue};
+use spocky_store::js_value::{JsObject, JsValue, stringify};
+
+use crate::agent_sdk::AgentError;
 
 use crate::js::spread;
 use crate::text::{slice_utf16, utf16_len};
@@ -10,6 +12,34 @@ use crate::timeline::JsTypeError;
 
 /// `TOOL_CALL_CONTENT_MAX_LENGTH`.
 pub const TOOL_CALL_CONTENT_MAX_LENGTH: usize = 64 * 1024;
+
+/// `PLUGIN_TIMELINE_DATA_MAX_BYTES`.
+pub const PLUGIN_TIMELINE_DATA_MAX_BYTES: usize = 64 * 1024;
+
+/// `assertPluginTimelineDataSize`: the UTF-8 length of `JSON.stringify(data)`
+/// may not exceed 64 KiB.
+///
+/// # Errors
+///
+/// Returns the baseline's `Error` for oversized data, and Node's `TypeError`
+/// from `Buffer.byteLength` when `data` is `undefined` (`JSON.stringify`
+/// returns no string).
+pub fn assert_plugin_timeline_data_size(data: &JsValue) -> Result<(), AgentError> {
+    if matches!(data, JsValue::Undefined) {
+        return Err(AgentError {
+            name: "TypeError".to_owned(),
+            message: "The \"string\" argument must be of type string or an instance of \
+                      Buffer or ArrayBuffer. Received undefined"
+                .to_owned(),
+        });
+    }
+    if stringify(data).len() > PLUGIN_TIMELINE_DATA_MAX_BYTES {
+        return Err(AgentError::new(format!(
+            "Plugin timeline item data exceeds {PLUGIN_TIMELINE_DATA_MAX_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
 
 /// `item.detail.type`: reading `type` of a missing or `null` detail throws.
 fn detail_type(item: &JsValue) -> Result<Option<&str>, JsTypeError> {
