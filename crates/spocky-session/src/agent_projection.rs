@@ -251,17 +251,7 @@ pub fn to_stored_agent_record(
         sanitize_persistence_handle(agent.persistence.as_ref()),
     );
     record.insert("lastError", optional_text(agent.last_error.as_ref()));
-    let (requires, reason, timestamp) = match &agent.attention {
-        AgentAttention::None => (false, JsValue::Null, JsValue::Null),
-        AgentAttention::Required {
-            reason,
-            timestamp_millis,
-        } => (
-            true,
-            text(reason),
-            text(&iso_from_millis(*timestamp_millis)),
-        ),
-    };
+    let (requires, reason, timestamp) = attention_fields(&agent.attention);
     record.insert("requiresAttention", JsValue::Bool(requires));
     record.insert("attentionReason", reason);
     record.insert("attentionTimestamp", timestamp);
@@ -317,4 +307,277 @@ pub fn apply_snapshot_record(
         object.insert("archivedAt", archived_at.clone());
     }
     Ok(record)
+}
+
+/// The extra live-agent fields `toAgentPayload` reads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentPayloadView {
+    pub record: ManagedAgentRecordView,
+    /// `agent.capabilities` (`AgentCapabilityFlags`).
+    pub capabilities: JsValue,
+    /// `agent.availableModes` (`AgentMode[]`).
+    pub available_modes: Vec<JsValue>,
+    /// `agent.pendingPermissions` values in map order.
+    pub pending_permissions: Vec<JsValue>,
+    pub active_turn_id: Option<String>,
+    pub active_turn_started_at_millis: Option<i64>,
+    /// `agent.lastUsage` (`AgentUsage`).
+    pub last_usage: Option<JsValue>,
+}
+
+/// `normalizeThinkingOptionId`.
+fn normalize_thinking_option_id(value: Option<&JsValue>) -> JsValue {
+    value
+        .and_then(JsValue::as_str)
+        .map(crate::text::js_trim)
+        .filter(|trimmed| !trimmed.is_empty())
+        .map_or(JsValue::Null, text)
+}
+
+/// `resolveEffectiveThinkingOptionId`.
+fn resolve_effective_thinking_option_id(runtime_info: &JsValue, configured: &JsValue) -> JsValue {
+    match runtime_info.get("thinkingOptionId") {
+        Some(value) => normalize_thinking_option_id(Some(value)),
+        None => normalize_thinking_option_id(Some(configured)),
+    }
+}
+
+/// `sanitizeMetadataArray`.
+fn sanitize_metadata_array(value: Option<&JsValue>) -> JsValue {
+    let Some(JsValue::Array(items)) = value else {
+        return JsValue::Undefined;
+    };
+    let sanitized: Vec<JsValue> = items
+        .iter()
+        .filter_map(|item| sanitize_metadata(Some(item)))
+        .collect();
+    if sanitized.is_empty() {
+        JsValue::Undefined
+    } else {
+        JsValue::Array(sanitized)
+    }
+}
+
+/// `sanitizePendingPermissions`: `Object.assign({}, request, { input,
+/// suggestions, actions, metadata })`. Non-array `actions` throw the
+/// baseline's `TypeError` from `request.actions?.map`.
+fn sanitize_pending_permissions(pending: &[JsValue]) -> Result<JsValue, JsTypeError> {
+    pending
+        .iter()
+        .map(|request| {
+            let mut copy = spread(Some(request));
+            copy.insert(
+                "input",
+                sanitize_metadata(request.get("input")).unwrap_or(JsValue::Undefined),
+            );
+            copy.insert(
+                "suggestions",
+                sanitize_metadata_array(request.get("suggestions")),
+            );
+            // `request.actions?.map(...)`: only nullish skips the map.
+            let actions = match request.get("actions") {
+                None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Undefined,
+                Some(JsValue::Array(actions)) => JsValue::Array(
+                    actions
+                        .iter()
+                        .map(|action| JsValue::Object(spread(Some(action))))
+                        .collect(),
+                ),
+                Some(_) => {
+                    return Err(JsTypeError(
+                        "request.actions?.map is not a function".to_owned(),
+                    ));
+                }
+            };
+            copy.insert("actions", actions);
+            copy.insert(
+                "metadata",
+                sanitize_metadata(request.get("metadata")).unwrap_or(JsValue::Undefined),
+            );
+            Ok(JsValue::Object(copy))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(JsValue::Array)
+}
+
+/// `projectPersistenceHandleForWire`: the sanitized handle without
+/// `metadata.mcpServers`, and without `metadata` once that empties it.
+fn project_persistence_handle_for_wire(handle: Option<&JsValue>) -> JsValue {
+    let projected = sanitize_persistence_handle(handle);
+    let JsValue::Object(object) = &projected else {
+        return projected;
+    };
+    let Some(JsValue::Object(metadata)) = object.get("metadata") else {
+        return projected;
+    };
+    let mut kept = JsObject::new();
+    for (key, value) in metadata.iter() {
+        if key != "mcpServers" {
+            kept.insert(key, value.clone());
+        }
+    }
+    let mut out = JsObject::new();
+    for (key, value) in object.iter() {
+        if key != "metadata" {
+            out.insert(key, value.clone());
+        } else if !kept.is_empty() {
+            out.insert(key, JsValue::Object(kept.clone()));
+        }
+    }
+    JsValue::Object(out)
+}
+
+/// `sanitizeUsage`: finite numeric fields in fixed order; any field that is
+/// neither a finite number nor nullish voids the whole usage.
+fn sanitize_usage(value: Option<&JsValue>) -> Option<JsValue> {
+    let sanitized = value
+        .and_then(sanitize_optional_json)
+        .filter(JsValue::is_object)?;
+    let mut result = JsObject::new();
+    for field in [
+        "inputTokens",
+        "cachedInputTokens",
+        "outputTokens",
+        "totalCostUsd",
+        "contextWindowMaxTokens",
+        "contextWindowUsedTokens",
+    ] {
+        match sanitized.get(field) {
+            Some(JsValue::Number(number)) if number.is_finite() => {
+                result.insert(field, JsValue::Number(*number));
+            }
+            None | Some(JsValue::Null) => {}
+            Some(_) => return None,
+        }
+    }
+    (!result.is_empty()).then_some(JsValue::Object(result))
+}
+
+/// `requiresAttention`, `attentionReason`, `attentionTimestamp`.
+fn attention_fields(attention: &AgentAttention) -> (bool, JsValue, JsValue) {
+    match attention {
+        AgentAttention::None => (false, JsValue::Null, JsValue::Null),
+        AgentAttention::Required {
+            reason,
+            timestamp_millis,
+        } => (
+            true,
+            text(reason),
+            text(&iso_from_millis(*timestamp_millis)),
+        ),
+    }
+}
+
+/// `value ?? null`.
+fn nullish_to_null(value: Option<&JsValue>) -> JsValue {
+    match value {
+        None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Null,
+        Some(value) => value.clone(),
+    }
+}
+
+/// `activeTurn`: `{ turnId, startedAt }` while a turn id is set.
+fn active_turn(agent: &AgentPayloadView) -> JsValue {
+    match agent.active_turn_id.as_ref().filter(|id| !id.is_empty()) {
+        None => JsValue::Null,
+        Some(turn_id) => {
+            let mut active = JsObject::new();
+            active.insert("turnId", text(turn_id));
+            active.insert(
+                "startedAt",
+                agent
+                    .active_turn_started_at_millis
+                    .map_or(JsValue::Null, |millis| text(&iso_from_millis(millis))),
+            );
+            JsValue::Object(active)
+        }
+    }
+}
+
+/// `toAgentPayload(agent, { title })`.
+///
+/// # Errors
+///
+/// Returns the baseline's [`JsTypeError`] for a pending permission whose
+/// `actions` is not an array.
+pub fn to_agent_payload(
+    agent: &AgentPayloadView,
+    title: Option<&str>,
+) -> Result<JsValue, JsTypeError> {
+    let record = &agent.record;
+    let runtime_info = sanitize_runtime_info(record.runtime_info.as_ref());
+    let thinking_option_id = nullish_to_null(record.config.get("thinkingOptionId"));
+    let effective = resolve_effective_thinking_option_id(&runtime_info, &thinking_option_id);
+    let mut payload = JsObject::new();
+    payload.insert("id", text(&record.id));
+    payload.insert("provider", text(&record.provider));
+    payload.insert("cwd", text(&record.cwd));
+    if let Some(workspace_id) = record.workspace_id.as_ref().filter(|id| !id.is_empty()) {
+        payload.insert("workspaceId", text(workspace_id));
+    }
+    payload.insert("model", nullish_to_null(record.config.get("model")));
+    payload.insert("thinkingOptionId", thinking_option_id);
+    payload.insert("effectiveThinkingOptionId", effective);
+    if runtime_info.is_object() {
+        payload.insert("runtimeInfo", runtime_info);
+    }
+    payload.insert(
+        "createdAt",
+        text(&iso_from_millis(record.created_at_millis)),
+    );
+    payload.insert(
+        "updatedAt",
+        text(&iso_from_millis(record.updated_at_millis)),
+    );
+    payload.insert(
+        "lastUserMessageAt",
+        record
+            .last_user_message_at_millis
+            .map_or(JsValue::Null, |millis| text(&iso_from_millis(millis))),
+    );
+    payload.insert("status", text(&record.lifecycle));
+    payload.insert("activeTurn", active_turn(agent));
+    payload.insert(
+        "capabilities",
+        JsValue::Object(spread(Some(&agent.capabilities))),
+    );
+    payload.insert(
+        "currentModeId",
+        record
+            .current_mode_id
+            .as_deref()
+            .map_or(JsValue::Null, text),
+    );
+    payload.insert(
+        "availableModes",
+        JsValue::Array(
+            agent
+                .available_modes
+                .iter()
+                .map(|mode| JsValue::Object(spread(Some(mode))))
+                .collect(),
+        ),
+    );
+    payload.insert("features", normalize_features(record.features.as_ref()));
+    payload.insert(
+        "pendingPermissions",
+        sanitize_pending_permissions(&agent.pending_permissions)?,
+    );
+    payload.insert(
+        "persistence",
+        project_persistence_handle_for_wire(record.persistence.as_ref()),
+    );
+    payload.insert("title", title.map_or(JsValue::Null, text));
+    payload.insert("labels", record.labels.clone());
+    if let Some(usage) = sanitize_usage(agent.last_usage.as_ref()) {
+        payload.insert("lastUsage", usage);
+    }
+    if let Some(error) = &record.last_error {
+        payload.insert("lastError", text(error));
+    }
+    let (requires, reason, timestamp) = attention_fields(&record.attention);
+    payload.insert("requiresAttention", JsValue::Bool(requires));
+    payload.insert("attentionReason", reason);
+    payload.insert("attentionTimestamp", timestamp);
+    Ok(JsValue::Object(payload))
 }
