@@ -19,7 +19,7 @@ pub use cli_authorizations::{
     AccessFailure, AuthorizationStatus, BrowserAccess, CLIENT_ADDRESS_HEADER,
     CliAuthorizationRecord, CliAuthorizationStore, CliAuthorizations, Clock, CredentialInput,
     DecisionAccess, DecisionOutcome, HandlerError, MemoryCliAuthorizations, OrganizationAccess,
-    PollOutcome, RandomBytes, StartInput, UuidSource, normalize_user_code,
+    PollOutcome, RandomBytes, StartInput, UuidSource, normalize_user_code, os_random_bytes,
 };
 pub use contracts::{
     BundleFile, DecisionBody, DispatchManualRunInput, InstallConfigurationInput, TriggerYamlInput,
