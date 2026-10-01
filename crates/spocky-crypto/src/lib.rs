@@ -1,3 +1,4 @@
+pub mod js_json;
 pub mod js_string;
 
 use std::{error::Error, fmt};
