@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use spocky_contracts::js::js_string;
 use spocky_store::js_value::{JsObject, JsValue};
 use tokio::sync::OnceCell;
 
@@ -139,6 +140,7 @@ impl AgentManager {
         }
         let closed = {
             let mut state = self.lock();
+            self.cancel_running_provider_subagents(&mut state, agent_id);
             self.prepare_agent_for_closure(&mut state, agent_id, "agent closed")
         };
         let Some(closed) = closed else {
@@ -152,6 +154,32 @@ impl AgentManager {
             self.emit_detached_state_locked(&mut state, closed);
         }
         persist
+    }
+
+    /// `cancelRunningProviderSubagents(parentAgentId)`: marks each running
+    /// provider child canceled and publishes the update.
+    fn cancel_running_provider_subagents(&self, state: &mut State, parent_agent_id: &str) {
+        for subagent in state.provider_subagents.list(parent_agent_id) {
+            if subagent.get("status").and_then(JsValue::as_str) != Some("running") {
+                continue;
+            }
+            let mut cancel = JsObject::new();
+            cancel.insert("type", JsValue::String("upsert".to_owned()));
+            cancel.insert(
+                "id",
+                subagent.get("id").cloned().unwrap_or(JsValue::Undefined),
+            );
+            cancel.insert("status", JsValue::String("canceled".to_owned()));
+            let provider = js_string(subagent.get("provider"));
+            // An upsert never touches a timeline item, so it cannot fail.
+            if let Ok(event) =
+                state
+                    .provider_subagents
+                    .apply(parent_agent_id, &provider, &JsValue::Object(cancel))
+            {
+                self.dispatch(state, AgentManagerEvent::ProviderSubagent(event));
+            }
+        }
     }
 
     /// `prepareAgentForClosure(agent, cancelReason)`: removes the agent,
