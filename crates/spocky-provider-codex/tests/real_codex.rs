@@ -16,18 +16,6 @@ use support::{
 
 const WAIT: Duration = Duration::from_secs(90);
 
-fn pinned_codex_on_path() {
-    let output = Command::new("codex")
-        .arg("--version")
-        .output()
-        .expect("codex on PATH");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        support::PINNED_CODEX_VERSION,
-        "tests require the pinned Codex binary"
-    );
-}
-
 fn compact(value: &Value) -> String {
     serde_json::to_string(value).unwrap()
 }
@@ -41,13 +29,15 @@ fn message(id: &str, deltas: &[&str]) -> Reply {
 
 #[test]
 fn happy_path_turns_emit_paseo_events_in_paseo_key_order() {
-    pinned_codex_on_path();
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
     let stub = ResponsesStub::start(vec![
         message("msg_stub_1", &["Hello", " from stub."]),
         message("msg_stub_2", &["Second", " reply."]),
     ]);
     let root = DisposableRoot::new("happy");
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, &codex);
     let gates = provider.gates();
     assert!(gates.goals_enabled && gates.auto_review_enabled);
 
@@ -238,10 +228,12 @@ fn assert_second_turn_reuses_the_loaded_thread(
 
 #[test]
 fn interrupt_cancels_the_active_turn() {
-    pinned_codex_on_path();
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
     let stub = ResponsesStub::start(vec![Reply::Hold]);
     let root = DisposableRoot::new("interrupt");
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, &codex);
     let session = provider
         .create_session(manager_full_access_config(&root, &provider), None, false)
         .expect("create session");
@@ -276,10 +268,12 @@ fn interrupt_cancels_the_active_turn() {
 
 #[test]
 fn app_server_exit_mid_turn_fails_the_turn() {
-    pinned_codex_on_path();
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
     let stub = ResponsesStub::start(vec![Reply::Hold]);
     let root = DisposableRoot::new("exit");
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, &codex);
     let session = provider
         .create_session(manager_full_access_config(&root, &provider), None, false)
         .expect("create session");
@@ -319,10 +313,12 @@ fn turn_start_without_a_model_is_rejected_by_codex() {
     // Without the agent manager's catalog model the collaboration mode
     // settings carry no `model`; pinned Paseo sends the same params and
     // Codex 0.159.0 rejects them.
-    pinned_codex_on_path();
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
     let stub = ResponsesStub::start(vec![]);
     let root = DisposableRoot::new("no-model");
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, &codex);
     let session = provider
         .create_session(full_access_config(&root), None, false)
         .expect("create session");
@@ -340,10 +336,12 @@ fn turn_start_without_a_model_is_rejected_by_codex() {
 
 #[test]
 fn dropping_an_unclosed_session_stops_its_app_server() {
-    pinned_codex_on_path();
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
     let stub = ResponsesStub::start(vec![]);
     let root = DisposableRoot::new("drop");
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, &codex);
     let session = provider
         .create_session(full_access_config(&root), None, false)
         .expect("create session");
@@ -351,4 +349,35 @@ fn dropping_an_unclosed_session_stops_its_app_server() {
     assert!(support::process_alive(pid));
     drop(session);
     assert!(!support::process_alive(pid), "codex app-server leaked");
+}
+
+#[test]
+fn a_subscriber_can_interrupt_from_inside_turn_started() {
+    // Subscribers run off the stdout reader, so one that calls back into the
+    // session (here `interrupt`, which waits on a Codex response) completes.
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
+    let stub = ResponsesStub::start(vec![Reply::Hold]);
+    let root = DisposableRoot::new("reentrant");
+    let provider = stub_provider(&root, &stub, &codex);
+    let session = provider
+        .create_session(manager_full_access_config(&root, &provider), None, false)
+        .expect("create session");
+    session.runtime_info().expect("runtime info");
+    let events = Events::attach(&session);
+    let interrupted = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let reentrant = session.clone();
+    let result = std::sync::Arc::clone(&interrupted);
+    session.subscribe(std::sync::Arc::new(move |event: &Value| {
+        if event["type"] == "turn_started" {
+            *result.lock().unwrap() = Some(reentrant.interrupt());
+        }
+    }));
+    session
+        .start_turn(&Prompt::Text("Wait".to_owned()), &RunOptions::default())
+        .expect("start turn");
+    events.wait_for("turn_canceled", WAIT);
+    assert_eq!(*interrupted.lock().unwrap(), Some(Ok(())));
+    session.close().expect("close");
 }
