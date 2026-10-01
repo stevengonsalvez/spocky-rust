@@ -131,3 +131,89 @@ pub fn parse_frame<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, FrameE
 pub fn frame_text<T: Serialize>(frame: &T) -> Result<String, serde_json::Error> {
     serde_json::to_string(frame).map(|text| js_wire_text(&text))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{WsInbound, parse_frame};
+    use crate::js_value::stringify;
+    use crate::session::SessionInbound;
+    use crate::ws::WsControlInbound;
+
+    const DEPTH: usize = 100_000;
+
+    fn nested() -> String {
+        format!("{}1{}", "[".repeat(DEPTH), "]".repeat(DEPTH))
+    }
+
+    // JSON.parse accepts this depth and zod's z.unknown() passthrough keeps
+    // the value (node v22.20.0); serde visitors would overflow the stack.
+    #[test]
+    fn deep_passthrough_value_parses_like_json_parse() {
+        let deep = nested();
+        let text = format!(
+            r#"{{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{{"x":{deep},"voice":true}}}}"#
+        );
+        let Ok(WsInbound::Control(WsControlInbound::Hello(hello))) = parse_frame(&text) else {
+            panic!("deep hello must parse");
+        };
+        let capabilities = hello.capabilities.expect("capabilities");
+        assert_eq!(capabilities.flags.voice, Some(true));
+        let extra = capabilities.extra.get("x").expect("extra kept");
+        assert_eq!(stringify(extra.as_value()), deep);
+    }
+
+    // zod strips unknown keys without reading them, at any depth.
+    #[test]
+    fn deep_unknown_keys_are_skipped() {
+        let deep = nested();
+        let text = format!(
+            r#"{{"type":"session","message":{{"type":"send_agent_message_request","junk":{deep},"requestId":"r","agentId":"a","text":"t","attachments":[{{"type":"uploaded_file","id":"f","fileName":"n","mimeType":"m","size":1,"path":"/p","junk":{deep}}}]}}}}"#
+        );
+        let Ok(WsInbound::Session(message)) = parse_frame::<WsInbound>(&text) else {
+            panic!("deep unknown keys must parse");
+        };
+        let SessionInbound::SendAgentMessage(request) = *message else {
+            panic!("send_agent_message_request");
+        };
+        assert_eq!(request.attachments.expect("attachments").0.len(), 1);
+    }
+
+    #[test]
+    fn deep_record_values_parse_inside_tagged_unions() {
+        let deep = nested();
+        let text = format!(
+            r#"{{"type":"session","message":{{"type":"agent.create.request","requestId":"r","config":{{"provider":"codex","cwd":"/c","featureValues":{{"f":{deep}}}}}}}}}"#
+        );
+        let Ok(WsInbound::Session(message)) = parse_frame::<WsInbound>(&text) else {
+            panic!("deep z.unknown() record value must parse");
+        };
+        let SessionInbound::AgentCreate(request) = *message else {
+            panic!("agent.create.request");
+        };
+        let values = request.config.feature_values.expect("featureValues");
+        assert_eq!(stringify(values.get("f").expect("f").as_value()), deep);
+    }
+
+    #[test]
+    fn lone_surrogates_and_overflowing_numbers_parse_like_json_parse() {
+        let text = r#"{"type":"hello","clientId":"\ud800","clientType":"cli","protocolVersion":1,"capabilities":{"n":1e400,"s":"\udfff"}}"#;
+        let Ok(WsInbound::Control(WsControlInbound::Hello(hello))) = parse_frame(text) else {
+            panic!("hello must parse");
+        };
+        let extra = hello.capabilities.expect("capabilities").extra;
+        assert_eq!(
+            extra.get("n").and_then(|value| value.as_value().as_f64()),
+            Some(f64::INFINITY)
+        );
+        assert_eq!(
+            stringify(extra.get("s").expect("s").as_value()),
+            r#""\udfff""#
+        );
+        assert!(
+            parse_frame::<WsInbound>(
+                r#"{"type":"hello","clientId":"\ud8","clientType":"cli","protocolVersion":1}"#
+            )
+            .is_err()
+        );
+    }
+}
