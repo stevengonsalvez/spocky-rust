@@ -164,7 +164,7 @@ impl AgentSession for CodexAgentSession {
         Box::new(move || session.unsubscribe(id))
     }
 
-    fn stream_history(&self) -> Box<dyn AgentEventStream + '_> {
+    fn stream_history(&self) -> Box<dyn AgentEventStream> {
         Box::new(HistoryStream(self.session.stream_history().into_iter()))
     }
 

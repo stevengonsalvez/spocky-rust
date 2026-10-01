@@ -10,6 +10,16 @@
 //! interface members (`member?()`) are methods that return `None` when the
 //! provider does not implement them; the default implementations do that.
 //! A rejected promise or a thrown `Error` is an [`AgentError`].
+//!
+//! Error channels: asynchronous members return [`AgentResult`]. Synchronous
+//! members are infallible except [`AgentSession::get_pending_permissions`],
+//! whose throw the baseline catches (`refreshSessionState` then clears the
+//! pending permissions). A throw from another synchronous member escapes the
+//! baseline manager as a failure of the surrounding operation, and no Paseo
+//! provider throws there.
+//!
+//! Capability flags stay one `JsValue` object (named flags plus the index
+//! signature) until a typed form with an extra-key object is needed.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -393,12 +403,20 @@ pub struct ImportedProviderSession {
 /// Stops a subscription; the function `subscribe` returns.
 pub type Unsubscribe = Box<dyn FnOnce() + Send>;
 
-/// A `subscribe` callback. Providers call it synchronously as events occur,
-/// in order.
+/// A `subscribe` callback.
+///
+/// Delivery contract: a provider delivers each session's events in emission
+/// order, one at a time, on any thread; delivery may happen after the member
+/// that caused the event has returned (a provider may queue events on a
+/// dispatcher thread instead of calling back inside the emitting code). The
+/// callback must not block: the manager only stages or queues the event. A
+/// provider must catch a panic from the callback (`catch_unwind`) so one
+/// subscriber cannot stop delivery to the others.
 pub type StreamCallback = Arc<dyn Fn(AgentStreamEvent) + Send + Sync>;
 
-/// `AsyncGenerator<AgentStreamEvent>` of `streamHistory`.
-pub trait AgentEventStream: Send {
+/// `AsyncGenerator<AgentStreamEvent>` of `streamHistory`. It owns its state
+/// so it can move into a spawned task.
+pub trait AgentEventStream: Send + 'static {
     /// `next()`: `None` when the generator is done.
     fn next(&mut self) -> BoxFuture<'_, Option<AgentResult<AgentStreamEvent>>>;
 }
@@ -441,18 +459,19 @@ pub trait AgentSession: Send + Sync {
         prompt: AgentPromptInput,
         options: Option<AgentRunOptions>,
     ) -> BoxFuture<'_, AgentResult<String>>;
-    /// `steerActiveTurn?(prompt, options)`.
+    /// `steerActiveTurn?(prompt, options)`. Borrowed, so a caller keeps the
+    /// prompt when the member is absent.
     fn steer_active_turn(
         &self,
-        _prompt: AgentPromptInput,
-        _options: SteerActiveTurnOptions,
+        _prompt: &AgentPromptInput,
+        _options: &SteerActiveTurnOptions,
     ) -> Option<BoxFuture<'_, AgentResult<SteerResult>>> {
         None
     }
-    /// `subscribe(callback)`.
+    /// `subscribe(callback)`, under the [`StreamCallback`] delivery contract.
     fn subscribe(&self, callback: StreamCallback) -> Unsubscribe;
     /// `streamHistory()`.
-    fn stream_history(&self) -> Box<dyn AgentEventStream + '_>;
+    fn stream_history(&self) -> Box<dyn AgentEventStream>;
     /// `getRuntimeInfo()`, resolving `AgentRuntimeInfo`.
     fn get_runtime_info(&self) -> BoxFuture<'_, AgentResult<JsValue>>;
     /// `getAvailableModes()`, resolving `AgentMode[]`.
