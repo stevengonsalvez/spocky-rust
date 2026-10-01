@@ -1163,8 +1163,8 @@
         "spocky-contracts on main"
       ],
       "priority": 4,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches (Opus)",
+      "state": "implementing",
+      "owner": "claude-opus-5-5 high, terminal term_d9d39c88-95c1-489c-9e4b-e424e67aa528, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-xterm-core, launched 2026-10-01 on 8cef85f",
       "permittedPaths": [
         "crates/spocky-xterm/",
         "scripts/phase4/xterm-*",
