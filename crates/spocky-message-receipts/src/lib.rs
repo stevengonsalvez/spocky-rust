@@ -89,7 +89,13 @@ impl MessageReceipts {
     }
 
     /// `send(input)`: sends of one `(agent_id, message_id)` on this instance
-    /// run one at a time in call order, whatever the previous outcome.
+    /// run one at a time, whatever the previous outcome.
+    ///
+    /// The baseline queues a send when `send` is called; this future joins
+    /// the queue when it is first polled, so call order equals queue order
+    /// only for futures polled in call order (as `tokio::join!` does).
+    /// Queues are per instance: two instances on one directory can both
+    /// deliver the same message, as in the baseline.
     ///
     /// # Errors
     ///
@@ -152,11 +158,15 @@ impl MessageReceipts {
     }
 }
 
-/// Runs blocking filesystem work off the async executor.
+/// Runs blocking filesystem work off the async executor. A panic in the work
+/// resumes here; a task cancelled by runtime shutdown panics with the reason.
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
     match tokio::task::spawn_blocking(work).await {
         Ok(value) => value,
-        Err(error) => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => match error.try_into_panic() {
+            Ok(payload) => std::panic::resume_unwind(payload),
+            Err(error) => panic!("receipt filesystem task did not finish: {error}"),
+        },
     }
 }
 
@@ -329,6 +339,9 @@ fn sorted_keys(value: &JsValue) -> JsValue {
 ///
 /// Key order uses [`locale_compare`], an ASCII port of ICU root collation;
 /// non-ASCII keys can order differently than node and change the digest.
+/// The pinned caller's request is `{ prompt, activeTurnBehavior }`, where
+/// `prompt` is a string or blocks from closed zod object schemas, so every
+/// key it can carry is ASCII.
 #[must_use]
 pub fn digest(value: &JsValue) -> String {
     let hash = Sha256::digest(stringify(&sorted_keys(value)).as_bytes());
