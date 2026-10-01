@@ -20,6 +20,7 @@ use spocky_contracts::snapshot::{
     ActiveTurn, AgentFeature, AgentMode, AgentSnapshot, AgentUsage, CapabilityFlags,
     CapabilityFlagsKnown, LiveAgentSnapshot, PersistenceHandle, RuntimeInfo, StoredAgentSnapshot,
 };
+use spocky_contracts::text::JsText;
 use spocky_contracts::timeline::{
     AssistantMessageLayout, SeqRange, ShellDetail, TimelineCollapse, TimelineCursor, TimelineEntry,
     TimelineItem, TimelineWindow, ToolCallDetail, ToolCallItem, ToolCallLayout, ToolCallStatus,
@@ -36,8 +37,8 @@ const AGENT_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
 const THREAD: &str = "019a0000-0000-7000-8000-000000000001";
 const WKS: &str = "wks_0123456789abcdef";
 
-fn s(text: &str) -> String {
-    text.to_owned()
+fn s(text: &str) -> JsText {
+    JsText::new(text)
 }
 
 fn n(value: f64) -> JsNumber {
@@ -93,7 +94,7 @@ fn codex_modes() -> Vec<AgentMode> {
 }
 
 fn persistence_metadata() -> JsRecord<JsonValue> {
-    let text = |value: &str| JsonValue(JsValue::String(s(value)));
+    let text = |value: &str| JsonValue(JsValue::String(s(value).into_string()));
     let null = || JsonValue(JsValue::Null);
     [
         ("provider", text("codex")),
@@ -106,7 +107,7 @@ fn persistence_metadata() -> JsRecord<JsonValue> {
         ("asyncQuestions", JsonValue(JsValue::Array(Vec::new()))),
     ]
     .into_iter()
-    .map(|(key, value)| (s(key), value))
+    .map(|(key, value)| (s(key).into_string(), value))
     .collect()
 }
 
@@ -524,7 +525,7 @@ pub fn frame(id: &str) -> Option<WsOutbound> {
                 agent: None,
                 direction: TimelineDirection::Tail,
                 projection: TimelineProjection::Projected,
-                epoch: String::new(),
+                epoch: s(""),
                 reset: false,
                 stale_cursor: false,
                 gap: false,
