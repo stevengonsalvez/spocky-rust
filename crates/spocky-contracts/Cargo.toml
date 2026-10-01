@@ -11,6 +11,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["float_roundtrip", "preserve_order", "raw_value"] }
 ryu-js = "1.0.3"
 
+[dev-dependencies]
+sha2 = "0.10.9"
+
 [lints.rust]
 unsafe_code = "forbid"
 
