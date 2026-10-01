@@ -19,10 +19,11 @@ use crate::request::{
     WorkspaceCreateRequest,
 };
 use crate::response::{
-    AgentCreateResponse, CreationSubscribeResponse, FetchAgentResponse, FetchAgentTimelineResponse,
-    FetchAgentsResponse, FetchWorkspacesResponse, SendAgentMessageResponse,
-    SessionEventsSetSubscriptionResponse, SetAgentTimelineSubscriptionResponse,
-    SubscriptionReleaseResponse, WaitForFinishResponse, WorkspaceCreateResponse,
+    AgentCreateResponse, AgentPermissionRequestEvent, AgentPermissionResolved, CancelAgentResponse,
+    CreationSubscribeResponse, FetchAgentResponse, FetchAgentTimelineResponse, FetchAgentsResponse,
+    FetchWorkspacesResponse, SendAgentMessageResponse, SessionEventsSetSubscriptionResponse,
+    SetAgentTimelineSubscriptionResponse, SubscriptionReleaseResponse, WaitForFinishResponse,
+    WorkspaceCreateResponse,
 };
 use crate::text::JsText;
 use crate::ws::ServerInfo;
@@ -275,6 +276,16 @@ pub enum SessionOutbound {
     #[serde(rename = "subscription.release.response")]
     SubscriptionReleaseResponse {
         payload: SubscriptionReleaseResponse,
+    },
+    #[serde(rename = "cancel_agent_response")]
+    CancelAgentResponse { payload: Box<CancelAgentResponse> },
+    #[serde(rename = "agent_permission_request")]
+    AgentPermissionRequest {
+        payload: Box<AgentPermissionRequestEvent>,
+    },
+    #[serde(rename = "agent_permission_resolved")]
+    AgentPermissionResolved {
+        payload: Box<AgentPermissionResolved>,
     },
 }
 
