@@ -9,7 +9,7 @@
 //! that fails. Free-form values are kept as parsed and written with
 //! `JSON.stringify` property order.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -161,29 +161,90 @@ fn one_of(value: &JsValue, allowed: &[&str], field: &'static str) -> Result<JsVa
     }
 }
 
+/// zod v4 `z.record` (and `z.json()` records) skip an own `__proto__` key.
+const PROTO_KEY: &str = "__proto__";
+
 /// `z.record(z.string(), z.string())`.
 fn string_record(value: &JsValue, field: &'static str) -> Result<JsValue, RecordError> {
     let map = value
         .as_object()
         .ok_or(fail(field, "record<string, string>"))?;
-    if map
-        .iter()
-        .all(|(_, entry)| matches!(entry, JsValue::String(_)))
-    {
-        Ok(value.clone())
-    } else {
-        Err(fail(field, "record<string, string>"))
+    let mut out = Object::new();
+    for (key, entry) in map.iter().filter(|(key, _)| *key != PROTO_KEY) {
+        if !entry.is_string() {
+            return Err(fail(field, "record<string, string>"));
+        }
+        out.insert(key, entry.clone());
     }
+    Ok(JsValue::Object(out))
 }
 
-/// `z.record(z.string(), z.unknown())` and `z.record(z.string(), z.json())`:
-/// any JSON object passes unchanged.
+/// `z.record(z.string(), z.unknown())` and `z.record(z.string(), z.any())`:
+/// values pass unchanged; only the record's own `__proto__` key is dropped.
 fn any_record(value: &JsValue, field: &'static str) -> Result<JsValue, RecordError> {
-    if value.is_object() {
-        Ok(value.clone())
-    } else {
-        Err(fail(field, "record"))
+    let map = value.as_object().ok_or(fail(field, "record"))?;
+    let mut out = Object::new();
+    for (key, entry) in map.iter().filter(|(key, _)| *key != PROTO_KEY) {
+        out.insert(key, entry.clone());
     }
+    Ok(JsValue::Object(out))
+}
+
+enum JsonWork<'a> {
+    Visit(&'a JsValue),
+    Array(usize),
+    Object(Vec<String>),
+}
+
+/// `z.json()`: rejects non-finite numbers and drops `__proto__` keys at every
+/// object level. Walks with an explicit stack.
+fn json_value(root: &JsValue) -> Option<JsValue> {
+    let mut work = vec![JsonWork::Visit(root)];
+    let mut built: Vec<JsValue> = Vec::new();
+    while let Some(step) = work.pop() {
+        match step {
+            JsonWork::Visit(value) => match value {
+                JsValue::Number(number) if !number.is_finite() => return None,
+                JsValue::Array(items) => {
+                    work.push(JsonWork::Array(items.len()));
+                    work.extend(items.iter().rev().map(JsonWork::Visit));
+                }
+                JsValue::Object(object) => {
+                    let kept: Vec<(&str, &JsValue)> =
+                        object.iter().filter(|(key, _)| *key != PROTO_KEY).collect();
+                    work.push(JsonWork::Object(
+                        kept.iter().map(|(key, _)| (*key).to_owned()).collect(),
+                    ));
+                    work.extend(kept.iter().rev().map(|(_, item)| JsonWork::Visit(item)));
+                }
+                scalar => built.push(scalar.clone()),
+            },
+            JsonWork::Array(length) => {
+                let items = built.split_off(built.len() - length);
+                built.push(JsValue::Array(items));
+            }
+            JsonWork::Object(keys) => {
+                let values = built.split_off(built.len() - keys.len());
+                let mut object = Object::new();
+                for (key, item) in keys.into_iter().zip(values) {
+                    object.insert(key, item);
+                }
+                built.push(JsValue::Object(object));
+            }
+        }
+    }
+    built.pop()
+}
+
+/// `z.record(z.string(), z.json())`.
+fn json_record(value: &JsValue, field: &'static str) -> Result<JsValue, RecordError> {
+    let invalid = || fail(field, "record<string, JSON>");
+    let map = value.as_object().ok_or_else(invalid)?;
+    let mut out = Object::new();
+    for (key, entry) in map.iter().filter(|(key, _)| *key != PROTO_KEY) {
+        out.insert(key, json_value(entry).ok_or_else(invalid)?);
+    }
+    Ok(JsValue::Object(out))
 }
 
 /// `SERIALIZABLE_CONFIG_SCHEMA`, `.nullable().optional()`.
@@ -196,14 +257,13 @@ fn parse_config(value: &JsValue) -> Result<JsValue, RecordError> {
     nullish_string(input, &mut out, "modeId")?;
     nullish_string(input, &mut out, "model")?;
     nullish_string(input, &mut out, "thinkingOptionId")?;
-    for field in ["featureValues", "providerOptions"] {
-        nullish_record(input, &mut out, field)?;
-    }
+    nullish_record(input, &mut out, "featureValues", any_record)?;
+    nullish_record(input, &mut out, "providerOptions", json_record)?;
     if let Some(policy) = input.get("toolPolicy") {
         out.insert("toolPolicy".to_owned(), parse_tool_policy(policy)?);
     }
     nullish_string(input, &mut out, "systemPrompt")?;
-    nullish_record(input, &mut out, "mcpServers")?;
+    nullish_record(input, &mut out, "mcpServers", any_record)?;
     Ok(JsValue::Object(out))
 }
 
@@ -211,6 +271,7 @@ fn nullish_record(
     input: &Object,
     out: &mut Object,
     field: &'static str,
+    parse_record: fn(&JsValue, &'static str) -> Result<JsValue, RecordError>,
 ) -> Result<(), RecordError> {
     match input.get(field) {
         None => Ok(()),
@@ -219,7 +280,7 @@ fn nullish_record(
             Ok(())
         }
         Some(value) => {
-            out.insert(field.to_owned(), any_record(value, field)?);
+            out.insert(field.to_owned(), parse_record(value, field)?);
             Ok(())
         }
     }
@@ -402,6 +463,7 @@ pub struct AgentRecordStore {
     records: HashMap<String, LoadedAgentRecord>,
     paths: HashMap<String, Vec<PathBuf>>,
     skipped: Vec<(PathBuf, String)>,
+    deleting: HashSet<String>,
 }
 
 impl AgentRecordStore {
@@ -414,6 +476,7 @@ impl AgentRecordStore {
             records: HashMap::new(),
             paths: HashMap::new(),
             skipped: Vec::new(),
+            deleting: HashSet::new(),
         }
     }
 
@@ -447,17 +510,11 @@ impl AgentRecordStore {
         &self.skipped
     }
 
+    /// Node `fs.readdir` (libuv `scandir`) lists names sorted by bytes.
     fn scan(&self) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(&self.base) else {
-            return Vec::new();
-        };
         let mut root_files = Vec::new();
         let mut directories = Vec::new();
-        for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let path = entry.path();
+        for (path, kind) in sorted_entries(&self.base) {
             if kind.is_file() && is_json_name(&path) {
                 root_files.push(path);
             } else if kind.is_dir() {
@@ -465,12 +522,8 @@ impl AgentRecordStore {
             }
         }
         for directory in directories {
-            let Ok(files) = fs::read_dir(&directory) else {
-                continue;
-            };
-            for file in files.flatten() {
-                let path = file.path();
-                if file.file_type().is_ok_and(|kind| kind.is_file()) && is_json_name(&path) {
+            for (path, kind) in sorted_entries(&directory) {
+                if kind.is_file() && is_json_name(&path) {
                     root_files.push(path);
                 }
             }
@@ -506,18 +559,23 @@ impl AgentRecordStore {
     }
 
     /// Writes `record` as built by the caller and removes the previous file
-    /// when the working directory key changed.
+    /// when the working directory key changed. Returns `None` without
+    /// writing once a delete has begun for the id, as the baseline write
+    /// queue does (`agent-storage.ts:168`).
     ///
     /// # Errors
     ///
     /// Returns an error when the record lacks `id` or `cwd` strings, or the write fails.
-    pub fn write(&mut self, record: JsValue) -> Result<PathBuf, StoreError> {
+    pub fn write(&mut self, record: JsValue) -> Result<Option<PathBuf>, StoreError> {
         self.initialize();
         let id = record
             .get("id")
             .and_then(JsValue::as_str)
             .ok_or(StoreError::MissingString("id"))?
             .to_owned();
+        if self.deleting.contains(&id) {
+            return Ok(None);
+        }
         let cwd = record
             .get("cwd")
             .and_then(JsValue::as_str)
@@ -533,33 +591,52 @@ impl AgentRecordStore {
                 paths.retain(|path| *path != previous);
             }
         }
-        Ok(next)
+        Ok(Some(next))
     }
 
-    /// Deletes every file indexed for `id` and drops it from the cache.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first unlink error other than not-found.
-    pub fn remove(&mut self, id: &str) -> Result<(), StoreError> {
+    /// `beginDelete`: every later write for `id` is skipped for the life of
+    /// this store, even after the delete finishes.
+    pub fn begin_delete(&mut self, id: &str) {
+        self.deleting.insert(id.to_owned());
+    }
+
+    /// `remove`: marks the id deleting, unlinks every file indexed for it,
+    /// and drops it from the cache. Unlink failures other than not-found do
+    /// not fail the call; they are returned for the caller to log, as the
+    /// baseline logs `"Failed to remove agent record file"`.
+    pub fn remove(&mut self, id: &str) -> Vec<(PathBuf, io::Error)> {
         self.initialize();
-        let mut failure = None;
+        self.begin_delete(id);
+        let mut failures = Vec::new();
         for path in self.paths.remove(id).unwrap_or_default() {
             match fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(source) => {
-                    failure.get_or_insert(StoreError::Io {
-                        operation: "remove agent record",
-                        source,
-                    });
-                }
+                Err(error) => failures.push((path, error)),
             }
         }
         self.records.remove(id);
         self.order.retain(|existing| existing != id);
-        failure.map_or(Ok(()), Err)
+        failures
     }
+}
+
+fn sorted_entries(directory: &Path) -> Vec<(PathBuf, fs::FileType)> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut listed: Vec<(PathBuf, fs::FileType)> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_type().ok().map(|kind| (entry.path(), kind)))
+        .collect();
+    listed.sort_by(|(left, _), (right, _)| {
+        let name = |path: &PathBuf| {
+            path.file_name()
+                .map(|name| name.as_encoded_bytes().to_vec())
+        };
+        name(left).cmp(&name(right))
+    });
+    listed
 }
 
 #[allow(
