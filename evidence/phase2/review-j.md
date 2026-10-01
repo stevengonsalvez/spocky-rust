@@ -6,7 +6,7 @@ Model: `gpt-6-astra`, xhigh
 
 Mode: read-only
 
-Latest frozen commit: `70f0eb1`
+Latest frozen commit: `b3ce81347fdacf2dcec1afb3a668b138f9e05638`
 
 ## Verdict
 
@@ -20,10 +20,11 @@ byte sizes, the refreshed 17-case test log, all 98 migration-file hashes, the
 Node executable digest, 50 compared table names, 537 deduplicated constraint
 and index names, and 49 migration journal rows.
 
-The reviewer also accepted the captured same-schema legacy handoff as closing
-the baseline-directory provenance gap. Follow-up repairs enforce exact marker
-payloads, reverse journal invariants, and forced-kill command deadlines. These
-repairs require a frozen-commit re-review.
+The reviewer also accepted the captured same-schema legacy handoff and its
+hardened publication gate. The runner rejects baseline mutation, non-49/0/49
+forward journal state, payload mismatch, and supported reverse-journal mismatch
+before copying evidence. Long commands have forced-kill deadlines. No P0, P1,
+or P2 finding remains in this narrow checkpoint.
 
 ## Closed findings
 

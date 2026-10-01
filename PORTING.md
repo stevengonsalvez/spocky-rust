@@ -142,7 +142,8 @@ callback-transaction, keyed-lock, full-schema, and mixed-legacy gaps.
 Real pinned-baseline forward handoff and same-schema baseline reopen pass with
 exact marker payloads and no journal change. The hardened harness enforces those
 values before publication and bounds long commands with forced-kill fallbacks.
-Frozen-commit re-review remains open.
+Read-only review accepts this same-schema handoff checkpoint. Schema downgrade,
+mixed ownership, and the retained compatibility exception remain open.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
