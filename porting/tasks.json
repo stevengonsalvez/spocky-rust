@@ -82,6 +82,12 @@
         "endCondition": "The store copy is deleted on main, the 83 V8 cases and the zod fixtures pass against the contracts copy, and the lead integrates that range. Ownership of js_value.rs then returns to p3_contracts.",
         "closed": "2026-10-01: CLOSED. p3_session range 386c989..f7ad868 integrated on main (through 99743c8); crates/spocky-store/src/js_value.rs deleted, spocky-store re-exports spocky_contracts::js_value, the 83 V8 cases and zod fixtures pass against the contracts copy. Ownership of crates/spocky-contracts/src/js_value.rs and json.rs returns to p3_contracts.",
         "extension": "2026-10-01, coordinator: the exception also covers crates/spocky-contracts/src/json.rs for the JsValue::Undefined change only. That change is one commit touching js_value.rs and json.rs, an explicit exception to the one-file rule because a split would leave a non-compiling commit. p3_contracts is held off both files until the store copy is deleted. p3_contracts commits 268420f and 88ec28a edited json.rs before the hold; p3_session rebases onto main after they integrate, before making the Undefined commit."
+      },
+      {
+        "date": "2026-10-01",
+        "authority": "Claude coordinator session term_d3e130a0",
+        "change": "Evidence provenance convention: evidence documents written in the Claude window may name the author model in their header (for example evidence/phase3/slice-plan.md:3 and evidence/phase4/terminal-emulator-decision.md:4), consistent with the routing revision above. This is provenance, not an AI mention in commit messages.",
+        "trigger": "reviewer P3 on p4_terminal 226702a..9c2f35b (verdicts/p4_terminal-9c2f35b.txt)"
       }
     ],
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
