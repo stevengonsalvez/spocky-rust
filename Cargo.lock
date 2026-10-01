@@ -5743,6 +5743,10 @@ dependencies = [
 [[package]]
 name = "spocky-xterm"
 version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "spocky-contracts",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"
