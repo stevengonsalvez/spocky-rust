@@ -248,20 +248,10 @@ fn optional_process_id(map: &Map<String, Value>, key: &str) -> Field<Option<Stri
     }
 }
 
-/// `String(n)` for JSON numbers in the safe integer range and plain decimals.
+/// `String(n)` for a parsed JSON number, which JavaScript holds as a double.
 #[must_use]
 pub fn js_number_to_string(number: &serde_json::Number) -> String {
-    if let Some(integer) = number.as_i64() {
-        return integer.to_string();
-    }
-    if let Some(integer) = number.as_u64() {
-        return integer.to_string();
-    }
-    let float = number.as_f64().unwrap_or(f64::NAN);
-    if float.fract() == 0.0 && float.abs() < 1e21 {
-        return format!("{float:.0}");
-    }
-    float.to_string()
+    spocky_contracts::number::format_js_number(number.as_f64().unwrap_or(0.0))
 }
 
 /// A passthrough object with the declared keys reordered first, as zod 4
