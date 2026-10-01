@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Capture the Linux AT-SPI tree, focus order, and keyboard activation results."""
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -8,6 +9,12 @@ import time
 from pathlib import Path
 
 import pyatspi
+
+_TREE_SPEC = importlib.util.spec_from_file_location(
+    "renderer_platform_linux_tree", Path(__file__).with_name("renderer-platform-linux-tree.py")
+)
+tree_helpers = importlib.util.module_from_spec(_TREE_SPEC)
+_TREE_SPEC.loader.exec_module(tree_helpers)
 
 
 OUTPUT = Path(sys.argv[1])
@@ -185,7 +192,7 @@ report = {
         "focusedBeforeActivation": plus_focus,
         "focusedAfterActivation": focused_after_plus,
         "treeChanged": tree_before != tree_after_plus,
-        "dialogObserved": "dialog" in json.dumps(tree_after_plus).lower(),
+        "dialogObserved": tree_helpers.contains_role(tree_after_plus, "dialog"),
     },
     "addProjectInteraction": {
         "input": ["Tab until Add a project", "Return"],
