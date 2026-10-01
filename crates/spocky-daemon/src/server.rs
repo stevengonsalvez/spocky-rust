@@ -43,8 +43,8 @@ use crate::bearer::{
 };
 use crate::hostnames::Hostnames;
 use crate::http::{
-    HttpContext, HttpResponse, ParsedHead, current_ms, handle_request, is_upgrade_request,
-    parse_head,
+    HttpContext, HttpResponse, KEEP_ALIVE_TIMEOUT_SECS, ParsedHead, current_ms, handle_request,
+    is_upgrade_request, parse_head,
 };
 use crate::js;
 use crate::log::Logger;
@@ -897,32 +897,102 @@ fn configure_accepted(stream: &dyn Connection) -> io::Result<()> {
     stream.set_read_timeout(Some(POLL))
 }
 
-/// Reads one request head, then serves an upgrade or a plain HTTP response.
-fn serve_connection(shared: &Arc<Shared>, mut stream: Box<dyn Connection>) {
-    if configure_accepted(stream.as_ref()).is_err() {
-        return;
-    }
-    let started = Instant::now();
-    let mut buffer: Vec<u8> = Vec::new();
+/// Why no request head could be read.
+enum HeadFailure {
+    /// The connection is finished (closed, timed out, shutting down), or the
+    /// error response has been written.
+    Done,
+}
+
+/// Reads one request head into `buffer`'s front and returns it with its length.
+/// `idle` bounds the wait for the first byte of a follow-up request, as Node's
+/// `keepAliveTimeout` does.
+fn read_head(
+    shared: &Shared,
+    stream: &mut dyn Connection,
+    buffer: &mut Vec<u8>,
+    idle: Option<Duration>,
+) -> Result<(UpgradeRequest, usize), HeadFailure> {
+    let idle_started = Instant::now();
+    let mut started = Instant::now();
     let mut chunk = [0_u8; 4096];
-    let (request, used) = loop {
-        match parse_head(&buffer) {
-            ParsedHead::Complete(request, used) => break (request, used),
+    loop {
+        match parse_head(buffer) {
+            ParsedHead::Complete(request, used) => return Ok((request, used)),
             ParsedHead::Partial => {}
             ParsedHead::Invalid => {
                 let _ = stream.write_all(&HttpResponse::client_error(400).to_bytes());
-                return;
+                return Err(HeadFailure::Done);
             }
             ParsedHead::TooLarge => {
                 let _ = stream.write_all(&HttpResponse::client_error(431).to_bytes());
-                return;
+                return Err(HeadFailure::Done);
             }
         }
-        if started.elapsed() > HEADERS_TIMEOUT || shared.stop.load(Ordering::SeqCst) {
-            return;
+        if shared.stop.load(Ordering::SeqCst) {
+            return Err(HeadFailure::Done);
+        }
+        if buffer.is_empty() {
+            if idle.is_some_and(|idle| idle_started.elapsed() > idle) {
+                return Err(HeadFailure::Done);
+            }
+        } else if started.elapsed() > HEADERS_TIMEOUT {
+            return Err(HeadFailure::Done);
         }
         match stream.read(&mut chunk) {
-            Ok(0) => return,
+            Ok(0) => return Err(HeadFailure::Done),
+            Ok(read) => {
+                if buffer.is_empty() {
+                    started = Instant::now();
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(_) => return Err(HeadFailure::Done),
+        }
+    }
+}
+
+/// Drops the request body that follows a head, reading more if it has not all
+/// arrived. `false` when the body cannot be skipped (chunked, or the peer went).
+fn skip_body(
+    shared: &Shared,
+    stream: &mut dyn Connection,
+    request: &UpgradeRequest,
+    buffer: &mut Vec<u8>,
+) -> bool {
+    if request.header("transfer-encoding").is_some() {
+        return false;
+    }
+    let Some(length) = request
+        .header("content-length")
+        .map(|value| value.trim().parse::<usize>())
+    else {
+        return true;
+    };
+    let Ok(mut remaining) = length else {
+        return false;
+    };
+    let started = Instant::now();
+    let mut chunk = [0_u8; 4096];
+    while remaining > 0 {
+        if !buffer.is_empty() {
+            let take = remaining.min(buffer.len());
+            buffer.drain(..take);
+            remaining -= take;
+            continue;
+        }
+        if started.elapsed() > HEADERS_TIMEOUT || shared.stop.load(Ordering::SeqCst) {
+            return false;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => return false,
             Ok(read) => buffer.extend_from_slice(&chunk[..read]),
             Err(error)
                 if matches!(
@@ -931,36 +1001,59 @@ fn serve_connection(shared: &Arc<Shared>, mut stream: Box<dyn Connection>) {
                         | io::ErrorKind::TimedOut
                         | io::ErrorKind::Interrupted
                 ) => {}
-            Err(_) => return,
+            Err(_) => return false,
         }
-    };
-    let remaining = buffer.split_off(used.min(buffer.len()));
+    }
+    true
+}
 
-    if is_upgrade_request(&request) {
-        upgrade(shared, stream, &request, remaining);
+/// Reads request heads from one connection: an upgrade hands the socket to the
+/// WebSocket server, a plain request is answered and, while the response says
+/// `keep-alive`, the next one is read from the same socket.
+fn serve_connection(shared: &Arc<Shared>, mut stream: Box<dyn Connection>) {
+    if configure_accepted(stream.as_ref()).is_err() {
         return;
     }
-    let (listen, tcp_listener) = lock(&shared.listen).clone();
-    let local_credential = (shared.deps.local_credential)();
-    let response = handle_request(
-        &request,
-        &HttpContext {
-            server_id: shared.config.server_id.as_str(),
-            hostname: &shared.config.hostname,
-            version: &shared.config.daemon_version,
-            listen: &listen,
-            tcp_listener,
-            hostnames: shared.config.hostnames.as_ref(),
-            allowed_origins: &shared.config.allowed_origins,
-            password_hash: shared.config.password_hash.as_deref(),
-            local_credential: local_credential.as_deref(),
-            verifier: shared.deps.verifier.as_ref(),
-            now_ms: current_ms(),
-        },
-    );
-    let _ = stream.write_all(&response.to_bytes());
-    let _ = stream.flush();
-    stream.shutdown();
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut idle = None;
+    loop {
+        let Ok((request, used)) = read_head(shared, stream.as_mut(), &mut buffer, idle) else {
+            return;
+        };
+        buffer.drain(..used.min(buffer.len()));
+        if is_upgrade_request(&request) {
+            upgrade(shared, stream, &request, buffer);
+            return;
+        }
+        let (listen, tcp_listener) = lock(&shared.listen).clone();
+        let local_credential = (shared.deps.local_credential)();
+        let response = handle_request(
+            &request,
+            &HttpContext {
+                server_id: shared.config.server_id.as_str(),
+                hostname: &shared.config.hostname,
+                version: &shared.config.daemon_version,
+                listen: &listen,
+                tcp_listener,
+                hostnames: shared.config.hostnames.as_ref(),
+                allowed_origins: &shared.config.allowed_origins,
+                password_hash: shared.config.password_hash.as_deref(),
+                local_credential: local_credential.as_deref(),
+                verifier: shared.deps.verifier.as_ref(),
+                now_ms: current_ms(),
+            },
+        );
+        let written = stream.write_all(&response.to_bytes()).is_ok() && stream.flush().is_ok();
+        if !written
+            || !response.keep_alive
+            || shared.stop.load(Ordering::SeqCst)
+            || !skip_body(shared, stream.as_mut(), &request, &mut buffer)
+        {
+            stream.shutdown();
+            return;
+        }
+        idle = Some(Duration::from_secs(KEEP_ALIVE_TIMEOUT_SECS));
+    }
 }
 
 fn upgrade(
