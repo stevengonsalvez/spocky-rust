@@ -855,6 +855,25 @@
           "followUps": ["P2 receipts_differential.rs:512 two-instance race order depends on blocking-pool scheduling; decided: barrier both reads so the race is deterministic, proved over 20 runs; no flake note", "P3 lib.rs:94 send joins per-key queue on first poll, not at call time; decided: port the call-time join; no compatibility exception", "P3 receipts-differential.sh:47 record tree cleanliness and fail when dirty", "P3 receipts-differential.test.sh:84 add a fmt failure case"]
         },
         {
+          "lane": "p2_pglite_rust_host",
+          "date": "2026-10-01",
+          "sourceRange": "df9935b..0b43a54 (15 commits): fail-closed differential gate and its test, stallReads fix and test, JSON key order pin, engine lifetime, Node platform names, differential evidence",
+          "integrationHead": "0080212",
+          "review": "integration reviewer PASS (verdicts/p2_pglite-0b43a54.txt)",
+          "leadVerification": "gated with Hub 28f6c78 fixture and --test-threads=1: spocky-pglite-host 24/24, clippy -D warnings, fmt check, pglite-rust-host-differential-check.test.sh; cargo check --workspace --all-targets",
+          "followUps": ["P2 tests/child_protocol.rs:41 receive() has no deadline; bound every receive and wait, kill the recorded child, serial tests", "P2 child SIGINT/SIGTERM/SIGHUP handler (open port gap)", "P2 INVALID_JSON V8 text and wrong-type pass-through (open port gaps, PORTED decision)", "P3 differential-check.sh:46 compare jq -c text", "P3 differential-check.test.sh:63 two single-mismatch cases", "P3 host.rs:176 loongarch64 to loong64 (optional)"]
+        },
+        {
+          "lane": "p4_terminal",
+          "date": "2026-10-01",
+          "sourceRange": "226702a..9c2f35b (9 commits): emulator corpus, xterm capture, vt100 evaluation, decision evidence, output coalescer port and pinned differential",
+          "integrationHead": "9d8a2a9",
+          "review": "integration reviewer PASS (verdicts/p4_terminal-9c2f35b.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist: spocky-terminal 10/10, clippy -D warnings, fmt check; cargo check --workspace --all-targets (on top of the pglite range)",
+          "evidenceLimitation": "commit 1e9180b adds tests/support/mod.rs, compiled only after 9c2f35b adds mod support; that intermediate is green only vacuously",
+          "followUps": ["P3 output_coalescer test emits clear entries from the harness model; have flush/dispose report cleared timers", "P3 handle(&str) cannot represent a JS lone surrogate; note in module doc", "P3 assert node v22.20.0 in tests/support", "P3 author-model provenance kept per routing.revisions convention (5e51bd4)"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..aeb550d (agent manager checkpoint 8)",
