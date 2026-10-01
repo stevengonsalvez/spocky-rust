@@ -137,6 +137,13 @@ pub trait Connection: Read + Write + Send + 'static {
     ///
     /// Any error from the socket option.
     fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    /// Switches blocking mode. A socket accepted from a non-blocking listener
+    /// inherits that mode on macOS and BSD, which makes a read timeout a no-op.
+    ///
+    /// # Errors
+    ///
+    /// Any error from the socket option.
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
     /// `remoteAddress`; `None` for a Unix socket (`local_ipc`).
     fn remote_address(&self) -> Option<IpAddr>;
     /// Drops the transport without a close frame (`terminate()`).
@@ -146,6 +153,9 @@ pub trait Connection: Read + Write + Send + 'static {
 impl Connection for TcpStream {
     fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         TcpStream::set_read_timeout(self, timeout)
+    }
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        TcpStream::set_nonblocking(self, nonblocking)
     }
     fn remote_address(&self) -> Option<IpAddr> {
         self.peer_addr().ok().map(|address| address.ip())
@@ -159,6 +169,9 @@ impl Connection for TcpStream {
 impl Connection for UnixStream {
     fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         UnixStream::set_read_timeout(self, timeout)
+    }
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        UnixStream::set_nonblocking(self, nonblocking)
     }
     fn remote_address(&self) -> Option<IpAddr> {
         None
@@ -639,9 +652,18 @@ impl Server {
     }
 }
 
+/// Puts an accepted socket in blocking mode with the polling read timeout. The
+/// listeners are non-blocking so they can be stopped, and on macOS the accepted
+/// socket inherits that mode, so without this every read returns at once and the
+/// connection thread spins.
+fn configure_accepted(stream: &dyn Connection) -> io::Result<()> {
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(POLL))
+}
+
 /// Reads one request head, then serves an upgrade or a plain HTTP response.
 fn serve_connection(shared: &Arc<Shared>, mut stream: Box<dyn Connection>) {
-    if stream.set_read_timeout(Some(POLL)).is_err() {
+    if configure_accepted(stream.as_ref()).is_err() {
         return;
     }
     let started = Instant::now();
@@ -1413,4 +1435,70 @@ fn type_name(control: &WsControlInbound) -> &'static str {
 #[must_use]
 pub fn owner_permissions() -> Vec<DaemonPermission> {
     DaemonPermission::ALL.to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Accepts one connection from a non-blocking listener, as `serve_tcp` does.
+    fn accepted_from_nonblocking_listener() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((accepted, _)) => return (accepted, client),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "no connection accepted");
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn an_accepted_socket_waits_for_the_read_timeout_instead_of_spinning() {
+        let (accepted, _client) = accepted_from_nonblocking_listener();
+        configure_accepted(&accepted).unwrap();
+        let mut reader = &accepted;
+        let started = Instant::now();
+        let error = reader.read(&mut [0_u8; 1]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ));
+        assert!(
+            started.elapsed() >= POLL / 2,
+            "the read returned after {:?}; the socket is still non-blocking",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_accepted_unix_socket_is_blocking_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let _client = UnixStream::connect(&path).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let accepted = loop {
+            match listener.accept() {
+                Ok((accepted, _)) => break accepted,
+                Err(_) => {
+                    assert!(Instant::now() < deadline, "no connection accepted");
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }
+        };
+        configure_accepted(&accepted).unwrap();
+        let mut reader = &accepted;
+        let started = Instant::now();
+        assert!(reader.read(&mut [0_u8; 1]).is_err());
+        assert!(started.elapsed() >= POLL / 2);
+    }
 }
