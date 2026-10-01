@@ -294,7 +294,7 @@ Selected: **Wasmtime `47.0.4`** (Cranelift, `runtime`, `std`,
 | `addFunction` callbacks | `Table::grow` with a host `Func` |
 | Side modules | Instantiate further modules in the same `Store` against the same memory and table; cross-instance function imports |
 | Memory growth to 2 GiB | `memory.grow` from guest and `Memory::grow` from host |
-| No unsafe in Spocky code | All APIs above are safe. `Module::deserialize` (precompiled cache) is `unsafe` and is not used |
+| No unsafe in Spocky code | All APIs above are safe. Compiled code is reused through the built-in `cache` feature (`Config::cache`), a safe API; the unsafe code it needs stays inside the dependency, so `unsafe_code = "forbid"` holds in Spocky crates. The host does not call `Module::deserialize` directly |
 
 Rejected alternatives: plain WASI hosts (for example `wasmtime-wasi`) do not
 supply the 116 custom `env` functions; an interpreter such as `wasmi` would
@@ -312,12 +312,35 @@ Wasmtime `47.0.4` release build compiles `pglite.wasm` in 16.16 s,
 `0.252.0`, the version Wasmtime itself uses.
 
 Inference: compile time is the main startup cost. The host compiles each
-module once per process and shares it across opens. Startup and per-query
-cost against the retained Node host are measured in step 2, not assumed.
+module once per process, shares it across opens, and enables the Wasmtime
+compilation cache so later processes load compiled code instead of
+recompiling. Startup and per-query cost against the retained Node host are
+measured in step 2, not assumed.
+
+## Platform matrix
+
+Lead review of this checkpoint: GO with conditions, desktop only.
+
+| Platform | Call | Reason |
+| --- | --- | --- |
+| macOS (x64, arm64) | GO | Cranelift targets both; measured on darwin/x64 only so far |
+| Linux (x64, arm64) | GO | Cranelift targets both; not yet measured |
+| Windows (x64) | GO with risks | NODEFS stat emulation reads POSIX mode bits that Windows does not keep; PostgreSQL `checkDataDir` expects `0700` or `0750` on the data directory; both need measured parity |
+| iOS | Not covered | iOS forbids writable executable memory, so Wasmtime would need its Pulley interpreter. Pulley performance is unmeasured, which conflicts with the reason `wasmi` was rejected above; the 2 GiB linear-memory maximum also exceeds iOS memory limits |
+| Browser | Not covered | Wasmtime cannot run in a browser. The browser keeps PGlite's own JavaScript host, which must be recorded as its own compatibility exception |
+
+## Durability
+
+Fact: NODEFS has no `fsync` stream operation, so `fd_sync` returns 0 without
+syncing, and the server runs with `-F` (`fsync = off`). The Node host
+therefore never flushes data to stable storage. The Rust host matches this,
+so durability parity covers process crashes only (data in the operating
+system page cache survives). Power loss and kernel crash durability are not
+provided by either host and are not claimed.
 
 ## Decision
 
-**GO.** Every one of the 136 imports maps to a host obligation that the safe
+**GO with conditions, desktop only** (see the platform matrix). Every one of the 136 imports maps to a host obligation that the safe
 Wasmtime API can provide, and the two side modules use the same linking
 contract. Nothing requires rebuilding Postgres or modifying the pinned bytes.
 
@@ -343,3 +366,5 @@ assumption):
 | Side-module linking | `plpgsql` runs every `DO` block in the migrations | Replay all 49 migrations and compare catalogs |
 | Unreached imports | 68 of 130 imported functions are not called by the workload, including all socket calls | Implement them from the glue; list any that are not exercised as untested |
 | Startup cost | 16 s compile on this loaded host | Measure open-to-ready and query latency for both hosts |
+| SjLj longjmp path | `_emscripten_throw_longjmp` had 0 calls in the probe workload, so no `PG_TRY` and `PG_CATCH` longjmp ran | Force an error inside a PL/pgSQL `BEGIN ... EXCEPTION` block and count the longjmp calls on both hosts |
+| Native stack depth | Every `invoke_*` re-enters Wasm from the host and grows the native stack | Run the store on a dedicated large-stack thread and set `max_wasm_stack` |
