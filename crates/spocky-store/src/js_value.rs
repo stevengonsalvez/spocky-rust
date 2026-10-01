@@ -378,16 +378,18 @@ impl fmt::Debug for JsValue {
     }
 }
 
-/// A `JSON.parse` `SyntaxError`.
+/// A `JSON.parse` `SyntaxError` with the exact V8 message of node 22.20.0.
+/// `position` counts UTF-16 code units, as V8 reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonSyntaxError {
     pub position: usize,
-    pub message: &'static str,
+    /// JavaScript text: an unexpected token may be a lone surrogate.
+    pub message: String,
 }
 
 impl Display for JsonSyntaxError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{} at position {}", self.message, self.position)
+        formatter.write_str(&self.message)
     }
 }
 
@@ -404,11 +406,15 @@ struct Parser<'a> {
     index: usize,
 }
 
+/// V8 `kMaxContextCharacters` and `kMinOriginalSourceLengthForContext`.
+const CONTEXT_CHARACTERS: usize = 10;
+const MIN_LENGTH_FOR_CONTEXT: usize = CONTEXT_CHARACTERS * 2 + 1;
+
 /// `JSON.parse(text)`.
 ///
 /// # Errors
 ///
-/// Returns a syntax error wherever `JSON.parse` throws one.
+/// Returns a syntax error, with V8's message, wherever `JSON.parse` throws.
 pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
     let mut parser = Parser {
         bytes: text.as_bytes(),
@@ -419,15 +425,21 @@ pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
     'value: loop {
         parser.skip_whitespace();
         let mut value = match parser.peek() {
+            None => return Err(parser.end_of_input()),
             Some(b'{') => {
                 parser.index += 1;
                 parser.skip_whitespace();
-                if parser.eat(b'}') {
-                    JsValue::Object(JsObject::new())
-                } else {
-                    let key = parser.object_key()?;
-                    stack.push(Frame::Object(JsObject::new(), key));
-                    continue 'value;
+                match parser.peek() {
+                    Some(b'}') => {
+                        parser.index += 1;
+                        JsValue::Object(JsObject::new())
+                    }
+                    Some(b'"') => {
+                        let key = parser.object_key()?;
+                        stack.push(Frame::Object(JsObject::new(), key));
+                        continue 'value;
+                    }
+                    _ => return Err(parser.at("Expected property name or '}' in JSON")),
                 }
             }
             Some(b'[') => {
@@ -445,14 +457,14 @@ pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
             Some(b'f') => parser.literal("false", JsValue::Bool(false))?,
             Some(b'n') => parser.literal("null", JsValue::Null)?,
             Some(b'-' | b'0'..=b'9') => JsValue::Number(parser.number()?),
-            _ => return Err(parser.error("Unexpected token")),
+            Some(_) => return Err(parser.unexpected_token()),
         };
         loop {
             parser.skip_whitespace();
             match stack.last_mut() {
                 None => {
                     if parser.index != parser.bytes.len() {
-                        return Err(parser.error("Unexpected non-whitespace character after JSON"));
+                        return Err(parser.at("Unexpected non-whitespace character after JSON"));
                     }
                     return Ok(value);
                 }
@@ -462,7 +474,7 @@ pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
                         continue 'value;
                     }
                     if !parser.eat(b']') {
-                        return Err(parser.error("Expected ',' or ']' after array element"));
+                        return Err(parser.at("Expected ',' or ']' after array element in JSON"));
                     }
                     let Some(Frame::Array(items)) = stack.pop() else {
                         unreachable!("top frame is an array");
@@ -473,11 +485,14 @@ pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
                     object.insert(std::mem::take(key), value);
                     if parser.eat(b',') {
                         parser.skip_whitespace();
+                        if parser.peek() != Some(b'"') {
+                            return Err(parser.at("Expected double-quoted property name in JSON"));
+                        }
                         *key = parser.object_key()?;
                         continue 'value;
                     }
                     if !parser.eat(b'}') {
-                        return Err(parser.error("Expected ',' or '}' after property value"));
+                        return Err(parser.at("Expected ',' or '}' after property value in JSON"));
                     }
                     let Some(Frame::Object(object, _)) = stack.pop() else {
                         unreachable!("top frame is an object");
@@ -490,10 +505,76 @@ pub fn parse(text: &str) -> Result<JsValue, JsonSyntaxError> {
 }
 
 impl Parser<'_> {
-    fn error(&self, message: &'static str) -> JsonSyntaxError {
+    fn utf16_index(&self, byte_index: usize) -> usize {
+        self.text[..byte_index].encode_utf16().count()
+    }
+
+    /// "Unexpected end of JSON input".
+    fn end_of_input(&self) -> JsonSyntaxError {
         JsonSyntaxError {
-            position: self.index,
-            message,
+            position: self.utf16_index(self.bytes.len()),
+            message: "Unexpected end of JSON input".to_owned(),
+        }
+    }
+
+    /// `<what> at position P (line L column C)` at the current index.
+    fn at(&self, what: &str) -> JsonSyntaxError {
+        self.at_index(what, self.index)
+    }
+
+    fn at_index(&self, what: &str, byte_index: usize) -> JsonSyntaxError {
+        let position = self.utf16_index(byte_index);
+        // Lines break at "\n", "\r", and "\r\n"; columns count UTF-16 units.
+        let mut line = 1;
+        let mut line_start = 0;
+        let mut units = 0;
+        let mut previous_carriage_return = false;
+        for character in self.text[..byte_index].chars() {
+            units += character.len_utf16();
+            match character {
+                '\n' if previous_carriage_return => line_start = units,
+                '\n' | '\r' => {
+                    line += 1;
+                    line_start = units;
+                }
+                _ => {}
+            }
+            previous_carriage_return = character == '\r';
+        }
+        JsonSyntaxError {
+            position,
+            message: format!(
+                "{what} at position {position} (line {line} column {})",
+                position - line_start + 1
+            ),
+        }
+    }
+
+    /// `Unexpected token 'c', "<source or context>" is not valid JSON`, or
+    /// the end-of-input message past the last character.
+    fn unexpected_token(&self) -> JsonSyntaxError {
+        let Some(character) = self.text[self.index..].chars().next() else {
+            return self.end_of_input();
+        };
+        let units: Vec<u16> = self.text.encode_utf16().collect();
+        let position = self.utf16_index(self.index);
+        let mut first_unit = [0_u16; 2];
+        let token = js_text_from_utf16(&character.encode_utf16(&mut first_unit)[..1]);
+        let context = if units.len() < MIN_LENGTH_FOR_CONTEXT {
+            format!("\"{}\"", js_text(self.text))
+        } else {
+            let start = position.saturating_sub(CONTEXT_CHARACTERS);
+            let end = (position + CONTEXT_CHARACTERS).min(units.len());
+            format!(
+                "{}\"{}\"{}",
+                if start > 0 { "..." } else { "" },
+                js_text_from_utf16(&units[start..end]),
+                if end < units.len() { "..." } else { "" }
+            )
+        };
+        JsonSyntaxError {
+            position,
+            message: format!("Unexpected token '{token}', {context} is not valid JSON"),
         }
     }
 
@@ -517,73 +598,80 @@ impl Parser<'_> {
     }
 
     fn literal(&mut self, word: &str, value: JsValue) -> Result<JsValue, JsonSyntaxError> {
-        if self.bytes[self.index..].starts_with(word.as_bytes()) {
-            self.index += word.len();
-            Ok(value)
-        } else {
-            Err(self.error("Unexpected token"))
+        for expected in word.bytes() {
+            match self.peek() {
+                None => return Err(self.end_of_input()),
+                Some(found) if found == expected => self.index += 1,
+                Some(_) => return Err(self.unexpected_token()),
+            }
         }
+        Ok(value)
     }
 
+    /// Reads a key string and the `:` after it.
     fn object_key(&mut self) -> Result<String, JsonSyntaxError> {
-        if self.peek() != Some(b'"') {
-            return Err(self.error("Expected property name"));
-        }
         let key = self.string()?;
         self.skip_whitespace();
         if !self.eat(b':') {
-            return Err(self.error("Expected ':' after property name"));
+            return Err(self.at("Expected ':' after property name in JSON"));
         }
         Ok(key)
     }
 
-    fn digits(&mut self) -> usize {
-        let start = self.index;
-        while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
+    fn digit_next(&self) -> bool {
+        self.peek().is_some_and(|byte| byte.is_ascii_digit())
+    }
+
+    fn digits(&mut self) {
+        while self.digit_next() {
             self.index += 1;
         }
-        self.index - start
     }
 
     fn number(&mut self) -> Result<f64, JsonSyntaxError> {
         let start = self.index;
-        self.eat(b'-');
-        if self.eat(b'0') {
-            if self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
-                return Err(self.error("Unexpected number"));
-            }
-        } else if self.digits() == 0 {
-            return Err(self.error("No number after minus sign"));
+        if self.eat(b'-') && !self.digit_next() {
+            return Err(self.at("No number after minus sign in JSON"));
         }
-        if self.eat(b'.') && self.digits() == 0 {
-            return Err(self.error("Unterminated fractional number"));
+        if self.eat(b'0') {
+            if self.digit_next() {
+                return Err(self.at("Unexpected number in JSON"));
+            }
+        } else {
+            self.digits();
+        }
+        if self.eat(b'.') {
+            if !self.digit_next() {
+                return Err(self.at("Unterminated fractional number in JSON"));
+            }
+            self.digits();
         }
         if self.eat(b'e') || self.eat(b'E') {
             if !self.eat(b'+') {
                 self.eat(b'-');
             }
-            if self.digits() == 0 {
-                return Err(self.error("Exponent part is missing a number"));
+            if !self.digit_next() {
+                return Err(self.at("Exponent part is missing a number in JSON"));
             }
+            self.digits();
         }
         // Rust parses decimal literals with correct rounding and saturates to
         // infinity on overflow, the same result JavaScript produces.
-        self.text[start..self.index]
+        Ok(self.text[start..self.index]
             .parse::<f64>()
-            .map_err(|_| self.error("Invalid number"))
+            .unwrap_or(f64::NAN))
     }
 
     fn hex4(&mut self) -> Result<u16, JsonSyntaxError> {
-        let slice = self
-            .bytes
-            .get(self.index..self.index + 4)
-            .ok_or_else(|| self.error("Bad Unicode escape"))?;
-        let text = std::str::from_utf8(slice).map_err(|_| self.error("Bad Unicode escape"))?;
-        if !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(self.error("Bad Unicode escape"));
+        let mut unit = 0_u16;
+        for _ in 0..4 {
+            let digit = self
+                .peek()
+                .and_then(|byte| char::from(byte).to_digit(16))
+                .ok_or_else(|| self.at("Bad Unicode escape in JSON"))?;
+            unit = unit * 16 + u16::try_from(digit).unwrap_or(0);
+            self.index += 1;
         }
-        let unit = u16::from_str_radix(text, 16).map_err(|_| self.error("Bad Unicode escape"))?;
-        self.index += 4;
         Ok(unit)
     }
 
@@ -593,7 +681,7 @@ impl Parser<'_> {
         let mut pending_high: Option<u16> = None;
         loop {
             let Some(byte) = self.peek() else {
-                return Err(self.error("Unterminated string in JSON"));
+                return Err(self.at("Unterminated string in JSON"));
             };
             if byte == b'\\' && self.bytes.get(self.index + 1) == Some(&b'u') {
                 self.index += 2;
@@ -635,6 +723,7 @@ impl Parser<'_> {
                 }
                 b'\\' => {
                     let escaped = match self.bytes.get(self.index + 1) {
+                        None => return Err(self.end_of_input()),
                         Some(b'"') => '"',
                         Some(b'\\') => '\\',
                         Some(b'/') => '/',
@@ -643,12 +732,18 @@ impl Parser<'_> {
                         Some(b'n') => '\n',
                         Some(b'r') => '\r',
                         Some(b't') => '\t',
-                        _ => return Err(self.error("Bad escaped character")),
+                        Some(_) => {
+                            return Err(
+                                self.at_index("Bad escaped character in JSON", self.index + 1)
+                            );
+                        }
                     };
                     out.push(escaped);
                     self.index += 2;
                 }
-                0x00..=0x1F => return Err(self.error("Bad control character in string literal")),
+                0x00..=0x1F => {
+                    return Err(self.at("Bad control character in string literal in JSON"));
+                }
                 _ => {
                     let rest = &self.text[self.index..];
                     let character = rest.chars().next().unwrap_or(char::REPLACEMENT_CHARACTER);
@@ -918,6 +1013,25 @@ mod tests {
         let parsed = parse(&text).expect("JSON.parse accepts deep nesting");
         assert!(matches!(parsed, JsValue::Array(_)));
         drop(parsed);
+    }
+
+    /// Messages printed by node 22.20.0 `JSON.parse`, generated by
+    /// `tests/oracle/v8-json-errors.mjs`.
+    #[test]
+    fn syntax_error_messages_match_v8() {
+        let fixture =
+            parse(include_str!("../tests/fixtures/v8-json-errors.json")).expect("fixture is JSON");
+        let rows = fixture.as_array().expect("rows");
+        assert_eq!(rows.len(), 83, "every V8 case is checked");
+        for row in rows {
+            let row = row.as_array().expect("pair");
+            let input = row[0].as_str().expect("input");
+            let expected = row[1].as_str();
+            // The fixture input is JavaScript text without lone surrogates or
+            // U+10FFFF, so it is also the raw source string.
+            let actual = parse(input).err().map(|error| error.message);
+            assert_eq!(actual.as_deref(), expected, "input {input:?}");
+        }
     }
 
     #[test]
