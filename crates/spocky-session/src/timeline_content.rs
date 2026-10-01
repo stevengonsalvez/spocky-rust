@@ -6,9 +6,9 @@ use spocky_store::js_value::{JsObject, JsValue, stringify};
 
 use crate::agent_sdk::AgentError;
 
-use crate::js::spread;
 use crate::text::{slice_utf16, utf16_len};
 use crate::timeline::JsTypeError;
+use spocky_contracts::js::spread;
 
 /// `TOOL_CALL_CONTENT_MAX_LENGTH`.
 pub const TOOL_CALL_CONTENT_MAX_LENGTH: usize = 64 * 1024;
