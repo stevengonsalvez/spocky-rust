@@ -4,6 +4,13 @@ No compatibility runtime exception is accepted.
 
 An exception requires capability, owner, exact runtime and version, boundary, exchanged data, pilot evidence, security and packaging risk, performance and support risk, original-versus-candidate tests, platforms, removal condition, and review date.
 
+## Harness-only tools
+
+`scripts/phase2/relay-ops-tls-proxy.py` is a local differential-test TLS edge
+proxy. It is excluded from shipped runtime ownership and is not a compatibility
+runtime exception. Replace it with Rust only if test-harness ownership becomes
+part of the release artifact.
+
 ## Candidates
 
 Neither candidate below is accepted for release or parity.
