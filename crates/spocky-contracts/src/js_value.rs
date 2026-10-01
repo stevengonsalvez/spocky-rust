@@ -120,6 +120,11 @@ pub fn js_text_from_utf16(units: &[u16]) -> String {
 /// the tree with explicit stacks, so input as deep as `JSON.parse` accepts
 /// never overflows the Rust stack.
 pub enum JsValue {
+    /// JavaScript `undefined`. `JSON.parse` never produces it; it models an
+    /// own property whose value is `undefined` (a spread or assignment of a
+    /// missing value), which keeps its key slot but `JSON.stringify` omits.
+    /// In an array or at the top level it is written as `null`.
+    Undefined,
     Null,
     Bool(bool),
     Number(f64),
@@ -305,6 +310,7 @@ impl Clone for JsValue {
         while let Some(step) = work.pop() {
             match step {
                 CloneWork::Visit(value) => match value {
+                    Self::Undefined => built.push(Self::Undefined),
                     Self::Null => built.push(Self::Null),
                     Self::Bool(flag) => built.push(Self::Bool(*flag)),
                     Self::Number(number) => built.push(Self::Number(*number)),
@@ -347,7 +353,7 @@ impl PartialEq for JsValue {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
             match (left, right) {
-                (Self::Null, Self::Null) => {}
+                (Self::Undefined, Self::Undefined) | (Self::Null, Self::Null) => {}
                 (Self::Bool(a), Self::Bool(b)) if a == b => {}
                 (Self::String(a), Self::String(b)) if a == b => {}
                 (Self::Number(a), Self::Number(b)) if a == b => {}
@@ -860,12 +866,18 @@ fn write_value(out: &mut String, root: &JsValue, indent: Option<&str>) {
                 }
             }
             WriteWork::Value(value, depth) => match value {
-                JsValue::Null => out.push_str("null"),
+                JsValue::Undefined | JsValue::Null => out.push_str("null"),
                 JsValue::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
                 JsValue::Number(number) => out.push_str(&js_number(*number)),
                 JsValue::String(text) => write_string(out, text),
                 JsValue::Array(items) if items.is_empty() => out.push_str("[]"),
-                JsValue::Object(object) if object.is_empty() => out.push_str("{}"),
+                JsValue::Object(object)
+                    if object
+                        .iter()
+                        .all(|(_, item)| matches!(item, JsValue::Undefined)) =>
+                {
+                    out.push_str("{}");
+                }
                 JsValue::Array(items) => {
                     out.push('[');
                     work.push(WriteWork::Close(']', depth));
@@ -877,7 +889,10 @@ fn write_value(out: &mut String, root: &JsValue, indent: Option<&str>) {
                 JsValue::Object(object) => {
                     out.push('{');
                     work.push(WriteWork::Close('}', depth));
-                    let entries: Vec<(&str, &JsValue)> = object.iter().collect();
+                    let entries: Vec<(&str, &JsValue)> = object
+                        .iter()
+                        .filter(|(_, item)| !matches!(item, JsValue::Undefined))
+                        .collect();
                     for (position, (key, item)) in entries.into_iter().enumerate().rev() {
                         work.push(WriteWork::Value(item, depth + 1));
                         work.push(WriteWork::Key(key, depth + 1, position == 0));
@@ -965,6 +980,27 @@ mod tests {
         assert_eq!(js_number(1e20), "100000000000000000000");
         assert_eq!(js_number(0.000_001), "0.000001");
         assert_eq!(js_number(-2.5e-7), "-2.5e-7");
+    }
+
+    #[test]
+    fn undefined_properties_are_omitted_like_json_stringify() {
+        // node: JSON.stringify({a: undefined, b: 1, c: [undefined]}) and {x: undefined}
+        let mut object = super::JsObject::new();
+        object.insert("a", JsValue::Undefined);
+        object.insert("b", JsValue::Number(1.0));
+        object.insert("c", JsValue::Array(vec![JsValue::Undefined]));
+        assert_eq!(stringify(&JsValue::Object(object)), r#"{"b":1,"c":[null]}"#);
+        let mut only = super::JsObject::new();
+        only.insert("x", JsValue::Undefined);
+        let only = JsValue::Object(only);
+        assert_eq!(stringify(&only), "{}");
+        assert_eq!(stringify_pretty(&only), "{}");
+        // The slot stays: a later defined value keeps the first position.
+        let mut slotted = super::JsObject::new();
+        slotted.insert("m", JsValue::Undefined);
+        slotted.insert("e", JsValue::Null);
+        slotted.insert("m", JsValue::Number(2.0));
+        assert_eq!(stringify(&JsValue::Object(slotted)), r#"{"m":2,"e":null}"#);
     }
 
     #[test]

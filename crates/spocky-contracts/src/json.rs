@@ -61,7 +61,9 @@ struct JsValueOut<'a>(&'a JsValue);
 impl Serialize for JsValueOut<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self.0 {
-            JsValue::Null => serializer.serialize_unit(),
+            // JSON.stringify writes undefined as null in an array; a member
+            // holding undefined is skipped below.
+            JsValue::Undefined | JsValue::Null => serializer.serialize_unit(),
             JsValue::Bool(flag) => serializer.serialize_bool(*flag),
             // JSON.stringify writes a non-finite number as null.
             JsValue::Number(number) => match JsNumber::new(*number) {
@@ -77,14 +79,19 @@ impl Serialize for JsValueOut<'_> {
                 sequence.end()
             }
             JsValue::Object(object) => {
-                let mut map = serializer.serialize_map(Some(object.len()))?;
-                for (key, value) in object.iter() {
+                let defined = || object.iter().filter(|(_, value)| !is_undefined(value));
+                let mut map = serializer.serialize_map(Some(defined().count()))?;
+                for (key, value) in defined() {
                     map.serialize_entry(key, &JsValueOut(value))?;
                 }
                 map.end()
             }
         }
     }
+}
+
+const fn is_undefined(value: &JsValue) -> bool {
+    matches!(value, JsValue::Undefined)
 }
 
 impl Serialize for JsonValue {
@@ -362,7 +369,7 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, ValueError> {
         match self.0 {
-            JsValue::Null => visitor.visit_unit(),
+            JsValue::Undefined | JsValue::Null => visitor.visit_unit(),
             JsValue::Bool(flag) => visitor.visit_bool(*flag),
             JsValue::Number(number) => visitor.visit_f64(*number),
             JsValue::String(text) => visitor.visit_str(text),
@@ -373,9 +380,11 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
                 Ok(value)
             }
             JsValue::Object(object) => {
+                // A member holding undefined reads as a missing key.
                 let mut access = MapDeserializer::new(
                     object
                         .iter()
+                        .filter(|(_, value)| !is_undefined(value))
                         .map(|(key, value)| (key, JsValueDeserializer(value))),
                 );
                 let value = visitor.visit_map(&mut access)?;
@@ -386,7 +395,7 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, ValueError> {
-        if self.0.is_null() {
+        if self.0.is_null() || is_undefined(self.0) {
             visitor.visit_none()
         } else {
             visitor.visit_some(self)
@@ -613,7 +622,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::{JsRecord, JsonValue, array_index, js_wire_text, serialize_passthrough};
-    use crate::js_value::parse;
+    use crate::js_value::{JsObject, JsValue, parse};
 
     #[test]
     fn passthrough_puts_index_keys_first_and_named_extras_last() {
@@ -677,5 +686,42 @@ mod tests {
             r#"{"7":"2","x":"3"}"#
         );
         assert!(serde_json::from_str::<JsRecord<String>>(r#"{"x":1}"#).is_err());
+    }
+
+    #[test]
+    fn undefined_writes_and_reads_like_a_missing_member() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Typed {
+            a: Option<f64>,
+            b: Option<f64>,
+            c: Vec<Option<f64>>,
+        }
+        #[derive(Debug, Deserialize)]
+        struct Required {
+            #[allow(dead_code, reason = "only the missing-field error is checked")]
+            a: f64,
+        }
+        // node v22.20.0: JSON.stringify({a: undefined, b: 1, c: [undefined]})
+        let mut object = JsObject::new();
+        object.insert("a", JsValue::Undefined);
+        object.insert("b", JsValue::Number(1.0));
+        object.insert("c", JsValue::Array(vec![JsValue::Undefined]));
+        let value = JsValue::Object(object);
+        let written = serde_json::to_string(&JsonValue::from(value.clone())).unwrap();
+        assert_eq!(written, r#"{"b":1,"c":[null]}"#);
+        let typed = Typed::deserialize(super::JsValueDeserializer(&value)).unwrap();
+        assert_eq!(
+            typed,
+            Typed {
+                a: None,
+                b: Some(1.0),
+                c: vec![None],
+            }
+        );
+        let mut only = JsObject::new();
+        only.insert("a", JsValue::Undefined);
+        let error =
+            Required::deserialize(super::JsValueDeserializer(&JsValue::Object(only))).unwrap_err();
+        assert!(error.to_string().contains("missing field `a`"), "{error}");
     }
 }
