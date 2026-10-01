@@ -566,18 +566,28 @@
     {
       "id": "P3-VERTICAL-SLICE",
       "capabilities": ["unchanged-client", "workspace", "codex", "stream", "permission", "cancel", "restart", "resume"],
-      "dependencies": ["P2-HARNESS-PILOTS"],
+      "dependencies": ["p2_harness", "p2_codec_crypto", "p2_state_lifecycle", "p2_lifecycle_full"],
       "priority": 3,
-      "state": "blocked",
-      "owner": "unassigned until dependency-ready",
-      "worktree": "assigned when dependency-ready",
-      "branch": "assigned when dependency-ready",
+      "state": "implementing",
+      "owner": "Claude lead (contracts, crate graph, integration); writer lanes per evidence/phase3/slice-plan.md",
+      "worktree": "per writer lane",
+      "branch": "per writer lane",
       "permittedPaths": [],
-      "model": "gpt-5.6-sol", "effort": "medium", "acceptanceCommands": [],
+      "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane", "acceptanceCommands": [],
       "acceptanceCases": ["unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon"],
       "platforms": ["macOS first slice", "cross-platform follow-up before completion"],
-      "implementationCommits": [], "integrationCommits": [], "revisions": [], "reviews": [], "repairs": [], "evidence": [], "resources": [],
-      "blockedBy": "P2-HARNESS-PILOTS is not done"
+      "implementationCommits": [], "integrationCommits": [],
+      "revisions": [
+        {
+          "date": "2026-10-01",
+          "authority": "Claude coordinator session term_d3e130a0, holding decision authority while Stevie is away",
+          "change": "DAG revision: P3 starts in parallel with remaining P2 gaps. Dependency narrowed from P2-HARNESS-PILOTS to the P2 core pilots p2_harness, p2_codec_crypto, p2_state_lifecycle, and p2_lifecycle_full. P2-HARNESS-PILOTS stays implementing.",
+          "reason": "The daemon slice depends on codec, crypto, stored-state, and lifecycle pilots, which are integrated. Remaining P2 gaps (UI platforms, Hub services, relay production, delivery) do not gate the daemon slice.",
+          "deviation": "The approved plan said not to start Phase 3 until P2-HARNESS-PILOTS is done and its review boundary passes. This revision overrides that gate on coordinator authority, not a direct Stevie decision. P2 adversarial reviews remain rejected. Astra is not used in the Claude routing window, so the P3 two-review boundary cannot close until it is."
+        }
+      ],
+      "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "blockedBy": null
     },
     {
       "id": "P4-ECOSYSTEM",
