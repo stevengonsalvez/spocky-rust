@@ -51,13 +51,17 @@ pub fn real_codex() -> String {
 /// Bound on `codex --version`.
 const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// `codex --version` under the loopback-only seatbelt with a scrubbed env,
-/// killed by its own pid when it overruns `VERSION_PROBE_TIMEOUT`.
+/// `codex --version` under the loopback-only seatbelt with the same hermetic
+/// env as a real session (disposable `HOME` and `CODEX_HOME`, proxies aimed at
+/// the egress guard), killed by its own pid when it overruns
+/// `VERSION_PROBE_TIMEOUT`, then checked for egress.
 fn sandboxed_version() -> String {
+    let root = DisposableRoot::new("version-probe");
     let mut child = std::process::Command::new("/usr/bin/sandbox-exec")
         .args(["-p", LOOPBACK_ONLY_PROFILE, PINNED_CODEX_PATH, "--version"])
         .env_clear()
-        .env("HOME", std::env::temp_dir())
+        .envs(hermetic_env(&root))
+        .env("CODEX_HOME", root.join("codex"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -83,6 +87,7 @@ fn sandboxed_version() -> String {
         .expect("version stdout")
         .read_to_string(&mut stdout)
         .expect("read codex --version");
+    assert_no_egress();
     stdout
 }
 
@@ -484,6 +489,32 @@ fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
 pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -> CodexProvider {
     write_hermetic_config(root, stub);
     let launcher = loopback_only_launcher(root, codex);
+    let env = [
+        ("CODEX_HOME".to_owned(), path_string(&root.join("codex"))),
+        ("OPENAI_API_KEY".to_owned(), "test-key".to_owned()),
+        ("OPENAI_BASE_URL".to_owned(), stub.base_url()),
+    ]
+    .into_iter()
+    .collect();
+    CodexProvider::new(
+        Some(ProviderRuntimeSettings {
+            command: Some(ProviderCommand::Replace {
+                argv: vec![launcher],
+            }),
+            env: Some(env),
+        }),
+        Some(CustomProvider {
+            id: "codex-stub".to_owned(),
+            label: "Codex Stub".to_owned(),
+            extends: "codex".to_owned(),
+        }),
+        hermetic_env(root),
+    )
+}
+
+/// `PATH`, a disposable `HOME`, and every proxy variable aimed at the egress
+/// guard, with loopback exempt.
+fn hermetic_env(root: &DisposableRoot) -> Vec<(OsString, OsString)> {
     let home = path_string(&root.join("home"));
     let guard = egress_guard().url.clone();
     let mut base_env: Vec<(OsString, OsString)> = vec![
@@ -512,27 +543,7 @@ pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -
     ] {
         base_env.push((OsString::from(key), OsString::from(&guard)));
     }
-    let env = [
-        ("CODEX_HOME".to_owned(), path_string(&root.join("codex"))),
-        ("OPENAI_API_KEY".to_owned(), "test-key".to_owned()),
-        ("OPENAI_BASE_URL".to_owned(), stub.base_url()),
-    ]
-    .into_iter()
-    .collect();
-    CodexProvider::new(
-        Some(ProviderRuntimeSettings {
-            command: Some(ProviderCommand::Replace {
-                argv: vec![launcher],
-            }),
-            env: Some(env),
-        }),
-        Some(CustomProvider {
-            id: "codex-stub".to_owned(),
-            label: "Codex Stub".to_owned(),
-            extends: "codex".to_owned(),
-        }),
-        base_env,
-    )
+    base_env
 }
 
 /// `run --mode auto`: on-request approvals in a workspace-write sandbox.
