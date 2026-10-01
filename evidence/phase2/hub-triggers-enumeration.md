@@ -93,37 +93,58 @@ Sources:
 ## Rust coverage and differential result
 
 Every item below is exercised by `scripts/phase2/hub-triggers-original.integration.test.ts` (real baseline
-code at the pinned commit, offline, in-memory database, `TZ=UTC`, generated IDs made deterministic) and
-by `crates/spocky-hub-pilot/tests/hub_triggers_evidence.rs` (Rust).
+code at the pinned commit, offline, in-memory database, generated IDs made deterministic) and
+by `crates/spocky-hub-pilot/tests/hub_triggers_evidence.rs` (Rust). The baseline is captured twice, once
+per host time zone: `TZ=UTC` and `TZ=Europe/London`.
 
-- `scripts/phase2/hub-triggers-capture.sh` writes the baseline trace to
-  `evidence/raw/phase2/hub-triggers-original.json`.
-- `scripts/phase2/hub-triggers-compare.sh` runs the Rust trace and compares the two raw files byte for
-  byte (`cmp`). Object key order, whitespace and every response body byte are part of the comparison;
-  there is no key sorting and no normalization. The public API request ID is a fixed `request-1`
-  header so problem bodies are deterministic, and the Rust model is given the baseline's generated run,
-  revision and step run IDs (taken from the trace) so that the execution IDs it derives can be compared.
-- `hub_triggers_evidence` asserts on every run that the Rust trace equals the committed baseline trace
-  `evidence/phase2/hub-triggers-original.json`; it does not pass when the output variable is unset.
+- `scripts/phase2/hub-triggers-capture.sh` writes the two baseline traces to
+  `evidence/raw/phase2/hub-triggers-original.json` (UTC) and
+  `evidence/raw/phase2/hub-triggers-original-europe-london.json`. The committed copies are
+  `evidence/phase2/hub-triggers-original.json` and
+  `evidence/phase2/hub-triggers-original-europe-london.json`.
+- The capture installs the pinned `package-lock.json` with `npm ci --offline`: every package comes from
+  the local npm cache and is checked against the lock's integrity hashes, with no network access. The
+  only online path is an explicit opt-in, `SPOCKY_HUB_TRIGGERS_ALLOW_ONLINE_INSTALL=1`, which writes an
+  `ONLINE INSTALL` line to `evidence/raw/phase2/hub-triggers-npm-ci.log`. The committed captures were
+  taken with the offline install.
+- `scripts/phase2/hub-triggers-compare.sh` first compares each raw original capture with the committed
+  evidence file (`cmp`; `SPOCKY_HUB_TRIGGERS_RECAPTURE=1` reruns the capture first). It then runs the
+  Rust trace with `TZ` set to the capture's zone and compares the two raw files byte for byte (`cmp`).
+  Object key order, whitespace and every response body byte are part of the comparison; there is no
+  key sorting and no normalization. The public API request ID is a fixed `request-1` header so problem
+  bodies are deterministic. The generated run, revision and step run IDs of the capture come from a
+  counter-based UUID mock; the Rust side hardcodes the same literal values and passes them through the
+  `run_id` and `step_run_ids` fields of `AcceptedRunInput`, so the execution IDs it derives are
+  compared without reading the baseline trace for them.
+- `hub_triggers_evidence` has three tests. Two build the store in an explicit zone (UTC and
+  Europe/London) and require byte equality with the committed capture for that zone. The third builds
+  the store as production does, `TriggerStore::default()`, which reads the host zone (`TZ`, else
+  `/etc/localtime`) and requires byte equality with the capture for that zone (a fresh capture when
+  `SPOCKY_HUB_TRIGGERS_BASELINE` is set). None of them passes when an output variable is unset. On a
+  host whose zone matches neither capture the third test compares against a store built from that
+  same zone. A mismatch reports both line counts and the first differing line.
 
 | Area | Cases compared |
 | --- | --- |
-| Manual intake (`handleManualTriggerRequest`) | 37 request cases, a 37-string `receivedAt` grid with the parsed epoch milliseconds, omitted `receivedAt`, one to three leading byte order marks, handler replay count, receipt evidence (provider, source, dropped reason, null connection and resource), cross-organization receipts |
+| Manual intake (`handleManualTriggerRequest`) | 37 request cases, a 47-string `receivedAt` grid with the parsed epoch milliseconds (including local date-times around the 2026 Europe/London daylight saving transitions and one in 1800), omitted `receivedAt`, one to three leading byte order marks, handler replay count, receipt evidence (provider, source, dropped reason, null connection and resource), cross-organization receipts |
 | Manual run matching (`createManualRunProvider`) | 10 cases: matched, public delivery key, expected version current and stale, revision missing, trigger missing, actor forbidden and allowed, no user filter, wrong event trigger |
 | Public manual-run response (`createPublicApi`) | 10 operation results compared as full response bodies (RFC 9457 problem JSON key order included), 401, 403, 503 authentication, invalid JSON, wrong and missing content type, one to three leading byte order marks, and an invalid UTF-8 byte inside a string |
-| Runs, fan-out, leases, execution records | receipt dedupe, run per receipt, project and trigger, wakeup claim, lease claimable at exactly its expiry instant and not one millisecond before, fenced release, execution reuse after unknown outcome, step selection by step ID and ordinal, idle deadline capped by the execution and run deadlines, first terminal wins, idle deadline cleared, run success idempotent |
-| Execution identity | generated run, revision and step run IDs, the derived execution IDs, and three fixed derivation vectors compared as literal UUID strings |
+| Runs, fan-out, leases, execution records | receipt dedupe, run per receipt, project and trigger, wakeup claim, lease claimable at exactly its expiry instant and not one millisecond before, fenced release, execution reuse after unknown outcome, step selection by step ID and ordinal, idle deadline capped by the execution and run deadlines (run deadline before the execution deadline, and execution deadline before the run deadline before the idle deadline), first terminal wins, idle deadline cleared, run success idempotent |
+| Execution identity | generated run, revision and step run IDs, the derived execution IDs, the host offset in January and in August, and three fixed derivation vectors compared as literal UUID strings |
 | GitHub webhook (`createWebhookSource`) | 43 cases: 503, 401 variants, 413 at and over the 1,048,576 byte limit, header bounds at 128 bytes, malformed JSON, invalid UTF-8, one and two leading byte order marks, non-object bodies, installation ID shapes, lifecycle events, unsupported and handlerless drops, multiple handlers and events, storage 503 and 500, replay, long and empty secrets, signature hash value |
 
 The Rust webhook endpoint takes its acceptance boundary as a trait (`WebhookBackend`); the manual
 handler is a closure. Neither production type holds counters or logs, those live in the tests.
 
 Result of the last run of `hub-triggers-compare.sh`: `matched: true`, `comparison: byte-identical`,
-`normalization: none`. Both traces have SHA-256
-`b90c37caae59b1a6f55521e1693fbd1b7b58035682fd148ccba7f3b32137fcc4` (see `hub-triggers-sha256.txt`).
-The local-offset path was also checked once at +05:30 by capturing with `TZ=Asia/Kolkata` and running the
-Rust trace with `SPOCKY_HUB_TRIGGERS_LOCAL_OFFSET_MINUTES=330`; that run is not part of the committed
-scripts.
+`normalization: none`, for both zones, and each raw original equals its committed evidence file. Trace
+SHA-256 values are in `hub-triggers-sha256.txt`. In the Europe/London capture the host offset is 0 in
+January and 60 in August.
+
+Local time zone behavior is also checked by `hub_triggers.rs` against values read from Node v26.7.0
+with the zone set through `TZ`: Europe/London, Australia/Lord_Howe (30 minute change),
+Australia/Sydney (daylight time across the new year), America/New_York, America/Sao_Paulo and
+Pacific/Apia, including skipped and repeated local times and local mean time with seconds in the offset.
 
 ## Remaining gaps (not covered, not claimed)
 
@@ -151,9 +172,12 @@ scripts.
   path, so that mapping is not compared.
 - GitHub `push` repository synchronization, and every non-GitHub provider and schedule recurrence.
 - `receivedAt` strings that only the baseline's legacy date parser accepts (for example `Aug 6 2026`,
-  `2026/08/06`, `2026-08-06 12:00`, `2026-8-6`). Rust accepts the ISO 8601 grammar only. Date-times
-  written without an offset use a fixed host offset given to the store; the baseline uses the host time
-  zone including daylight saving rules.
+  `2026/08/06`, `2026-08-06 12:00`, `2026-8-6`). Rust accepts the ISO 8601 grammar only.
+- Host time zone: Rust reads `TZ` (a zone name, optionally after a colon) or `/etc/localtime` from the
+  TZif files of the host. A `TZ` value that is a POSIX rule string with no zoneinfo file, a version 1
+  TZif file and an unreadable zone all give UTC; none of these is compared with the baseline, which
+  uses ICU. Rust and ICU can disagree when the host zoneinfo and ICU data are different releases.
+  `local_offset_minutes_at` drops the seconds of a local mean time offset, as `getTimezoneOffset` does.
 - Non-ASCII header values and JSON numbers outside the f64 range.
 
 ## Baseline behavior preserved on purpose
