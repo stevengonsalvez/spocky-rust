@@ -19,6 +19,23 @@ if $capture --parse-different-pixels '19 (invalid)' >/dev/null 2>&1; then
   exit 1
 fi
 
+version_with_trailing_whitespace=$(printf ' \tGoogle Chrome 154.0.8037.59 \t\r\n ')
+normalized_version=$($capture --validate-chromium-version "$version_with_trailing_whitespace")
+if [ "$normalized_version" != 'Google Chrome 154.0.8037.59' ]; then
+  printf 'Chromium version edge whitespace normalized as %s\n' "$normalized_version" >&2
+  exit 1
+fi
+if $capture --validate-chromium-version \
+  'Google  Chrome 154.0.8037.59' >/dev/null 2>&1; then
+  printf 'Chromium version with internal extra space unexpectedly passed\n' >&2
+  exit 1
+fi
+if $capture --validate-chromium-version \
+  'Google Chrome 155.0.0.0' >/dev/null 2>&1; then
+  printf 'changed Chromium version unexpectedly passed\n' >&2
+  exit 1
+fi
+
 preflight=$($capture --preflight-only)
 printf '%s\n' "$preflight" | grep -F \
   'Paseo baseline preflight passed: 5de45e208690b0efc51c59a585ae9729325a9204'

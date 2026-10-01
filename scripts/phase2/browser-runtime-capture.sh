@@ -56,6 +56,21 @@ parse_different_pixels() {
   return 1
 }
 
+normalize_chromium_version() {
+  printf '%s' "$1" \
+    | python3 -c 'import sys; sys.stdout.write(sys.stdin.read().strip(" \t\n\r\v\f"))'
+}
+
+validate_chromium_version() {
+  observed_version=$(normalize_chromium_version "$1")
+  if [ "$observed_version" != "$expected_chromium_version" ]; then
+    printf 'Chromium version mismatch: expected %s, got %s\n' \
+      "$expected_chromium_version" "$observed_version" >&2
+    return 1
+  fi
+  printf '%s\n' "$observed_version"
+}
+
 if [ "${1:-}" = "--parse-different-pixels" ]; then
   if [ "$#" -ne 2 ]; then
     printf 'usage: %s --parse-different-pixels IMAGE_MAGICK_METRIC\n' "$0" >&2
@@ -63,6 +78,15 @@ if [ "${1:-}" = "--parse-different-pixels" ]; then
   fi
   parse_different_pixels "$2"
   exit 0
+fi
+
+if [ "${1:-}" = "--validate-chromium-version" ]; then
+  if [ "$#" -ne 2 ]; then
+    printf 'usage: %s --validate-chromium-version VERSION_OUTPUT\n' "$0" >&2
+    exit 2
+  fi
+  validate_chromium_version "$2"
+  exit $?
 fi
 
 if [ "${1:-}" = "--enforce-result" ]; then
@@ -123,7 +147,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--validate-chromium-version VERSION_OUTPUT|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
 if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=no)" ]; then
@@ -209,12 +233,8 @@ if [ ! -x "$chromium_executable" ]; then
   printf 'Pinned Chromium executable is unavailable: %s\n' "$chromium_executable" >&2
   exit 1
 fi
-chromium_version=$(gtimeout 10 "$chromium_executable" --version)
-if [ "$chromium_version" != "$expected_chromium_version" ]; then
-  printf 'Chromium version mismatch: expected %s, got %s\n' \
-    "$expected_chromium_version" "$chromium_version" >&2
-  exit 1
-fi
+chromium_version_output=$(gtimeout 10 "$chromium_executable" --version)
+chromium_version=$(validate_chromium_version "$chromium_version_output")
 os_name=$(sw_vers -productName)
 os_version=$(sw_vers -productVersion)
 os_build=$(sw_vers -buildVersion)
