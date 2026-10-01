@@ -51,7 +51,12 @@ pub struct SeqRange {
     pub end_seq: i64,
 }
 
-/// `TimelineProjectionEntry` (a projected row; its `seq` is `seq_end`).
+/// `ProjectedTimelineRow`: a `TimelineProjectionEntry` plus `seq`.
+///
+/// Key order as the baseline's spreads build it: `item, timestamp, turnId?,
+/// providerMessageId?, seqStart, seqEnd, sourceSeqRanges, collapsed, seq`,
+/// except that a `providerMessageId` added by
+/// `enrichSubmittedUserMessage` comes last (`provider_message_id_last`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectedRow {
     pub item: JsValue,
@@ -62,6 +67,11 @@ pub struct ProjectedRow {
     pub seq_end: i64,
     pub source_seq_ranges: Vec<SeqRange>,
     pub collapsed: Vec<CollapseKind>,
+    /// The projection sets it to `seq_end` when it stores a row; a row merged
+    /// again while a page is selected keeps the `seq` of the row it spreads.
+    pub seq: i64,
+    /// `providerMessageId` was added after `seq` by enrichment.
+    pub provider_message_id_last: bool,
 }
 
 fn item_type(item: &JsValue) -> Option<&str> {
@@ -230,6 +240,8 @@ fn canonical_entry(row: &TimelineRow) -> ProjectedRow {
             end_seq: row.seq,
         }],
         collapsed: Vec::new(),
+        seq: row.seq,
+        provider_message_id_last: false,
     }
 }
 
@@ -399,7 +411,10 @@ impl TimelineProjection {
             .copied()
             && let Some(merged) = merge_identity_entries(&self.rows[index], &entry)
         {
-            self.rows[index] = merged;
+            self.rows[index] = ProjectedRow {
+                seq: merged.seq_end,
+                ..merged
+            };
             return;
         }
         let adjacent = self.rows.last().and_then(|previous| {
@@ -407,13 +422,19 @@ impl TimelineProjection {
                 .or_else(|| merge_adjacent(previous, &entry, false))
         });
         if let (Some(merged), Some(last)) = (adjacent, self.rows.last_mut()) {
-            *last = merged;
+            *last = ProjectedRow {
+                seq: merged.seq_end,
+                ..merged
+            };
             return;
         }
         if let Some(identity) = identity {
             self.identities.insert(identity, self.rows.len());
         }
-        self.rows.push(entry);
+        self.rows.push(ProjectedRow {
+            seq: entry.seq_end,
+            ..entry
+        });
     }
 
     #[must_use]
@@ -432,6 +453,9 @@ impl TimelineProjection {
                 && row.item.get("clientMessageId").and_then(JsValue::as_str)
                     == Some(client_message_id)
         })?;
+        if row.provider_message_id.is_none() {
+            row.provider_message_id_last = true;
+        }
         row.provider_message_id = Some(provider_message_id.to_owned());
         Some(row.clone())
     }
