@@ -34,12 +34,23 @@ raw="$repository_root/evidence/raw/pglite-rust-host-spike"
 mkdir -p "$raw"
 gtimeout 600 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike.mjs" \
   "$package" "$work/node-data" >"$raw/node.json"
+gtimeout 600 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike.mjs" \
+  "$package" "$work/node2-data" >"$raw/node2.json"
 cp -Rp "$work/node-data" "$work/node-copy"
+cp -Rp "$work/node-data" "$work/node-copy-warm"
 
 gtimeout 2400 "$gate" cargo build --locked --release \
   --manifest-path "$repository_root/Cargo.toml" -p spocky-pglite-host --example spike
-gtimeout 900 "$CARGO_TARGET_DIR/release/examples/spike" \
-  "$package" "$work/rust-data" "$work/node-copy" >"$raw/rust.json"
+mkdir "$work/cache"
+SPOCKY_PGLITE_CACHE_DIR="$work/cache" gtimeout 900 "$CARGO_TARGET_DIR/release/examples/spike" \
+  "$package" "$work/rust-data" "$work/node-copy" "$work/rust-snapshot" >"$raw/rust.json"
+SPOCKY_PGLITE_CACHE_DIR="$work/cache" gtimeout 900 "$CARGO_TARGET_DIR/release/examples/spike" \
+  "$package" "$work/rust-data-warm" "$work/node-copy-warm" "$work/rust-snapshot-warm" >"$raw/rust-warm.json"
 
 gtimeout 120 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike-compare.mjs" \
-  "$raw/node.json" "$raw/rust.json" | tee "$raw/comparison.json"
+  "$raw/node.json" "$raw/node2.json" >"$raw/control-node-vs-node.json"
+gtimeout 120 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike-compare.mjs" \
+  "$raw/node.json" "$raw/rust.json" >"$raw/comparison.json"
+gtimeout 600 "$node_executable" "$repository_root/scripts/phase2/pglite-rust-host-spike-control.mjs" \
+  "$package" "$work/node-data" "$work/node2-data" "$work/rust-snapshot" "$work" >"$raw/control-fields.json"
+cat "$raw/comparison.json"
