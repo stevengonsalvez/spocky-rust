@@ -146,6 +146,18 @@
       "paths": ["crates/spocky-daemon/"],
       "delegation": "forbidden",
       "state": "running; admission and auth code gets lead Opus review at every checkpoint"
+    },
+    {
+      "id": "p2_hub_api",
+      "terminal": "term_0a211a40",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "Claude; exact model and effort not received (coordinator message arrived truncated)",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-api",
+      "capabilities": ["CLOUD-HUB-API-019"],
+      "scope": "scoped organization API, device authorization, OpenAPI",
+      "paths": ["crates/spocky-hub-pilot/src/public_api/ (new files only)", "crates/spocky-hub-pilot/tests/hub_api*.rs", "scripts/phase2/hub-api*", "evidence/phase2/hub-api*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"],
+      "delegation": "forbidden",
+      "state": "running; base 1af3d7a"
     }
   ],
     "retiredWorkers": [
