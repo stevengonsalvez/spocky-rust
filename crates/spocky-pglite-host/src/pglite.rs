@@ -135,7 +135,7 @@ pub fn default_lang() -> String {
 #[derive(Debug)]
 pub enum HostError {
     Engine(wasmtime::Error),
-    Database(ErrorFields),
+    Database(Box<ErrorFields>),
     Startup(String),
 }
 
@@ -163,7 +163,7 @@ pub type Result<T> = std::result::Result<T, HostError>;
 
 /// One open database: the main module plus its store.
 pub struct Pglite {
-    pub store: Store<Runtime>,
+    store: Store<Runtime>,
     pub main: usize,
     pub closed: bool,
     pub initdb_report: Option<InitdbReport>,
@@ -215,7 +215,7 @@ fn setup_postgres(
         if let Some(root) = host_root {
             fs.mkdir(PGDATA, 511)
                 .map_err(|error| fs_step("mkdir data directory", error))?;
-            fs.mount(MountKind::Host(root.to_path_buf()), Some(PGDATA))
+            fs.mount(&MountKind::Host(root.to_path_buf()), Some(PGDATA))
                 .map_err(|error| fs_step("mount data directory", error))?;
         }
         // chmod of .pgpass and the two executables.
@@ -274,8 +274,12 @@ fn install_pglite_callbacks(store: &mut Store<Runtime>, index: usize) -> Result<
     Ok(())
 }
 
-/// Runs initdb against a memory-filesystem PGlite instance and returns the
+/// Runs initdb against a memory-filesystem `PGlite` instance and returns the
 /// walked data directory, as `PGlite.create({noInitDb})` plus `Be` do.
+#[allow(
+    clippy::too_many_lines,
+    reason = "follows the glue initdb runner step by step"
+)]
 fn run_initdb(
     store: &mut Store<Runtime>,
     compiled: &Compiled,
@@ -308,7 +312,7 @@ fn run_initdb(
         fs.mkdir("/pglite", 511)
             .map_err(|error| fs_step("mkdir /pglite in initdb", error))?;
         fs.mount(
-            MountKind::Proxy {
+            &MountKind::Proxy {
                 target: postgres_fs,
                 root: "/pglite".into(),
             },
@@ -582,7 +586,7 @@ impl Pglite {
         let (mut messages, error) = self.exec_protocol(&protocol::query(sql))?;
         let (sync_messages, _) = self.exec_protocol(&protocol::sync())?;
         if let Some(error) = error {
-            return Err(HostError::Database(error));
+            return Err(HostError::Database(Box::new(error)));
         }
         messages.extend(sync_messages);
         Ok(messages)
@@ -603,7 +607,7 @@ impl Pglite {
             for message in [protocol::parse(sql, &[]), protocol::describe(b'S')] {
                 let (results, error) = self.exec_protocol(&message)?;
                 if let Some(error) = error {
-                    return Err(HostError::Database(error));
+                    return Err(HostError::Database(Box::new(error)));
                 }
                 messages.extend(results);
             }
@@ -614,7 +618,7 @@ impl Pglite {
             ] {
                 let (results, error) = self.exec_protocol(&message)?;
                 if let Some(error) = error {
-                    return Err(HostError::Database(error));
+                    return Err(HostError::Database(Box::new(error)));
                 }
                 messages.extend(results);
             }
@@ -725,7 +729,8 @@ impl Pglite {
 }
 
 /// Body of a function placed in the table with `addFunction`.
-pub fn run_callback(
+#[allow(clippy::too_many_lines, reason = "one arm per glue callback")]
+pub(crate) fn run_callback(
     mut caller: Caller<'_, Runtime>,
     index: usize,
     callback: Callback,
