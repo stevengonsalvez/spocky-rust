@@ -27,6 +27,26 @@ pub struct PgliteHostConfig {
     pub migrations_root: PathBuf,
     pub data_directory: PathBuf,
     pub engine: EngineOptions,
+    /// Bound on Wasm execution per request. When it passes the host stops
+    /// the store without closing it, as the adapter kills a timed-out child.
+    pub request_timeout: Option<std::time::Duration>,
+}
+
+/// Runs `work` on a new thread with the store stack size. The Wasmtime
+/// store of a database must live on such a thread: `invoke_*` re-entry nests
+/// host and Wasm frames on the native stack.
+///
+/// # Panics
+///
+/// Panics when the thread cannot be spawned or `work` panics.
+pub fn run_on_store_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    thread::Builder::new()
+        .name("pglite-host".into())
+        .stack_size(HOST_THREAD_STACK)
+        .spawn(work)
+        .expect("spawn PGlite store thread")
+        .join()
+        .expect("PGlite store thread")
 }
 
 /// Identity of the host runtime, the counterpart of the Node identity the
@@ -80,6 +100,9 @@ pub enum PgliteHostError {
     Startup(String),
     /// The host is closed or its thread ended.
     Closed,
+    /// The request exceeded `request_timeout`; the store was stopped and a
+    /// write may have committed.
+    Timeout,
 }
 
 impl fmt::Display for PgliteHostError {
@@ -90,6 +113,7 @@ impl fmt::Display for PgliteHostError {
             }
             Self::Startup(message) => write!(formatter, "PGlite host failed to start: {message}"),
             Self::Closed => formatter.write_str("PGlite host is closed"),
+            Self::Timeout => formatter.write_str("PGlite host request timed out"),
         }
     }
 }
@@ -185,6 +209,7 @@ impl PgliteHost {
         let (ready, started) = mpsc::channel::<Result<(), PgliteHostError>>();
         let data_directory = config.data_directory.clone();
         let migrations_root = config.migrations_root.clone();
+        let timeout = config.request_timeout;
         let worker = thread::Builder::new()
             .name("pglite-host".into())
             .stack_size(HOST_THREAD_STACK)
@@ -199,7 +224,7 @@ impl PgliteHost {
                         return;
                     }
                 };
-                serve(&mut database, &receiver, &migrations_root);
+                serve(&mut database, &receiver, &migrations_root, timeout);
             })
             .map_err(|error| PgliteHostError::Startup(error.to_string()))?;
         match started.recv() {
@@ -303,28 +328,45 @@ impl Drop for PgliteHost {
     }
 }
 
+/// Replies with `result`, or with `Timeout` when the epoch deadline
+/// interrupted the request. Returns false when the store must stop.
+fn answer<T>(database: &Pglite, reply: &Reply<T>, result: Result<T, PgliteHostError>) -> bool {
+    if database.interrupted {
+        let _ = reply.send(Err(PgliteHostError::Timeout));
+        return false;
+    }
+    let _ = reply.send(result);
+    true
+}
+
 fn serve(
     database: &mut Pglite,
     receiver: &mpsc::Receiver<Request>,
     migrations_root: &std::path::Path,
+    timeout: Option<std::time::Duration>,
 ) {
     for request in receiver {
-        match request {
+        database.set_deadline(timeout);
+        let keep = match request {
             Request::Migrate(reply) => {
-                let _ = reply.send(migrate(database, migrations_root));
+                let result = migrate(database, migrations_root);
+                answer(database, &reply, result)
             }
             Request::Query(sql, params, reply) => {
-                let _ = reply.send(database.query(&sql, &params).map_err(Into::into));
+                let result = database.query(&sql, &params).map_err(Into::into);
+                answer(database, &reply, result)
             }
             Request::Execute(sql, reply) => {
-                let _ = reply.send(database.execute(&sql).map_err(Into::into));
+                let result = database.execute(&sql).map_err(Into::into);
+                answer(database, &reply, result)
             }
             Request::Transaction(statements, reply) => {
                 let statements: Vec<(String, Vec<IpcValue>)> = statements
                     .into_iter()
                     .map(|statement| (statement.sql, statement.params))
                     .collect();
-                let _ = reply.send(database.transaction(&statements).map_err(Into::into));
+                let result = database.transaction(&statements).map_err(Into::into);
+                answer(database, &reply, result)
             }
             Request::Close(reply) => {
                 let result = database
@@ -333,6 +375,11 @@ fn serve(
                 let _ = reply.send(result);
                 return;
             }
+        };
+        if !keep {
+            // Like killing a timed-out child: no close, the data directory
+            // keeps whatever the interrupted request wrote.
+            return;
         }
     }
     let _ = database.close();
@@ -449,4 +496,15 @@ fn migrate(
         applied: pending.len(),
         journal_rows,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_work_runs_on_the_library_thread() {
+        let name = run_on_store_thread(|| thread::current().name().map(str::to_owned));
+        assert_eq!(name.as_deref(), Some("pglite-host"));
+    }
 }
