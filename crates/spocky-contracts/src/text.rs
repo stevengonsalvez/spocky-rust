@@ -7,7 +7,7 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::js_value::{js_text, js_text_utf16};
+use crate::js_value::{JsTextUnit, js_text, js_text_units};
 
 /// Returns `true` for the `WhiteSpace` and `LineTerminator` code points that
 /// ECMAScript `String.prototype.trim` strips.
@@ -44,7 +44,12 @@ pub fn js_trim(value: &str) -> &str {
 /// lone surrogate counted once (see [`crate::js_value`]).
 #[must_use]
 pub fn js_length(value: &str) -> usize {
-    js_text_utf16(value).count()
+    js_text_units(value)
+        .map(|unit| match unit {
+            JsTextUnit::Char(character) => character.len_utf16(),
+            JsTextUnit::LoneSurrogate(_) => 1,
+        })
+        .sum()
 }
 
 /// A wire string as JavaScript text in the [`crate::js_value`] encoding,
