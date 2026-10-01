@@ -27,6 +27,7 @@ mod invitations;
 mod relational_api_keys;
 mod relational_invitations;
 mod relational_sessions;
+mod retained_pglite;
 
 pub use account_emails::{
     AccountEmailMessage, render_password_reset_email, render_verification_email,
@@ -41,6 +42,10 @@ pub use invitations::{
 pub use relational_api_keys::PostgresApiKeyStore;
 pub use relational_invitations::PostgresInvitationStore;
 pub use relational_sessions::PostgresSessionStore;
+pub use retained_pglite::{
+    HostIdentity, IpcValue, MigrationOutcome, QueryResult, RetainedHostError, RetainedPgliteConfig,
+    RetainedPgliteHost, SqlStatement,
+};
 
 macro_rules! identifier {
     ($name:ident) => {
