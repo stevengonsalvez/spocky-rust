@@ -3,7 +3,8 @@
 //! produces, and the `activity_log` that follows it.
 
 use std::any::Any;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::future::Future;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -91,26 +92,36 @@ fn rpc_error(request_id: JsText, request_type: &str, error: JsText, code: &str) 
     })
 }
 
+/// Where a session's outbound frames go: `this.emit`, callable from any
+/// task.
+pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
+
 /// `handleRequest(msg)`: refuses a message the session may not send with
 /// `access_denied`, otherwise runs `dispatch`. A dispatch error becomes
 /// `rpc_error` with `Request failed: <message>` and `handler_error`, then an
-/// `activity_log` error entry, in that order. The error is JavaScript text,
+/// `activity_log` error entry, in that order. The handler is asynchronous,
+/// as `dispatchInboundMessage` is awaited. The error is JavaScript text,
 /// since handler messages often quote request fields.
 ///
 /// Every frame, including those `dispatch` emits, passes the session's
 /// `allowsOutbound` check first, as `SessionDelivery`'s send does.
-pub fn handle_request(
-    authorization: &SessionAuthorization,
+pub async fn handle_request<F, Fut>(
+    authorization: Arc<SessionAuthorization>,
     message: SessionInbound,
-    sink: &mut dyn FnMut(Value),
-    dispatch: impl FnOnce(SessionInbound, &mut dyn FnMut(Value)) -> Result<(), JsText>,
-) {
-    let mut allowed = |frame: Value| {
-        if authorization.allows_outbound(&frame) {
-            sink(frame);
-        }
+    sink: Emit,
+    dispatch: F,
+) where
+    F: FnOnce(SessionInbound, Emit) -> Fut,
+    Fut: Future<Output = Result<(), JsText>> + Send + 'static,
+{
+    let emit: Emit = {
+        let authorization = Arc::clone(&authorization);
+        Arc::new(move |frame: Value| {
+            if authorization.allows_outbound(&frame) {
+                sink(frame);
+            }
+        })
     };
-    let emit: &mut dyn FnMut(Value) = &mut allowed;
     let id = request_id(&message).cloned();
     let kind = request_type(&message);
     if !authorization.allows_inbound(&message) {
@@ -124,9 +135,15 @@ pub fn handle_request(
     }
     // A thrown handler error is `handler_error` in the baseline; a Rust
     // handler that panics is reported the same way instead of tearing down
-    // the connection thread.
-    let outcome = catch_unwind(AssertUnwindSafe(|| dispatch(message, &mut *emit)))
-        .unwrap_or_else(|panic| Err(JsText::new(&panic_message(panic.as_ref()))));
+    // the connection. The handler runs as its own task so its panic surfaces
+    // as a `JoinError` here.
+    let outcome = match tokio::spawn(dispatch(message, Arc::clone(&emit))).await {
+        Ok(outcome) => outcome,
+        Err(join) => Err(JsText::new(&match join.try_into_panic() {
+            Ok(panic) => panic_message(panic.as_ref()),
+            Err(_) => "handler cancelled".to_owned(),
+        })),
+    };
     if let Err(error) = outcome {
         let failure = JsText::from_js(format!("Request failed: {}", error.as_str()));
         // `typeof requestId === "string"`: a message without one gets only
@@ -192,11 +209,23 @@ mod tests {
     use spocky_contracts::text::JsText;
     use spocky_contracts::ws::DaemonPermission;
 
-    use super::{handle_request, pong};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use super::{Emit, handle_request, pong};
     use crate::authorization::SessionAuthorization;
 
     fn inbound(message: &Value) -> SessionInbound {
         parse_frame(&message.to_string()).expect("valid slice message")
+    }
+
+    fn collector() -> (Emit, Arc<Mutex<Vec<Value>>>) {
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&frames);
+        (
+            Arc::new(move |frame| sink.lock().unwrap().push(frame)),
+            frames,
+        )
     }
 
     fn run(
@@ -204,18 +233,27 @@ mod tests {
         message: &Value,
         result: Result<(), JsText>,
     ) -> (Vec<Value>, bool) {
-        let mut emitted = Vec::new();
-        let mut called = false;
-        handle_request(
-            &SessionAuthorization::new(permissions),
+        let (sink, frames) = collector();
+        let called = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&called);
+        block_on(handle_request(
+            Arc::new(SessionAuthorization::new(permissions)),
             inbound(message),
-            &mut |value| emitted.push(value),
-            |_, _| {
-                called = true;
+            sink,
+            move |_, _| async move {
+                flag.store(true, Ordering::SeqCst);
                 result
             },
-        );
-        (emitted, called)
+        ));
+        let frames = frames.lock().unwrap().clone();
+        (frames, called.load(Ordering::SeqCst))
+    }
+
+    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(future)
     }
 
     #[test]
@@ -326,17 +364,18 @@ mod tests {
     fn frames_the_session_may_not_receive_are_filtered() {
         // A hub-only session: `rpc_error` needs nothing, `activity_log`
         // needs workspace.read, so the failure reaches it without the log.
-        let mut emitted = Vec::new();
-        handle_request(
-            &SessionAuthorization::new(&[DaemonPermission::HubExecute]),
+        let (sink, frames) = collector();
+        block_on(handle_request(
+            Arc::new(SessionAuthorization::new(&[DaemonPermission::HubExecute])),
             inbound(&json!({"type": "fetch_agent_request", "requestId": "f2", "agentId": "a"})),
-            &mut |value| emitted.push(value),
-            |_, emit| {
+            sink,
+            |_, emit| async move {
                 emit(json!({"type": "pong", "payload": {}}));
                 emit(json!({"type": "fetch_agent_response", "payload": {}}));
                 Err(JsText::new("boom"))
             },
-        );
+        ));
+        let emitted = frames.lock().unwrap().clone();
         let kinds: Vec<&str> = emitted
             .iter()
             .map(|frame| frame["type"].as_str().unwrap())
@@ -346,13 +385,14 @@ mod tests {
 
     #[test]
     fn a_panicking_handler_becomes_handler_error() {
-        let mut emitted = Vec::new();
-        handle_request(
-            &SessionAuthorization::new(&DaemonPermission::ALL),
+        let (sink, frames) = collector();
+        block_on(handle_request(
+            Arc::new(SessionAuthorization::new(&DaemonPermission::ALL)),
             inbound(&json!({"type": "fetch_agents_request", "requestId": "p1"})),
-            &mut |value| emitted.push(value),
-            |_, _| panic!("index out of bounds"),
-        );
+            sink,
+            |_, _| async { panic!("index out of bounds") },
+        ));
+        let emitted = frames.lock().unwrap().clone();
         assert_eq!(
             emitted[0].to_string(),
             r#"{"type":"rpc_error","payload":{"requestId":"p1","requestType":"fetch_agents_request","error":"Request failed: index out of bounds","code":"handler_error"}}"#
