@@ -572,8 +572,20 @@
       "owner": "Claude lead (contracts, crate graph, integration); writer lanes per evidence/phase3/slice-plan.md",
       "worktree": "per writer lane",
       "branch": "per writer lane",
-      "permittedPaths": [],
-      "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane", "acceptanceCommands": [],
+      "permittedPaths": ["crates/spocky-contracts/", "scripts/phase3/contracts-*", "crates/spocky-daemon/", "crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/", "crates/spocky-provider-codex/", "crates/spocky-slice-harness/", "scripts/phase3/", "evidence/phase3/gate*"],
+      "lanes": "evidence/phase3/slice-plan.md section 5: p3_contracts, p3_daemon_transport, p3_session, p3_provider_codex, p3_slice_harness, each with exclusive paths; root Cargo.toml, Cargo.lock regeneration, and evidence/phase3/slice-plan.md stay lead-owned",
+      "entryManifest": "evidence/phase3/slice-plan.md section 1, frozen at main f3cda7e with skeletons at 2cfedb1",
+      "gateOrder": ["G1 unchanged pinned CLI plus real codex 0.159.0 happy path (workspace create, run, stream) against original and Spocky daemons", "G2 permission and cancel", "G3 restart and resume", "G4 failure, disconnect, retry, and old-state in both directions"],
+      "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane",
+      "acceptanceCommands": [
+        "cargo test --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain",
+        "cargo clippy --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain --all-targets -- -D warnings",
+        "cargo fmt --package spocky-contracts --package spocky-daemon --package spocky-session --package spocky-provider-codex --package spocky-slice-harness --package spocky-store --package spocky-domain -- --check",
+        "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g1",
+        "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g2",
+        "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g3",
+        "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g4"
+      ],
       "acceptanceCases": ["unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon"],
       "platforms": ["macOS first slice", "cross-platform follow-up before completion"],
       "implementationCommits": [], "integrationCommits": [],
@@ -586,7 +598,7 @@
           "deviation": "The approved plan said not to start Phase 3 until P2-HARNESS-PILOTS is done and its review boundary passes. This revision overrides that gate on coordinator authority, not a direct Stevie decision. P2 adversarial reviews remain rejected. Astra is not used in the Claude routing window, so the P3 two-review boundary cannot close until it is."
         }
       ],
-      "reviews": [], "repairs": [], "evidence": [], "resources": [],
+      "reviews": [], "repairs": [], "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
       "blockedBy": null
     },
     {
