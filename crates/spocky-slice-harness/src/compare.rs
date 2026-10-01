@@ -11,46 +11,17 @@
 use std::collections::BTreeMap;
 
 use serde::Serialize;
+use serde_json::Value;
 use spocky_differential::{
     Artifact, Comparison, DifferentialManifest, ExecutionCounts, NormalizationRule,
     NormalizationTarget, Observation, ObservationSlot, Scenario, compare_observations,
 };
 
 use crate::normalize::{
-    Alphabet, IdShape, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask, rules_for,
-    value_classes,
+    SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
+    preimage_digests, rules_for, value_classes,
 };
 use crate::side::{CapturedFile, Exit, GateSpec, SideRun, StepRun, failed_checks};
-
-/// Generated id shapes Paseo and Codex mint on the G1 path.
-pub const ID_SHAPES: [IdShape; 6] = [
-    IdShape::Uuid,
-    IdShape::Prefixed {
-        prefix: "wks_",
-        len: 16,
-        alphabet: Alphabet::LowerHex,
-    },
-    IdShape::Prefixed {
-        prefix: "prj_",
-        len: 16,
-        alphabet: Alphabet::LowerHex,
-    },
-    IdShape::Prefixed {
-        prefix: "cid_",
-        len: 32,
-        alphabet: Alphabet::LowerHex,
-    },
-    IdShape::Prefixed {
-        prefix: "srv_",
-        len: 12,
-        alphabet: Alphabet::Base64Url,
-    },
-    IdShape::Prefixed {
-        prefix: "",
-        len: 64,
-        alphabet: Alphabet::LowerHex,
-    },
-];
 
 fn step_artifacts(prefix: &str, step: &StepRun, out: &mut Vec<Artifact>) {
     out.push(Artifact::new(
@@ -73,6 +44,44 @@ fn step_artifacts(prefix: &str, step: &StepRun, out: &mut Vec<Artifact>) {
         format!("{prefix}/stub-requests"),
         step.stub_requests.to_string().into_bytes(),
     ));
+}
+
+/// Puts the keys of the Responses request body's `client_metadata` object in
+/// sorted order, leaving every other byte of the record untouched.
+///
+/// The pinned codex 0.159.0 serializes `client_metadata` from a hash map, so
+/// its key order differs between two runs of the same binary with the same
+/// daemon (G1 self-check evidence `g1-20261001T145047Z`). No daemon controls
+/// that order. Only this one object is reordered, and only when its exact
+/// serialization occurs once in the body; otherwise the record is compared
+/// raw, which fails on any order difference.
+#[must_use]
+pub fn canonical_client_metadata(record: &str) -> String {
+    let Ok(Value::Object(mut entry)) = serde_json::from_str::<Value>(record) else {
+        return record.to_owned();
+    };
+    let Some(Value::String(body)) = entry.get("body").cloned() else {
+        return record.to_owned();
+    };
+    let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(&body) else {
+        return record.to_owned();
+    };
+    let Some(Value::Object(metadata)) = parsed.get("client_metadata") else {
+        return record.to_owned();
+    };
+    let original = Value::Object(metadata.clone()).to_string();
+    if body.matches(original.as_str()).count() != 1 {
+        return record.to_owned();
+    }
+    let mut keys: Vec<&String> = metadata.keys().collect();
+    keys.sort();
+    let mut sorted = serde_json::Map::new();
+    for key in keys {
+        sorted.insert(key.clone(), metadata[key].clone());
+    }
+    let canonical = body.replacen(&original, &Value::Object(sorted).to_string(), 1);
+    entry.insert("body".into(), Value::String(canonical));
+    Value::Object(entry).to_string()
 }
 
 /// Compared artifacts of one side, in canonical order.
@@ -98,7 +107,7 @@ pub fn side_artifacts(side: &SideRun) -> Vec<Artifact> {
     for (index, record) in side.stub_records.iter().enumerate() {
         artifacts.push(Artifact::new(
             format!("stub/{index:03}"),
-            record.clone().into_bytes(),
+            canonical_client_metadata(record).into_bytes(),
         ));
     }
     artifacts.push(Artifact::new(
@@ -121,16 +130,21 @@ fn state_bytes(file: &CapturedFile) -> Vec<u8> {
 /// State files in canonical order: by masked path, then masked content, then
 /// raw bytes. Masking hides generated ids and names verified digests by kind.
 #[must_use]
-pub fn canonical_state(state: &[CapturedFile], all_texts: &[&str]) -> Vec<Artifact> {
-    let found = distinct_ids(all_texts, &ID_SHAPES);
-    let derived = derived_digests(&found);
+pub fn canonical_state(
+    state: &[CapturedFile],
+    all_texts: &[&str],
+    preimages: &[(&'static str, String)],
+) -> Vec<Artifact> {
+    let found = distinct_ids(all_texts, &SLICE_SHAPES);
+    let mut derived = derived_digests(&found, all_texts);
+    derived.extend(preimage_digests(preimages, all_texts));
     let mut keyed: Vec<(String, String, Vec<u8>)> = state
         .iter()
         .map(|file| {
             let content = String::from_utf8_lossy(&file.bytes);
             (
-                mask(&file.path, &ID_SHAPES, &derived),
-                mask(&content, &ID_SHAPES, &derived),
+                mask(&file.path, &SLICE_SHAPES, &derived),
+                mask(&content, &SLICE_SHAPES, &derived),
                 state_bytes(file),
             )
         })
@@ -262,7 +276,7 @@ fn prepare_side(
         )
         .collect();
     let raw_refs: Vec<&str> = raw_texts.iter().map(String::as_str).collect();
-    let state = canonical_state(&side.state, &raw_refs);
+    let state = canonical_state(&side.state, &raw_refs, &side.preimages);
     let counts = ExecutionCounts {
         fixtures: executed_fixtures(side),
         assertions: u64::try_from(gate.checks.len() - failed_checks(gate, side).len()).unwrap_or(0),
@@ -295,11 +309,13 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         facts: &left_facts,
         texts: left_texts.iter().map(|text| text.text.as_str()).collect(),
         extracted: left.extracted.clone(),
+        preimages: left.preimages.clone(),
     };
     let right_input = SideInput {
         facts: &right_facts,
         texts: right_texts.iter().map(|text| text.text.as_str()).collect(),
         extracted: right.extracted.clone(),
+        preimages: right.preimages.clone(),
     };
 
     let scenario = Scenario {
@@ -310,7 +326,7 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         expected_counts,
     };
     let (manifest, rules, discovery_error, comparison_error) =
-        match value_classes(&left_input, &right_input, &ID_SHAPES) {
+        match value_classes(&left_input, &right_input, &SLICE_SHAPES) {
             Err(error) => (None, Vec::new(), Some(error), None),
             Ok(classes) => {
                 let rules = rules_for(&classes, &left_texts, &right_texts);
@@ -387,4 +403,53 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
         }
     }
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(body: &str) -> String {
+        serde_json::json!({"seq": 0, "method": "POST", "body": body}).to_string()
+    }
+
+    #[test]
+    fn client_metadata_order_is_canonical_and_nothing_else_moves() {
+        let left = record(r#"{"model":"m","client_metadata":{"b":"2","a":"1"},"z":1,"y":2}"#);
+        let right = record(r#"{"model":"m","client_metadata":{"a":"1","b":"2"},"z":1,"y":2}"#);
+        assert_eq!(
+            canonical_client_metadata(&left),
+            canonical_client_metadata(&right)
+        );
+        // Top-level body key order still differs after canonicalization.
+        let reordered = record(r#"{"model":"m","client_metadata":{"a":"1","b":"2"},"y":2,"z":1}"#);
+        assert_ne!(
+            canonical_client_metadata(&left),
+            canonical_client_metadata(&reordered)
+        );
+        // A metadata value difference survives.
+        let changed = record(r#"{"model":"m","client_metadata":{"a":"1","b":"3"},"z":1,"y":2}"#);
+        assert_ne!(
+            canonical_client_metadata(&left),
+            canonical_client_metadata(&changed)
+        );
+        // Nested objects inside metadata values keep their order.
+        let nested_left = record(r#"{"client_metadata":{"a":{"q":1,"p":2}}}"#);
+        let nested_right = record(r#"{"client_metadata":{"a":{"p":2,"q":1}}}"#);
+        assert_ne!(
+            canonical_client_metadata(&nested_left),
+            canonical_client_metadata(&nested_right)
+        );
+    }
+
+    #[test]
+    fn records_without_client_metadata_are_unchanged() {
+        for raw in [
+            "not json",
+            r#"{"body":"not json"}"#,
+            &record(r#"{"model":"m"}"#),
+        ] {
+            assert_eq!(canonical_client_metadata(raw), raw);
+        }
+    }
 }
