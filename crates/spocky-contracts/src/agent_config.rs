@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::field::{Nullable, optional};
-use crate::json::{JsRecord, JsonValue};
+use crate::json::{JsRecord, JsonValue, ZodJson};
 use crate::literal::string_literal;
 use crate::number::PositiveInt;
 use crate::text::{NonEmptyString, TrimmedString};
@@ -114,7 +114,7 @@ pub struct AgentSessionConfig {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub provider_options: Option<JsRecord<JsonValue>>,
+    pub provider_options: Option<JsRecord<ZodJson>>,
     #[serde(
         rename = "toolPolicy",
         default,
