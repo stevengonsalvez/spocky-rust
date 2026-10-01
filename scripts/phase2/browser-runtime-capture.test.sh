@@ -114,6 +114,60 @@ cleanup() {
   esac
 }
 trap cleanup EXIT HUP INT TERM
+font_fixture="$fixture_dir/font-contract.json"
+printf '%s\n' '{
+  "captures": [
+    {
+      "name": "original-desktop",
+      "instrumentation": {"timeline": [{"event": "fonts:ready", "observed": true, "probe": {"fonts": {"status": "loaded", "pending": false}}}]},
+      "layoutGeometry": {"sidebarEmpty": {"style": {"fontFamily": "system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif"}}}
+    },
+    {
+      "name": "original-repeat-desktop",
+      "instrumentation": {"timeline": [{"event": "fonts:ready", "observed": true, "probe": {"fonts": {"status": "loaded", "pending": false}}}]},
+      "layoutGeometry": {
+        "sidebarEmpty": null,
+        "menu": {"style": {"fontFamily": "system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif"}},
+        "logo": {"style": {"fontFamily": "system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif"}}
+      }
+    }
+  ]
+}' >"$font_fixture"
+"$capture" --validate-font-contract "$font_fixture"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures[1].layoutGeometry.menu.style.fontFamily = "Times";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$font_fixture" "$fixture_dir/font-family-drift.json"
+if "$capture" --validate-font-contract "$fixture_dir/font-family-drift.json" >/dev/null 2>&1; then
+  printf 'font-family drift unexpectedly passed\n' >&2
+  exit 1
+fi
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures[1].instrumentation.timeline[0].observed = false;
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$font_fixture" "$fixture_dir/font-readiness.json"
+if "$capture" --validate-font-contract "$fixture_dir/font-readiness.json" >/dev/null 2>&1; then
+  printf 'missing font readiness unexpectedly passed\n' >&2
+  exit 1
+fi
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures[1].layoutGeometry = { sidebarEmpty: null };
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$font_fixture" "$fixture_dir/font-geometry-missing.json"
+if "$capture" --validate-font-contract "$fixture_dir/font-geometry-missing.json" >/dev/null 2>&1; then
+  printf 'missing font-bearing geometry unexpectedly passed\n' >&2
+  exit 1
+fi
+
 fixture="$fixture_dir/incomparable.json"
 printf '%s\n' '{"captures":[{"name":"original","guestStartup":{"visibleText":""}},{"name":"candidate","guestStartup":{"visibleText":"ready"}}]}' >"$fixture"
 set +e

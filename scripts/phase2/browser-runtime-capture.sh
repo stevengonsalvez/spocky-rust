@@ -71,6 +71,24 @@ validate_chromium_version() {
   printf '%s\n' "$observed_version"
 }
 
+validate_font_contract() {
+  jq -e --arg family "$expected_font_family" '
+    .captures | type == "array" and length > 0 and all(.[];
+      any(.instrumentation.timeline[]?;
+        .event == "fonts:ready" and
+        .observed == true and
+        .probe.fonts.status == "loaded" and
+        .probe.fonts.pending == false
+      ) and
+      ([.layoutGeometry[]? | select(. != null and .style.fontFamily? != null)]
+        | length > 0) and
+      all(.layoutGeometry[]?;
+        . == null or .style.fontFamily? == null or .style.fontFamily == $family
+      )
+    )
+  ' "$1" >/dev/null
+}
+
 if [ "${1:-}" = "--parse-different-pixels" ]; then
   if [ "$#" -ne 2 ]; then
     printf 'usage: %s --parse-different-pixels IMAGE_MAGICK_METRIC\n' "$0" >&2
@@ -86,6 +104,15 @@ if [ "${1:-}" = "--validate-chromium-version" ]; then
     exit 2
   fi
   validate_chromium_version "$2"
+  exit $?
+fi
+
+if [ "${1:-}" = "--validate-font-contract" ]; then
+  if [ "$#" -ne 2 ]; then
+    printf 'usage: %s --validate-font-contract RESULT_JSON\n' "$0" >&2
+    exit 2
+  fi
+  validate_font_contract "$2"
   exit $?
 fi
 
@@ -147,7 +174,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--validate-chromium-version VERSION_OUTPUT|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--validate-chromium-version VERSION_OUTPUT|--validate-font-contract RESULT_JSON|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
 if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=no)" ]; then
@@ -351,17 +378,7 @@ candidate_fresh_desktop_different_pixels=$(different_pixels \
 candidate_fresh_mobile_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/candidate-mobile.png" \
   "$attempt_screenshot_dir/candidate-fresh-mobile.png")
-if ! jq -e --arg family "$expected_font_family" '
-  all(.captures[];
-    any(.instrumentation.timeline[]?;
-      .event == "fonts:ready" and
-      .observed == true and
-      .probe.fonts.status == "loaded" and
-      .probe.fonts.pending == false
-    ) and
-    .layoutGeometry.sidebarEmpty.style.fontFamily == $family
-  )
-' "$attempt_result_file" >/dev/null; then
+if ! validate_font_contract "$attempt_result_file"; then
   printf 'captured fonts are outside the pinned visual contract\n' >&2
   exit 1
 fi
