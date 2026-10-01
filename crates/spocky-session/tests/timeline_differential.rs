@@ -422,9 +422,13 @@ fn seed(
 
 fn rust_output() -> String {
     let mut store = TimelineStore::default();
-    store.initialize_with("empty", seed(Vec::new(), Vec::new(), None, Some("T0")));
+    store
+        .initialize_with("empty", seed(Vec::new(), Vec::new(), None, Some("T0")))
+        .expect("seed");
     let empty = report(&mut store, "empty", false);
-    store.initialize_with("a", seed(Vec::new(), Vec::new(), None, Some("T0")));
+    store
+        .initialize_with("a", seed(Vec::new(), Vec::new(), None, Some("T0")))
+        .expect("seed");
     let appended = APPENDS
         .iter()
         .enumerate()
@@ -456,9 +460,15 @@ fn rust_output() -> String {
     })
     .collect();
     let after_enrich = report(&mut store, "a", false);
-    store.initialize_with("rows", seed(seed_rows(), seed_items(), Some(3), Some("TS")));
-    store.initialize_with("gap", seed(seed_rows(), Vec::new(), Some(20), None));
-    store.initialize_with("items", seed(Vec::new(), seed_items(), Some(4), Some("TI")));
+    store
+        .initialize_with("rows", seed(seed_rows(), seed_items(), Some(3), Some("TS")))
+        .expect("seed");
+    store
+        .initialize_with("gap", seed(seed_rows(), Vec::new(), Some(20), None))
+        .expect("seed");
+    store
+        .initialize_with("items", seed(Vec::new(), seed_items(), Some(4), Some("TI")))
+        .expect("seed");
     let projected = store
         .rows("a")
         .expect("timeline")
@@ -466,7 +476,9 @@ fn rust_output() -> String {
         .cloned()
         .map(SeedRow::Projected)
         .collect();
-    store.initialize_with("projected", seed(projected, Vec::new(), None, None));
+    store
+        .initialize_with("projected", seed(projected, Vec::new(), None, None))
+        .expect("seed");
     let seeded = ["rows", "gap", "items", "projected"]
         .iter()
         .map(|agent_id| report(&mut store, agent_id, true))

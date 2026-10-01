@@ -145,34 +145,50 @@ fn spread(into: &mut JsObject, value: Option<&JsValue>) {
     }
 }
 
-/// `mergeToolCallDetail`.
-///
-/// Known divergence: when either detail is missing or `null`, the baseline
-/// reads `.type` of it and throws `TypeError: Cannot read properties of
-/// undefined (reading 'type')` out of `append`, after `nextSeq` has already
-/// advanced. Here a missing detail counts as not `unknown`, so the incoming
-/// one wins. `tool_call` items always carry a detail (the schema requires
-/// one), so only a malformed provider item reaches this case.
-fn merge_tool_detail(existing: Option<&JsValue>, incoming: Option<&JsValue>) -> JsValue {
-    let is_unknown = |detail: Option<&JsValue>| {
-        detail
-            .and_then(|value| value.get("type"))
-            .and_then(JsValue::as_str)
-            == Some("unknown")
+/// A JavaScript `TypeError` the baseline throws, with V8's message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsTypeError(pub String);
+
+impl std::fmt::Display for JsTypeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for JsTypeError {}
+
+/// `detail.type`: reading a property of `undefined` or `null` throws.
+fn detail_type(detail: Option<&JsValue>) -> Result<Option<&str>, JsTypeError> {
+    let receiver = match detail {
+        None | Some(JsValue::Undefined) => "undefined",
+        Some(JsValue::Null) => "null",
+        Some(value) => return Ok(value.get("type").and_then(JsValue::as_str)),
     };
-    let chosen = if is_unknown(existing) && !is_unknown(incoming) {
-        incoming
-    } else if is_unknown(incoming) && !is_unknown(existing) {
+    Err(JsTypeError(format!(
+        "Cannot read properties of {receiver} (reading 'type')"
+    )))
+}
+
+/// `mergeToolCallDetail`. Parity note: the baseline reads `existing.type`
+/// and then `incoming.type`, so a missing or `null` detail on either side
+/// throws, existing first.
+fn merge_tool_detail(
+    existing: Option<&JsValue>,
+    incoming: Option<&JsValue>,
+) -> Result<JsValue, JsTypeError> {
+    let existing_unknown = detail_type(existing)? == Some("unknown");
+    let incoming_unknown = detail_type(incoming)? == Some("unknown");
+    let chosen = if !existing_unknown && incoming_unknown {
         existing
     } else {
         incoming
     };
-    chosen.cloned().unwrap_or(JsValue::Undefined)
+    Ok(chosen.cloned().unwrap_or(JsValue::Undefined))
 }
 
 /// `mergeToolCallItems`.
-fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> JsValue {
-    let detail = merge_tool_detail(existing.get("detail"), incoming.get("detail"));
+fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> Result<JsValue, JsTypeError> {
+    let detail = merge_tool_detail(existing.get("detail"), incoming.get("detail"))?;
     let metadata = if truthy(existing.get("metadata")) || truthy(incoming.get("metadata")) {
         let mut merged = JsObject::new();
         spread(&mut merged, existing.get("metadata"));
@@ -202,7 +218,7 @@ fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> JsValue {
             }
         }
     }
-    JsValue::Object(merged)
+    Ok(JsValue::Object(merged))
 }
 
 /// `appendSeqToRanges` applied over whole ranges (equivalent to per-seq appends).
@@ -254,7 +270,10 @@ fn canonical_entry(row: &TimelineRow) -> ProjectedRow {
 }
 
 /// `mergeIdentityEntries`.
-fn merge_identity_entries(existing: &ProjectedRow, entry: &ProjectedRow) -> Option<ProjectedRow> {
+fn merge_identity_entries(
+    existing: &ProjectedRow,
+    entry: &ProjectedRow,
+) -> Result<Option<ProjectedRow>, JsTypeError> {
     let identity_metadata = |kind: CollapseKind| {
         let collapsed = if existing.collapsed.contains(&kind) {
             existing.collapsed.clone()
@@ -271,31 +290,32 @@ fn merge_identity_entries(existing: &ProjectedRow, entry: &ProjectedRow) -> Opti
     match item_type(&entry.item) {
         Some("tool_call") => {
             if item_type(&existing.item) != Some("tool_call") || existing.turn_id != entry.turn_id {
-                return None;
+                return Ok(None);
             }
+            let item = merge_tool_call_items(&existing.item, &entry.item)?;
             let (source_seq_ranges, collapsed) = identity_metadata(CollapseKind::ToolLifecycle);
-            Some(ProjectedRow {
-                item: merge_tool_call_items(&existing.item, &entry.item),
+            Ok(Some(ProjectedRow {
+                item,
                 timestamp: entry.timestamp.clone(),
                 seq_end: existing.seq_end.max(entry.seq_end),
                 source_seq_ranges,
                 collapsed,
                 ..existing.clone()
-            })
+            }))
         }
         Some("plugin") => {
             if item_type(&existing.item) != Some("plugin") {
-                return None;
+                return Ok(None);
             }
             let (source_seq_ranges, collapsed) = identity_metadata(CollapseKind::Identity);
-            Some(ProjectedRow {
+            Ok(Some(ProjectedRow {
                 seq_start: existing.seq_start,
                 source_seq_ranges,
                 collapsed,
                 ..entry.clone()
-            })
+            }))
         }
-        _ => None,
+        _ => Ok(None),
     }
 }
 
@@ -377,7 +397,9 @@ fn merge_chunks(
 }
 
 /// `collapseByIdentity`.
-fn collapse_by_identity(entries: Vec<Cow<'_, ProjectedRow>>) -> Vec<Cow<'_, ProjectedRow>> {
+fn collapse_by_identity(
+    entries: Vec<Cow<'_, ProjectedRow>>,
+) -> Result<Vec<Cow<'_, ProjectedRow>>, JsTypeError> {
     let mut output: Vec<Cow<'_, ProjectedRow>> = Vec::with_capacity(entries.len());
     let mut index_by_identity: HashMap<String, usize> = HashMap::new();
     for entry in entries {
@@ -385,9 +407,12 @@ fn collapse_by_identity(entries: Vec<Cow<'_, ProjectedRow>>) -> Vec<Cow<'_, Proj
             output.push(entry);
             continue;
         };
-        let merged = index_by_identity.get(&identity).and_then(|index| {
-            merge_identity_entries(&output[*index], &entry).map(|merged| (*index, merged))
-        });
+        let merged = match index_by_identity.get(&identity) {
+            Some(&index) => {
+                merge_identity_entries(&output[index], &entry)?.map(|merged| (index, merged))
+            }
+            None => None,
+        };
         if let Some((index, merged)) = merged {
             output[index] = Cow::Owned(merged);
         } else {
@@ -395,15 +420,19 @@ fn collapse_by_identity(entries: Vec<Cow<'_, ProjectedRow>>) -> Vec<Cow<'_, Proj
             output.push(entry);
         }
     }
-    output
+    Ok(output)
 }
 
 /// `projectTimelineRows({ mode: "projected" })` over already projected rows.
 /// Rows no merge touches are borrowed, not copied.
-#[must_use]
-pub fn project_rows(rows: &[ProjectedRow]) -> Vec<Cow<'_, ProjectedRow>> {
-    let collapsed = collapse_by_identity(rows.iter().map(Cow::Borrowed).collect());
-    merge_chunks(merge_chunks(collapsed, true), false)
+///
+/// # Errors
+///
+/// Returns the baseline's [`JsTypeError`] when a tool-call merge reads a
+/// missing detail.
+pub fn project_rows(rows: &[ProjectedRow]) -> Result<Vec<Cow<'_, ProjectedRow>>, JsTypeError> {
+    let collapsed = collapse_by_identity(rows.iter().map(Cow::Borrowed).collect())?;
+    Ok(merge_chunks(merge_chunks(collapsed, true), false))
 }
 
 /// `TimelineProjection`: owns projected rows; source rows are consumed.
@@ -414,25 +443,34 @@ pub struct TimelineProjection {
 }
 
 impl TimelineProjection {
-    pub fn append(&mut self, row: &TimelineRow) {
-        self.append_entry(canonical_entry(row));
+    /// # Errors
+    ///
+    /// Returns the baseline's [`JsTypeError`] when a tool-call merge reads a
+    /// missing detail; the projection is then unchanged.
+    pub fn append(&mut self, row: &TimelineRow) -> Result<(), JsTypeError> {
+        self.append_entry(canonical_entry(row))
     }
 
     /// `append` of a row that is already projected (`"seqStart" in row`):
     /// the row is taken as it is.
-    pub fn append_entry(&mut self, entry: ProjectedRow) {
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::append`].
+    pub fn append_entry(&mut self, entry: ProjectedRow) -> Result<(), JsTypeError> {
         let identity = item_identity(&entry.item);
-        if let Some(index) = identity
+        let index = identity
             .as_ref()
             .and_then(|key| self.identities.get(key))
-            .copied()
-            && let Some(merged) = merge_identity_entries(&self.rows[index], &entry)
+            .copied();
+        if let Some(index) = index
+            && let Some(merged) = merge_identity_entries(&self.rows[index], &entry)?
         {
             self.rows[index] = ProjectedRow {
                 seq: merged.seq_end,
                 ..merged
             };
-            return;
+            return Ok(());
         }
         let adjacent = self.rows.last().and_then(|previous| {
             merge_adjacent(previous, &entry, true)
@@ -443,7 +481,7 @@ impl TimelineProjection {
                 seq: merged.seq_end,
                 ..merged
             };
-            return;
+            return Ok(());
         }
         if let Some(identity) = identity {
             self.identities.insert(identity, self.rows.len());
@@ -452,6 +490,7 @@ impl TimelineProjection {
             seq: entry.seq_end,
             ..entry
         });
+        Ok(())
     }
 
     #[must_use]
@@ -559,15 +598,28 @@ fn select_after(
 }
 
 /// `selectProjectedTimelinePage`, with `limit` already floored and clamped at 0.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns the [`JsTypeError`] of [`project_rows`].
 pub fn select_page(
     rows: &[ProjectedRow],
     bounds: SeqBounds,
     direction: FetchDirection,
     cursor_seq: Option<i64>,
     limit: usize,
+) -> Result<PageSelection, JsTypeError> {
+    let all = project_rows(rows)?;
+    Ok(select_projected(&all, bounds, direction, cursor_seq, limit))
+}
+
+fn select_projected(
+    all: &[Cow<'_, ProjectedRow>],
+    bounds: SeqBounds,
+    direction: FetchDirection,
+    cursor_seq: Option<i64>,
+    limit: usize,
 ) -> PageSelection {
-    let all = project_rows(rows);
     let empty = |has_older: bool, has_newer: bool| PageSelection {
         entries: Vec::new(),
         start_seq: None,
@@ -617,7 +669,7 @@ pub fn select_page(
             // A client cursor may be any integer; JavaScript numbers do not
             // overflow, so the arithmetic saturates.
             let start_seq = bounds.min_seq.max(cursor.saturating_add(1));
-            let (entries, end_seq) = select_after(&all, start_seq, bounds.max_seq, limit);
+            let (entries, end_seq) = select_after(all, start_seq, bounds.max_seq, limit);
             PageSelection {
                 entries,
                 start_seq: end_seq.map(|_| start_seq),
@@ -748,6 +800,36 @@ impl std::fmt::Display for UnknownAgent {
 
 impl std::error::Error for UnknownAgent {}
 
+/// What `append` and `fetch` throw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimelineError {
+    UnknownAgent(UnknownAgent),
+    Type(JsTypeError),
+}
+
+impl std::fmt::Display for TimelineError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownAgent(error) => error.fmt(formatter),
+            Self::Type(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for TimelineError {}
+
+impl From<UnknownAgent> for TimelineError {
+    fn from(error: UnknownAgent) -> Self {
+        Self::UnknownAgent(error)
+    }
+}
+
+impl From<JsTypeError> for TimelineError {
+    fn from(error: JsTypeError) -> Self {
+        Self::Type(error)
+    }
+}
+
 impl TimelineStore {
     #[must_use]
     pub fn has(&self, agent_id: &str) -> bool {
@@ -756,6 +838,10 @@ impl TimelineStore {
 
     /// `initialize(agentId, { items, epoch, nextSeq, timestamp })`: seeds rows
     /// from items (one sequence number each) under a new or given epoch.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::initialize_with`].
     pub fn initialize(
         &mut self,
         agent_id: &str,
@@ -763,7 +849,7 @@ impl TimelineStore {
         epoch: Option<String>,
         next_seq: Option<i64>,
         timestamp: Option<String>,
-    ) {
+    ) -> Result<(), JsTypeError> {
         self.initialize_with(
             agent_id,
             TimelineSeed {
@@ -773,13 +859,22 @@ impl TimelineStore {
                 next_seq,
                 timestamp,
             },
-        );
+        )
     }
 
     /// `initialize(agentId, options)`: seeds the given rows as they are, or
     /// else one row per item from `next_seq` (default 1) at `timestamp`.
     /// `nextSeq` becomes the larger of `next_seq` and every row's `seq + 1`.
-    pub fn initialize_with(&mut self, agent_id: &str, seed: TimelineSeed) {
+    ///
+    /// # Errors
+    ///
+    /// Returns the baseline's [`JsTypeError`] when seeding merges a tool call
+    /// with a missing detail; the agent's previous timeline, if any, stays.
+    pub fn initialize_with(
+        &mut self,
+        agent_id: &str,
+        seed: TimelineSeed,
+    ) -> Result<(), JsTypeError> {
         let start_seq = seed.next_seq.unwrap_or(1);
         let rows = if seed.rows.is_empty() {
             let timestamp = seed.timestamp.unwrap_or_else(now_iso);
@@ -804,8 +899,8 @@ impl TimelineStore {
         let mut projection = TimelineProjection::default();
         for row in rows {
             match row {
-                SeedRow::Source(row) => projection.append(&row),
-                SeedRow::Projected(row) => projection.append_entry(row),
+                SeedRow::Source(row) => projection.append(&row)?,
+                SeedRow::Projected(row) => projection.append_entry(row)?,
             }
         }
         let min_seq = projection.rows().first().map_or(0, |row| row.seq_start);
@@ -818,6 +913,7 @@ impl TimelineStore {
                 next_seq,
             },
         );
+        Ok(())
     }
 
     pub fn delete(&mut self, agent_id: &str) {
@@ -848,7 +944,10 @@ impl TimelineStore {
     ///
     /// # Errors
     ///
-    /// Returns [`UnknownAgent`] when the agent has no timeline.
+    /// Returns [`TimelineError::UnknownAgent`] when the agent has no
+    /// timeline, and [`TimelineError::Type`] when the row merges into a tool
+    /// call with a missing detail. As in the baseline, `nextSeq` (and an
+    /// unset `minSeq`) has then already advanced and the rows are unchanged.
     pub fn append(
         &mut self,
         agent_id: &str,
@@ -856,7 +955,7 @@ impl TimelineStore {
         timestamp: Option<String>,
         turn_id: Option<String>,
         provider_message_id: Option<String>,
-    ) -> Result<TimelineRow, UnknownAgent> {
+    ) -> Result<TimelineRow, TimelineError> {
         let state = self
             .states
             .get_mut(agent_id)
@@ -872,7 +971,7 @@ impl TimelineStore {
         if state.min_seq == 0 {
             state.min_seq = row.seq;
         }
-        state.projection.append(&row);
+        state.projection.append(&row)?;
         Ok(row)
     }
 
@@ -880,14 +979,15 @@ impl TimelineStore {
     ///
     /// # Errors
     ///
-    /// Returns [`UnknownAgent`] when the agent has no timeline.
+    /// Returns [`TimelineError::UnknownAgent`] when the agent has no
+    /// timeline, and [`TimelineError::Type`] from [`select_page`].
     pub fn fetch(
         &self,
         agent_id: &str,
         direction: FetchDirection,
         cursor: Option<&TimelineCursor>,
         limit: Option<usize>,
-    ) -> Result<TimelineFetch, UnknownAgent> {
+    ) -> Result<TimelineFetch, TimelineError> {
         let state = self.state(agent_id)?;
         let rows = state.projection.rows();
         let window = TimelineWindow {
@@ -913,7 +1013,7 @@ impl TimelineStore {
             },
             cursor.map(|cursor| cursor.seq),
             limit.unwrap_or(DEFAULT_TIMELINE_FETCH_LIMIT),
-        );
+        )?;
         Ok(TimelineFetch {
             epoch: state.epoch.clone(),
             direction,
@@ -1022,9 +1122,11 @@ mod tests {
             .iter()
             .map(|item| parse(item).expect("item"))
             .collect();
-        store.initialize("a", items, Some("E".to_owned()), None, Some("T".to_owned()));
+        store
+            .initialize("a", items, Some("E".to_owned()), None, Some("T".to_owned()))
+            .expect("seed");
         let rows = store.rows("a").expect("timeline");
-        let projected = project_rows(rows);
+        let projected = project_rows(rows).expect("projection");
         assert_eq!(projected.len(), 2);
         assert!(projected.iter().all(|row| matches!(row, Cow::Borrowed(_))));
     }
@@ -1033,13 +1135,15 @@ mod tests {
     fn extreme_cursors_select_nothing_without_overflow() {
         let mut store = TimelineStore::default();
         let item = parse(r#"{"type":"assistant_message","text":"a"}"#).expect("item");
-        store.initialize(
-            "a",
-            vec![item],
-            Some("E".to_owned()),
-            None,
-            Some("T".to_owned()),
-        );
+        store
+            .initialize(
+                "a",
+                vec![item],
+                Some("E".to_owned()),
+                None,
+                Some("T".to_owned()),
+            )
+            .expect("seed");
         let fetch = |direction, seq| {
             let cursor = TimelineCursor {
                 epoch: "E".to_owned(),
