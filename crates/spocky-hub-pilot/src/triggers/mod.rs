@@ -55,6 +55,9 @@ pub struct ExecutionRecord {
     pub run_id: String,
     pub step_run_id: String,
     pub status: ExecutionStatus,
+    /// The requested deadline capped by the run deadline.
+    pub deadline_at_ms: u64,
+    /// The requested idle deadline capped by `deadline_at_ms`; cleared on a terminal status.
     pub idle_deadline_at_ms: Option<u64>,
     pub completed_at_ms: Option<u64>,
 }
@@ -219,7 +222,9 @@ impl TriggerStore {
     }
 
     /// Minutes east of UTC that the store applies to the local wall-clock time `local_ms`, the
-    /// wall clock read as if it were UTC. The baseline reports it as `-getTimezoneOffset()`.
+    /// wall clock read as if it were UTC. The baseline reports it as `-getTimezoneOffset()`; both
+    /// drop the seconds of a historic local mean time offset (Sao Paulo before 1914 is -3:06:28 and
+    /// reads as -186 minutes), while `receivedAt` keeps them.
     #[must_use]
     pub fn local_offset_minutes_at(&self, local_ms: i64) -> i64 {
         use timezone::LocalOffset;
@@ -456,6 +461,7 @@ impl TriggerStore {
             run_id: run_id.to_owned(),
             step_run_id: step.id,
             status: ExecutionStatus::Spawning,
+            deadline_at_ms,
             idle_deadline_at_ms: Some(request.idle_deadline_at_ms.min(deadline_at_ms)),
             completed_at_ms: None,
         };
