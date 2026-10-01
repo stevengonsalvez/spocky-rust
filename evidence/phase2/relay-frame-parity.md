@@ -1,7 +1,7 @@
 # Relay frame parity checkpoint
 
-Status: escaped handshake JSON and fragmented WebSocket boundaries match the
-pinned relay for the selected runtime surface.
+Status: handshake JSON classification and fragmented WebSocket boundaries match
+the pinned relay for the selected runtime surface.
 
 ## Pinned baseline
 
@@ -19,7 +19,18 @@ escaped_key={:accept, :e2ee_hello}
 escaped_fields_and_type={:reject, :hello}
 escaped_type={:reject, :e2ee_hello}
 nested_escaped=:not_handshake
+lone_surrogate_key=:not_handshake
+malformed_ignored=:not_handshake
+trailing_comma=:not_handshake
+duplicate_type_first_ping=:not_handshake
+duplicate_type_first_hello={:reject, :hello}
+duplicate_key_first_valid={:accept, :hello}
+duplicate_key_first_invalid={:reject, :hello}
 ```
+
+Jason 1.4.5 rejects the whole document before handshake classification when a
+string contains a lone surrogate, an ignored field is malformed, or trailing
+syntax is present. Duplicate object fields retain their first value.
 
 The pinned maximum fragmented-message test passed 1/1 in 30.4 seconds with a
 4 GiB container cap. A disposable copy changed its two equal fragments from the
@@ -27,7 +38,15 @@ exact payload limit to two bytes over the total limit. Cowboy returned:
 
 ```text
 fragmented_oversize_close={1009, ""}
+nonfinal_control_aggregate={:close, 1009, ""}
+fragmented_route={{:close, 1009, ""}, {:close, 1001, "Client disconnected"}}
 ```
+
+The control capture sent two nonfinal text fragments whose aggregate exceeded
+64 KiB. Cowboy closed immediately after the second fragment without waiting for
+FIN. The route capture proves the offending source receives `1009`, its paired
+data socket receives `1001 Client disconnected`, and unrelated routes remain
+outside that closure.
 
 The first combined baseline invocation used Docker's default memory and passed
 the incomplete-fragment and oversized-frame cases, but its 32 MiB fragmented
@@ -47,18 +66,25 @@ RED result: 1 passed, 3 failed. The selected runtime forwarded an escaped
 invalid handshake instead of closing it and used `Message too large` as the
 reason for both fragmented `1009` closes.
 
-GREEN result: 4 passed, 0 failed. Coverage proves:
+Review RED result: 4 passed, 2 failed. The selected runtime classified a
+handshake from malformed JSON and retained an oversized nonfinal control
+message while waiting for FIN.
+
+GREEN result: 6 passed, 0 failed. Coverage proves:
 
 1. Escaped top-level field names and handshake types are decoded before key
    validation. Accepted frames retain their exact escaped bytes.
 2. Escaped nested lookalikes remain opaque and cross unchanged.
-3. A fragmented message exactly at the total limit crosses unchanged while an
-   interleaved ping receives its pong.
-4. A fragmented data message over the total limit closes only its source with
-   `1009` and an empty reason. An established healthy route still forwards
-   opaque binary bytes.
-5. A fragmented control message over its separate limit also closes with
-   `1009` and an empty reason.
+3. Whole-document JSON validation leaves lone surrogates, malformed ignored
+   fields, trailing commas, and trailing syntax opaque.
+4. Duplicate `type` and `key` fields use the first value, matching Jason 1.4.5.
+5. A fragmented message exactly at the data total limit crosses unchanged
+   while an interleaved ping receives its pong.
+6. A fragmented data message over the total limit closes the offending route:
+   source `1009`, paired data socket `1001`, both with pinned reasons.
+7. An unrelated established route still forwards opaque binary bytes.
+8. Nonfinal control fragments close with `1009` as soon as their aggregate
+   exceeds the separate control limit.
 
 ## Regression checks
 
