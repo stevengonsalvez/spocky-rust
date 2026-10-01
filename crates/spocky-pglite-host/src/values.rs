@@ -995,6 +995,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn json_values_keep_key_order_like_json_parse() {
+        let value: IpcValue =
+            serde_json::from_str(r#"{"type":"json","value":{"b":1,"a":{"d":2,"c":3}}}"#)
+                .expect("json value");
+        assert_eq!(
+            serde_json::to_string(&value).expect("serialize"),
+            r#"{"type":"json","value":{"b":1,"a":{"d":2,"c":3}}}"#
+        );
+    }
+
+    #[test]
     fn numbers_format_like_javascript() {
         for (value, text) in [
             (1e21, "1e+21"),
