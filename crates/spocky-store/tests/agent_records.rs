@@ -47,7 +47,7 @@ fn stored_agent_schema_matches_zod_oracle() {
     let fixture = parse(&fs::read_to_string(fixture_path).expect("read oracle fixture"))
         .expect("fixture is JSON");
     let cases = fixture.as_array().expect("fixture is an array of cases");
-    assert_eq!(cases.len(), 18, "every oracle case is checked");
+    assert_eq!(cases.len(), 20, "every oracle case is checked");
     for case in cases {
         let field = |key: &str| {
             case.get(key)
@@ -277,4 +277,44 @@ fn delete_tombstone_skips_later_writes_and_unlink_errors_do_not_fail() {
     assert_eq!(failures.len(), 1, "unlink of a directory fails");
     assert!(other.get("agent-2").is_none());
     assert!(blocked.exists());
+}
+
+#[test]
+fn rejections_name_the_failing_field() {
+    let field = |input: &str| {
+        parse_stored_agent_record(&parse(input).expect("JSON"))
+            .expect_err("zod rejects")
+            .field
+    };
+    assert_eq!(
+        field(
+            r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","lastStatus":null}"#
+        ),
+        "lastStatus"
+    );
+    assert_eq!(
+        field(r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c"}"#),
+        "updatedAt"
+    );
+}
+
+/// DIV-001 family: zod parses `z.json()` recursively and throws a `RangeError`
+/// near 10,000 levels, so the baseline skips this record at load. The port
+/// walks iteratively and loads it. Recorded divergence, pinned here.
+#[test]
+fn deep_provider_options_load_beyond_the_zod_recursion_limit() {
+    let depth = 20_000;
+    let nested = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    let input = format!(
+        r#"{{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","config":{{"providerOptions":{{"deep":{nested}}}}}}}"#
+    );
+    let parsed = parse_stored_agent_record(&parse(&input).expect("JSON.parse accepts"))
+        .expect("the port loads what the baseline skips");
+    assert!(
+        parsed
+            .get("config")
+            .and_then(|config| config.get("providerOptions"))
+            .and_then(|options| options.get("deep"))
+            .is_some()
+    );
 }
