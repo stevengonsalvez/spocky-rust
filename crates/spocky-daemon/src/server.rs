@@ -775,6 +775,11 @@ impl Server {
     }
 }
 
+/// The text of a contracts message, whether it is a `&str` or a `String`.
+fn text_of(message: &impl AsRef<str>) -> &str {
+    message.as_ref()
+}
+
 /// A read or write that timed out or would block.
 fn is_would_block(error: &io::Error) -> bool {
     matches!(
@@ -1202,8 +1207,7 @@ impl SocketTask {
         // contracts parser, never from a Display of the error, which adds text the
         // baseline does not have.
         if let Err(error) = parse_js(text) {
-            let message: &str = &error.message;
-            self.on_raw_error(message);
+            self.on_raw_error(text_of(&error.message));
             return;
         }
         // Valid for `JSON.parse` but not representable as a serde value (a lone
