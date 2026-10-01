@@ -8,8 +8,8 @@
 //! is returned as success), stderr at 2048 bytes, and the call is killed
 //! after 30 s. Failure messages match the baseline text exactly.
 
-// ponytail: no global 8-process / 64-per-second scheduler; add one when the
-// session runs git concurrently enough for the limit to change ordering.
+// ponytail: the 8-process concurrency limit is kept; the 64-per-second
+// start-rate limit is not, add it if a burst of probes ever exceeds it.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -17,6 +17,10 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
+use tokio::sync::Semaphore;
+
+/// `GitProcessScheduler` default: at most eight git processes at once.
+static GIT_PROCESS_SLOTS: Semaphore = Semaphore::const_new(8);
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_STDOUT_BYTES: usize = 20 * 1024 * 1024;
@@ -64,6 +68,8 @@ pub struct GitOptions<'a> {
     pub cwd: &'a Path,
     pub accept_exit_codes: &'a [i32],
     pub timeout: Duration,
+    /// `maxOutputBytes`, 20 MiB by default.
+    pub max_stdout_bytes: usize,
 }
 
 impl<'a> GitOptions<'a> {
@@ -73,6 +79,7 @@ impl<'a> GitOptions<'a> {
             cwd,
             accept_exit_codes: &[0],
             timeout: DEFAULT_TIMEOUT,
+            max_stdout_bytes: MAX_STDOUT_BYTES,
         }
     }
 }
@@ -100,27 +107,33 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
     for (name, value) in READ_ONLY_GIT_ENV {
         command.env(name, value);
     }
+    let _slot = GIT_PROCESS_SLOTS.acquire().await.map_err(|_| GitError {
+        message: "Git process scheduler is closed".to_owned(),
+    })?;
     let mut child = command.spawn().map_err(|error| GitError {
         message: spawn_error_message(&error),
     })?;
     let mut stdout = child.stdout.take().ok_or_else(|| GitError {
         message: "Git process did not expose piped stdout and stderr".to_owned(),
     })?;
-    let mut stderr = child.stderr.take().ok_or_else(|| GitError {
+    let stderr = child.stderr.take().ok_or_else(|| GitError {
         message: "Git process did not expose piped stdout and stderr".to_owned(),
     })?;
 
     let run = async {
-        let (stdout_read, stderr_bytes) = tokio::join!(
-            read_capped(&mut stdout, MAX_STDOUT_BYTES),
-            read_capped(&mut stderr, STDERR_LIMIT)
-        );
-        let (stdout_bytes, truncated) = stdout_read;
+        let stderr_task = tokio::spawn(async move {
+            let mut stderr = stderr;
+            read_capped(&mut stderr, STDERR_LIMIT, false).await.0
+        });
+        let (stdout_bytes, truncated) =
+            read_capped(&mut stdout, options.max_stdout_bytes, true).await;
         if truncated {
+            // The baseline kills with SIGKILL the moment output passes the cap.
             let _ = child.start_kill();
         }
         let status = child.wait().await;
-        (stdout_bytes, stderr_bytes.0, truncated, status)
+        let stderr_bytes = stderr_task.await.unwrap_or_default();
+        (stdout_bytes, stderr_bytes, truncated, status)
     };
     let Ok((stdout_bytes, stderr_bytes, truncated, status)) =
         tokio::time::timeout(options.timeout, run).await
@@ -158,8 +171,13 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
     Ok(output)
 }
 
-/// Reads up to `limit` bytes and drains the rest; reports whether more arrived.
-async fn read_capped(reader: &mut (impl AsyncRead + Unpin), limit: usize) -> (Vec<u8>, bool) {
+/// Reads up to `limit` bytes. With `stop_on_overflow`, returns as soon as
+/// more arrives (stdout); otherwise drains and drops the excess (stderr).
+async fn read_capped(
+    reader: &mut (impl AsyncRead + Unpin),
+    limit: usize,
+    stop_on_overflow: bool,
+) -> (Vec<u8>, bool) {
     let mut kept = Vec::new();
     let mut overflow = false;
     let mut buffer = vec![0_u8; 8192];
@@ -171,6 +189,9 @@ async fn read_capped(reader: &mut (impl AsyncRead + Unpin), limit: usize) -> (Ve
                 kept.extend_from_slice(&buffer[..read.min(room)]);
                 if read > room {
                     overflow = true;
+                    if stop_on_overflow {
+                        break;
+                    }
                 }
             }
         }
@@ -178,28 +199,94 @@ async fn read_capped(reader: &mut (impl AsyncRead + Unpin), limit: usize) -> (Ve
     (kept, overflow)
 }
 
-/// Node reports a missing binary as `spawn git ENOENT`.
+/// Node reports spawn failures as `spawn git <errno code>`.
 fn spawn_error_message(error: &std::io::Error) -> String {
-    if error.kind() == std::io::ErrorKind::NotFound {
-        "spawn git ENOENT".to_owned()
-    } else {
-        format!("spawn git {error}")
-    }
+    let code = error
+        .raw_os_error()
+        .and_then(errno_name)
+        .unwrap_or(match error.kind() {
+            std::io::ErrorKind::NotFound => "ENOENT",
+            std::io::ErrorKind::PermissionDenied => "EACCES",
+            _ => "UNKNOWN",
+        });
+    format!("spawn git {code}")
 }
 
+/// libuv error names for the errno values a spawn can report.
+fn errno_name(errno: i32) -> Option<&'static str> {
+    Some(match errno {
+        1 => "EPERM",
+        2 => "ENOENT",
+        7 => "E2BIG",
+        8 => "ENOEXEC",
+        12 => "ENOMEM",
+        13 => "EACCES",
+        20 => "ENOTDIR",
+        24 => "EMFILE",
+        35 if cfg!(target_os = "macos") => "EAGAIN",
+        62 if cfg!(target_os = "macos") => "ELOOP",
+        63 if cfg!(target_os = "macos") => "ENAMETOOLONG",
+        11 if cfg!(target_os = "linux") => "EAGAIN",
+        40 if cfg!(target_os = "linux") => "ELOOP",
+        36 if cfg!(target_os = "linux") => "ENAMETOOLONG",
+        _ => return None,
+    })
+}
+
+/// Node's signal names (`os.constants.signals`) for the platform numbers.
 #[cfg(unix)]
 fn signal_name(status: std::process::ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
-    match status.signal() {
-        None => "none".to_owned(),
-        Some(9) => "SIGKILL".to_owned(),
-        Some(15) => "SIGTERM".to_owned(),
-        Some(2) => "SIGINT".to_owned(),
-        Some(6) => "SIGABRT".to_owned(),
-        Some(11) => "SIGSEGV".to_owned(),
-        Some(13) => "SIGPIPE".to_owned(),
-        Some(other) => format!("signal {other}"),
-    }
+    let Some(signal) = status.signal() else {
+        return "none".to_owned();
+    };
+    let name = match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        7 if cfg!(target_os = "linux") => "SIGBUS",
+        7 => "SIGEMT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        10 if cfg!(target_os = "linux") => "SIGUSR1",
+        10 => "SIGBUS",
+        11 => "SIGSEGV",
+        12 if cfg!(target_os = "linux") => "SIGUSR2",
+        12 => "SIGSYS",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        16 if cfg!(target_os = "linux") => "SIGSTKFLT",
+        16 => "SIGURG",
+        17 if cfg!(target_os = "linux") => "SIGCHLD",
+        17 => "SIGSTOP",
+        18 if cfg!(target_os = "linux") => "SIGCONT",
+        18 => "SIGTSTP",
+        19 if cfg!(target_os = "linux") => "SIGSTOP",
+        19 => "SIGCONT",
+        20 if cfg!(target_os = "linux") => "SIGTSTP",
+        20 => "SIGCHLD",
+        21 => "SIGTTIN",
+        22 => "SIGTTOU",
+        23 if cfg!(target_os = "linux") => "SIGURG",
+        23 => "SIGIO",
+        24 => "SIGXCPU",
+        25 => "SIGXFSZ",
+        26 => "SIGVTALRM",
+        27 => "SIGPROF",
+        28 => "SIGWINCH",
+        29 if cfg!(target_os = "linux") => "SIGIO",
+        29 => "SIGINFO",
+        30 if cfg!(target_os = "linux") => "SIGPWR",
+        30 => "SIGUSR1",
+        31 if cfg!(target_os = "linux") => "SIGSYS",
+        31 => "SIGUSR2",
+        other => return format!("{other}"),
+    };
+    name.to_owned()
 }
 
 #[cfg(not(unix))]
@@ -224,6 +311,30 @@ mod tests {
             error.message,
             "Git command failed: git config --get spocky.test.missing-key (exit code: 1, signal: none)\n(no stderr)"
         );
+    }
+
+    #[tokio::test]
+    async fn stdout_over_the_cap_resolves_truncated() {
+        let directory = std::env::temp_dir();
+        let output = run_git(
+            &["--version"],
+            &GitOptions {
+                max_stdout_bytes: 5,
+                ..GitOptions::read_only(&directory)
+            },
+        )
+        .await
+        .expect("truncated output resolves");
+        assert!(output.truncated);
+        assert_eq!(output.stdout, "git v");
+    }
+
+    #[test]
+    fn spawn_errors_use_errno_names() {
+        let missing = std::io::Error::from_raw_os_error(2);
+        assert_eq!(super::spawn_error_message(&missing), "spawn git ENOENT");
+        let denied = std::io::Error::from_raw_os_error(13);
+        assert_eq!(super::spawn_error_message(&denied), "spawn git EACCES");
     }
 
     #[tokio::test]
