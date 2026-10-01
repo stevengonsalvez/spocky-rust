@@ -622,6 +622,10 @@ fn run_case(spec: &Json) -> Json {
 struct Keys(Option<Rc<RefCell<HubPilot<EmbeddedFileStore>>>>);
 
 impl ApiKeyAuthorizer for Keys {
+    fn scope_order(&self, credential_id: &str) -> Option<Vec<ApiKeyScope>> {
+        self.0.as_ref()?.borrow().api_key_scope_order(credential_id)
+    }
+
     fn authorize_api_key(
         &mut self,
         authorization: &str,

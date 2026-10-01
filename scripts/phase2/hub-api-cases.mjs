@@ -905,6 +905,8 @@ scenario("credentials", cfg({
     { name: "all", scopes: ALL_SCOPES },
     { name: "read", scopes: ["projects:read"] },
     { name: "multi", scopes: ["projects:read", "runs:dispatch"] },
+    { name: "ordered", scopes: ["runs:dispatch", "projects:read"] },
+    { name: "reordered", scopes: ["daemons:enroll", "runs:dispatch", "daemons:enroll", "projects:read"] },
     { name: "revoked", scopes: ["projects:read"], revoked: true },
   ],
 }), [
@@ -919,6 +921,8 @@ scenario("credentials", cfg({
     "Bearer {key.all}",
     "Bearer {key.read}",
     "Bearer {key.multi}",
+    "Bearer {key.ordered}",
+    "Bearer {key.reordered}",
     "Bearer {key.revoked}",
     "Bearer {key.all}x",
     "Bearer {key.all.prefix}",

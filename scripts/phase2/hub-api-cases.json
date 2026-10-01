@@ -17403,6 +17403,22 @@
             ]
           },
           {
+            "name": "ordered",
+            "scopes": [
+              "runs:dispatch",
+              "projects:read"
+            ]
+          },
+          {
+            "name": "reordered",
+            "scopes": [
+              "daemons:enroll",
+              "runs:dispatch",
+              "daemons:enroll",
+              "projects:read"
+            ]
+          },
+          {
             "name": "revoked",
             "scopes": [
               "projects:read"
@@ -17459,6 +17475,16 @@
         {
           "do": "authorize",
           "header": "Bearer {key.multi}",
+          "scope": "projects:read"
+        },
+        {
+          "do": "authorize",
+          "header": "Bearer {key.ordered}",
+          "scope": "projects:read"
+        },
+        {
+          "do": "authorize",
+          "header": "Bearer {key.reordered}",
           "scope": "projects:read"
         },
         {

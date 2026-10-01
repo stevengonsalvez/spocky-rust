@@ -10452,7 +10452,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"deviceCode\":\"g2JlyLrinoqr6pf8kOa16VU_NzoP38RFkke0pUZiYWQ\",\"userCode\":\"AWHF-FP3D-AM6CE\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=AWHF-FP3D-AM6CE\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+        "body": "{\"deviceCode\":\"2eYV5XtpdBGQvkgT4xuOzQQ99JIw9BfOSO3LRRmZWwI\",\"userCode\":\"NY3Z-HRFX-GV3KA\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=NY3Z-HRFX-GV3KA\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
       },
       {
         "do": "decide",
@@ -10470,7 +10470,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"status\":\"authorized\",\"interval\":5,\"credential\":\"paseo_cli_DKQsuGFsmNmD_cORTODAyiRyOpSAInd33kyDeyF576XefUf5niHTutcU\",\"organizationId\":\"org-acme\"}"
+        "body": "{\"status\":\"authorized\",\"interval\":5,\"credential\":\"paseo_cli_Q507lKuGGug5_QXEV39nRQwrG7mi1nnRWXvZYOX-GoGYvi8EHmhlx8b4\",\"organizationId\":\"org-acme\"}"
       },
       {
         "do": "start",
@@ -10479,7 +10479,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"deviceCode\":\"t3x-WVqdId5CoI70lgAkDqe-A7zI8vYLczIJrZRH8BE\",\"userCode\":\"P4LP-5AUA-ZZLS4\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=P4LP-5AUA-ZZLS4\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
+        "body": "{\"deviceCode\":\"UXGFWMyQz4rG53H-C9j2rTliajTFBoW9oJUlHqmIcrE\",\"userCode\":\"UCYL-DMDC-AYWIS\",\"verificationUri\":\"https://hub.test/cli-login\",\"verificationUriComplete\":\"https://hub.test/cli-login?code=UCYL-DMDC-AYWIS\",\"expiresAt\":\"2026-08-06T12:10:00.000Z\",\"interval\":5}"
       },
       {
         "do": "decide",
@@ -10497,7 +10497,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"status\":\"authorized\",\"interval\":5,\"credential\":\"paseo_cli_XrqnSoqv4jyA_3WU4fW6UKN-f2w5nMIvNjDyHU94pZJGM8AX02fTrxak\",\"organizationId\":\"org-acme\"}"
+        "body": "{\"status\":\"authorized\",\"interval\":5,\"credential\":\"paseo_cli_l5qYcXs8XYMY_yxTc78AXU4vJUb96Ynv5S4H9Bh0rJWOQhqO4lAHQdHM\",\"organizationId\":\"org-acme\"}"
       },
       {
         "do": "revokeCli",
@@ -10539,6 +10539,31 @@
         "scopes": [
           "projects:read",
           "runs:dispatch"
+        ]
+      },
+      {
+        "do": "authorize",
+        "header": "Bearer {key.ordered}",
+        "scope": "projects:read",
+        "status": "authorized",
+        "kind": "apiKey",
+        "organizationId": "organization-a",
+        "scopes": [
+          "runs:dispatch",
+          "projects:read"
+        ]
+      },
+      {
+        "do": "authorize",
+        "header": "Bearer {key.reordered}",
+        "scope": "projects:read",
+        "status": "authorized",
+        "kind": "apiKey",
+        "organizationId": "organization-a",
+        "scopes": [
+          "daemons:enroll",
+          "runs:dispatch",
+          "projects:read"
         ]
       },
       {
