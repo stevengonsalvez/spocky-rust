@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use spocky_contracts::js_value::js_text_from_utf16;
 use spocky_contracts::ws::{DaemonPermission, ServerId};
 use spocky_daemon::admission::PasswordVerifier;
 use spocky_daemon::hostnames::Hostnames;
@@ -1110,6 +1111,33 @@ fn valid_json_that_serde_json_refuses_still_reaches_the_schema() {
         assert_eq!(next_json(&mut ws), json!({"type": "pong"}));
     }
     assert!(harness.calls.failures.lock().unwrap().is_empty());
+    harness.finish();
+}
+
+/// A lone surrogate in a frame leaves as the `\udXXX` escape `JSON.stringify`
+/// writes, not as the contracts crate's internal text encoding.
+#[test]
+fn a_lone_surrogate_leaves_as_a_json_escape() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("surrogate"));
+    next_json(&mut ws);
+    let sink = Arc::clone(&harness.calls.sinks.lock().unwrap()[0]);
+    let text = js_text_from_utf16(&[0x61, 0xD800, 0x62, 0xDFFF]);
+    sink.send_to_connection(&json!({"type": "note", "text": text}));
+    loop {
+        match ws.read().unwrap() {
+            Message::Text(frame) => {
+                assert_eq!(
+                    frame.as_str(),
+                    r#"{"type":"session","message":{"type":"note","text":"a\ud800b\udfff"}}"#
+                );
+                break;
+            }
+            Message::Close(frame) => panic!("closed: {frame:?}"),
+            _ => {}
+        }
+    }
     harness.finish();
 }
 
