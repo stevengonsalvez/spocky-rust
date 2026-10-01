@@ -41,13 +41,45 @@ const DEFAULT_CONFIG_TEXT: &str = r#"{
 "#;
 
 /// The subset of the persisted config the daemon transport needs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct PersistedDaemonConfig {
     pub listen: Option<String>,
     pub hostnames: Option<Hostnames>,
     pub cors_allowed_origins: Vec<String>,
     /// bcrypt hash from `daemon.auth.password`.
     pub auth_password: Option<String>,
+}
+
+/// The password hash is a credential: never print it.
+impl fmt::Debug for PersistedDaemonConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersistedDaemonConfig")
+            .field("listen", &self.listen)
+            .field("hostnames", &self.hostnames)
+            .field("cors_allowed_origins", &self.cors_allowed_origins)
+            .field(
+                "auth_password",
+                &self.auth_password.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+/// `BcryptHashSchema`: `/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/`. An empty or
+/// malformed `daemon.auth.password` is a config error, as in the baseline. It is
+/// never read as "no password", so a bad value cannot open the daemon.
+fn is_bcrypt_hash(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 60
+        && bytes.starts_with(b"$2")
+        && matches!(bytes[2], b'a' | b'b' | b'y')
+        && bytes[3] == b'$'
+        && bytes[4].is_ascii_digit()
+        && bytes[5].is_ascii_digit()
+        && bytes[6] == b'$'
+        && bytes[7..]
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'/')
 }
 
 /// An error with the baseline's `[Config]` message prefix.
@@ -222,6 +254,9 @@ fn extract(root: &Value) -> Result<PersistedDaemonConfig, String> {
                     kind(password)
                 )
             })?;
+            if !is_bcrypt_hash(hash) {
+                return Err("daemon.auth.password: Expected a bcrypt hash".to_owned());
+            }
             config.auth_password = Some(hash.to_owned());
         }
     }
@@ -280,7 +315,7 @@ mod tests {
     #[test]
     fn reads_the_daemon_fields() {
         let (_home, result) = load(Some(
-            r#"{"daemon":{"listen":"127.0.0.1:9","hostnames":[".a.com"],"cors":{"allowedOrigins":["x"]},"auth":{"password":"$2a$12$h"}}}"#,
+            r#"{"daemon":{"listen":"127.0.0.1:9","hostnames":[".a.com"],"cors":{"allowedOrigins":["x"]},"auth":{"password":"$2a$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234"}}}"#,
         ));
         let config = result.unwrap();
         assert_eq!(config.listen.as_deref(), Some("127.0.0.1:9"));
@@ -289,7 +324,10 @@ mod tests {
             Some(Hostnames::Patterns(vec![".a.com".to_owned()]))
         );
         assert_eq!(config.cors_allowed_origins, ["x"]);
-        assert_eq!(config.auth_password.as_deref(), Some("$2a$12$h"));
+        assert_eq!(
+            config.auth_password.as_deref(),
+            Some("$2a$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234")
+        );
     }
 
     #[test]
@@ -357,5 +395,58 @@ mod tests {
         assert_eq!(first_present(&[None, None]), None);
         assert_eq!(trimmed_non_empty(Some("  x ")), Some("x"));
         assert_eq!(trimmed_non_empty(Some("  ")), None);
+    }
+
+    const HASH: &str = "$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234";
+
+    #[test]
+    fn the_bcrypt_pattern_matches_the_baseline_regex() {
+        assert!(is_bcrypt_hash(HASH));
+        assert!(is_bcrypt_hash(&HASH.replace("$2b$", "$2a$")));
+        assert!(is_bcrypt_hash(&HASH.replace("$2b$", "$2y$")));
+        assert!(is_bcrypt_hash(&format!(
+            "$2b$12${}",
+            "./".repeat(25) + "AB1"
+        )));
+        for bad in [
+            "",
+            "x",
+            &HASH.replace("$2b$", "$2x$"),
+            &HASH.replace("$12$", "$1$"),
+            &HASH.replace("$12$", "$ab$"),
+            &format!("{HASH}x"),
+            &HASH[..59],
+            &HASH.replace('Z', "-"),
+            &HASH.replace('Z', "_"),
+        ] {
+            assert!(!is_bcrypt_hash(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn an_empty_or_malformed_password_is_a_config_error_not_no_password() {
+        for bad in ["", "plain", "$2b$12$short"] {
+            let text = format!(r#"{{"daemon":{{"auth":{{"password":"{bad}"}}}}}}"#);
+            let (_home, result) = load(Some(&text));
+            let message = result.unwrap_err().0;
+            assert!(
+                message.ends_with("daemon.auth.password: Expected a bcrypt hash"),
+                "{bad:?}: {message}"
+            );
+        }
+        let (_home, result) = load(Some(&format!(
+            r#"{{"daemon":{{"auth":{{"password":"{HASH}"}}}}}}"#
+        )));
+        assert_eq!(result.unwrap().auth_password.as_deref(), Some(HASH));
+    }
+
+    #[test]
+    fn debug_output_never_contains_the_password_hash() {
+        let (_home, result) = load(Some(&format!(
+            r#"{{"daemon":{{"auth":{{"password":"{HASH}"}}}}}}"#
+        )));
+        let shown = format!("{:?}", result.unwrap());
+        assert!(!shown.contains(HASH) && !shown.contains("$2b$"), "{shown}");
+        assert!(shown.contains("<redacted>"));
     }
 }
