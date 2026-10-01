@@ -376,15 +376,49 @@ fn a_subscriber_can_interrupt_from_inside_turn_started() {
     session.close().expect("close");
 }
 
-/// Child half of `watchdog_aborts_a_test_past_its_deadline`: a no-op unless
-/// that test re-runs this binary with `SPOCKY_P3_WATCHDOG_CHILD` set.
+/// Child half of the watchdog tests: a no-op unless one of them re-runs this
+/// binary with `SPOCKY_P3_WATCHDOG_CHILD` set to the case to play.
 #[test]
 fn watchdog_child() {
-    if std::env::var_os("SPOCKY_P3_WATCHDOG_CHILD").is_none() {
-        return;
+    match std::env::var("SPOCKY_P3_WATCHDOG_CHILD").as_deref() {
+        Ok("abort") => {
+            let _watchdog = support::Watchdog::arm("watchdog-child", Duration::from_millis(200));
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        Ok("disarm") => {
+            drop(support::Watchdog::arm(
+                "watchdog-child",
+                Duration::from_millis(200),
+            ));
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        Ok("cleanup") => {
+            use std::os::unix::process::CommandExt;
+            let root = support::DisposableRoot::new("watchdog-cleanup");
+            // Stands in for an app-server: a group leader parented by this
+            // process, recorded the way the launcher records Codex.
+            let leader = Command::new("/bin/sleep")
+                .arg("30")
+                .process_group(0)
+                .spawn()
+                .expect("spawn group leader");
+            std::fs::write(
+                root.join(support::APP_SERVER_PIDS),
+                format!("{}\n", leader.id()),
+            )
+            .expect("record pid");
+            eprintln!("recorded group {}", leader.id());
+            let mut leader = leader;
+            std::thread::spawn(move || leader.wait());
+            let _watchdog = support::Watchdog::arm_for(
+                "watchdog-child",
+                Duration::from_millis(200),
+                Some(root.path.clone()),
+            );
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        _ => {}
     }
-    let _watchdog = support::Watchdog::arm("watchdog-child", Duration::from_millis(200));
-    std::thread::sleep(Duration::from_secs(30));
 }
 
 /// Re-runs one test of this binary with `env` applied, bounded at 20 s,
@@ -425,12 +459,66 @@ fn watchdog_aborts_a_test_past_its_deadline() {
     let (status, output) = rerun(
         "watchdog_child",
         &[],
-        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("1"))],
+        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("abort"))],
     );
     assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
     assert!(
         output.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; aborting"),
         "{output}"
+    );
+}
+
+#[test]
+fn a_dropped_watchdog_does_not_abort() {
+    let (status, output) = rerun(
+        "watchdog_child",
+        &[],
+        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("disarm"))],
+    );
+    assert!(status.success(), "{status:?}: {output}");
+}
+
+#[test]
+fn watchdog_stops_recorded_groups_and_deletes_the_root_before_abort() {
+    use std::os::unix::process::ExitStatusExt;
+    let (status, output) = rerun(
+        "watchdog_child",
+        &[],
+        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("cleanup"))],
+    );
+    let value_after = |prefix: &str| {
+        output
+            .lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .unwrap_or_else(|| panic!("no '{prefix}' in {output}"))
+            .to_owned()
+    };
+    let leader: u32 = value_after("recorded group ").parse().expect("pid");
+    let root = value_after("disposable root: ");
+    let gone = (0..100).any(|_| {
+        let alive = support::process_alive(leader);
+        if alive {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        !alive
+    });
+    if !gone {
+        // Clean up by the exact pid the child reported.
+        let _ = Command::new("/bin/kill")
+            .args(["-s", "KILL", &leader.to_string()])
+            .status();
+    }
+    assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
+    assert!(
+        output.contains(&format!(
+            "sending SIGTERM to app-server process group {leader}"
+        )),
+        "{output}"
+    );
+    assert!(gone, "recorded group leader {leader} survived the watchdog");
+    assert!(
+        !std::path::Path::new(&root).exists(),
+        "disposable root {root} left behind"
     );
 }
 
