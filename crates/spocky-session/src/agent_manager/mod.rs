@@ -699,6 +699,22 @@ impl AgentManager {
             .map_err(|error| AgentError::new(error.to_string()))
     }
 
+    /// `hasInFlightRun(agentId)`: running, a foreground turn, or a tracked
+    /// run.
+    #[must_use]
+    pub fn has_in_flight_run(&self, agent_id: &str) -> bool {
+        let state = self.lock();
+        state.agent(agent_id).is_some_and(|agent| {
+            agent.snapshot.lifecycle == AgentLifecycle::Running
+                || agent
+                    .snapshot
+                    .active_foreground_turn_id
+                    .as_deref()
+                    .is_some_and(|turn| !turn.is_empty())
+                || state.runs.contains_key(agent_id)
+        })
+    }
+
     /// `requirePublicAgent(id)`.
     fn require_public_agent<'a>(
         state: &'a State,
