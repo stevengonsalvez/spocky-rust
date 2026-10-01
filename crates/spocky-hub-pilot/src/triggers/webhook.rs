@@ -1,10 +1,8 @@
 //! Offline GitHub webhook intake: signature verification, bounds, normalization, replay.
 //!
-//! Mirrors the baseline `createWebhookSource` over a recording acceptance boundary. The durable
-//! receipt store behind that boundary is out of scope here; both sides of the differential use
-//! the same stub (first delivery accepted, repeat delivery a duplicate).
-
-use std::collections::BTreeMap;
+//! Mirrors the baseline `createWebhookSource` over a caller-supplied [`WebhookBackend`]. The
+//! durable receipt store behind that boundary is out of scope here; both sides of the differential
+//! use the same stub (first delivery accepted, repeat delivery a duplicate).
 
 use serde_json::{Number, Value};
 use sha2::{Digest, Sha256};
@@ -30,6 +28,7 @@ pub struct WebhookHttpResponse {
 /// What the endpoint handed to the acceptance boundary for one delivery.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AcceptCall {
+    pub delivery_id: String,
     pub source: String,
     pub drop_reason: Option<&'static str>,
     pub installation_id: Number,
@@ -52,30 +51,43 @@ pub enum AcceptFailure {
     Unexpected,
 }
 
-pub struct GitHubWebhook {
-    secret: Option<String>,
-    handlers: usize,
-    events_per_acceptance: usize,
-    accept_failure: Option<AcceptFailure>,
-    seen: BTreeMap<String, String>,
-    accepts: Vec<AcceptCall>,
-    lifecycles: Vec<LifecycleCall>,
-    dispatch_count: usize,
+/// What the acceptance boundary decided for one delivery.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Acceptance {
+    /// A new delivery; `events` routed events go to every registered handler.
+    Accepted {
+        events: usize,
+    },
+    Duplicate,
+    Dropped,
 }
 
-impl GitHubWebhook {
+/// The boundary behind the endpoint: durable receipt acceptance, lifecycle application and
+/// handler dispatch. The durable store is out of scope, so callers supply the implementation.
+pub trait WebhookBackend {
+    /// # Errors
+    ///
+    /// Returns the storage failure the baseline maps to 503 or 500.
+    fn accept(&mut self, call: &AcceptCall) -> Result<Acceptance, AcceptFailure>;
+    fn apply_lifecycle(&mut self, call: &LifecycleCall);
+    /// Hands `events` accepted events to each of `handlers` registered handlers.
+    fn dispatch(&mut self, events: usize, handlers: usize);
+}
+
+pub struct GitHubWebhook<B> {
+    secret: Option<String>,
+    handlers: usize,
+    backend: B,
+}
+
+impl<B: WebhookBackend> GitHubWebhook<B> {
     /// `secret` is `None` when event triggers are not set up; every delivery is then refused.
     #[must_use]
-    pub fn new(secret: Option<&str>) -> Self {
+    pub fn new(secret: Option<&str>, backend: B) -> Self {
         Self {
             secret: secret.map(str::to_owned),
             handlers: 0,
-            events_per_acceptance: 1,
-            accept_failure: None,
-            seen: BTreeMap::new(),
-            accepts: Vec::new(),
-            lifecycles: Vec::new(),
-            dispatch_count: 0,
+            backend,
         }
     }
 
@@ -84,27 +96,13 @@ impl GitHubWebhook {
         self.handlers += 1;
     }
 
-    pub fn set_events_per_acceptance(&mut self, events: usize) {
-        self.events_per_acceptance = events;
-    }
-
-    pub fn set_accept_failure(&mut self, failure: Option<AcceptFailure>) {
-        self.accept_failure = failure;
-    }
-
     #[must_use]
-    pub fn accepts(&self) -> &[AcceptCall] {
-        &self.accepts
+    pub const fn backend(&self) -> &B {
+        &self.backend
     }
 
-    #[must_use]
-    pub fn lifecycles(&self) -> &[LifecycleCall] {
-        &self.lifecycles
-    }
-
-    #[must_use]
-    pub fn dispatch_count(&self) -> usize {
-        self.dispatch_count
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
     }
 
     pub fn handle(&mut self, request: GitHubWebhookRequest<'_>) -> WebhookHttpResponse {
@@ -140,7 +138,7 @@ impl GitHubWebhook {
         };
 
         if event_type == "installation" || event_type == "installation_repositories" {
-            self.lifecycles.push(LifecycleCall {
+            self.backend.apply_lifecycle(&LifecycleCall {
                 event: event_type.to_owned(),
                 source: format!("github.{event_type}"),
                 installation_id,
@@ -166,32 +164,28 @@ impl GitHubWebhook {
         };
         let (repo, repository_id) =
             normalized.map_or((None, None), |(repo, id)| (Some(repo.to_owned()), Some(id)));
-        self.accepts.push(AcceptCall {
+        let call = AcceptCall {
+            delivery_id: delivery_id.to_owned(),
             source: format!("github.{event_type}"),
             drop_reason,
             installation_id,
             repository_id,
             repo,
             signature_hash,
-        });
-        match self.accept_failure {
-            Some(AcceptFailure::DatabaseUnavailable) => {
-                return text(503, "{\"error\":\"database_unavailable\"}");
+        };
+        match self.backend.accept(&call) {
+            Err(AcceptFailure::DatabaseUnavailable) => {
+                text(503, "{\"error\":\"database_unavailable\"}")
             }
-            Some(AcceptFailure::Unexpected) => {
-                return text(500, "{\"error\":\"webhook_processing_failed\"}");
+            Err(AcceptFailure::Unexpected) => {
+                text(500, "{\"error\":\"webhook_processing_failed\"}")
             }
-            None => {}
+            Ok(Acceptance::Accepted { events }) => {
+                self.backend.dispatch(events, self.handlers);
+                text(200, "OK")
+            }
+            Ok(Acceptance::Duplicate | Acceptance::Dropped) => text(200, "OK"),
         }
-        if self.seen.contains_key(delivery_id) {
-            return text(200, "OK");
-        }
-        let receipt = format!("receipt-{}", self.seen.len() + 1);
-        self.seen.insert(delivery_id.to_owned(), receipt);
-        if drop_reason.is_none() {
-            self.dispatch_count += self.events_per_acceptance * self.handlers;
-        }
-        text(200, "OK")
     }
 }
 
