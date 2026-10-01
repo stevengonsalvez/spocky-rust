@@ -21,6 +21,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
+use spocky_contracts::js_value::parse as parse_js;
 use spocky_contracts::ws::{
     DaemonPermission, Hello, HelloRejected, HelloRejectedReason, ServerCapabilities,
     ServerFeatureGates, ServerId, WsControlInbound, WsControlOutbound,
@@ -1175,12 +1176,21 @@ impl SocketTask {
             self.lease_deadline =
                 Some(Instant::now() + self.shared.config.timeouts.application_lease);
         }
-        let parsed: Value = match serde_json::from_str(text) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                self.on_raw_error(None, &error.to_string());
-                return;
-            }
+        // `JSON.parse(buffer.toString())` throws a V8 `SyntaxError`; the wire text
+        // is "Invalid message: " + err.message. The message comes from the
+        // contracts parser, never from a Display of the error, which adds text the
+        // baseline does not have.
+        if let Err(error) = parse_js(text) {
+            let message: &str = &error.message;
+            self.on_raw_error(message);
+            return;
+        }
+        // Valid for `JSON.parse` but not representable as a serde value (a lone
+        // surrogate escape, nesting past serde's limit): it cannot be a valid
+        // frame, so it is answered as an invalid one.
+        let Ok(parsed) = serde_json::from_str::<Value>(text) else {
+            self.on_invalid(&Value::Null, "Invalid input");
+            return;
         };
         let inbound = match self.classify(&parsed) {
             Ok(inbound) => inbound,
@@ -1283,7 +1293,7 @@ impl SocketTask {
     }
 
     /// `handleRawMessageError`.
-    fn on_raw_error(&mut self, _data: Option<&str>, message: &str) {
+    fn on_raw_error(&mut self, message: &str) {
         self.logger().error(
             &[("errorName", "SyntaxError")],
             "Failed to parse/handle message",
