@@ -6,6 +6,21 @@
 # runtime tests of spocky-hub-pilot against the same binary. Writes
 # evidence/phase2/pglite-rust-host-differential-*. Heavy steps go through
 # the shared build gate.
+#
+# What is compared, and against what:
+# - "original" is the Hub's own in-process capture (hub-embedded-pglite.mjs
+#   on the baseline runtime), not the Node retained child. Catalog, journal
+#   and the four shared scenarios are compared with it.
+# - historicalResume and the recovery evidence exist only on the adapter
+#   side, so they are checked on the Rust candidate alone. Its error
+#   payloads are compared with the committed Node retained candidate
+#   (evidence/phase2/hub-embedded-retained-candidate.json).
+# - The 17 runtime tests run here against the Rust child only; their Node
+#   run is evidence/phase2/hub-embedded-retained-tests.log.
+# - Evidence files have the temporary fixture path replaced by <fixture>.
+#
+# Exits nonzero when any check of pglite-rust-host-differential-check.sh
+# fails, after writing the evidence.
 set -eu
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
@@ -136,3 +151,9 @@ gtimeout 30 jq -c '{catalogParity, journalParity, counts, scenarioParity, candid
   "$evidence_root/pglite-rust-host-differential-comparison.json"
 grep -E '^test |^test result' "$evidence_root/pglite-rust-host-differential-tests.log" || true
 printf 'retained runtime tests exit status: %s\n' "$tests_status"
+sh "$repository_root/scripts/phase2/pglite-rust-host-differential-check.sh" \
+  "$evidence_root/pglite-rust-host-differential-comparison.json" \
+  "$evidence_root/pglite-rust-host-differential-candidate.json" \
+  "$evidence_root/hub-embedded-retained-candidate.json" \
+  "$evidence_root/pglite-rust-host-differential-tests.log" \
+  "$tests_status"
