@@ -2,9 +2,10 @@
 //! pinned `codex` (0.159.0) and the G1 scripted Responses stub: catalog,
 //! create in full-access mode, one turn, persistence, close.
 //!
-//! Ignored by default: run with `--include-ignored` on a host with the
-//! pinned binary, which is verified by digest and by a sandboxed
-//! `--version` probe, and never skipped.
+//! Ignored by default: run with `--include-ignored` and
+//! `SPOCKY_REAL_CODEX=1` (PORTING.md) on a host with the pinned binary, which
+//! is verified by digest and by a sandboxed `--version` probe, and never
+//! skipped.
 //!
 //! Hermetic: every codex launch goes through the slice harness's recording
 //! wrapper (which logs each PID) into `sandbox-exec` with the harness's
@@ -65,8 +66,15 @@ fn bounded_stdout(mut command: Command, what: &str) -> String {
     stdout
 }
 
-/// The pinned binary, verified by digest; panics instead of skipping.
+/// The pinned binary, verified by digest; panics instead of skipping. The
+/// env gate `SPOCKY_REAL_CODEX=1` must accompany `--include-ignored`, so an
+/// ignored-test sweep without it fails rather than launching codex.
 fn pinned_codex() -> &'static str {
+    assert_eq!(
+        std::env::var("SPOCKY_REAL_CODEX").as_deref(),
+        Ok("1"),
+        "real-codex test run with --include-ignored but without SPOCKY_REAL_CODEX=1"
+    );
     let mut shasum = Command::new("/usr/bin/shasum");
     shasum.args(["-a", "256", PINNED_CODEX_PATH]);
     assert_eq!(
