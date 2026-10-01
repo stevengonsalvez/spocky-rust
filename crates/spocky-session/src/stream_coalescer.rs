@@ -14,7 +14,7 @@
 use spocky_contracts::js::strict_equals;
 use spocky_store::js_value::JsValue;
 
-use crate::js::{js_string, spread};
+use spocky_contracts::js::{js_string, spread};
 
 /// `AGENT_STREAM_COALESCE_DEFAULT_WINDOW_MS`.
 pub const AGENT_STREAM_COALESCE_DEFAULT_WINDOW_MS: f64 = 60.0;
