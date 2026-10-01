@@ -87,22 +87,72 @@ pub fn expand_tilde(path: &str, home: &str) -> String {
     path.to_owned()
 }
 
-/// `realpathSync`; `None` where it throws.
+/// `realpathSync.native` (libc `realpath`); `None` where it throws. On macOS
+/// this also returns the on-disk case of each component.
 #[must_use]
-pub fn realpath(path: &str) -> Option<String> {
+pub fn realpath_native(path: &str) -> Option<String> {
     std::fs::canonicalize(Path::new(path))
         .ok()
         .map(|resolved| resolved.to_string_lossy().into_owned())
 }
 
-/// `collectPathVariants`: the path, then its realpath when different.
+/// node's JavaScript `fs.realpathSync`; `None` where it throws. It walks the
+/// path one component at a time with `lstat` and `readlink`, so components
+/// that are not symlinks keep the case given, unlike [`realpath_native`].
+#[must_use]
+pub fn realpath_js(path: &str) -> Option<String> {
+    let mut current = resolve_from_cwd(path);
+    // node's `stat` before `readlink` reports ELOOP for a cycle; bound the chain.
+    let mut hops = 0_u32;
+    'restart: loop {
+        let parts: Vec<String> = current
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let mut prefix = String::new();
+        for (index, part) in parts.iter().enumerate() {
+            let base = format!("{prefix}/{part}");
+            let metadata = std::fs::symlink_metadata(&base).ok()?;
+            if !metadata.file_type().is_symlink() {
+                prefix = base;
+                continue;
+            }
+            std::fs::metadata(&base).ok()?;
+            hops += 1;
+            if hops > 40 {
+                return None;
+            }
+            let target = std::fs::read_link(&base).ok()?;
+            let previous = if prefix.is_empty() {
+                "/"
+            } else {
+                prefix.as_str()
+            };
+            let resolved_link = resolve(previous, &target.to_string_lossy());
+            current = resolve(&resolved_link, &parts[index + 1..].join("/"));
+            continue 'restart;
+        }
+        return Some(if prefix.is_empty() {
+            "/".to_owned()
+        } else {
+            prefix
+        });
+    }
+}
+
+/// `collectPathVariants`: the path, `realpathSync.native`, then `realpathSync`,
+/// without duplicates.
 #[must_use]
 pub fn path_variants(path: &str) -> Vec<String> {
     let mut variants = vec![path.to_owned()];
-    if let Some(real) = realpath(path)
-        && real != path
+    for real in [realpath_native(path), realpath_js(path)]
+        .into_iter()
+        .flatten()
     {
-        variants.push(real);
+        if !variants.contains(&real) {
+            variants.push(real);
+        }
     }
     variants
 }
@@ -160,10 +210,14 @@ pub fn realpath_aware_relative_path(root: &str, candidate: &str) -> Option<Strin
     None
 }
 
-/// `normalizePathForIdentity`: the realpath when one exists, normalized.
+/// `normalizePathForIdentity`: the first realpath variant (`.native`, then
+/// the JavaScript walk) when one exists, normalized.
 #[must_use]
 pub fn normalize_path_for_identity(path: &str) -> String {
-    comparable(&realpath(path).unwrap_or_else(|| path.to_owned()))
+    let canonical = realpath_native(path)
+        .or_else(|| realpath_js(path))
+        .unwrap_or_else(|| path.to_owned());
+    comparable(&canonical)
 }
 
 #[cfg(test)]
@@ -198,5 +252,35 @@ mod tests {
         assert_eq!(relative_path_inside_root("/r/", "/r").as_deref(), Some(""));
         assert_eq!(relative_path_inside_root("/r", "/rx"), None);
         assert_eq!(relative_path_inside_root("/r/a", "/r"), None);
+    }
+}
+
+#[cfg(test)]
+mod realpath_tests {
+    use super::{realpath_js, realpath_native};
+
+    #[test]
+    fn javascript_realpath_resolves_links_and_keeps_given_case() {
+        let root = std::env::temp_dir().join(format!("spocky-realpath-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("Target/Inner")).expect("create dirs");
+        std::os::unix::fs::symlink(root.join("Target"), root.join("link")).expect("symlink");
+        let root_real = realpath_native(&root.to_string_lossy()).expect("root exists");
+        let via_link = format!("{}/link/Inner", root.to_string_lossy());
+        assert_eq!(
+            realpath_js(&via_link),
+            Some(format!("{root_real}/Target/Inner"))
+        );
+        assert_eq!(
+            realpath_js(&format!("{}/missing", root.to_string_lossy())),
+            None
+        );
+        // Case-insensitive volumes: the JavaScript walk keeps the given case
+        // of non-link components; libc realpath returns the on-disk case.
+        let lower = format!("{root_real}/target/inner");
+        if let Some(native) = realpath_native(&lower) {
+            assert_eq!(native, format!("{root_real}/Target/Inner"));
+            assert_eq!(realpath_js(&lower), Some(lower.clone()));
+        }
+        std::fs::remove_dir_all(&root).expect("cleanup");
     }
 }
