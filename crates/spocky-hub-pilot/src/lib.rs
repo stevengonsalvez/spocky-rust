@@ -25,6 +25,7 @@ mod embedded_schema;
 mod embedded_sql;
 pub mod http;
 mod invitations;
+pub mod public_api;
 mod relational_api_keys;
 mod relational_invitations;
 mod relational_sessions;
