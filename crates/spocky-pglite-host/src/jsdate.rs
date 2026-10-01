@@ -5,12 +5,6 @@
 //! database; `jiff::tz::TimeZone::system()` follows the same sources. Gaps
 //! and folds resolve the way ECMAScript `UTC(t)` does (`compatible`).
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    reason = "time values stay within the Date range of 8.64e15 ms, below 2^53"
-)]
-
 use jiff::Timestamp;
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
@@ -18,6 +12,24 @@ use jiff::tz::TimeZone;
 /// Largest absolute time value a `Date` can hold, in milliseconds.
 const MAX_TIME_MS: f64 = 8.64e15;
 const MS_PER_DAY: f64 = 86_400_000.0;
+
+/// An integral millisecond, day or year count as a JavaScript number.
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "Date values are within 8.64e15 ms (below 2^53) and day and year counts are smaller, so the conversion is exact like Number arithmetic in the glue"
+)]
+fn to_number(value: i64) -> f64 {
+    value as f64
+}
+
+/// An integral JavaScript number (already floored or truncated) as `i64`.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "callers pass integral values within the Date range, which fit in i64; out of range values saturate"
+)]
+fn to_integer(value: f64) -> i64 {
+    value as i64
+}
 
 /// Broken-down local or UTC time, as the glue writes it into `struct tm`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -66,11 +78,11 @@ impl JsClock {
     /// Offset of local time from UTC in milliseconds at UTC time `ms`.
     fn offset_ms(&self, ms: f64) -> f64 {
         let clamped = ms.clamp(
-            Timestamp::MIN.as_millisecond() as f64,
-            Timestamp::MAX.as_millisecond() as f64,
+            to_number(Timestamp::MIN.as_millisecond()),
+            to_number(Timestamp::MAX.as_millisecond()),
         );
         let timestamp =
-            Timestamp::from_millisecond(clamped as i64).unwrap_or(Timestamp::UNIX_EPOCH);
+            Timestamp::from_millisecond(to_integer(clamped)).unwrap_or(Timestamp::UNIX_EPOCH);
         f64::from(self.zone.to_offset(timestamp).seconds()) * 1000.0
     }
 
@@ -107,7 +119,7 @@ impl JsClock {
             return local - self.offset_ms(local);
         };
         match self.zone.to_ambiguous_zoned(datetime).compatible() {
-            Ok(zoned) => zoned.timestamp().as_millisecond() as f64 + millisecond,
+            Ok(zoned) => to_number(zoned.timestamp().as_millisecond()) + millisecond,
             Err(_) => local - self.offset_ms(local),
         }
     }
@@ -171,9 +183,9 @@ impl JsClock {
 pub fn utc_fields(ms: f64) -> Fields {
     let days = (ms / MS_PER_DAY).floor();
     let within = ms - days * MS_PER_DAY;
-    let (year, month, day) = civil_from_days(days as i64);
-    let seconds_of_day = (within / 1000.0).floor() as i64;
-    let weekday = (days as i64 + 4).rem_euclid(7);
+    let (year, month, day) = civil_from_days(to_integer(days));
+    let seconds_of_day = to_integer((within / 1000.0).floor());
+    let weekday = (to_integer(days) + 4).rem_euclid(7);
     let year = i32::try_from(year).unwrap_or(i32::MAX);
     let month = i32::try_from(month).unwrap_or(0) - 1;
     let day = i32::try_from(day).unwrap_or(1);
@@ -242,8 +254,8 @@ fn make_day(year: f64, month: f64, date: f64) -> f64 {
         return f64::NAN;
     }
     let month_in_year = month.rem_euclid(12.0);
-    let days = days_from_civil(full_year as i64, month_in_year as i64 + 1, 1);
-    days as f64 + date - 1.0
+    let days = days_from_civil(to_integer(full_year), to_integer(month_in_year) + 1, 1);
+    to_number(days) + date - 1.0
 }
 
 /// ECMAScript `MakeTime`.
