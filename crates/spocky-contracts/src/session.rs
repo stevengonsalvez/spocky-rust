@@ -5,9 +5,10 @@
 //! Inbound variants follow zod output order. Outbound variants follow the
 //! construction order in `packages/server/src/server/session.ts`.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::field::optional;
+use crate::json::{JsRecord, JsonValue, serialize_passthrough};
 use crate::number::Int;
 use crate::request::{
     AgentCreateRequest, CreateAgentRequest, CreationSubscribeRequest, FetchAgentRequest,
@@ -33,7 +34,7 @@ pub struct SessionPing {
 
 /// The `pong` payload built in `session.ts` for a session `ping`.
 /// `clientSentAt` is copied from the request and dropped when absent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionPong {
     #[serde(rename = "requestId")]
     pub request_id: String,
@@ -53,7 +54,7 @@ pub struct SessionPong {
 /// `rpc_error.payload`. Handler failures (`session.ts`) and protocol
 /// failures (`owned-subscriptions/index.ts`) both build
 /// `requestId, requestType?, error, code`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RpcError {
     #[serde(rename = "requestId")]
     pub request_id: String,
@@ -69,15 +70,53 @@ pub struct RpcError {
     pub code: Option<String>,
 }
 
-/// `status` payloads in the slice, tagged by `status`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status")]
+/// `status` payloads. `StatusMessageSchema` types `status` as an open
+/// string with `.passthrough()`, so any other status is [`StatusPayload::Other`].
+#[derive(Debug, Clone, PartialEq)]
 pub enum StatusPayload {
-    #[serde(rename = "server_info")]
+    /// `status: "server_info"`.
     ServerInfo(Box<ServerInfo>),
-    /// A protocol failure without a `requestId`.
-    #[serde(rename = "error")]
+    /// `status: "error"`, a protocol failure without a `requestId`.
     Error { message: String },
+    /// Any other status with its remaining keys.
+    Other {
+        status: String,
+        fields: JsRecord<JsonValue>,
+    },
+}
+
+impl Serialize for StatusPayload {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Tagged<'a, T> {
+            status: &'a str,
+            #[serde(flatten)]
+            rest: &'a T,
+        }
+        #[derive(Serialize)]
+        struct ErrorFields<'a> {
+            message: &'a str,
+        }
+        #[derive(Serialize)]
+        struct StatusKey<'a> {
+            status: &'a str,
+        }
+        match self {
+            Self::ServerInfo(info) => Tagged {
+                status: "server_info",
+                rest: info.as_ref(),
+            }
+            .serialize(serializer),
+            Self::Error { message } => Tagged {
+                status: "error",
+                rest: &ErrorFields { message },
+            }
+            .serialize(serializer),
+            Self::Other { status, fields } => {
+                serialize_passthrough(&StatusKey { status }, fields, serializer)
+            }
+        }
+    }
 }
 
 /// Client-to-daemon session messages in the slice.
@@ -115,7 +154,7 @@ pub enum SessionInbound {
 }
 
 /// Daemon-to-client session messages in the slice.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum SessionOutbound {
     #[serde(rename = "status")]
