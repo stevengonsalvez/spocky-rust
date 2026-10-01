@@ -3696,6 +3696,8 @@
       "affectedRows": 1,
       "columns": [
         "sql_null",
+        "sql_json_null",
+        "sql_jsonb_null",
         "sql_boolean",
         "json_null",
         "json_boolean",
@@ -3706,6 +3708,12 @@
       ],
       "rows": [
         [
+          {
+            "type": "null"
+          },
+          {
+            "type": "null"
+          },
           {
             "type": "null"
           },
@@ -4540,7 +4548,6 @@
     ]
   },
   "operations": {
-    "closeFailureRecovery": true,
     "committedWriteCrashRecovery": true,
     "crossProcessRejection": true,
     "historicalResume": {
@@ -4551,7 +4558,17 @@
       },
       "userRowPreserved": true
     },
-    "partialMigrationRollback": true,
+    "injectedPostCloseFailureRecovery": true,
+    "partialMigrationRollback": {
+      "journalRows": 0,
+      "migrationError": {
+        "code": "42601",
+        "message": "syntax error at or near \"definitely\""
+      },
+      "partialProbeRows": 0,
+      "publicTableRows": 0,
+      "rolledBackProbeRows": 0
+    },
     "restart": true,
     "staleOwnerRecovery": true,
     "transactionRollback": true

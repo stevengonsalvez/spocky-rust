@@ -52,7 +52,7 @@ historical migrations. Restart, cross-process directory rejection,
 transaction rollback, keyed-lock ordering, and stale-owner recovery pass.
 Raw selection evidence is
 `evidence/phase2/hub-embedded-engine-selection.json` (5,448 bytes, SHA-256
-`8bb09943502b07dae40e71fe1848027f5d11b213af2a45d686092785d86901d3`).
+`b54387b38d49e645d9f4687eaae64a2d449443893e8cf8fa3ca3fff44a269f21`).
 
 Selection remains blocked. Shortest exact path retains the distributed
 JavaScript glue and sends that runtime exception for review. A native host
@@ -79,15 +79,17 @@ the child after timeout or lost reply, and never retries a write. Normal close
 is acknowledged only after PGlite closes and releases the owner record. Typed
 values keep SQL null, binary, timestamp, numeric, boolean, string, JSON and
 JSONB values, column order, and structured PostgreSQL errors. JSON null,
-boolean, number, string, object, and array values keep the JSON tag.
+boolean, number, string, object, and array values keep the JSON tag. SQL NULL
+in JSON and JSONB columns stays SQL null rather than becoming JSON literal null.
 
-Sixteen targeted tests pass. They cover all 49 migrations, no-op restart, a real
+Seventeen targeted tests pass. They cover all 49 migrations, no-op restart, a real
 one-migration historical database reopening into the remaining 48 migrations,
 preserved historical user data, future and partial journal outcomes, rollback
 after an earlier migration step executes, transaction rollback, concurrent
-callers, partial live-owner grace, concurrent stale-owner reclamation,
+callers, partial live-owner grace, concurrent stale-owner reclamation, a forced
+check/delete schedule that preserves a replacement owner,
 exclusive ownership, data-bearing child crash, committed-write lost reply,
-parent death, graceful and failed close, bounded frames, bounded delivery,
+parent death, graceful close, injected failure after durable close, bounded frames, bounded delivery,
 response timeout, and lost-reply ambiguity.
 
 Original and retained-host captures match 50 installed catalog tables, 537
@@ -113,10 +115,10 @@ remains `required-not-accepted`.
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
 | `hub-embedded-retained-original.json` | 51,030 | `92a873c2b3fedec61aa0fcf499d4cbe5d1964b90d47eb81e3a82a770ae97f508` |
-| `hub-embedded-retained-candidate.json` | 121,764 | `2a09402ebfcccfb66cdb1874c891c29d8a9388d515b72c658c3245da34fc45ff` |
-| `hub-embedded-retained-comparison.json` | 3,679 | `0216f6fce48945a1aedd97ec50635c127f34d89260a05c38c7dcc6d611002624` |
+| `hub-embedded-retained-candidate.json` | 122,166 | `69e34ee62157e6326f2ab9e320b40e8b162160c3ac2d000fc99053e388146656` |
+| `hub-embedded-retained-comparison.json` | 3,994 | `8d0606ebb86c3f557f61eab523be53988ef45a2ff34c3ac0c47322222217f88f` |
 | `hub-embedded-retained-dependency-graph.json` | 526 | `f55c0095950994ea6ecb8358b879d5e44297c1dd9a2b1cf5b982255fdcc623b2` |
 | `hub-embedded-retained-package-sha256.txt` | 28,332 | `ba5a5bbbd4e82f994a3503066ce69a6a970f416108041ad427e314aeeb337850` |
 | `hub-embedded-retained-migrations-sha256.txt` | 9,131 | `a345dc1c2f48e67b921eb84cbe25f24bdb5bfdd68b39c71d170334ba9337bf38` |
-| `hub-embedded-retained-evidence.log` | 4,387 | `9f6e8df3ada50671c743530a1130b72696de769a4518310990a4484106d04621` |
-| `hub-embedded-retained-tests.log` | 1,598 | `283ba7f772bad6865b830613a64a54548fab904e2037600af12f2a5d4573de20` |
+| `hub-embedded-retained-evidence.log` | 4,702 | `50e4f09a6781139a9f4f9288ecc70207302abda895711cf866eed141c1455f30` |
+| `hub-embedded-retained-tests.log` | 1,673 | `6800baf25ec6d3eedabec9657569fa96580bba00c9ff7a3c9332f9b390b5adf9` |

@@ -140,11 +140,11 @@
     "exactRuntimeVersion": "@electric-sql/pglite 0.5.4 with its distributed JavaScript glue; Node.js v26.7.0 is the only qualified host",
     "boundary": "Rust Hub process to retained JavaScript PGlite host over a new bounded IPC boundary",
     "exchangedData": "PostgreSQL SQL, bind parameters, result rows, transaction commands, migration commands, errors, and shutdown state",
-    "pilotEvidence": "Pinned baseline replays 49 historical migrations and passes restart, rollback, locking, and stale-owner probes; no Rust-hosted PGlite candidate exists",
+    "pilotEvidence": "Pinned baseline and retained PGlite host candidate replay 49 historical migrations on darwin/x64; retained evidence covers restart, rollback, ownership, and crash recovery",
     "securityPackagingRisk": "Adds Node.js and npm artifacts, a 25 MB PGlite package, subprocess IPC, filesystem permissions, code-signing scope, updater scope, and supply-chain review",
     "performanceSupportRisk": "Adds process startup, IPC serialization, crash supervision, memory duplication, and support for 121 custom main-module env imports plus 40 initdb env imports",
-    "originalVsCandidateTests": "Original PGlite runtime is executable; SQLite remains engine, schema, dialect, migration, constraint, mutation, and crash-process non-parity; retained-host candidate has not been implemented",
-    "platforms": "macOS arm64 baseline probe only; iOS, Android, browser, macOS packaging, Windows, and Linux retained-runtime qualification is absent",
+    "originalVsCandidateTests": "Original PGlite and the retained-host candidate match installed catalog and journal evidence on darwin/x64; SQLite remains rejected as exact engine",
+    "platforms": "Retained candidate is qualified only on darwin/x64 with Node.js v26.7.0; iOS, Android, browser, packaged macOS, Windows, and Linux qualification is absent",
     "removalCondition": "Remove retained JavaScript after a Rust-hosted PGlite-compatible engine replays all historical migrations, reopens old state, survives process crashes, and matches embedded and PostgreSQL mutation traces on required platforms",
     "reviewDate": "2026-10-01"
   }

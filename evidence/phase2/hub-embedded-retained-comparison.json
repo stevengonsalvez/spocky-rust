@@ -13,8 +13,20 @@
   },
   "candidateRecoveryEvidence": {
     "committedWriteCrashRecovery": true,
-    "closeFailureRecovery": true,
-    "partialMigrationRollback": true,
+    "injectedPostCloseFailureRecovery": true,
+    "partialMigrationRollback": {
+      "verified": true,
+      "observed": {
+        "journalRows": 0,
+        "migrationError": {
+          "code": "42601",
+          "message": "syntax error at or near \"definitely\""
+        },
+        "partialProbeRows": 0,
+        "publicTableRows": 0,
+        "rolledBackProbeRows": 0
+      }
+    },
     "historicalUserRow": true
   },
   "runtime": {

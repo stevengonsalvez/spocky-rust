@@ -1,13 +1,14 @@
    Compiling spocky-hub-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/crates/spocky-hub-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.07s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.10s
      Running tests/retained_pglite_runtime.rs (target/debug/deps/retained_pglite_runtime-94aa5d842d13f25a)
 
-running 16 tests
-test retained_host_acknowledges_close_after_persistence_and_recovers_close_failure ... ok
+running 17 tests
 test retained_host_bounds_delivery_when_child_stops_reading ... ok
 test retained_host_enforces_frame_bound_and_timeout_without_replay ... ok
 test retained_host_gives_partial_live_owner_bounded_grace ... ok
 test retained_host_keeps_baseline_partial_journal_semantics ... ok
+test retained_host_never_deletes_replacement_owner_after_stale_check ... ok
+test retained_host_persists_normal_close_and_recovers_injected_post_close_failure ... ok
 test retained_host_preserves_json_tags_distinct_from_sql_scalars ... ok
 test retained_host_reclaims_stale_owner_with_one_concurrent_winner ... ok
 test retained_host_recovers_committed_write_after_lost_crash_reply ... ok
@@ -20,5 +21,5 @@ test retained_host_rolls_back_pending_migrations_after_partial_journal ... ok
 test retained_host_rolls_back_transaction ... ok
 test retained_host_serializes_concurrent_callers ... ok
 
-test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 112.97s
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 115.72s
 
