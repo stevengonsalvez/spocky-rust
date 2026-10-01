@@ -21,6 +21,10 @@ use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::{Deserialize, Serialize};
 
 pub use crate::js_value::array_index;
+
+/// zod 4 drops an own `__proto__` property from `z.record`, `.passthrough()`
+/// extras, and `z.json()` at any depth, without validating its value.
+pub const PROTO_KEY: &str = "__proto__";
 use crate::js_value::{JsObject, JsTextUnit, JsValue, js_text_units};
 use crate::number::JsNumber;
 
@@ -125,8 +129,6 @@ impl<'de> Visitor<'de> for JsValueVisitor {
     }
 
     fn visit_unit<E>(self) -> Result<JsValue, E> {
-        // The JsValueDeserializer token path hands the whole subtree over
-        // here without walking it; any other unit is JSON null.
         Ok(STASH
             .with(|stash| stash.borrow_mut().take())
             .unwrap_or(JsValue::Null))
@@ -220,7 +222,7 @@ pub fn split_passthrough<'de, D: Deserializer<'de>, K: serde::de::DeserializeOwn
     let known = K::deserialize(JsValueDeserializer(&value)).map_err(serde::de::Error::custom)?;
     let extra = object
         .iter()
-        .filter(|(key, _)| !shape_keys.contains(key))
+        .filter(|(key, _)| *key != PROTO_KEY && !shape_keys.contains(key))
         .map(|(key, item)| (key.to_owned(), JsonValue(item.clone())))
         .collect();
     Ok((known, extra))
@@ -247,22 +249,80 @@ macro_rules! deserialize_tagged {
 
 pub(crate) use deserialize_tagged;
 
-/// `z.json()`: any JSON value whose numbers are all finite. `JSON.parse`
-/// turns an overflowing literal into an infinity, which `z.json()` rejects.
+/// `z.json()`: any JSON value whose numbers are all finite, with every own
+/// `__proto__` key dropped unvalidated at any depth.
+///
+/// Divergence (DIV-001 family, `porting/inventory-summary.md`): pinned zod
+/// 4.4.3 validates `z.json()` recursively and throws `RangeError` between
+/// 1,000 and 5,000 levels on Node 22.20.0, at a stack-dependent depth. This
+/// type validates iteratively and accepts any depth `JSON.parse` reads.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ZodJson(pub JsonValue);
 
-fn all_numbers_finite(value: &JsValue) -> bool {
+/// Checks finiteness outside `__proto__` subtrees and reports whether any
+/// `__proto__` key must be dropped.
+fn inspect_zod_json(value: &JsValue) -> (bool, bool) {
+    let mut has_proto = false;
     let mut stack = vec![value];
     while let Some(value) = stack.pop() {
         match value {
-            JsValue::Number(number) if !number.is_finite() => return false,
+            JsValue::Number(number) if !number.is_finite() => return (false, has_proto),
             JsValue::Array(items) => stack.extend(items.iter()),
-            JsValue::Object(object) => stack.extend(object.iter().map(|(_, value)| value)),
+            JsValue::Object(object) => {
+                for (key, item) in object.iter() {
+                    if key == PROTO_KEY {
+                        has_proto = true;
+                    } else {
+                        stack.push(item);
+                    }
+                }
+            }
             _ => {}
         }
     }
-    true
+    (true, has_proto)
+}
+
+enum Rebuild<'a> {
+    Visit(&'a JsValue),
+    Array(usize),
+    Object(Vec<&'a str>),
+}
+
+/// Copies `value` without `__proto__` keys, iteratively so any depth works.
+fn without_proto(value: &JsValue) -> JsValue {
+    let mut work = vec![Rebuild::Visit(value)];
+    let mut built: Vec<JsValue> = Vec::new();
+    while let Some(step) = work.pop() {
+        match step {
+            Rebuild::Visit(JsValue::Array(items)) => {
+                work.push(Rebuild::Array(items.len()));
+                work.extend(items.iter().rev().map(Rebuild::Visit));
+            }
+            Rebuild::Visit(JsValue::Object(object)) => {
+                let entries: Vec<(&str, &JsValue)> =
+                    object.iter().filter(|(key, _)| *key != PROTO_KEY).collect();
+                work.push(Rebuild::Object(
+                    entries.iter().map(|(key, _)| *key).collect(),
+                ));
+                work.extend(entries.iter().rev().map(|(_, item)| Rebuild::Visit(item)));
+            }
+            Rebuild::Visit(scalar) => built.push(scalar.clone()),
+            Rebuild::Array(count) => {
+                let items = built.split_off(built.len() - count);
+                built.push(JsValue::Array(items));
+            }
+            Rebuild::Object(keys) => {
+                let values = built.split_off(built.len() - keys.len());
+                let mut object = JsObject::new();
+                for (key, item) in keys.into_iter().zip(values) {
+                    object.insert(key, item);
+                }
+                built.push(JsValue::Object(object));
+            }
+        }
+    }
+    built.pop().unwrap_or(JsValue::Null)
 }
 
 impl Serialize for ZodJson {
@@ -274,12 +334,12 @@ impl Serialize for ZodJson {
 impl<'de> Deserialize<'de> for ZodJson {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = JsonValue::deserialize(deserializer)?;
-        if all_numbers_finite(&value.0) {
-            Ok(Self(value))
-        } else {
-            Err(serde::de::Error::custom(
+        match inspect_zod_json(&value.0) {
+            (false, _) => Err(serde::de::Error::custom(
                 "expected JSON with finite numbers",
-            ))
+            )),
+            (true, false) => Ok(Self(value)),
+            (true, true) => Ok(Self(JsonValue(without_proto(&value.0)))),
         }
     }
 }
@@ -390,7 +450,8 @@ pub fn js_wire_text(serialized: &str) -> String {
     out
 }
 
-/// `z.record(z.string(), V)`: string keys in JavaScript property order.
+/// `z.record(z.string(), V)`: string keys in JavaScript property order. An
+/// own `__proto__` key is dropped unvalidated, as zod 4 drops it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsRecord<V> {
     entries: IndexMap<String, V>,
@@ -488,8 +549,13 @@ impl<'de, V: Deserialize<'de>> Deserialize<'de> for JsRecord<V> {
 
             fn visit_map<A: MapAccess<'de>>(self, mut access: A) -> Result<JsRecord<V>, A::Error> {
                 let mut record = JsRecord::new();
-                while let Some((key, value)) = access.next_entry::<String, V>()? {
-                    record.insert(key, value);
+                while let Some(key) = access.next_key::<String>()? {
+                    if key == PROTO_KEY {
+                        // zod 4 never validates or keeps an own `__proto__`.
+                        access.next_value::<serde::de::IgnoredAny>()?;
+                    } else {
+                        record.insert(key, access.next_value::<V>()?);
+                    }
                 }
                 Ok(record)
             }
