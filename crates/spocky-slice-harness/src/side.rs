@@ -118,6 +118,12 @@ pub enum Check {
     DaemonExit(i32),
 }
 
+/// Named digest preimages, as (name, exact preimage).
+pub type Preimages = Vec<(&'static str, String)>;
+
+/// Builds a side's preimages from its captured values.
+pub type PreimageBuilder = fn(&BTreeMap<&'static str, String>) -> Preimages;
+
 /// A complete gate definition.
 #[derive(Debug, Clone)]
 pub struct GateSpec {
@@ -125,6 +131,9 @@ pub struct GateSpec {
     pub script: Script,
     pub steps: Vec<StepSpec>,
     pub checks: Vec<Check>,
+    /// Exact preimages the gate knows the daemon hashes (creation request
+    /// fingerprints), built from this side's `project` path and captures.
+    pub preimages: PreimageBuilder,
 }
 
 /// How a process ended.
@@ -206,6 +215,7 @@ pub struct SideRun {
     /// Retained but not compared: daemon logs and the codex home listing.
     pub uncompared: Vec<CapturedFile>,
     pub extracted: Vec<(String, String)>,
+    pub preimages: Vec<(&'static str, String)>,
     /// Processes that needed SIGKILL after the grace period.
     pub force_killed: Vec<u32>,
     /// Processes still alive after SIGKILL. Any entry fails the gate.
@@ -891,6 +901,7 @@ fn run_in_layout(
     };
 
     let mut captured: BTreeMap<&'static str, String> = BTreeMap::new();
+    captured.insert("project", layout.text("project"));
     let mut steps = Vec::new();
     for step in &gate.steps {
         if readiness.exit != Exit::Code(0) {
@@ -968,6 +979,7 @@ fn run_in_layout(
         state,
         uncompared,
         extracted,
+        preimages: (gate.preimages)(&captured),
         force_killed,
         survivors,
         harness_errors: errors,
@@ -1217,6 +1229,7 @@ mod tests {
             state: Vec::new(),
             uncompared: Vec::new(),
             extracted: Vec::new(),
+            preimages: Vec::new(),
             force_killed: Vec::new(),
             survivors: Vec::new(),
             harness_errors: Vec::new(),
@@ -1231,6 +1244,7 @@ mod tests {
                 responses: Vec::new(),
             },
             steps: Vec::new(),
+            preimages: |_| Vec::new(),
             checks: vec![
                 Check::AllExitZero,
                 Check::JsonString {
