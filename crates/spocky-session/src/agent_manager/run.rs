@@ -17,7 +17,7 @@ use crate::agent_prompt::submitted_prompt_text;
 use crate::agent_sdk::{
     AbortReason, AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
 };
-use crate::js::{js_string, truthy};
+use spocky_contracts::js::{js_string, truthy};
 
 /// `finalizedForegroundTurnIds` keeps at most this many ids.
 const FINALIZED_TURN_LIMIT: usize = 50;
