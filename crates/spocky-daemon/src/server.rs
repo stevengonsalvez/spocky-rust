@@ -286,13 +286,17 @@ impl Shared {
             _ => 0,
         };
         let max_buffered = self.max_buffered_bytes.load(Ordering::SeqCst);
-        // Check before counting, so a refused frame never inflates the total.
-        if entry
-            .queued_bytes
-            .load(Ordering::SeqCst)
-            .saturating_add(bytes)
-            > max_buffered
-        {
+        // Count and check in one step, so concurrent senders cannot jointly
+        // pass the limit and a refused frame never inflates the total.
+        let counted =
+            entry
+                .queued_bytes
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
+                    queued
+                        .checked_add(bytes)
+                        .filter(|total| *total <= max_buffered)
+                });
+        if counted.is_err() {
             self.deps.logger.warn(
                 &[("maxBufferedBytes", &max_buffered.to_string())],
                 "Closing physical WebSocket at outbound high-water mark",
@@ -300,7 +304,6 @@ impl Shared {
             entry.terminate.store(true, Ordering::SeqCst);
             return entry.queue.send(Outbound::Terminate).is_ok();
         }
-        entry.queued_bytes.fetch_add(bytes, Ordering::SeqCst);
         entry.queue.send(outbound).is_ok()
     }
 
