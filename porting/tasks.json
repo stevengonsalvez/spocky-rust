@@ -959,6 +959,13 @@
           "source": "p3_session checkpoint 8",
           "gap": "Agent-manager surfaces absent and not stubbed: plugin hooks, durable timeline store, tool catalog, subagents, resume, import, reload, close, archive, steer, replace, cancel, rewind, respondToPermission, setters, abort signal, flushForShutdown, logging.",
           "status": "tracked; writer order close and cancel, then respondToPermission, then history hydration and resume"
+        },
+        {
+          "date": "2026-10-01",
+          "source": "integration reviewer verdict p3_g1_wiring-3447a5f",
+          "gap": "startTurn outputSchema: the baseline sends normalizeCodexOutputSchema(outputSchema) to codex (codex-app-server-agent.ts:4165); the Rust codex adapter rejects a truthy outputSchema.",
+          "owner": "p3_provider_codex (field plus normalizer), then p3_g1_wiring passes it through",
+          "status": "tracked parity gap"
         }
       ],
       "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
