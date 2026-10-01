@@ -2,5 +2,8 @@
 //! CLI against original and Spocky daemons on disposable homes and ports,
 //! never 6767, and enforces exact gate comparisons.
 
+pub mod compare;
+pub mod gates;
 pub mod normalize;
+pub mod side;
 pub mod stub;
