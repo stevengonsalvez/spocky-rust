@@ -1,8 +1,4 @@
 //! `getaddrinfo`, `getnameinfo` and the glue's fake `DNS` address map.
-#![allow(
-    clippy::decimal_bitwise_operands,
-    reason = "masks keep the decimal literals of the pinned glue"
-)]
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -36,7 +32,7 @@ impl Dns {
         }
         let id = self.next;
         self.next += 1;
-        let address = format!("172.29.{}.{}", id & 255, id & 65280);
+        let address = format!("172.29.{}.{}", id & 0xff, id & 0xff00);
         self.names.insert(address.clone(), name.to_owned());
         self.addresses.insert(name.to_owned(), address.clone());
         address
@@ -83,7 +79,10 @@ fn js_number(text: &str) -> Option<f64> {
         .or_else(|| trimmed.strip_prefix("0X"))
     {
         return u64::from_str_radix(hex, 16).ok().map(|value| {
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "the glue parses hex through Number, which rounds to a double the same way"
+            )]
             let value = value as f64;
             value
         });
@@ -274,7 +273,7 @@ pub fn getaddrinfo(
     if node == 0 && service == 0 {
         return Ok(-2);
     }
-    if flags & -1088 != 0 || (hints != 0 && read_i32(data, hints) & 2 != 0 && node == 0) {
+    if flags & -0x440 != 0 || (hints != 0 && read_i32(data, hints) & 2 != 0 && node == 0) {
         return Ok(-1);
     }
     if flags & 32 != 0 {
@@ -358,7 +357,11 @@ pub fn getaddrinfo(
     let info = runtime::call_i32(caller, index, "malloc", &[Val::I32(32)])?.cast_unsigned();
     let memory = caller.data().modules[index].memory;
     let data = memory.data_mut(&mut *caller);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the glue stores the port through HEAP16, which keeps the low 16 bits like this cast"
+    )]
     let port16 = port as u16;
     write_sockaddr(data, sockaddr, family, &host, port16, 0);
     write_i32(data, info + 4, family);
