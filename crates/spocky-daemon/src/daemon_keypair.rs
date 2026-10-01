@@ -35,7 +35,8 @@ fn read_stored(raw: &str) -> Result<DaemonKeyPair, String> {
             .filter(|text| !text.is_empty())
             .ok_or_else(|| format!("{name} is missing or not a non-empty string"))
     };
-    if value.get("v").and_then(Value::as_u64) != Some(2) {
+    // `z.literal(2)` compares numbers, so `2.0` and `2e0` parse as 2 and are valid.
+    if value.get("v").and_then(Value::as_f64) != Some(2.0) {
         return Err("v must be 2".to_owned());
     }
     let public_key =
@@ -130,6 +131,35 @@ mod tests {
         let again = load_or_create_daemon_key_pair(home.path(), &NullLogger).unwrap();
         assert!(again.key_pair == created.key_pair);
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn a_version_written_as_2_point_0_is_still_version_2() {
+        let home = tempfile::tempdir().unwrap();
+        let created = load_or_create_daemon_key_pair(home.path(), &NullLogger).unwrap();
+        let path = home.path().join("daemon-keypair.json");
+        let secret = export_secret_key(&created.key_pair.secret_key).unwrap();
+        for version in ["2.0", "2e0", "2.00"] {
+            fs::write(
+                &path,
+                format!(
+                    "{{\"v\":{version},\"publicKeyB64\":\"{}\",\"secretKeyB64\":\"{secret}\"}}",
+                    created.public_key_b64
+                ),
+            )
+            .unwrap();
+            let logger = RecordingLogger::default();
+            let loaded = load_or_create_daemon_key_pair(home.path(), &logger).unwrap();
+            assert!(loaded.key_pair == created.key_pair, "v {version}");
+            assert_eq!(
+                logger.messages(),
+                [("info", "Loaded daemon keypair".to_owned())]
+            );
+        }
+        fs::write(&path, r#"{"v":2.5,"publicKeyB64":"a","secretKeyB64":"b"}"#).unwrap();
+        let logger = RecordingLogger::default();
+        load_or_create_daemon_key_pair(home.path(), &logger).unwrap();
+        assert_eq!(logger.messages()[0].0, "warn");
     }
 
     #[test]
