@@ -548,30 +548,35 @@ pub type HeartbeatErrorHandler = Box<dyn Fn(&PidLockError) + Send + 'static>;
 
 /// `startPidLockHeartbeat`: refresh every `interval`. With no handler a failure
 /// is written to stderr as `PID lock heartbeat failed: <message>`.
-#[must_use]
+///
+/// # Errors
+///
+/// The error from starting the timer thread.
 pub fn start_pid_lock_heartbeat(
     paseo_home: PathBuf,
     owner_pid: Option<u32>,
     interval: Duration,
     on_error: Option<HeartbeatErrorHandler>,
-) -> HeartbeatHandle {
+) -> io::Result<HeartbeatHandle> {
     let (stop, stopped) = mpsc::channel::<()>();
-    let thread = thread::spawn(move || {
-        while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
-            if let Err(error) = refresh_pid_lock(&paseo_home, owner_pid) {
-                match &on_error {
-                    Some(handler) => handler(&error),
-                    None => {
-                        let _ = writeln!(io::stderr(), "PID lock heartbeat failed: {error}");
+    let thread = thread::Builder::new()
+        .name("spocky-pid-heartbeat".to_owned())
+        .spawn(move || {
+            while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
+                if let Err(error) = refresh_pid_lock(&paseo_home, owner_pid) {
+                    match &on_error {
+                        Some(handler) => handler(&error),
+                        None => {
+                            let _ = writeln!(io::stderr(), "PID lock heartbeat failed: {error}");
+                        }
                     }
                 }
             }
-        }
-    });
-    HeartbeatHandle {
+        })?;
+    Ok(HeartbeatHandle {
         stop: Some(stop),
         thread: Some(thread),
-    }
+    })
 }
 
 /// The patch `updatePidLock` accepts.
@@ -1023,7 +1028,8 @@ mod tests {
                 assert!(error.to_string().contains("lock file is missing"));
                 seen.fetch_add(1, Ordering::SeqCst);
             })),
-        );
+        )
+        .unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while errors.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));

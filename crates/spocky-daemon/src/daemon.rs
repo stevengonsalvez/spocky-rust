@@ -406,7 +406,8 @@ fn start_after_lock(
                 heartbeat_flag.store(true, Ordering::SeqCst);
             }
         })),
-    );
+    )
+    .map_err(|error| fail(format!("Failed to start the PID lock heartbeat: {error}")))?;
 
     let target = resolve_target(env, persisted)?;
 
