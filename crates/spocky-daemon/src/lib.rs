@@ -15,6 +15,7 @@ pub mod log;
 pub mod origin;
 pub mod pid_lock;
 pub mod private_files;
+pub mod server;
 pub mod server_id;
 pub mod server_info;
 pub mod session_api;
