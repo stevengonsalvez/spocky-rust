@@ -70,6 +70,11 @@ fn digits(text: &str, length: usize) -> Option<i64> {
 
 /// `Date.parse` of `YYYY-MM-DD` and `YYYY-MM-DDTHH:mm[:ss[.sss]]` with `Z` or
 /// `+HH:mm` and `-HH:mm`, as milliseconds since the epoch.
+///
+/// Not the whole of `Date.parse`: V8 also accepts legacy forms (`2026/10/01`,
+/// `Oct 1 2026`, RFC 2822 dates, `+YYYYYY` extended years, a bare `T` time),
+/// which this returns `None` for. The values read here are `startedAt` fields
+/// the baseline wrote with `toISOString`, which are always the ISO form.
 #[must_use]
 pub fn parse_iso(text: &str) -> Option<i64> {
     let (date, time) = text
@@ -192,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_what_node_also_rejects() {
+    fn rejects_malformed_iso_forms() {
         for bad in [
             "",
             "x",
