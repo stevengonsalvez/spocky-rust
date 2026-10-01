@@ -2,3 +2,12 @@
 //! negotiation, Host and Origin admission, readiness, home layout
 //! (`config.json`, `paseo.pid`, `server-id`), and process lifecycle. Behavior
 //! follows pinned Paseo `5de45e2`.
+
+pub mod bearer;
+pub mod hostnames;
+pub mod js;
+pub mod listen;
+pub mod local_credential;
+pub mod origin;
+pub mod private_files;
+pub mod server_id;
