@@ -874,3 +874,54 @@ CASES.push(
     raw: '{"type":"session","message":{"type":"fetch_agents_request","requestId":"r","filter":{"labels":{"b":"1","a":"2","b":"3"},"includeArchived":false,"includeArchived":true}}}',
   },
 );
+
+// JSON.parse semantics carried by js_value: lone surrogates, overflowing
+// numbers, nesting deeper than serde_json's 128 levels, and syntax errors.
+function nested(depth) {
+  return `${"[".repeat(depth)}1${"]".repeat(depth)}`;
+}
+
+CASES.push(
+  {
+    id: "ws.hello.lone_surrogate_strings",
+    direction: "inbound",
+    source: "JSON.parse keeps lone surrogates; JSON.stringify writes them as \\u escapes",
+    raw: '{"type":"hello","clientId":"c\\ud800","clientType":"cli","protocolVersion":1,"appVersion":"\\udfff\\ud83d\\ude00","capabilities":{"k\\udc00":"\\ud801"}}',
+  },
+  {
+    id: "ws.hello.reject_overflowing_protocol_version",
+    direction: "inbound",
+    source: "JSON.parse turns 1e400 into Infinity; z.number().int() rejects it",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1e400}',
+  },
+  {
+    id: "ws.hello.extras_overflowing_numbers",
+    direction: "inbound",
+    source: "passthrough keeps Infinity; JSON.stringify writes null",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{"big":1e400,"small":-1e400,"under":1e-400}}',
+  },
+  {
+    id: "session.agent_create.deep_provider_options",
+    direction: "inbound",
+    source: "z.json() accepts nesting deeper than 128 levels",
+    raw: `{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","providerOptions":{"deep":${nested(300)}}}}}`,
+  },
+  {
+    id: "session.agent_create.reject_infinity_in_json_options",
+    direction: "inbound",
+    source: "z.json() rejects a non-finite number",
+    raw: '{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","providerOptions":{"n":1e400}}}}',
+  },
+  {
+    id: "ws.reject_trailing_comma",
+    direction: "inbound",
+    source: "JSON.parse SyntaxError",
+    raw: '{"type":"ping",}',
+  },
+  {
+    id: "ws.reject_lone_surrogate_escape_truncated",
+    direction: "inbound",
+    source: "JSON.parse SyntaxError on a short \\u escape",
+    raw: '{"type":"hello","clientId":"\\ud8","clientType":"cli","protocolVersion":1}',
+  },
+);
