@@ -243,7 +243,7 @@ fn load_webassembly_module(
             }
             (_, ExternType::Func(ty)) => {
                 let resolved = match caller.data().modules[index].symbols.get(name) {
-                    Some(Symbol::Func(func)) => Some(func.clone()),
+                    Some(Symbol::Func(func)) => Some(*func),
                     _ => None,
                 };
                 let resolved = match resolved {
@@ -274,7 +274,7 @@ fn load_webassembly_module(
         imports.push(value);
     }
     let instance = Instance::new(&mut *caller, &module, &imports)?;
-    runtime::update_table_map(caller, index, table_base, info.table_size)?;
+    runtime::update_table_map(caller, index, table_base, info.table_size);
     let exports = collect_exports(caller, &instance, memory_base);
     runtime::update_got(caller, index, &exports, false)?;
     runtime::report_undefined_symbols(caller, index)?;
@@ -390,7 +390,7 @@ pub fn dlsym(
     match symbol {
         Symbol::Data(address) => Ok(address),
         Symbol::Func(func) => {
-            let existing = runtime::function_address(caller, index, &func)?;
+            let existing = runtime::function_address(caller, index, &func);
             if existing != 0 {
                 return Ok(existing);
             }
