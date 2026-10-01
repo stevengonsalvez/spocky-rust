@@ -374,14 +374,24 @@ fn sse(event: &str, mut data: Value) -> String {
 /// so a wedged Codex would otherwise hang the run.
 pub const REAL_CODEX_TEST_DEADLINE: Duration = Duration::from_secs(300);
 
+/// File in a disposable root where the launcher records each app-server pid
+/// (also its process group id) before it execs Codex.
+pub const APP_SERVER_PIDS: &str = "app-server.pids";
+
 /// Aborts the test process if it is still alive at the deadline. A blocked
-/// test thread cannot be stopped any other way. Dropping it disarms it.
+/// test thread cannot be stopped any other way, and abort skips `Drop`, so
+/// first it stops the app-servers recorded under `root` and deletes `root`.
+/// Dropping it disarms it.
 pub struct Watchdog {
     done: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl Watchdog {
     pub fn arm(label: &str, limit: Duration) -> Self {
+        Self::arm_for(label, limit, None)
+    }
+
+    pub fn arm_for(label: &str, limit: Duration, root: Option<PathBuf>) -> Self {
         let done = Arc::new((Mutex::new(false), Condvar::new()));
         let shared = Arc::clone(&done);
         let label = label.to_owned();
@@ -392,10 +402,46 @@ impl Watchdog {
                 .unwrap();
             if !*finished {
                 eprintln!("real-codex test '{label}' exceeded its {limit:?} deadline; aborting");
+                if let Some(root) = root {
+                    eprintln!("disposable root: {}", root.display());
+                    stop_recorded_app_servers(&root);
+                    let _ = std::fs::remove_dir_all(&root);
+                }
                 std::process::abort();
             }
         });
         Self { done }
+    }
+}
+
+/// TERM, then after 2 s KILL, to each process group recorded in `root`
+/// whose leader is still a child of this test process. The parent check
+/// skips a pid that exited and was reused.
+fn stop_recorded_app_servers(root: &Path) {
+    let recorded = std::fs::read_to_string(root.join(APP_SERVER_PIDS)).unwrap_or_default();
+    let ours = |pid: &u32| {
+        std::process::Command::new("/bin/ps")
+            .args(["-o", "ppid=", "-p", &pid.to_string()])
+            .output()
+            .is_ok_and(|out| {
+                String::from_utf8_lossy(&out.stdout).trim() == std::process::id().to_string()
+            })
+    };
+    let groups: Vec<u32> = recorded
+        .split_whitespace()
+        .filter_map(|pid| pid.parse().ok())
+        .filter(ours)
+        .collect();
+    for signal in ["TERM", "KILL"] {
+        for pid in groups.iter().filter(|pid| ours(pid)) {
+            eprintln!("sending SIG{signal} to app-server process group {pid}");
+            let _ = std::process::Command::new("/bin/kill")
+                .args(["-s", signal, "--", &format!("-{pid}")])
+                .status();
+        }
+        if signal == "TERM" {
+            thread::sleep(Duration::from_secs(2));
+        }
     }
 }
 
@@ -432,8 +478,8 @@ impl DisposableRoot {
         }
         let path = path.canonicalize().expect("canonical disposable root");
         Self {
+            _watchdog: Watchdog::arm_for(label, REAL_CODEX_TEST_DEADLINE, Some(path.clone())),
             path,
-            _watchdog: Watchdog::arm(label, REAL_CODEX_TEST_DEADLINE),
         }
     }
 
@@ -480,7 +526,8 @@ fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
     std::fs::write(
         &launcher,
         format!(
-            "#!/bin/sh\nexec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n"
+            "#!/bin/sh\necho $$ >> '{}'\nexec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n",
+            root.join(APP_SERVER_PIDS).display()
         ),
     )
     .expect("write launcher");
