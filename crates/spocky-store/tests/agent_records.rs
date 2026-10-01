@@ -252,7 +252,10 @@ fn delete_tombstone_skips_later_writes_and_unlink_errors_do_not_fail() {
         .write(record("agent-1", "/tmp/project", "idle"))
         .expect("write")
         .expect("not deleting");
+    assert!(!store.is_deleting("agent-1"));
     assert!(store.remove("agent-1").is_empty());
+    assert!(store.is_deleting("agent-1"));
+    assert!(!store.is_deleting("agent-2"));
     assert!(!written.exists());
     assert_eq!(
         store
