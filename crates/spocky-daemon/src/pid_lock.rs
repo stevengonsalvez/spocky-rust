@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime};
 
 use rustix::process::{Pid, test_kill_process};
 use serde_json::Value;
+use spocky_contracts::js_value::parse as parse_js;
 
 use crate::iso_time::{now_ms, parse_iso, to_iso_string};
 use crate::private_files::ensure_private_directory;
@@ -281,7 +282,10 @@ fn touch(pid_path: &Path) -> io::Result<()> {
 /// `readPidLock`: up to 10 reads 50 ms apart, because a writer creates the file
 /// just before it fills it. A missing file is `None`; a file still empty after
 /// the retries was abandoned and is `None`; anything else unreadable is an
-/// error with code `DAEMON_STATE_READ_FAILED`.
+/// error with code `DAEMON_STATE_READ_FAILED` whose text ends in `String(lastError)`:
+/// `Error: Invalid lock shape` or `SyntaxError: <V8 text>`. A file system error
+/// still carries Rust's text, not node's: it waits for the FsError in spocky-store
+/// (`atomic.rs`, public once p3_session 59cf316 is on main).
 fn read_pid_lock(pid_path: &Path) -> Result<Option<PidLockInfo>, PidLockError> {
     let mut last_error = String::new();
     let mut empty = false;
@@ -291,14 +295,18 @@ fn read_pid_lock(pid_path: &Path) -> Result<Option<PidLockInfo>, PidLockError> {
                 let content = String::from_utf8_lossy(&bytes);
                 empty = content.is_empty();
                 if !empty {
-                    match serde_json::from_str::<Value>(&content) {
-                        Ok(value) => match parse_pid_lock_info(&value) {
+                    match parse_js(&content) {
+                        Ok(_) => match serde_json::from_str::<Value>(&content)
+                            .ok()
+                            .and_then(|value| parse_pid_lock_info(&value))
+                        {
                             Some(lock) => return Ok(Some(lock)),
-                            None => "Invalid lock shape".clone_into(&mut last_error),
+                            // Also text serde_json cannot hold, which no lock is.
+                            None => "Error: Invalid lock shape".clone_into(&mut last_error),
                         },
                         Err(error) => {
                             empty = false;
-                            last_error = error.to_string();
+                            last_error = format!("SyntaxError: {}", error.message);
                         }
                     }
                 }
@@ -906,12 +914,25 @@ mod tests {
             panic!("expected a lock error");
         };
         assert_eq!(code, Some("DAEMON_STATE_READ_FAILED"));
-        assert!(message.starts_with("Cannot read daemon state at "));
+        // `String(error)` of the SyntaxError node 22.20.0 throws for `{not json`.
+        assert_eq!(
+            message,
+            format!(
+                "Cannot read daemon state at {}: SyntaxError: Expected property name or '}}' in JSON at position 1 (line 1 column 2)",
+                lock_file(home.path()).display()
+            )
+        );
         fs::write(lock_file(home.path()), r#"{"pid":1}"#).unwrap();
         let PidLockError::Lock { message, .. } = get_pid_lock_info(home.path()).unwrap_err() else {
             panic!("expected a lock error");
         };
-        assert!(message.ends_with("Invalid lock shape"));
+        assert_eq!(
+            message,
+            format!(
+                "Cannot read daemon state at {}: Error: Invalid lock shape",
+                lock_file(home.path()).display()
+            )
+        );
     }
 
     #[test]
