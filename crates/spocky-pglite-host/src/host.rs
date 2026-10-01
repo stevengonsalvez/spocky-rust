@@ -154,6 +154,26 @@ fn compiled_key(package_root: &Path, options: &EngineOptions) -> CompiledKey {
     (package_root.to_path_buf(), options.clone())
 }
 
+/// `os.platform()` for a Rust target OS name.
+fn node_platform(os: &str) -> &str {
+    match os {
+        "macos" => "darwin",
+        "windows" => "win32",
+        other => other,
+    }
+}
+
+/// `os.arch()` for a Rust target architecture name.
+fn node_arch(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "x86" => "ia32",
+        "powerpc64" => "ppc64",
+        other => other,
+    }
+}
+
 fn compiled_for(
     package_root: &Path,
     options: &EngineOptions,
@@ -192,8 +212,8 @@ impl PgliteHost {
         let identity = HostIdentity {
             runtime: "wasmtime".into(),
             runtime_version: "47.0.4".into(),
-            os: std::env::consts::OS.into(),
-            arch: std::env::consts::ARCH.into(),
+            os: node_platform(std::env::consts::OS).into(),
+            arch: node_arch(std::env::consts::ARCH).into(),
             package: PACKAGE_NAME.into(),
             package_version: PACKAGE_VERSION.into(),
             package_dependencies: compiled
@@ -535,6 +555,16 @@ mod tests {
             compiled_key(root, &defaults),
             compiled_key(root, &smaller_stack)
         );
+    }
+
+    #[test]
+    fn identity_uses_node_platform_and_arch_names() {
+        assert_eq!(node_platform("macos"), "darwin");
+        assert_eq!(node_platform("windows"), "win32");
+        assert_eq!(node_platform("linux"), "linux");
+        assert_eq!(node_arch("x86_64"), "x64");
+        assert_eq!(node_arch("aarch64"), "arm64");
+        assert_eq!(node_arch("x86"), "ia32");
     }
 
     #[test]
