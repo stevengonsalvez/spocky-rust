@@ -37,6 +37,12 @@ The container log SHA-256 is
 The run metadata SHA-256 is
 `15a8dac0f4f134b337d7563ce6b1937894d5df5636b2e894b34d5e3ea6df6de4`.
 
+Read-only Astra review at signed commit `ea32aa7` accepts this narrow Linux-null
+runner checkpoint with no remaining P0, P1, or P2. Local 7/7 is lead-observed;
+the retained Linux log contains 5/5 plus all-target clippy. Exact container
+absence is enforced by source and successful metadata publication, not retained
+as a separate Docker inspection transcript.
+
 ## Limits
 
 This checkpoint does not prove physical microphone capture, audible output,
