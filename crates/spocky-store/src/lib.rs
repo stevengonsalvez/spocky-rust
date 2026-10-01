@@ -8,10 +8,12 @@ use serde_json::Value;
 pub mod agent_record;
 mod atomic;
 pub mod collate;
-pub mod js_value;
 pub mod path_compare;
 pub mod registry;
 pub mod time;
+
+/// The single JavaScript JSON value, owned by `spocky-contracts`.
+pub use spocky_contracts::js_value;
 
 pub use registry::RecordError;
 
