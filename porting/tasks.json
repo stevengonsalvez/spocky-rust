@@ -119,7 +119,13 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-pglite-rust-host",
       "branch": "phase2-pglite-rust-host",
-      "paths": ["crates/spocky-pglite-host/", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"],
+      "paths": ["crates/spocky-pglite-host/", "scripts/phase2/pglite-rust-host-*", "evidence/phase2/pglite-rust-host-*", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"],
+      "pathsWidened": "2026-10-01 coordinator decision: scripts/phase2/pglite-rust-host-* and evidence/phase2/pglite-rust-host-* added after reviewer P3 (verdicts/p2_pglite-0b43a54.txt)",
+      "openPortGaps": [
+        "INVALID_JSON reply carries serde error text; port the exact V8 JSON.parse SyntaxError text (coordinator decision 2026-10-01: PORTED, not an exception)",
+        "wrong-JSON-type value gets INVALID_VALUE; port Node pass-through (coordinator decision 2026-10-01: PORTED, not an exception)",
+        "spocky-pglite-host-child has no SIGINT/SIGTERM/SIGHUP handler; Node retained child closes the DB and exits 128 (reviewer P2, open until handler plus test land)"
+      ],
       "sharedFileReview": "root Cargo.toml and Cargo.lock changes are reviewed by the lead at integration",
       "delegation": "forbidden",
       "state": "launched; Rust Wasm host to replace the accepted-interim retained JavaScript PGlite host"
