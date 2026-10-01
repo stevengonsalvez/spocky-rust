@@ -115,8 +115,10 @@ and platform availability, IPC performance, and retained JavaScript delivery
 and support ownership remain unqualified. Callback transactions and keyed
 application locks are neither ported nor qualified. Simultaneous participation
 by the pinned legacy pathname-only reclaimer and the new OS-guard protocol is
-not qualified. Sequential legacy state import remains covered. The exception
-record remains `required-not-accepted`.
+not qualified. Candidate-generated historical-schema resume and synthetic
+legacy metadata handling remain covered. Baseline-produced directory handoff
+and reverse rollback remain unproven. The exception record remains
+`required-not-accepted`.
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
