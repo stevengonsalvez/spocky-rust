@@ -595,7 +595,7 @@ impl AgentRecordStore {
     /// # Errors
     ///
     /// Returns an error when the record lacks `id` or `cwd` strings, or the write fails.
-    pub(crate) fn write_record(&mut self, record: JsValue) -> Result<PathBuf, StoreError> {
+    pub fn write_record(&mut self, record: JsValue) -> Result<PathBuf, StoreError> {
         self.initialize();
         let id = record
             .get("id")
