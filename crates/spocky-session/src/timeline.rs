@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use crate::clock::{now_iso, random_uuid};
-use crate::js::{js_string, spread_into, truthy};
+use spocky_contracts::js::{js_string, spread_into, truthy};
 
 /// `AgentTimelineRow`.
 #[derive(Debug, Clone, PartialEq)]
