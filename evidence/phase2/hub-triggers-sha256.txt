@@ -1,2 +1,2 @@
-03cf5b96068135c76a0844c639f9e63730ee32780f383b8796ec108ba4c7a0ad  hub-triggers-original.json
-fb48a3e7b3beba2dd9af0aea115d769e3d977c37af17a9bf89e93c6bef008703  hub-triggers-rust.json
+4d1a1ccadd794d3f8afa5a1bff8aa96f8ca6a0b0ee1e7b8eae5185cfaf915a42  hub-triggers-original.json
+4d1a1ccadd794d3f8afa5a1bff8aa96f8ca6a0b0ee1e7b8eae5185cfaf915a42  hub-triggers-rust.json
