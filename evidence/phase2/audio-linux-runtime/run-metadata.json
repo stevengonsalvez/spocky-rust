@@ -1,0 +1,11 @@
+{
+  "baseline": "paseo@5de45e208690b0efc51c59a585ae9729325a9204",
+  "image": "rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55",
+  "container": "spocky-audio-linux-1790847209-69966",
+  "command": "gtimeout --kill-after=30 900 docker run --rm --name spocky-audio-linux-1790847209-69966 --platform linux/amd64 <repo:/workspace:ro> <output:/output> rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 bash -c <install pinned audio tools; targeted test; runtime report; all-target clippy>",
+  "timeoutSeconds": 900,
+  "started": "2026-10-01T09:33:29Z",
+  "finished": "2026-10-01T09:34:14Z",
+  "exitStatus": 0,
+  "log": "container.log"
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "baseline": "paseo@5de45e208690b0efc51c59a585ae9729325a9204",
+  "contractId": "P2-AUDIO-01",
+  "claim": "linux_alsa_null_runtime",
+  "inventory": {
+    "alsa": {
+      "available": true,
+      "exitCode": 0,
+      "version": "aplay: version 1.2.8 by Jaroslav Kysela <perex@perex.cz>"
+    },
+    "pulseaudio": {
+      "available": true,
+      "exitCode": 0,
+      "version": "pactl 16.1\nCompiled with libpulse 16.1.0\nLinked with libpulse 16.1.0"
+    },
+    "pipewire": {
+      "available": true,
+      "exitCode": 0,
+      "version": "pw-cli\nCompiled with libpipewire 0.3.65\nLinked with libpipewire 0.3.65"
+    }
+  },
+  "playback": {
+    "artifact": "/output/run/generated-playback.wav",
+    "sampleRate": 16000,
+    "channels": 1,
+    "samples": 1600,
+    "fileBytes": 3244,
+    "exitCode": 0,
+    "matchesGeneratedInput": true
+  },
+  "capture": {
+    "artifact": "/output/run/generated-capture.wav",
+    "sampleRate": 16000,
+    "channels": 1,
+    "samples": 16000,
+    "fileBytes": 32044,
+    "exitCode": 0,
+    "matchesGeneratedInput": true
+  },
+  "limitations": [
+    "no_physical_microphone_capture",
+    "no_audible_output_assertion",
+    "pulseaudio_cli_inventory_only",
+    "pipewire_cli_inventory_only",
+    "no_speech_to_text_or_text_to_speech"
+  ]
+}
