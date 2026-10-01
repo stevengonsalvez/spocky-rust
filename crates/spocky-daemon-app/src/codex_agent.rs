@@ -27,6 +27,7 @@ use spocky_session::agent_sdk::{
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
     FetchCatalogOptions, ProviderRefreshContext, StreamCallback, Unsubscribe,
 };
+use spocky_session::js::truthy;
 
 const CODEX: &str = "codex";
 
@@ -149,8 +150,14 @@ impl AgentSession for CodexAgentSession {
         let session = self.session.clone();
         Box::pin(async move {
             let prompt = prompt(input)?;
+            // `buildTurnStartParams` reads `outputSchema` when truthy and
+            // ignores `resumeFrom` and `maxThinkingTokens`.
+            let options = options.unwrap_or_default();
+            if truthy(options.output_schema.as_ref()) {
+                return Err(not_exposed("startTurn outputSchema"));
+            }
             let options = RunOptions {
-                client_message_id: options.and_then(|options| options.client_message_id),
+                client_message_id: options.client_message_id,
             };
             blocking(move || session.start_turn(&prompt, &options)).await
         })
@@ -366,7 +373,7 @@ mod tests {
         CodexGates, ProviderCommand, ProviderRuntimeSettings, SessionConfig,
     };
     use spocky_session::agent_sdk::{
-        AgentClient, AgentLaunchContext, AgentPromptInput, AgentSession,
+        AgentClient, AgentLaunchContext, AgentPromptInput, AgentRunOptions, AgentSession,
     };
 
     use super::{CodexAgentClient, CodexAgentSession, launch_env};
@@ -497,6 +504,18 @@ mod tests {
             "spocky-provider-codex does not expose CodexSession.run yet"
         );
         assert!(agent.set_mode("auto").await.is_err());
+        let schema = AgentRunOptions {
+            output_schema: Some(js_value::parse(r#"{"type":"object"}"#).unwrap()),
+            ..AgentRunOptions::default()
+        };
+        let error = agent
+            .start_turn(AgentPromptInput::Text("hi".to_owned()), Some(schema))
+            .await
+            .expect_err("outputSchema");
+        assert_eq!(
+            error.message,
+            "spocky-provider-codex does not expose CodexSession.startTurn outputSchema yet"
+        );
     }
 
     #[tokio::test]
