@@ -170,7 +170,9 @@ fn fs_error<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a FsError {
 
 fn same(left: &StorageError, right: &StorageError) -> bool {
     match (left, right) {
-        (StorageError::Projection(left), StorageError::Projection(right)) => left == right,
+        (StorageError::Projection(left), StorageError::Projection(right)) => {
+            Arc::ptr_eq(left, right)
+        }
         (StorageError::Store(left), StorageError::Store(right)) => Arc::ptr_eq(left, right),
         _ => false,
     }
