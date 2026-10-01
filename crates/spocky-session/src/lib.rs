@@ -7,6 +7,7 @@ pub mod agent_labels;
 pub mod agent_projection;
 pub mod agent_prompt;
 pub mod agent_sdk;
+pub mod agent_storage;
 pub mod checkout;
 pub mod clock;
 pub mod external_state;
