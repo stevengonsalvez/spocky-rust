@@ -337,7 +337,7 @@ fn path_value(path: &[&str]) -> JsValue {
 /// zod's `parsedType` names for JSON values; `None` is a missing key.
 fn received(value: Option<&JsValue>) -> &'static str {
     match value {
-        None => "undefined",
+        None | Some(JsValue::Undefined) => "undefined",
         Some(JsValue::Null) => "null",
         Some(JsValue::Bool(_)) => "boolean",
         Some(JsValue::Number(_)) => "number",
