@@ -348,7 +348,7 @@ fn spawn_error_message(error: &std::io::Error) -> String {
 }
 
 /// libuv error names for the errno values a spawn can report.
-fn errno_name(errno: i32) -> Option<&'static str> {
+pub(crate) fn errno_name(errno: i32) -> Option<&'static str> {
     Some(match errno {
         1 => "EPERM",
         2 => "ENOENT",
