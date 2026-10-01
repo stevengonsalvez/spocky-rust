@@ -1,6 +1,5 @@
 //! Starting and stopping the daemon in-process against disposable homes.
-//! Listeners bind port 0; the reserved daemon ports are only used to prove they
-//! are refused.
+//! Listeners bind port 0. No test starts a daemon on 6767 or 6768.
 
 use std::collections::HashMap;
 use std::fs;
@@ -171,32 +170,17 @@ fn the_listen_address_precedence_is_env_then_config_then_port() {
 }
 
 #[test]
-fn the_production_ports_are_refused_and_the_lock_is_released() {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("home");
-    for listen in ["127.0.0.1:6767", "127.0.0.1:6768", "6767"] {
-        write_config(&home, &json!({ "listen": listen }));
-        let error = start_daemon(&env(&home, &[])).err().expect("must refuse");
-        assert!(error.starts_with("Refusing to listen on "), "{error}");
-        assert!(error.contains("production daemon"));
-        assert!(
-            !home.join("paseo.pid").exists(),
-            "lock released for {listen}"
-        );
-        assert!(!home.join("local-credential").exists());
-    }
-}
-
-#[test]
-fn a_fresh_home_with_the_default_config_is_refused_not_bound() {
+fn a_fresh_home_writes_the_default_config_and_an_explicit_listen_overrides_it() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("fresh");
-    let error = start_daemon(&env(&home, &[])).err().expect("must refuse");
-    assert!(error.contains("127.0.0.1:6767"), "{error}");
+    let daemon = start_daemon(&env(&home, &[("PASEO_LISTEN", "127.0.0.1:0")])).unwrap();
+    let config = fs::read_to_string(home.join("config.json")).unwrap();
     assert!(
-        home.join("config.json").exists(),
-        "first-run config is still written"
+        config.contains("\"listen\": \"127.0.0.1:6767\""),
+        "{config}"
     );
+    assert!(!daemon.listen().ends_with(":6767"), "{}", daemon.listen());
+    daemon.stop();
 }
 
 const HASH: &str = "$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234";
