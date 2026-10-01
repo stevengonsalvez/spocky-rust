@@ -7,7 +7,12 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "19934db2318d57b17b4ac58d24d2f1400fdcc868b62ece58fdc7050e2c69632a"
+    "casesSha256": "a945bf76244d11882c98cd4b53beddaae15d8a481334d7f5bcb0126b0721bce7",
+    "pinnedServer": {
+      "buildMarkerSha256": "d2a479bfec301b3d2659c25a9cc42393cce1c09f9c457f92356008e3d48cea2f",
+      "agentProjectionsJsSha256": "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
+      "workspaceRegistryModelJsSha256": "99035b682844ef38281733462dc777a5219df9229264d05dc716c962f22ec6c1"
+    }
   },
   "cases": [
     {
