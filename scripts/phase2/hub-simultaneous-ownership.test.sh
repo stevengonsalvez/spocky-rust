@@ -4,18 +4,129 @@ set -eu
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 output=$(gtimeout 30 mktemp "${TMPDIR:-/tmp}/spocky-hub-simultaneous-test.XXXXXX")
 signal_output=$(gtimeout 30 mktemp "${TMPDIR:-/tmp}/spocky-hub-simultaneous-signal.XXXXXX")
+signal_stdout=$(gtimeout 30 mktemp "${TMPDIR:-/tmp}/spocky-hub-simultaneous-signal-stdout.XXXXXX")
 signal_runner=
 owner_pid=
 descendant_pid=
-cleanup() {
-  for pid in "$signal_runner" "$owner_pid" "$descendant_pid"; do
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
-  done
-  gtimeout 30 rm -f "$output" "$signal_output"
+read_fixture_ids() {
+  if [ ! -s "$signal_output" ]; then
+    return
+  fi
+  if [ -z "$owner_pid" ]; then
+    candidate_owner=$(jq -er '.ownerPid' "$signal_output" 2>/dev/null || true)
+    case "$candidate_owner" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$candidate_owner" -gt 1 ]; then owner_pid=$candidate_owner; fi ;;
+    esac
+  fi
+  if [ -z "$descendant_pid" ]; then
+    candidate_descendant=$(jq -er '.descendantPid' "$signal_output" 2>/dev/null || true)
+    case "$candidate_descendant" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$candidate_descendant" -gt 1 ]; then descendant_pid=$candidate_descendant; fi ;;
+    esac
+  fi
 }
-trap cleanup EXIT HUP INT TERM
+terminate_signal_fixture() {
+  requested_signal=${1:-TERM}
+  cleanup_status=0
+  if [ -n "$signal_runner" ] && kill -0 "$signal_runner" 2>/dev/null; then
+    kill -"$requested_signal" "$signal_runner" 2>/dev/null || cleanup_status=1
+    attempt=0
+    while kill -0 "$signal_runner" 2>/dev/null; do
+      read_fixture_ids
+      attempt=$((attempt + 1))
+      if [ "$attempt" -ge 200 ]; then
+        break
+      fi
+      sleep 0.05
+    done
+    if kill -0 "$signal_runner" 2>/dev/null; then
+      kill -KILL "$signal_runner" 2>/dev/null || cleanup_status=1
+    fi
+  fi
+  if [ -n "$signal_runner" ]; then
+    if wait "$signal_runner"; then
+      runner_status=0
+    else
+      runner_status=$?
+    fi
+    case "$runner_status" in
+      0|129|130|137|143) ;;
+      *)
+        printf 'signal cleanup runner exited with status %s\n' "$runner_status" >&2
+        cleanup_status=1
+        ;;
+    esac
+  fi
+  read_fixture_ids
+  if [ -n "$owner_pid" ] && {
+    kill -0 "$owner_pid" 2>/dev/null || kill -0 -- "-$owner_pid" 2>/dev/null;
+  }; then
+    kill -KILL -- "-$owner_pid" 2>/dev/null || cleanup_status=1
+  elif [ -n "$descendant_pid" ] && kill -0 "$descendant_pid" 2>/dev/null; then
+    kill -KILL "$descendant_pid" 2>/dev/null || cleanup_status=1
+  fi
+  for pid in "$owner_pid" "$descendant_pid"; do
+    attempt=0
+    while [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; do
+      attempt=$((attempt + 1))
+      if [ "$attempt" -ge 100 ]; then
+        printf 'signal cleanup survivor: %s\n' "$pid" >&2
+        cleanup_status=1
+        break
+      fi
+      sleep 0.05
+    done
+  done
+  if [ "$cleanup_status" -ne 0 ]; then
+    return "$cleanup_status"
+  fi
+  signal_runner=
+}
+cleanup() {
+  cleanup_status=0
+  terminate_signal_fixture || cleanup_status=1
+  gtimeout 30 rm -f "$output" "$signal_output" "$signal_stdout" || cleanup_status=1
+  return "$cleanup_status"
+}
+on_signal() {
+  signal_status=$1
+  trap - EXIT HUP INT TERM
+  if ! cleanup; then signal_status=1; fi
+  exit "$signal_status"
+}
+trap cleanup EXIT
+trap 'on_signal 129' HUP
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+# Exercise HUP before the fixture announces readiness. The sidecar retains exact owned PIDs.
+node "$repository_root/scripts/phase2/hub-simultaneous-ownership-orchestrator.mjs" \
+  --self-test-signal-cleanup "$signal_output" delay-ready >"$signal_stdout" &
+signal_runner=$!
+attempt=0
+while [ ! -s "$signal_output" ] && kill -0 "$signal_runner" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 100 ]; then
+    printf 'early signal cleanup fixture timed out\n' >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+read_fixture_ids
+terminate_signal_fixture HUP
+if kill -0 "$owner_pid" 2>/dev/null; then
+  printf 'early signal cleanup owner survived: %s\n' "$owner_pid" >&2
+  exit 1
+fi
+if kill -0 "$descendant_pid" 2>/dev/null; then
+  printf 'early signal cleanup descendant survived: %s\n' "$descendant_pid" >&2
+  exit 1
+fi
+owner_pid=
+descendant_pid=
+: >"$signal_output"
 
 node "$repository_root/scripts/phase2/hub-simultaneous-ownership-orchestrator.mjs" \
   --self-test-signal-cleanup >"$signal_output" &
@@ -29,26 +140,21 @@ while [ ! -s "$signal_output" ] && kill -0 "$signal_runner" 2>/dev/null; do
   fi
   sleep 0.05
 done
-owner_pid=$(jq -er '.ownerPid' "$signal_output")
-descendant_pid=$(jq -er '.descendantPid' "$signal_output")
-kill -TERM "$signal_runner"
-attempt=0
-while kill -0 "$signal_runner" 2>/dev/null; do
-  attempt=$((attempt + 1))
-  if [ "$attempt" -ge 200 ]; then
-    printf 'signal cleanup shutdown timed out\n' >&2
-    exit 1
-  fi
-  sleep 0.05
-done
-wait "$signal_runner" || [ "$?" -eq 143 ]
-! kill -0 "$owner_pid" 2>/dev/null
-! kill -0 "$descendant_pid" 2>/dev/null
-signal_runner=
+read_fixture_ids
+terminate_signal_fixture
+if kill -0 "$owner_pid" 2>/dev/null; then
+  printf 'signal cleanup owner survived: %s\n' "$owner_pid" >&2
+  exit 1
+fi
+if kill -0 "$descendant_pid" 2>/dev/null; then
+  printf 'signal cleanup descendant survived: %s\n' "$descendant_pid" >&2
+  exit 1
+fi
 owner_pid=
 descendant_pid=
 
-gtimeout --kill-after=30 900 "$repository_root/scripts/phase2/hub-simultaneous-ownership.sh" >"$output"
+# ownership.sh has 900 seconds of summed inner bounds. Keep finite cleanup and escalation headroom.
+gtimeout --kill-after=30 1020 "$repository_root/scripts/phase2/hub-simultaneous-ownership.sh" >"$output"
 jq -e '
   .baseline.commit == "28f6c78833065fd282f9064f92a9aa61875dd359"
   and .baseline.sourceSha256 == "cf3b965451bd8cd9203f16118bdda8df80cec096b51d8d7f3e5b0456dc5f92e7"

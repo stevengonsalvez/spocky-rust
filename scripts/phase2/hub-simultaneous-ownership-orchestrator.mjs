@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { open, readFile, stat, unlink } from "node:fs/promises";
+import { open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 
@@ -389,6 +389,13 @@ async function selfTestSignalCleanup() {
   }
   owner.ownedPids.push(descendantPid);
   process.kill(descendantPid, "SIGSTOP");
-  process.stdout.write(`${JSON.stringify({ ownerPid: owner.pid, descendantPid })}\n`);
+  const fixture = { ownerPid: owner.pid, descendantPid };
+  if (process.argv[3]) {
+    await writeFile(process.argv[3], `${JSON.stringify(fixture)}\n`);
+  }
+  if (process.argv[4] === "delay-ready") {
+    await delay(60_000);
+  }
+  process.stdout.write(`${JSON.stringify(fixture)}\n`);
   await new Promise(() => {});
 }

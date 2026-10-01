@@ -5,7 +5,7 @@ Pinned baseline: `28f6c78833065fd282f9064f92a9aa61875dd359`.
 Run:
 
 ```sh
-gtimeout --kill-after=30 900 scripts/phase2/hub-simultaneous-ownership.test.sh
+gtimeout --kill-after=30 1200 scripts/phase2/hub-simultaneous-ownership.test.sh
 ```
 
 The harness archives the pinned baseline into a disposable read-only source copy. Exact source hash and spelling gates cover exclusive `open(path, "wx", 0o600)`, ten 10 ms owner reads, live-PID rejection, and path unlink. The harness executes a handwritten model of those lock operations. It does not execute the pinned database runtime. Accepted ordered runtime evidence remains in `hub-mixed-ownership-report.json`.
@@ -18,6 +18,6 @@ Residual exception one: modeled baseline pauses after exclusive create but befor
 
 Residual exception two: candidate reads stale inode A; modeled baseline unlinks A, creates completed live inode B, and writes a live owner; candidate's pending path unlink deletes B and creates inode C. Identity snapshots prove A, B, and C are distinct while both modeled owners are live. Rechecking identity narrows this window but cannot make path unlink conditional and atomic with the pinned protocol.
 
-Parity is not claimed for either residual exception. Signal cleanup regression covers detached owner and stopped descendant process removal before exit.
+Parity is not claimed for either residual exception. Signal cleanup regression covers early HUP before readiness and TERM after readiness, including detached owner and stopped descendant removal.
 
 Port 6767 was untouched. No production, deployment, or publish command ran.
