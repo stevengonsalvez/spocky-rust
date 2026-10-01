@@ -2025,6 +2025,24 @@ mod tests {
         let needle = directory.display().to_string();
         let mut unrelated = decoy(&needle);
         let unrelated_pid = unrelated.id();
+        // An unrelated live process whose argv (not only its environment)
+        // names a path under the root.
+        let mut argv_decoy = Command::new("/bin/sh")
+            .args(["-c", "/bin/sleep 30; :"])
+            .arg(directory.join("decoy-argv"))
+            .spawn()
+            .unwrap();
+        let argv_decoy_pid = argv_decoy.id();
+        assert!(wait_until(Duration::from_secs(5), || {
+            run_bounded(
+                Command::new("/bin/ps").args(["-o", "command=", "-p", &argv_decoy_pid.to_string()]),
+                Duration::from_secs(10),
+            )
+            .0
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+        }));
+        assert!(processes_mentioning(&needle).contains(&argv_decoy_pid));
         // A program named tmux inside the owned tree (a copy of sleep).
         let fake_tmux = directory.join("tmux");
         fs::copy("/bin/sleep", &fake_tmux).unwrap();
@@ -2062,7 +2080,11 @@ mod tests {
         assert!(!alive(ours_pid));
         assert!(
             alive(unrelated_pid),
-            "decoy that mentions the root must survive"
+            "decoy whose environment mentions the root must survive"
+        );
+        assert!(
+            alive(argv_decoy_pid),
+            "decoy whose argv mentions the root must survive"
         );
         assert!(
             alive(tmux_pid),
@@ -2071,6 +2093,11 @@ mod tests {
         signal(tmux_pid, "KILL");
         let _ = unrelated.kill();
         let _ = unrelated.wait();
+        let _ = Command::new("/bin/kill")
+            .args(["-KILL", "--", &format!("-{argv_decoy_pid}")])
+            .status();
+        let _ = argv_decoy.kill();
+        let _ = argv_decoy.wait();
         fs::remove_dir_all(&directory).unwrap();
     }
 
