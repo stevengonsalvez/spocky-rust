@@ -49,7 +49,7 @@ fn matches_hostname_pattern(hostname: &str, pattern: &str) -> bool {
     hostname == normalized
 }
 
-/// `net.isIP(hostname) !== 0`. Node accepts an IPv6 zone id after `%`.
+/// `net.isIP(hostname) !== 0`. Node accepts an IPv6 zone id of `[0-9a-zA-Z-.:]+` after `%`.
 fn is_ip(hostname: &str) -> bool {
     if hostname.parse::<Ipv4Addr>().is_ok() {
         return true;
@@ -61,7 +61,7 @@ fn is_ip(hostname: &str) -> bool {
         && (zone.is_empty()
             || !zone
                 .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b':' | b'_')))
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b':')))
     {
         return false;
     }
@@ -95,6 +95,29 @@ pub fn is_hostname_allowed(host_header: Option<&str>, hostnames: Option<&Hostnam
             .any(|pattern| matches_hostname_pattern(&hostname, pattern)),
         _ => false,
     }
+}
+
+/// The Host rule of the WebSocket upgrade (`verifyWsUpgrade`): a request with no
+/// Host header, or an empty one, skips the check and is admitted. A present
+/// Host must pass [`is_hostname_allowed`].
+#[must_use]
+pub fn is_ws_upgrade_host_allowed(
+    request_host: Option<&str>,
+    hostnames: Option<&Hostnames>,
+) -> bool {
+    match request_host {
+        Some(host) if !host.is_empty() => is_hostname_allowed(Some(host), hostnames),
+        _ => true,
+    }
+}
+
+/// The Host rule of plain HTTP on a TCP listener (the Host middleware in
+/// `bootstrap.ts`): a missing or empty Host is rejected with 403
+/// `{"error":"Invalid Host header"}`. This is the opposite of the WebSocket
+/// upgrade rule for the same input.
+#[must_use]
+pub fn is_http_host_allowed(request_host: Option<&str>, hostnames: Option<&Hostnames>) -> bool {
+    is_hostname_allowed(request_host, hostnames)
 }
 
 /// `mergeHostnames`: `true` wins, an absent value is skipped, lists are
@@ -226,5 +249,32 @@ mod tests {
             Some(patterns(&["a", "b", "c"]))
         );
         assert_eq!(parse_hostnames_env(Some(",")), Some(patterns(&[])));
+    }
+
+    #[test]
+    fn a_zone_id_with_an_underscore_is_not_an_ip() {
+        assert!(!is_hostname_allowed(Some("[fe80::1%a_b]"), None));
+        assert!(is_hostname_allowed(Some("[fe80::1%a-b.c:d]"), None));
+        assert!(!is_hostname_allowed(Some("[fe80::1%]"), None));
+    }
+
+    #[test]
+    fn upgrade_and_http_treat_a_missing_host_in_opposite_ways() {
+        assert!(is_ws_upgrade_host_allowed(None, None));
+        assert!(is_ws_upgrade_host_allowed(Some(""), None));
+        assert!(!is_http_host_allowed(None, None));
+        assert!(!is_http_host_allowed(Some(""), None));
+    }
+
+    #[test]
+    fn upgrade_and_http_agree_on_a_present_host() {
+        for host in ["localhost:1", "evil.example", "[::1]:1", "127.1"] {
+            assert_eq!(
+                is_ws_upgrade_host_allowed(Some(host), None),
+                is_http_host_allowed(Some(host), None),
+                "{host}"
+            );
+        }
+        assert!(!is_ws_upgrade_host_allowed(Some("evil.example"), None));
     }
 }
