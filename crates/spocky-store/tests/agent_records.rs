@@ -6,9 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{Value, json};
 use spocky_store::agent_record::{AgentRecordStore, parse_stored_agent_record};
-use spocky_store::js_json::js_property_order;
+use spocky_store::js_value::{JsValue, parse, stringify};
 
 struct TestDir(PathBuf);
 
@@ -38,9 +37,9 @@ impl Drop for TestDir {
 }
 
 fn zod(input: &str) -> Result<String, String> {
-    let value: Value = serde_json::from_str(input).expect("test input is JSON");
-    parse_stored_agent_record(&js_property_order(value))
-        .map(|parsed| serde_json::to_string(&parsed).expect("render"))
+    let value = parse(input).expect("test input is JSON");
+    parse_stored_agent_record(&value)
+        .map(|parsed| stringify(&parsed))
         .map_err(|error| error.field.to_owned())
 }
 
@@ -86,16 +85,11 @@ fn schema_rejections_match_zod() {
     );
 }
 
-fn record(id: &str, cwd: &str, status: &str) -> Value {
-    json!({
-        "id": id,
-        "provider": "codex",
-        "cwd": cwd,
-        "createdAt": "2026-10-01T10:00:00.000Z",
-        "updatedAt": "2026-10-01T10:00:00.000Z",
-        "lastStatus": status,
-        "internal": false,
-    })
+fn record(id: &str, cwd: &str, status: &str) -> JsValue {
+    parse(&format!(
+        r#"{{"id":"{id}","provider":"codex","cwd":"{cwd}","createdAt":"2026-10-01T10:00:00.000Z","updatedAt":"2026-10-01T10:00:00.000Z","lastStatus":"{status}","internal":false}}"#
+    ))
+    .expect("record literal is JSON")
 }
 
 #[test]
@@ -105,23 +99,23 @@ fn scan_loads_root_and_nested_files_and_skips_invalid_ones() {
     fs::create_dir_all(nested.join("deeper")).expect("create nested buckets");
     fs::write(
         home.path().join("root.json"),
-        record("root", "/x", "idle").to_string(),
+        stringify(&record("root", "/x", "idle")),
     )
     .expect("seed root record");
     fs::write(
         nested.join("nested.json"),
-        record("nested", "/tmp/project", "closed").to_string(),
+        stringify(&record("nested", "/tmp/project", "closed")),
     )
     .expect("seed nested record");
     fs::write(nested.join("broken.json"), "{not json").expect("seed broken record");
     fs::write(
         nested.join("bad-status.json"),
-        record("bad", "/tmp/project", "paused").to_string(),
+        stringify(&record("bad", "/tmp/project", "paused")),
     )
     .expect("seed invalid status");
     fs::write(
         nested.join("deeper").join("too-deep.json"),
-        record("deep", "/tmp/project", "idle").to_string(),
+        stringify(&record("deep", "/tmp/project", "idle")),
     )
     .expect("seed record two levels down");
     fs::write(nested.join("notes.txt"), "{}").expect("seed non-json file");
@@ -130,7 +124,13 @@ fn scan_loads_root_and_nested_files_and_skips_invalid_ones() {
     let mut ids = store
         .list()
         .iter()
-        .map(|value| value["id"].as_str().expect("id").to_owned())
+        .map(|value| {
+            value
+                .get("id")
+                .and_then(JsValue::as_str)
+                .expect("id")
+                .to_owned()
+        })
         .collect::<Vec<_>>();
     ids.sort();
     assert_eq!(ids, vec!["nested", "root"]);
@@ -140,8 +140,8 @@ fn scan_loads_root_and_nested_files_and_skips_invalid_ones() {
         "broken and bad-status are skipped"
     );
     assert_eq!(
-        store.list()[0]["id"],
-        "root",
+        store.list()[0].get("id").and_then(JsValue::as_str),
+        Some("root"),
         "root files load before buckets"
     );
 }
@@ -168,10 +168,36 @@ fn write_uses_json_stringify_layout_and_moves_file_on_cwd_change() {
 
     let mut reopened = AgentRecordStore::new(home.path());
     assert_eq!(
-        reopened.get("agent-1").expect("record survives restart")["lastStatus"],
-        "closed"
+        reopened
+            .get("agent-1")
+            .expect("record survives restart")
+            .get("lastStatus")
+            .and_then(JsValue::as_str),
+        Some("closed")
     );
     reopened.remove("agent-1").expect("remove record");
     assert!(!moved.exists());
     assert!(reopened.get("agent-1").is_none());
+}
+
+#[test]
+fn javascript_only_record_loads_and_rewrites_like_node() {
+    // Oracle output for this input: STORED_AGENT_SCHEMA with zod 4.4.3, then
+    // JSON.stringify. serde_json would reject the lone surrogate and 1e400.
+    let input = r#"{"id":"a","provider":"codex","cwd":"/p","createdAt":"c","updatedAt":"u","title":"split \ud83d","persistence":{"provider":"codex","sessionId":"s","metadata":{"big":1e400,"n":12345678901234567890},"nativeHandle":[[[[]]]]}}"#;
+    assert_eq!(
+        zod(input).expect("JSON.parse and zod accept the record"),
+        r#"{"id":"a","provider":"codex","cwd":"/p","createdAt":"c","updatedAt":"u","title":"split \ud83d","labels":{},"lastStatus":"closed","persistence":{"provider":"codex","sessionId":"s","nativeHandle":[[[[]]]],"metadata":{"big":null,"n":12345678901234567000}}}"#
+    );
+
+    let home = TestDir::new("agent-js-input");
+    let bucket = home.path().join("p");
+    fs::create_dir_all(&bucket).expect("create bucket");
+    fs::write(bucket.join("a.json"), input).expect("seed record");
+    let mut store = AgentRecordStore::new(home.path());
+    assert!(store.skipped().is_empty());
+    let loaded = store.get("a").expect("record is not skipped");
+    let path = store.write(loaded).expect("rewrite record");
+    let written = fs::read_to_string(path).expect("read record");
+    assert!(written.contains(r#""title": "split \ud83d","#), "{written}");
 }
