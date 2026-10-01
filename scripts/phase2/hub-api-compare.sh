@@ -3,6 +3,7 @@ set -eu
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 raw_dir="$repository_root/evidence/raw/phase2"
+committed_dir="$repository_root/evidence/phase2"
 original="$raw_dir/hub-api-original.json"
 original_openapi="$raw_dir/hub-api-openapi-original.json"
 rust="$raw_dir/hub-api-rust.json"
@@ -23,7 +24,8 @@ if [ "$#" -ne 0 ]; then
   printf 'usage: %s [--print-plan]\n' "$0" >&2
   exit 2
 fi
-for required in "$original" "$original_openapi"; do
+for required in "$original" "$original_openapi" \
+  "$committed_dir/hub-api-original.json" "$committed_dir/hub-api-openapi-original.json"; do
   if [ ! -f "$required" ]; then
     printf 'missing original evidence: %s\n' "$required" >&2
     exit 1
@@ -66,7 +68,16 @@ if cmp -s "$original_openapi" "$rust_openapi"; then
   openapi_matched=true
 fi
 
+# A fresh capture must also equal the committed baseline the evidence test includes, so the
+# committed files cannot drift from what the pinned Hub produces.
+captured_matches_committed=false
+if cmp -s "$original" "$committed_dir/hub-api-original.json" \
+  && cmp -s "$original_openapi" "$committed_dir/hub-api-openapi-original.json"; then
+  captured_matches_committed=true
+fi
+
 jq -n \
+  --argjson capturedMatchesCommitted "$captured_matches_committed" \
   --argjson traceMatched "$trace_matched" \
   --argjson openapiMatched "$openapi_matched" \
   --arg originalSha256 "$(shasum -a 256 "$original" | awk '{print $1}')" \
@@ -75,18 +86,22 @@ jq -n \
   --arg rustOpenapiSha256 "$(shasum -a 256 "$rust_openapi" | awk '{print $1}')" \
   '{
     schemaVersion: 1,
-    matched: ($traceMatched and $openapiMatched),
+    matched: ($traceMatched and $openapiMatched and $capturedMatchesCommitted),
     comparison: "byte-identical",
     normalization: "none",
     traceMatched: $traceMatched,
     openapiMatched: $openapiMatched,
+    capturedMatchesCommitted: $capturedMatchesCommitted,
     originalRawSha256: $originalSha256,
     rustRawSha256: $rustSha256,
     originalOpenapiSha256: $originalOpenapiSha256,
     rustOpenapiSha256: $rustOpenapiSha256
   }' >"$comparison"
 
-if [ "$trace_matched" != true ] || [ "$openapi_matched" != true ] || [ "$test_failed" != 0 ]; then
+if [ "$trace_matched" != true ] || [ "$openapi_matched" != true ] \
+  || [ "$captured_matches_committed" != true ] || [ "$test_failed" != 0 ]; then
+  cmp "$original" "$committed_dir/hub-api-original.json" >&2 || true
+  cmp "$original_openapi" "$committed_dir/hub-api-openapi-original.json" >&2 || true
   diff -u "$original" "$rust" >&2 || true
   cmp "$original_openapi" "$rust_openapi" >&2 || true
   printf 'Hub API differential failed: %s\n' "$comparison" >&2
