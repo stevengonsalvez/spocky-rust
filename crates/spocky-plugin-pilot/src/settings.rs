@@ -1,10 +1,15 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll, Wake, Waker};
+use std::thread;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -14,7 +19,10 @@ const CONFLICT_MESSAGE: &str = "Settings changed on another client. Reload befor
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 type Migration = dyn Fn(&Value, u64) -> Result<Value, String>;
-type Listener = dyn FnMut(SettingsState);
+type CallbackFuture = Pin<Box<dyn Future<Output = Result<(), String>>>>;
+type AsyncCallback = dyn Fn(Value) -> CallbackFuture;
+type Listener = dyn FnMut(SettingsState) -> CallbackFuture;
+type ErrorReporter = dyn FnMut(String);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettingsField {
@@ -22,10 +30,269 @@ pub enum SettingsField {
     Integer { default: i64, minimum: Option<i64> },
 }
 
+pub struct SettingsSchema {
+    kind: SettingsSchemaKind,
+}
+
+enum SettingsSchemaKind {
+    Json,
+    Boolean,
+    Integer {
+        minimum: Option<i64>,
+    },
+    Number {
+        minimum: Option<f64>,
+    },
+    String {
+        minimum_length: Option<usize>,
+    },
+    Enum {
+        values: Vec<String>,
+    },
+    Object {
+        fields: Vec<(String, SettingsSchema)>,
+    },
+    Array {
+        item: Box<SettingsSchema>,
+        minimum_length: Option<usize>,
+    },
+    Default {
+        schema: Box<SettingsSchema>,
+        value: Value,
+    },
+    Refine {
+        schema: Box<SettingsSchema>,
+        callback: Box<AsyncCallback>,
+    },
+}
+
+impl SettingsSchema {
+    #[must_use]
+    pub const fn json() -> Self {
+        Self {
+            kind: SettingsSchemaKind::Json,
+        }
+    }
+
+    #[must_use]
+    pub const fn boolean() -> Self {
+        Self {
+            kind: SettingsSchemaKind::Boolean,
+        }
+    }
+
+    #[must_use]
+    pub const fn integer() -> Self {
+        Self {
+            kind: SettingsSchemaKind::Integer { minimum: None },
+        }
+    }
+
+    #[must_use]
+    pub fn number() -> Self {
+        Self {
+            kind: SettingsSchemaKind::Number { minimum: None },
+        }
+    }
+
+    #[must_use]
+    pub const fn string() -> Self {
+        Self {
+            kind: SettingsSchemaKind::String {
+                minimum_length: None,
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn enumeration(values: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            kind: SettingsSchemaKind::Enum {
+                values: values.into_iter().map(Into::into).collect(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn object(fields: impl IntoIterator<Item = (impl Into<String>, SettingsSchema)>) -> Self {
+        Self {
+            kind: SettingsSchemaKind::Object {
+                fields: fields
+                    .into_iter()
+                    .map(|(name, schema)| (name.into(), schema))
+                    .collect(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn array(item: SettingsSchema) -> Self {
+        Self {
+            kind: SettingsSchemaKind::Array {
+                item: Box::new(item),
+                minimum_length: None,
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn minimum(mut self, minimum: f64) -> Self {
+        if let SettingsSchemaKind::Number { minimum: value } = &mut self.kind {
+            *value = Some(minimum);
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn minimum_integer(mut self, minimum: i64) -> Self {
+        if let SettingsSchemaKind::Integer { minimum: value } = &mut self.kind {
+            *value = Some(minimum);
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn min_length(mut self, minimum: usize) -> Self {
+        match &mut self.kind {
+            SettingsSchemaKind::String { minimum_length }
+            | SettingsSchemaKind::Array { minimum_length, .. } => {
+                *minimum_length = Some(minimum);
+            }
+            _ => {}
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn default(self, value: Value) -> Self {
+        Self {
+            kind: SettingsSchemaKind::Default {
+                schema: Box::new(self),
+                value,
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn refine_async<F, Fut>(self, callback: F) -> Self
+    where
+        F: Fn(Value) -> Fut + 'static,
+        Fut: Future<Output = Result<(), String>> + 'static,
+    {
+        Self {
+            kind: SettingsSchemaKind::Refine {
+                schema: Box::new(self),
+                callback: Box::new(move |value| Box::pin(callback(value))),
+            },
+        }
+    }
+
+    fn validate(&self, value: Option<&Value>) -> Result<Value, String> {
+        match &self.kind {
+            SettingsSchemaKind::Default {
+                schema,
+                value: fallback,
+            } if value.is_none() => schema.validate(Some(fallback)),
+            SettingsSchemaKind::Default { schema, .. } => schema.validate(value),
+            _ => self.validate_present(value.ok_or_else(|| {
+                format!(
+                    "Invalid input: expected {}, received undefined",
+                    self.expected_type()
+                )
+            })?),
+        }
+    }
+
+    fn validate_present(&self, value: &Value) -> Result<Value, String> {
+        match &self.kind {
+            SettingsSchemaKind::Json => Ok(value.clone()),
+            SettingsSchemaKind::Boolean => value
+                .as_bool()
+                .map(Value::Bool)
+                .ok_or_else(|| invalid_type("boolean", value)),
+            SettingsSchemaKind::Integer { minimum } => {
+                let parsed = value.as_i64().ok_or_else(|| invalid_type("int", value))?;
+                if minimum.is_some_and(|minimum| parsed < minimum) {
+                    return Err(format!(
+                        "Too small: expected int to be >= {}",
+                        minimum.unwrap()
+                    ));
+                }
+                Ok(Value::from(parsed))
+            }
+            SettingsSchemaKind::Number { minimum } => {
+                let parsed = value
+                    .as_f64()
+                    .ok_or_else(|| invalid_type("number", value))?;
+                if minimum.is_some_and(|minimum| parsed < minimum) {
+                    return Err(format!(
+                        "Too small: expected number to be >={}",
+                        minimum.unwrap()
+                    ));
+                }
+                Ok(value.clone())
+            }
+            SettingsSchemaKind::String { minimum_length } => {
+                let parsed = value
+                    .as_str()
+                    .ok_or_else(|| invalid_type("string", value))?;
+                if minimum_length.is_some_and(|minimum| parsed.chars().count() < minimum) {
+                    return Err(format!(
+                        "Too small: expected string to have >={} characters",
+                        minimum_length.unwrap()
+                    ));
+                }
+                Ok(Value::String(parsed.to_owned()))
+            }
+            SettingsSchemaKind::Enum { values } => {
+                let parsed = value
+                    .as_str()
+                    .filter(|parsed| values.iter().any(|candidate| candidate == parsed))
+                    .ok_or_else(|| {
+                        format!(
+                            "Invalid option: expected one of {}",
+                            values
+                                .iter()
+                                .map(|value| format!("\"{value}\""))
+                                .collect::<Vec<_>>()
+                                .join("|")
+                        )
+                    })?;
+                Ok(Value::String(parsed.to_owned()))
+            }
+            SettingsSchemaKind::Object { fields } => validate_object(fields, value),
+            SettingsSchemaKind::Array {
+                item,
+                minimum_length,
+            } => validate_array(item, *minimum_length, value),
+            SettingsSchemaKind::Default { schema, .. } => schema.validate(Some(value)),
+            SettingsSchemaKind::Refine { schema, callback } => {
+                let parsed = schema.validate(Some(value))?;
+                block_on(callback(parsed.clone()))?;
+                Ok(parsed)
+            }
+        }
+    }
+
+    fn expected_type(&self) -> &'static str {
+        match &self.kind {
+            SettingsSchemaKind::Json => "JSON value",
+            SettingsSchemaKind::Boolean => "boolean",
+            SettingsSchemaKind::Integer { .. } => "int",
+            SettingsSchemaKind::Number { .. } => "number",
+            SettingsSchemaKind::String { .. } | SettingsSchemaKind::Enum { .. } => "string",
+            SettingsSchemaKind::Object { .. } => "object",
+            SettingsSchemaKind::Array { .. } => "array",
+            SettingsSchemaKind::Default { schema, .. }
+            | SettingsSchemaKind::Refine { schema, .. } => schema.expected_type(),
+        }
+    }
+}
+
 pub struct SettingsDefinition {
     id: String,
     version: u64,
-    fields: BTreeMap<String, SettingsField>,
+    schema: SettingsSchema,
     migration: Option<Box<Migration>>,
 }
 
@@ -36,13 +303,44 @@ impl SettingsDefinition {
         fields: BTreeMap<String, SettingsField>,
     ) -> Result<Self, SettingsError> {
         let id = id.into();
-        if version == 0 || !valid_id(&id) || fields.keys().any(|field| !valid_id(field)) {
+        if version == 0 || !valid_id(&id) {
+            return Err(SettingsError::InvalidDefinition);
+        }
+        let fields = fields.into_iter().map(|(name, field)| {
+            let schema = match field {
+                SettingsField::Boolean { default } => {
+                    SettingsSchema::boolean().default(default.into())
+                }
+                SettingsField::Integer { default, minimum } => {
+                    let schema = minimum.map_or_else(SettingsSchema::integer, |minimum| {
+                        SettingsSchema::integer().minimum_integer(minimum)
+                    });
+                    schema.default(default.into())
+                }
+            };
+            (name, schema)
+        });
+        Ok(Self {
+            id,
+            version,
+            schema: SettingsSchema::object(fields),
+            migration: None,
+        })
+    }
+
+    pub fn from_schema(
+        id: impl Into<String>,
+        version: u64,
+        schema: SettingsSchema,
+    ) -> Result<Self, SettingsError> {
+        let id = id.into();
+        if version == 0 || !valid_id(&id) {
             return Err(SettingsError::InvalidDefinition);
         }
         Ok(Self {
             id,
             version,
-            fields,
+            schema,
             migration: None,
         })
     }
@@ -113,6 +411,7 @@ pub struct PluginSettingsStore {
     directory: PathBuf,
     definitions: BTreeMap<String, RegisteredDefinition>,
     changed_ids: Vec<String>,
+    error_reporter: Box<ErrorReporter>,
 }
 
 impl PluginSettingsStore {
@@ -125,7 +424,17 @@ impl PluginSettingsStore {
             directory,
             definitions: BTreeMap::new(),
             changed_ids: Vec::new(),
+            error_reporter: Box::new(|error| eprintln!("{error}")),
         })
+    }
+
+    pub fn open_with_error_reporter(
+        directory: impl Into<PathBuf>,
+        error_reporter: impl FnMut(String) + 'static,
+    ) -> Result<Self, SettingsError> {
+        let mut store = Self::open(directory)?;
+        store.error_reporter = Box::new(error_reporter);
+        Ok(store)
     }
 
     pub fn register(&mut self, definition: SettingsDefinition) -> Result<(), SettingsError> {
@@ -148,7 +457,28 @@ impl PluginSettingsStore {
         id: &str,
         listener: impl FnMut(SettingsState) + 'static,
     ) -> Result<(), SettingsError> {
-        self.registered_mut(id)?.listeners.push(Box::new(listener));
+        let mut listener = listener;
+        self.registered_mut(id)?
+            .listeners
+            .push(Box::new(move |state| {
+                listener(state);
+                Box::pin(async { Ok(()) })
+            }));
+        Ok(())
+    }
+
+    pub fn subscribe_async<F, Fut>(
+        &mut self,
+        id: &str,
+        mut listener: F,
+    ) -> Result<(), SettingsError>
+    where
+        F: FnMut(SettingsState) -> Fut + 'static,
+        Fut: Future<Output = Result<(), String>> + 'static,
+    {
+        self.registered_mut(id)?
+            .listeners
+            .push(Box::new(move |state| Box::pin(listener(state))));
         Ok(())
     }
 
@@ -276,42 +606,12 @@ impl PluginSettingsStore {
     }
 
     fn validate(&self, id: &str, values: &Value) -> Result<Value, String> {
-        let fields = &self
+        let schema = &self
             .registered(id)
             .map_err(|_| "Settings are not registered".to_owned())?
             .definition
-            .fields;
-        let input = values
-            .as_object()
-            .ok_or_else(|| "Expected settings object".to_owned())?;
-        let mut parsed = Map::new();
-        for (name, field) in fields {
-            match field {
-                SettingsField::Boolean { default } => {
-                    let value = input.get(name).map_or(Ok(*default), |value| {
-                        value
-                            .as_bool()
-                            .ok_or_else(|| format!("{name}: expected boolean"))
-                    })?;
-                    parsed.insert(name.clone(), Value::Bool(value));
-                }
-                SettingsField::Integer { default, minimum } => {
-                    let value = input.get(name).map_or(Ok(*default), |value| {
-                        value
-                            .as_i64()
-                            .ok_or_else(|| format!("{name}: expected integer"))
-                    })?;
-                    if minimum.is_some_and(|minimum| value < minimum) {
-                        return Err(format!(
-                            "{name}: value must be at least {}",
-                            minimum.unwrap()
-                        ));
-                    }
-                    parsed.insert(name.clone(), Value::from(value));
-                }
-            }
-        }
-        Ok(Value::Object(parsed))
+            .schema;
+        schema.validate(Some(values))
     }
 
     fn stored(&self, id: &str) -> Result<StoredSettings, SettingsError> {
@@ -340,11 +640,24 @@ impl PluginSettingsStore {
     }
 
     fn notify(&mut self, id: &str, state: &SettingsState) -> Result<(), SettingsError> {
-        let listeners = &mut self.registered_mut(id)?.listeners;
-        for listener in listeners {
+        let mut listeners = std::mem::take(&mut self.registered_mut(id)?.listeners);
+        for listener in &mut listeners {
             let state = state.clone();
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(state)));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                block_on(listener(state))
+            }));
+            let failure = match outcome {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(payload) => Some(panic_message(payload.as_ref())),
+            };
+            if let Some(error) = failure {
+                (self.error_reporter)(format!(
+                    "Plugin settings subscriber failed for {id}: {error}"
+                ));
+            }
         }
+        self.registered_mut(id)?.listeners = listeners;
         Ok(())
     }
 
@@ -362,6 +675,103 @@ impl PluginSettingsStore {
 
     fn path(&self, id: &str) -> PathBuf {
         self.directory.join(format!("{id}.json"))
+    }
+}
+
+fn invalid_type(expected: &str, value: &Value) -> String {
+    let received = match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    format!("Invalid input: expected {expected}, received {received}")
+}
+
+fn validate_object(fields: &[(String, SettingsSchema)], value: &Value) -> Result<Value, String> {
+    let input = value
+        .as_object()
+        .ok_or_else(|| invalid_type("object", value))?;
+    let mut output = Map::new();
+    let mut errors = Vec::new();
+    for (name, schema) in fields {
+        match schema.validate(input.get(name)) {
+            Ok(value) => {
+                output.insert(name.clone(), value);
+            }
+            Err(error) => errors.push(error),
+        }
+    }
+    if errors.is_empty() {
+        Ok(Value::Object(output))
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+fn validate_array(
+    item: &SettingsSchema,
+    minimum_length: Option<usize>,
+    value: &Value,
+) -> Result<Value, String> {
+    let input = value
+        .as_array()
+        .ok_or_else(|| invalid_type("array", value))?;
+    if minimum_length.is_some_and(|minimum| input.len() < minimum) {
+        return Err(format!(
+            "Too small: expected array to have >={} items",
+            minimum_length.unwrap()
+        ));
+    }
+    let mut output = Vec::with_capacity(input.len());
+    let mut errors = Vec::new();
+    for value in input {
+        match item.validate(Some(value)) {
+            Ok(value) => output.push(value),
+            Err(error) => errors.push(error),
+        }
+    }
+    if errors.is_empty() {
+        Ok(Value::Array(output))
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload.downcast_ref::<&str>().map_or_else(
+        || {
+            payload
+                .downcast_ref::<String>()
+                .map_or_else(|| "callback panicked".to_owned(), Clone::clone)
+        },
+        |message| (*message).to_owned(),
+    )
+}
+
+struct ThreadWake(thread::Thread);
+
+impl Wake for ThreadWake {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
+fn block_on<F: Future>(future: F) -> F::Output {
+    let waker = Waker::from(Arc::new(ThreadWake(thread::current())));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => thread::park(),
+        }
     }
 }
 

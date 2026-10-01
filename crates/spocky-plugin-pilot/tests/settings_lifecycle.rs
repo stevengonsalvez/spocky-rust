@@ -4,11 +4,13 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use spocky_plugin_pilot::{
-    PluginSettingsStore, SettingsDefinition, SettingsField, SettingsState, SettingsWriteState,
+    PluginSettingsStore, SettingsDefinition, SettingsField, SettingsSchema, SettingsState,
+    SettingsWriteState,
 };
 
 struct TestDir(PathBuf);
@@ -273,4 +275,237 @@ fn notifications_are_isolated_and_namespaces_and_definition_ids_stay_separate() 
     );
     assert!(second.register(display(1)).is_err());
     assert!(SettingsDefinition::new("../escape", 1, BTreeMap::new()).is_err());
+}
+
+fn rich_settings() -> SettingsDefinition {
+    SettingsDefinition::from_schema(
+        "rich",
+        1,
+        SettingsSchema::object([
+            (
+                "items",
+                SettingsSchema::array(SettingsSchema::object([
+                    ("name", SettingsSchema::string().min_length(3)),
+                    ("weight", SettingsSchema::number().minimum(0.0)),
+                ]))
+                .min_length(1),
+            ),
+            ("label", SettingsSchema::string().default(json!("ready"))),
+            (
+                "mode",
+                SettingsSchema::enumeration(["fast", "safe"]).default(json!("safe")),
+            ),
+        ])
+        .refine_async(|value| async move {
+            if value["items"][0]["name"] == "bad" {
+                Err("name rejected asynchronously".into())
+            } else {
+                Ok(())
+            }
+        }),
+    )
+    .expect("valid rich definition")
+}
+
+#[test]
+fn arbitrary_json_schema_defaults_validation_and_async_refinement_match_baseline() {
+    let root = TestDir::new();
+    let mut store = PluginSettingsStore::open(root.path()).expect("open store");
+    store.register(rich_settings()).expect("register settings");
+
+    assert_eq!(
+        store
+            .write(
+                "rich",
+                "missing",
+                &json!({"items": [{"name": "valid", "weight": 1.5, "ignored": true}], "extra": true}),
+            )
+            .expect("write rich settings"),
+        SettingsWriteState::Saved {
+            revision: "5b0e432217a76e07160ccf72afdf410b1e4172c8d0ba3e9bd52830fc6669cade".into(),
+            values: json!({
+                "items": [{"name": "valid", "weight": 1.5}],
+                "label": "ready",
+                "mode": "safe",
+            }),
+        }
+    );
+
+    let (_, revision) = ready(store.read("rich").expect("read rich settings"));
+    assert_eq!(
+        store
+            .write(
+                "rich",
+                &revision,
+                &json!({"items": [{"name": "x", "weight": 1.5}]}),
+            )
+            .expect("invalid string"),
+        SettingsWriteState::Invalid {
+            error: "Too small: expected string to have >=3 characters".into(),
+        }
+    );
+    assert_eq!(
+        store
+            .write(
+                "rich",
+                &revision,
+                &json!({"items": [{"name": "valid", "weight": -1}]}),
+            )
+            .expect("invalid number"),
+        SettingsWriteState::Invalid {
+            error: "Too small: expected number to be >=0".into(),
+        }
+    );
+    assert_eq!(
+        store
+            .write(
+                "rich",
+                &revision,
+                &json!({"items": [{"name": "bad", "weight": 1}]}),
+            )
+            .expect("failed async refinement"),
+        SettingsWriteState::Invalid {
+            error: "name rejected asynchronously".into(),
+        }
+    );
+}
+
+#[test]
+fn enum_array_and_required_object_errors_match_baseline() {
+    let root = TestDir::new();
+    let mut store = PluginSettingsStore::open(root.path()).expect("open store");
+    store.register(rich_settings()).expect("register settings");
+
+    for (values, expected) in [
+        (
+            json!({"items": []}),
+            "Too small: expected array to have >=1 items",
+        ),
+        (
+            json!({"items": [{"name": "valid", "weight": 1}], "mode": "other"}),
+            "Invalid option: expected one of \"fast\"|\"safe\"",
+        ),
+        (
+            json!({"items": [{"weight": 1}]}),
+            "Invalid input: expected string, received undefined",
+        ),
+        (
+            json!({"items": [{"name": "x", "weight": -1}], "mode": "other"}),
+            "Too small: expected string to have >=3 characters\nToo small: expected number to be >=0\nInvalid option: expected one of \"fast\"|\"safe\"",
+        ),
+    ] {
+        assert_eq!(
+            store
+                .write("rich", "missing", &values)
+                .expect("validation result"),
+            SettingsWriteState::Invalid {
+                error: expected.into(),
+            }
+        );
+    }
+}
+
+#[test]
+fn listener_failures_are_reported_without_failing_saved_write() {
+    let root = TestDir::new();
+    let reported = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&reported);
+    let mut store = PluginSettingsStore::open_with_error_reporter(root.path(), move |error| {
+        captured.lock().expect("lock reports").push(error);
+    })
+    .expect("open store");
+    store.register(rich_settings()).expect("register settings");
+    store
+        .subscribe_async("rich", |_| async { Err("subscriber rejected".into()) })
+        .expect("subscribe async listener");
+
+    assert!(matches!(
+        store
+            .write(
+                "rich",
+                "missing",
+                &json!({"items": [{"name": "valid", "weight": 1}]})
+            )
+            .expect("write despite listener failure"),
+        SettingsWriteState::Saved { .. }
+    ));
+    assert_eq!(
+        *reported.lock().expect("lock reports"),
+        ["Plugin settings subscriber failed for rich: subscriber rejected"]
+    );
+}
+
+fn write_result_json(result: SettingsWriteState) -> Value {
+    match result {
+        SettingsWriteState::Saved { values, revision } => {
+            json!({"status": "saved", "values": values, "revision": revision})
+        }
+        SettingsWriteState::Conflict { error } => {
+            json!({"status": "conflict", "error": error})
+        }
+        SettingsWriteState::Invalid { error } => json!({"status": "invalid", "error": error}),
+    }
+}
+
+#[test]
+fn differential_capture_matches_pinned_settings_cases() {
+    let root = TestDir::new();
+    let mut cases = Vec::new();
+    for (name, values) in [
+        ("array", json!({"items": []})),
+        (
+            "enum",
+            json!({"items": [{"name": "valid", "weight": 1}], "mode": "other"}),
+        ),
+        ("required", json!({"items": [{"weight": 1}]})),
+        ("string", json!({"items": [{"name": "x", "weight": 1.5}]})),
+        (
+            "number",
+            json!({"items": [{"name": "valid", "weight": -1}]}),
+        ),
+        (
+            "refinement",
+            json!({"items": [{"name": "bad", "weight": 1}]}),
+        ),
+        (
+            "multiple",
+            json!({"items": [{"name": "x", "weight": -1}], "mode": "other"}),
+        ),
+    ] {
+        let mut store = PluginSettingsStore::open(root.path().join(name)).expect("open store");
+        store.register(rich_settings()).expect("register settings");
+        let result = store
+            .write("rich", "missing", &values)
+            .expect("capture write result");
+        cases.push(json!({"name": name, "result": write_result_json(result)}));
+    }
+
+    let reports = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&reports);
+    let mut store =
+        PluginSettingsStore::open_with_error_reporter(root.path().join("saved"), move |error| {
+            captured.lock().expect("lock reports").push(error);
+        })
+        .expect("open callback store");
+    store.register(rich_settings()).expect("register settings");
+    store
+        .subscribe_async("rich", |_| async { Err("subscriber rejected".into()) })
+        .expect("subscribe callback");
+    let result = store
+        .write(
+            "rich",
+            "missing",
+            &json!({"items": [{"name": "valid", "weight": 1.5, "ignored": true}], "extra": true}),
+        )
+        .expect("capture saved result");
+    cases.push(json!({
+        "name": "saved",
+        "reports": reports.lock().expect("lock reports").clone(),
+        "result": write_result_json(result),
+    }));
+
+    println!(
+        "PLUGIN_SETTINGS_RUST {}",
+        serde_json::to_string(&cases).expect("serialize capture")
+    );
 }

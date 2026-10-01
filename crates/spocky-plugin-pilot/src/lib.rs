@@ -33,8 +33,8 @@ pub use protocol::{
     ProviderInput, RuntimeProtocolStep, decode_process_message, decode_process_request,
 };
 pub use settings::{
-    PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsState,
-    SettingsWriteState,
+    PluginSettingsStore, SettingsDefinition, SettingsError, SettingsField, SettingsSchema,
+    SettingsState, SettingsWriteState,
 };
 
 const fn node_program() -> &'static str {
