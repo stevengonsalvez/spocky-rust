@@ -41,7 +41,7 @@ use crate::admission::{
 use crate::bearer::{
     extract_http_bearer_token, extract_ws_bearer_protocol, extract_ws_bearer_token,
 };
-use crate::hostnames::Hostnames;
+use crate::hostnames::{Hostnames, is_hostname_allowed};
 use crate::http::{
     HttpContext, HttpResponse, KEEP_ALIVE_TIMEOUT_SECS, ParsedHead, current_ms, handle_request,
     is_upgrade_request, parse_head,
@@ -1056,6 +1056,37 @@ fn serve_connection(shared: &Arc<Shared>, mut stream: Box<dyn Connection>) {
     }
 }
 
+/// `verifyClient`'s warning for a 403: the request metadata (`host`, `origin`,
+/// `userAgent`, `remoteAddress`, each only when present) under the baseline's
+/// message for the cause.
+fn log_rejected_upgrade(shared: &Shared, request: &UpgradeRequest, remote: Option<&str>) {
+    let host = request.header("host").filter(|value| !value.is_empty());
+    let origin = request.header("origin").filter(|value| !value.is_empty());
+    let user_agent = request
+        .header("user-agent")
+        .filter(|value| !value.is_empty());
+    let mut fields: Vec<(&str, &str)> = Vec::new();
+    for (name, value) in [
+        ("host", host.as_deref()),
+        ("origin", origin.as_deref()),
+        ("userAgent", user_agent.as_deref()),
+        ("remoteAddress", remote.filter(|value| !value.is_empty())),
+    ] {
+        if let Some(value) = value {
+            fields.push((name, value));
+        }
+    }
+    let host_rejected = host
+        .as_deref()
+        .is_some_and(|host| !is_hostname_allowed(Some(host), shared.config.hostnames.as_ref()));
+    let message = if host_rejected {
+        "Rejected connection from disallowed host"
+    } else {
+        "Rejected connection from origin"
+    };
+    shared.deps.logger.warn(&fields, message);
+}
+
 fn upgrade(
     shared: &Arc<Shared>,
     mut stream: Box<dyn Connection>,
@@ -1075,10 +1106,8 @@ fn upgrade(
     match evaluate_upgrade(request, &policy) {
         UpgradeDecision::Reject { response, abort } => {
             if abort.code == 403 {
-                shared.deps.logger.warn(
-                    &[("host", request.header("host").as_deref().unwrap_or(""))],
-                    &format!("Rejected connection: {}", abort.message),
-                );
+                let remote = stream.remote_address().map(|address| address.to_string());
+                log_rejected_upgrade(shared, request, remote.as_deref());
             }
             let _ = stream.write_all(&response);
             let _ = stream.flush();
@@ -1194,7 +1223,7 @@ impl SocketTask {
             .password_hash
             .clone()
             .filter(|hash| !hash.is_empty());
-        // COMPAT(headerAuth): added in v0.9.1, remove after 2026-03-24.
+        // COMPAT(headerAuth): added in v0.9.1, remove after 2027-03-24.
         let protocol = request.header("sec-websocket-protocol");
         let ws_protocol = extract_ws_bearer_protocol(protocol.as_deref());
         let authorization = request.header("authorization");
