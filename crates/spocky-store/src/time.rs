@@ -52,8 +52,14 @@ pub fn parse_iso_millis(value: &str) -> Option<i64> {
     if cursor.index != cursor.bytes.len() {
         return None;
     }
-    Some(days_from_civil(year, month, 1) * 86_400_000 + (day - 1) * 86_400_000 + millis_of_day)
+    let millis =
+        days_from_civil(year, month, 1) * 86_400_000 + (day - 1) * 86_400_000 + millis_of_day;
+    // TimeClip: a time value beyond 8.64e15 ms from the epoch is NaN.
+    (millis.abs() <= MAX_TIME_MILLIS).then_some(millis)
 }
+
+/// ECMAScript time values span +/-8.64e15 ms (100,000,000 days).
+const MAX_TIME_MILLIS: i64 = 8_640_000_000_000_000;
 
 struct Cursor<'a> {
     bytes: &'a [u8],
@@ -175,6 +181,13 @@ mod tests {
             ("+002026-10-01T00:00:00Z", Some(1_790_812_800_000)),
             ("1970-01-01T00:00:00.000Z", Some(0)),
             ("1969-12-31T23:59:59.999Z", Some(-1)),
+            ("+275760-09-13T00:00:00.000Z", Some(8_640_000_000_000_000)),
+            ("+275760-09-13T00:00:00.001Z", None),
+            ("-271821-04-20T00:00:00.000Z", Some(-8_640_000_000_000_000)),
+            ("-271821-04-19T23:59:59.999Z", None),
+            ("+275760-09-13T01:00:00+01:00", Some(8_640_000_000_000_000)),
+            ("-000000-01-01T00:00:00Z", None),
+            ("0000-01-01T00:00:00Z", Some(-62_167_219_200_000)),
             ("garbage", None),
             ("2026-10-01T12:34:56.Z", None),
         ] {
