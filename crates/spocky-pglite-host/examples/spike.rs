@@ -1,4 +1,4 @@
-//! End-to-end spike of the Rust PGlite host. Prints a JSON report.
+//! End-to-end spike of the Rust `PGlite` host. Prints a JSON report.
 //!
 //! Usage: `spike <package root> <fresh data directory> <copy of a Node-made
 //! data directory>`. The host runs on a dedicated large-stack thread.
@@ -73,6 +73,7 @@ fn error_text(error: &HostError) -> String {
     format!("{error}")
 }
 
+#[allow(clippy::too_many_lines, reason = "one sequential spike workload")]
 fn run(package_root: &Path, fresh: &Path, node_copy: &Path) -> Value {
     let mut steps = Vec::new();
     let started = Instant::now();
@@ -122,7 +123,7 @@ fn run(package_root: &Path, fresh: &Path, node_copy: &Path) -> Value {
     }
     match database.query_messages("select * from missing_table", &[]) {
         Ok(_) => {
-            steps.push(json!({"step": "structuredError", "error": "query unexpectedly succeeded"}))
+            steps.push(json!({"step": "structuredError", "error": "query unexpectedly succeeded"}));
         }
         Err(HostError::Database(fields)) => steps.push(json!({
             "step": "structuredError",
