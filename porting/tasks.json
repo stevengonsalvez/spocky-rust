@@ -13,7 +13,34 @@
     "reviewOnly": { "model": "gpt-6-astra", "effort": "xhigh" },
     "runnerEvidence": "Native goal active. Worker spawn receipts expose requested model and effort. Permission preflight is recorded before replacement work begins.",
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
-  "activeChildren": [],
+  "activeChildren": [
+    {
+      "id": "p2_plugin_daemon_rpc",
+      "terminal": "term_3022569d",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "approvalPolicy": "never",
+      "sandbox": "danger-full-access/unrestricted",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-daemon-rpc",
+      "branch": "phase2-plugin-daemon-rpc",
+      "paths": ["crates/spocky-plugin-pilot/", "scripts/phase2/plugin-daemon-rpc*", "evidence/phase2/plugin-daemon-rpc*"],
+      "delegation": "forbidden",
+      "state": "running"
+    },
+    {
+      "id": "p2_relay_ops",
+      "terminal": "term_fae96698",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "approvalPolicy": "never",
+      "sandbox": "danger-full-access/unrestricted",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-relay-ops",
+      "branch": "phase2-relay-ops",
+      "paths": ["crates/spocky-relay-pilot/", "scripts/phase2/relay-ops*", "evidence/phase2/relay-ops*"],
+      "delegation": "forbidden",
+      "state": "running; local TLS, non-loopback, bounded load, and gauges only"
+    }
+  ],
     "retiredWorkers": [
       { "id": "inventory_daemon", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "interrupted and permanently retired", "reason": "EPERM during Phase 2 cloud/plugin pilot", "reuseForbidden": true, "preservedWorktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot" },
       { "id": "inventory_clients", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "thread absent and permanently retired", "reason": "permission profile predates full-access authorization", "reuseForbidden": true },
@@ -375,6 +402,41 @@
             "scripts/phase2/hub-schema-downgrade*",
             "evidence/phase2/hub-schema-downgrade*"
           ]
+        },
+        {
+          "task": "p2_plugin_daemon_rpc",
+          "canonicalThread": "external-codex/p2_plugin_daemon_rpc",
+          "terminal": "term_3022569d",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "approvalPolicy": "never",
+          "sandbox": "danger-full-access/unrestricted",
+          "status": "implementing",
+          "baseCommit": "42a2519316d4e08ec827061c8efe4ffc54f24a8d",
+          "dependencies": ["p2_plugin_hook_runtime"],
+          "acceptanceCases": ["selected daemon RPC integration uses the compiled plugin runtime", "pinned baseline and candidate messages match without normalization", "failures, restart, cancellation, and cleanup stay bounded", "port 6767 remains untouched"],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-daemon-rpc",
+          "branch": "phase2-plugin-daemon-rpc",
+          "delegation": "forbidden",
+          "permittedPaths": ["crates/spocky-plugin-pilot/", "scripts/phase2/plugin-daemon-rpc*", "evidence/phase2/plugin-daemon-rpc*"]
+        },
+        {
+          "task": "p2_relay_ops",
+          "canonicalThread": "external-codex/p2_relay_ops",
+          "terminal": "term_fae96698",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "approvalPolicy": "never",
+          "sandbox": "danger-full-access/unrestricted",
+          "status": "implementing",
+          "baseCommit": "42a2519316d4e08ec827061c8efe4ffc54f24a8d",
+          "dependencies": ["p2_relay_frame_parity"],
+          "acceptanceCases": ["qualify local TLS without production deployment", "qualify non-loopback interfaces in an isolated environment", "run bounded load without port 6767", "publish fixed-cardinality operational gauges", "all services and descendants clean up exactly"],
+          "limitations": ["deployment remains outside scope"],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-relay-ops",
+          "branch": "phase2-relay-ops",
+          "delegation": "forbidden",
+          "permittedPaths": ["crates/spocky-relay-pilot/", "scripts/phase2/relay-ops*", "evidence/phase2/relay-ops*"]
         }
       ],
       "blockedBy": null
