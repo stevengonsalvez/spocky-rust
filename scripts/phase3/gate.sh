@@ -58,14 +58,6 @@ runner=$CARGO_TARGET_DIR/debug/spocky-slice-gate
 [ -x "$stub" ] && [ -x "$runner" ] || p3_fail "harness binaries missing under $CARGO_TARGET_DIR/debug"
 
 spocky_daemon=
-if [ "$self_check_only" = false ]; then
-  (cd "$repository_root" &&
-    "$build_gate" gtimeout --kill-after=30 900 \
-      cargo build --locked -p spocky-daemon --bin spocky-daemon) >&2 ||
-    p3_fail "blocked: spocky-daemon binary does not build (crate spocky-daemon has no bin target or fails to compile)"
-  spocky_daemon=$CARGO_TARGET_DIR/debug/spocky-daemon
-  [ -x "$spocky_daemon" ] || p3_fail "blocked: missing $spocky_daemon"
-fi
 
 run_id=$gate-$(date -u +%Y%m%dT%H%M%SZ)
 evidence=$repository_root/evidence/raw/phase3/$run_id
@@ -96,7 +88,16 @@ overall=0
 run_pair self-check original || overall=1
 if [ "$self_check_only" = false ]; then
   if [ "$overall" -eq 0 ]; then
-    run_pair parity spocky || overall=1
+    if (cd "$repository_root" &&
+      "$build_gate" gtimeout --kill-after=30 900 \
+        cargo build --locked -p spocky-daemon --bin spocky-daemon) >&2 &&
+      [ -x "$CARGO_TARGET_DIR/debug/spocky-daemon" ]; then
+      spocky_daemon=$CARGO_TARGET_DIR/debug/spocky-daemon
+      run_pair parity spocky || overall=1
+    else
+      printf '%s parity blocked: crate spocky-daemon has no buildable bin target spocky-daemon\n' "$gate" >&2
+      overall=1
+    fi
   else
     printf '%s parity skipped: self-check failed, so a parity verdict would be meaningless\n' "$gate" >&2
   fi
