@@ -15,7 +15,7 @@ fn main() {
             )
             .expect("query pre-migration journal"),
     );
-    let baseline_marker = marker_present(&host, "pinned-baseline");
+    let baseline_marker_payload = marker_payload(&host, "pinned-baseline");
     let migration = host.migrate().expect("migrate baseline directory");
     host.query(
         "insert into legacy_handoff_probe (producer, payload) values ($1, $2)",
@@ -33,7 +33,7 @@ fn main() {
             )
             .expect("query post-migration journal"),
     );
-    let candidate_marker = marker_present(&host, "retained-candidate");
+    let candidate_marker_payload = marker_payload(&host, "retained-candidate");
     let identity = host.identity().clone();
     host.close().expect("close retained candidate");
 
@@ -46,8 +46,8 @@ fn main() {
             "beforeJournalRows": before_journal_rows,
             "migration": migration,
             "afterJournalRows": after_journal_rows,
-            "baselineMarker": baseline_marker,
-            "candidateMarker": candidate_marker,
+            "baselineMarkerPayload": baseline_marker_payload,
+            "candidateMarkerPayload": candidate_marker_payload,
         }))
         .expect("serialize handoff evidence")
     );
@@ -80,12 +80,18 @@ fn scalar_count(result: &spocky_hub_pilot::QueryResult) -> usize {
     }
 }
 
-fn marker_present(host: &RetainedPgliteHost, producer: &str) -> bool {
+fn marker_payload(host: &RetainedPgliteHost, producer: &str) -> String {
     let result = host
         .query(
             "select payload from legacy_handoff_probe where producer = $1",
             &[IpcValue::String(producer.into())],
         )
         .expect("query handoff marker");
-    result.rows.len() == 1
+    match result.rows.as_slice() {
+        [row] => match row.as_slice() {
+            [IpcValue::String(payload)] => payload.clone(),
+            other => panic!("unexpected marker row: {other:?}"),
+        },
+        other => panic!("unexpected marker result: {other:?}"),
+    }
 }

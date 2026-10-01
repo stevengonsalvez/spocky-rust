@@ -47,29 +47,29 @@ if [ -n "$baseline_before" ]; then
   exit 1
 fi
 
-gtimeout 300 git -C "$baseline_root" archive -o "$fixture_root/baseline.tar" "$expected_baseline"
+gtimeout --kill-after=30 300 git -C "$baseline_root" archive -o "$fixture_root/baseline.tar" "$expected_baseline"
 gtimeout 60 mkdir "$fixture_root/source"
 gtimeout 60 tar -xf "$fixture_root/baseline.tar" -C "$fixture_root/source"
-(cd "$fixture_root/source" && gtimeout 600 npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1)
+(cd "$fixture_root/source" && gtimeout --kill-after=30 600 npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1)
 gtimeout 30 mkdir "$fixture_root/database"
 
 PASEO_HUB_SOURCE_ROOT="$fixture_root/source" \
-  gtimeout 300 "$fixture_root/source/node_modules/.bin/tsx" \
+  gtimeout --kill-after=30 300 "$fixture_root/source/node_modules/.bin/tsx" \
     "$repository_root/scripts/phase2/hub-legacy-handoff-baseline.mjs" \
     produce "$fixture_root/database" >"$fixture_root/baseline-produce.json"
 
-gtimeout 300 cargo build --locked --manifest-path "$repository_root/Cargo.toml" \
+gtimeout --kill-after=30 300 cargo build --locked --manifest-path "$repository_root/Cargo.toml" \
   -p spocky-hub-pilot --bin hub-legacy-handoff-evidence >/dev/null
 SPOCKY_NODE=$(gtimeout 30 command -v node) \
 SPOCKY_PGLITE_ADAPTER="$repository_root/scripts/phase2/hub-embedded-retained-host.mjs" \
 SPOCKY_PGLITE_PACKAGE="$fixture_root/source/node_modules/@electric-sql/pglite" \
 SPOCKY_HUB_MIGRATIONS="$fixture_root/source/drizzle" \
-  gtimeout 300 "$repository_root/target/debug/hub-legacy-handoff-evidence" \
+  gtimeout --kill-after=30 300 "$repository_root/target/debug/hub-legacy-handoff-evidence" \
     "$fixture_root/database" >"$fixture_root/candidate-forward.json"
 
 set +e
 PASEO_HUB_SOURCE_ROOT="$fixture_root/source" \
-  gtimeout 300 "$fixture_root/source/node_modules/.bin/tsx" \
+  gtimeout --kill-after=30 300 "$fixture_root/source/node_modules/.bin/tsx" \
     "$repository_root/scripts/phase2/hub-legacy-handoff-baseline.mjs" \
     reverse-observe "$fixture_root/database" >"$fixture_root/baseline-reverse.stdout" \
     2>"$fixture_root/baseline-reverse.stderr"
@@ -129,20 +129,32 @@ gtimeout 30 jq -n \
     },
     dataPreservation: {
       status: (
-        if $forward[0].baselineMarker and $forward[0].candidateMarker
+        if $forward[0].baselineMarkerPayload == "baseline-data-preserved"
+          and $forward[0].candidateMarkerPayload == "candidate-data-preserved"
         then "preserved"
         else "not-preserved"
         end
       ),
-      baselineMarker: $forward[0].baselineMarker,
-      candidateMarker: $forward[0].candidateMarker
+      baselineMarkerPayload: $forward[0].baselineMarkerPayload,
+      candidateMarkerPayload: $forward[0].candidateMarkerPayload
     },
     reverseRollback: {
       status: $reverseStatus,
       baselineOpenedCandidateDirectory: ($reverseStatus == "supported" and $reverse[0].opened == true),
       baselineSawCandidateMarker: (
         $reverseStatus == "supported"
-        and any($reverse[0].probeRows[]?; .producer == "retained-candidate")
+        and any($reverse[0].probeRows[]?;
+          .producer == "retained-candidate" and .payload == "candidate-data-preserved")
+      ),
+      baselineSawBaselineMarker: (
+        $reverseStatus == "supported"
+        and any($reverse[0].probeRows[]?;
+          .producer == "pinned-baseline" and .payload == "baseline-data-preserved")
+      ),
+      journalPreserved: (
+        $reverseStatus == "supported"
+        and $reverse[0].journalBeforeMigrate == 49
+        and $reverse[0].journalAfterMigrate == 49
       ),
       observation: $reverse[0]
     },
@@ -156,6 +168,23 @@ gtimeout 30 jq -n \
       capability: "Retain pinned PGlite JavaScript host behind bounded Rust IPC"
     }
   }' >"$fixture_root/report.json"
+
+gtimeout 30 jq -e '
+  .forwardHandoff.status == "supported"
+  and .schemaMigration.status == "no-op-current-schema"
+  and .dataPreservation.status == "preserved"
+  and .dataPreservation.baselineMarkerPayload == "baseline-data-preserved"
+  and .dataPreservation.candidateMarkerPayload == "candidate-data-preserved"
+  and (
+    if .reverseRollback.status == "supported"
+    then .reverseRollback.baselineOpenedCandidateDirectory == true
+      and .reverseRollback.baselineSawCandidateMarker == true
+      and .reverseRollback.baselineSawBaselineMarker == true
+      and .reverseRollback.journalPreserved == true
+    else .reverseRollback.observation.exitStatus != 0
+    end
+  )
+' "$fixture_root/report.json" >/dev/null
 
 gtimeout 30 cp "$fixture_root/baseline-produce.json" \
   "$evidence_root/hub-legacy-handoff-baseline-produce.json"

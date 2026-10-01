@@ -16,7 +16,7 @@ printf '%s\n' "$plan" | grep -F 'forward: pinned baseline writes, retained candi
 printf '%s\n' "$plan" | grep -F 'reverse: pinned baseline reopens candidate-mutated directory, bounded to 300s'
 printf '%s\n' "$plan" | grep -F 'acceptance: compatibility exception remains required-not-accepted'
 
-gtimeout 1200 "$runner" >"$output"
+gtimeout --kill-after=30 1200 "$runner" >"$output"
 
 jq -e '
   .baseline.commit == "28f6c78833065fd282f9064f92a9aa61875dd359"
@@ -29,13 +29,15 @@ jq -e '
   and .schemaMigration.applied == 0
   and .schemaMigration.afterJournalRows == 49
   and .dataPreservation.status == "preserved"
-  and .dataPreservation.baselineMarker == true
-  and .dataPreservation.candidateMarker == true
+  and .dataPreservation.baselineMarkerPayload == "baseline-data-preserved"
+  and .dataPreservation.candidateMarkerPayload == "candidate-data-preserved"
   and (.reverseRollback.status == "supported" or .reverseRollback.status == "unsupported")
   and (
     if .reverseRollback.status == "supported"
     then .reverseRollback.baselineOpenedCandidateDirectory == true
       and .reverseRollback.baselineSawCandidateMarker == true
+      and .reverseRollback.baselineSawBaselineMarker == true
+      and .reverseRollback.journalPreserved == true
     else .reverseRollback.observation.exitStatus != 0
     end
   )
