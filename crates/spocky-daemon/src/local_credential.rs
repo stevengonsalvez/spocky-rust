@@ -80,7 +80,9 @@ pub fn read_local_credential(home: &Path) -> Option<String> {
     let raw = fs::read_to_string(home.join(FILE_NAME)).ok()?;
     let token = js::trim(&raw);
     (token.len() == TOKEN_LENGTH
-        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
     .then(|| token.to_owned())
 }
 
@@ -103,7 +105,10 @@ mod tests {
         assert_eq!(token.len(), 43);
         let file = home.path().join("local-credential");
         assert_eq!(fs::read_to_string(&file).unwrap(), format!("{token}\n"));
-        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
         assert_eq!(read_local_credential(home.path()), Some(token));
     }
@@ -130,7 +135,12 @@ mod tests {
     fn rejects_files_that_are_not_a_43_character_token() {
         let home = tempfile::tempdir().unwrap();
         let file = home.path().join("local-credential");
-        for bad in ["", "short", &"a".repeat(44), &format!("{}!", "a".repeat(42))] {
+        for bad in [
+            "",
+            "short",
+            &"a".repeat(44),
+            &format!("{}!", "a".repeat(42)),
+        ] {
             fs::write(&file, bad).unwrap();
             assert_eq!(read_local_credential(home.path()), None, "{bad}");
         }
