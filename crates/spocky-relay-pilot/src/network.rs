@@ -584,7 +584,7 @@ fn accept_connection(
     let websocket_config = tungstenite::protocol::WebSocketConfig::default()
         .max_frame_size(Some(shared.config.max_frame_payload_bytes))
         .max_message_size(Some(shared.config.max_frame_payload_bytes));
-    let socket = tungstenite::accept_hdr_with_config(
+    let mut socket = tungstenite::accept_hdr_with_config(
         stream,
         move |request: &Request, response: Response| {
             authorize_upgrade(&callback_shared, request, response, &callback_connection)
@@ -593,6 +593,11 @@ fn accept_connection(
     )
     .ok()?;
     let connection = accepted_connection.lock().unwrap().clone()?;
+    let payload_limit = connection_payload_limit(shared, &connection);
+    socket.set_config(|config| {
+        config.max_frame_size = Some(payload_limit);
+        config.max_message_size = Some(payload_limit);
+    });
     Some((socket, connection))
 }
 
@@ -610,15 +615,19 @@ fn has_unattached_client(shared: &Shared, session: &str) -> bool {
 }
 
 fn frame_exceeds_limit(shared: &Shared, connection: &AcceptedConnection, frame: &Message) -> bool {
-    let limit = if connection.kind == ConnectionKind::Control {
-        shared.config.max_control_payload_bytes
-    } else {
-        shared.config.max_frame_payload_bytes
-    };
+    let limit = connection_payload_limit(shared, connection);
     match frame {
         Message::Text(text) => text.len() > limit,
         Message::Binary(bytes) => bytes.len() > limit,
         _ => false,
+    }
+}
+
+fn connection_payload_limit(shared: &Shared, connection: &AcceptedConnection) -> usize {
+    if connection.kind == ConnectionKind::Control {
+        shared.config.max_control_payload_bytes
+    } else {
+        shared.config.max_frame_payload_bytes
     }
 }
 
@@ -634,58 +643,214 @@ fn rejects_client_handshake(connection: &AcceptedConnection, frame: &Message) ->
     let Ok(payload) = std::str::from_utf8(payload) else {
         return false;
     };
-    let Some(handshake_type) = json_string_field(payload, "type") else {
+    let Some(fields) = parse_handshake_fields(payload) else {
+        return false;
+    };
+    let Some(handshake_type) = fields.handshake_type else {
         return false;
     };
     if !matches!(handshake_type.as_str(), "hello" | "e2ee_hello") {
         return false;
     }
-    json_string_field(payload, "key").is_none_or(|encoded| match import_public_key(&encoded) {
-        Ok(key) => !canonical_x25519_coordinate(&key) || derive_shared_key(&[7; 32], &key).is_err(),
-        Err(_) => true,
-    })
+    fields
+        .key
+        .is_none_or(|encoded| match import_public_key(&encoded) {
+            Ok(key) => {
+                !canonical_x25519_coordinate(&key) || derive_shared_key(&[7; 32], &key).is_err()
+            }
+            Err(_) => true,
+        })
 }
 
-fn json_string_field(payload: &str, field: &str) -> Option<String> {
-    let payload = payload.trim();
-    let inner = payload.strip_prefix('{')?.strip_suffix('}')?;
-    let bytes = inner.as_bytes();
-    let mut index = 0;
-    let mut depth = 0_usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'{' | b'[' => depth += 1,
-            b'}' | b']' => depth = depth.saturating_sub(1),
-            b'"' => {
-                let end = json_string_end(bytes, index + 1)?;
-                if depth == 0
-                    && json_key_position(bytes, index)
-                    && decode_json_string(&inner[index + 1..end]).as_deref() == Some(field)
-                {
-                    let mut value = end + 1;
-                    while bytes.get(value).is_some_and(u8::is_ascii_whitespace) {
-                        value += 1;
-                    }
-                    if bytes.get(value) != Some(&b':') {
-                        return None;
-                    }
-                    value += 1;
-                    while bytes.get(value).is_some_and(u8::is_ascii_whitespace) {
-                        value += 1;
-                    }
-                    if bytes.get(value) != Some(&b'"') {
-                        return None;
-                    }
-                    let value_end = json_string_end(bytes, value + 1)?;
-                    return decode_json_string(&inner[value + 1..value_end]);
-                }
-                index = end;
-            }
-            _ => {}
-        }
-        index += 1;
+#[derive(Default)]
+struct HandshakeFields {
+    handshake_type: Option<String>,
+    key: Option<String>,
+    type_seen: bool,
+    key_seen: bool,
+}
+
+fn parse_handshake_fields(payload: &str) -> Option<HandshakeFields> {
+    let mut parser = JsonParser {
+        bytes: payload.as_bytes(),
+        index: 0,
+    };
+    parser.skip_whitespace();
+    let mut fields = HandshakeFields::default();
+    if parser.peek()? == b'{' {
+        parser.parse_object(Some(&mut fields))?;
+    } else {
+        parser.parse_value()?;
     }
-    None
+    parser.skip_whitespace();
+    (parser.index == parser.bytes.len()).then_some(fields)
+}
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    index: usize,
+}
+
+enum JsonValue {
+    String(String),
+    Other,
+}
+
+impl JsonValue {
+    fn into_string(self) -> Option<String> {
+        match self {
+            Self::String(value) => Some(value),
+            Self::Other => None,
+        }
+    }
+}
+
+impl JsonParser<'_> {
+    fn parse_value(&mut self) -> Option<JsonValue> {
+        self.skip_whitespace();
+        match self.peek()? {
+            b'"' => self.parse_string().map(JsonValue::String),
+            b'{' => {
+                self.parse_object(None)?;
+                Some(JsonValue::Other)
+            }
+            b'[' => {
+                self.parse_array()?;
+                Some(JsonValue::Other)
+            }
+            b't' => self.parse_literal(b"true").map(|()| JsonValue::Other),
+            b'f' => self.parse_literal(b"false").map(|()| JsonValue::Other),
+            b'n' => self.parse_literal(b"null").map(|()| JsonValue::Other),
+            b'-' | b'0'..=b'9' => self.parse_number().map(|()| JsonValue::Other),
+            _ => None,
+        }
+    }
+
+    fn parse_object(&mut self, mut fields: Option<&mut HandshakeFields>) -> Option<()> {
+        self.consume(b'{')?;
+        self.skip_whitespace();
+        if self.consume_if(b'}') {
+            return Some(());
+        }
+        loop {
+            let field = self.parse_string()?;
+            self.skip_whitespace();
+            self.consume(b':')?;
+            let value = self.parse_value()?;
+            if let Some(fields) = fields.as_deref_mut() {
+                match field.as_str() {
+                    "type" if !fields.type_seen => {
+                        fields.type_seen = true;
+                        fields.handshake_type = value.into_string();
+                    }
+                    "key" if !fields.key_seen => {
+                        fields.key_seen = true;
+                        fields.key = value.into_string();
+                    }
+                    _ => {}
+                }
+            }
+            self.skip_whitespace();
+            if self.consume_if(b'}') {
+                return Some(());
+            }
+            self.consume(b',')?;
+            self.skip_whitespace();
+        }
+    }
+
+    fn parse_array(&mut self) -> Option<()> {
+        self.consume(b'[')?;
+        self.skip_whitespace();
+        if self.consume_if(b']') {
+            return Some(());
+        }
+        loop {
+            self.parse_value()?;
+            self.skip_whitespace();
+            if self.consume_if(b']') {
+                return Some(());
+            }
+            self.consume(b',')?;
+            self.skip_whitespace();
+        }
+    }
+
+    fn parse_string(&mut self) -> Option<String> {
+        self.consume(b'"')?;
+        let start = self.index;
+        let end = json_string_end(self.bytes, start)?;
+        let decoded = std::str::from_utf8(&self.bytes[start..end])
+            .ok()
+            .and_then(decode_json_string)?;
+        self.index = end + 1;
+        Some(decoded)
+    }
+
+    fn parse_number(&mut self) -> Option<()> {
+        self.consume_if(b'-');
+        match self.peek()? {
+            b'0' => self.index += 1,
+            b'1'..=b'9' => {
+                self.index += 1;
+                while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
+                    self.index += 1;
+                }
+            }
+            _ => return None,
+        }
+        if self.consume_if(b'.') {
+            self.consume_digits()?;
+        }
+        if self.peek().is_some_and(|byte| matches!(byte, b'e' | b'E')) {
+            self.index += 1;
+            if self.peek().is_some_and(|byte| matches!(byte, b'+' | b'-')) {
+                self.index += 1;
+            }
+            self.consume_digits()?;
+        }
+        Some(())
+    }
+
+    fn consume_digits(&mut self) -> Option<()> {
+        let start = self.index;
+        while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
+            self.index += 1;
+        }
+        (self.index > start).then_some(())
+    }
+
+    fn parse_literal(&mut self, literal: &[u8]) -> Option<()> {
+        (self.bytes.get(self.index..self.index + literal.len())? == literal).then(|| {
+            self.index += literal.len();
+        })
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self
+            .peek()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        {
+            self.index += 1;
+        }
+    }
+
+    fn consume(&mut self, expected: u8) -> Option<()> {
+        self.consume_if(expected).then_some(())
+    }
+
+    fn consume_if(&mut self, expected: u8) -> bool {
+        if self.peek() == Some(expected) {
+            self.index += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.index).copied()
+    }
 }
 
 fn decode_json_string(encoded: &str) -> Option<String> {
@@ -758,17 +923,6 @@ fn json_string_end(bytes: &[u8], mut index: usize) -> Option<usize> {
         index += 1;
     }
     None
-}
-
-fn json_key_position(bytes: &[u8], index: usize) -> bool {
-    let prefix = &bytes[..index];
-    let Some(previous) = prefix.iter().rfind(|byte| !byte.is_ascii_whitespace()) else {
-        return true;
-    };
-    if *previous != b',' {
-        return false;
-    }
-    true
 }
 
 fn canonical_x25519_coordinate(key: &[u8; 32]) -> bool {

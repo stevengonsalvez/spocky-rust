@@ -41,6 +41,65 @@ fn escaped_handshake_spellings_match_decoded_json_and_preserve_opaque_bytes() {
 }
 
 #[test]
+fn malformed_json_handshake_lookalikes_remain_opaque() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let mut daemon = websocket(address, "malformed-json", "server", "1", "");
+    let mut client = websocket(address, "malformed-json", "client", "1", "");
+    let invalid_key = export_public_key(&[0; 32]).unwrap();
+    let payloads = [
+        r#"{"type":"hello","key":"\uD800"}"#.to_owned(),
+        format!(r#"{{"type":"hello","key":"{invalid_key}","ignored":[}}"#),
+        format!(r#"{{"type":"hello","key":"{invalid_key}",}}"#),
+        format!(r#"{{"type":"hello","key":"{invalid_key}"}} trailing"#),
+        format!("{{\"type\":\"hello\",\"key\":\"{invalid_key}\",\u{000c}\"ignored\":null}}"),
+    ];
+
+    for payload in payloads {
+        client.send(Message::Text(payload.clone().into())).unwrap();
+        assert_eq!(daemon.read().unwrap(), Message::Text(payload.into()));
+    }
+}
+
+#[test]
+fn duplicate_handshake_fields_use_first_value() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let valid_key = export_public_key(&key_pair_from_secret([7; 32]).public_key).unwrap();
+    let invalid_key = export_public_key(&[0; 32]).unwrap();
+    let mut daemon = websocket(address, "duplicate-forward", "server", "1", "");
+    let mut client = websocket(address, "duplicate-forward", "client", "1", "");
+    let first_non_handshake = format!(r#"{{"type":"ping","type":"hello","key":"{invalid_key}"}}"#);
+    let first_valid_key =
+        format!(r#"{{"type":"hello","key":"{valid_key}","key":"{invalid_key}"}}"#);
+
+    for payload in [first_non_handshake, first_valid_key] {
+        client.send(Message::Text(payload.clone().into())).unwrap();
+        assert_eq!(daemon.read().unwrap(), Message::Text(payload.into()));
+    }
+
+    let mut first_handshake = websocket(address, "duplicate-type-reject", "client", "1", "");
+    first_handshake
+        .send(Message::Text(
+            format!(r#"{{"type":"hello","type":"ping","key":"{invalid_key}"}}"#).into(),
+        ))
+        .unwrap();
+    let close = wait_for_close(&mut first_handshake);
+    assert_eq!(close.code, CloseCode::Policy);
+    assert_eq!(close.reason, "Invalid handshake key");
+
+    let mut first_invalid_key = websocket(address, "duplicate-key-reject", "client", "1", "");
+    first_invalid_key
+        .send(Message::Text(
+            format!(r#"{{"type":"hello","key":"{invalid_key}","key":"{valid_key}"}}"#).into(),
+        ))
+        .unwrap();
+    let close = wait_for_close(&mut first_invalid_key);
+    assert_eq!(close.code, CloseCode::Policy);
+    assert_eq!(close.reason, "Invalid handshake key");
+}
+
+#[test]
 fn fragmented_message_at_limit_crosses_unchanged_with_interleaved_ping() {
     let node = NetworkNode::bind_with_config(
         NodeId::from("alpha"),
@@ -69,7 +128,7 @@ fn fragmented_message_at_limit_crosses_unchanged_with_interleaved_ping() {
 }
 
 #[test]
-fn fragmented_message_over_limit_closes_only_source_with_empty_1009() {
+fn fragmented_message_over_limit_closes_offending_route_with_empty_1009() {
     let node = NetworkNode::bind_with_config(
         NodeId::from("alpha"),
         NetworkConfig {
@@ -82,13 +141,16 @@ fn fragmented_message_over_limit_closes_only_source_with_empty_1009() {
     let mut healthy_client = websocket(address, "healthy", "client", "2", "shared");
     let mut healthy_data = websocket(address, "healthy", "server", "2", "shared");
     let mut rejected = websocket(address, "fragment-over", "client", "2", "shared");
-    let _rejected_destination = websocket(address, "fragment-over", "server", "2", "shared");
+    let mut rejected_destination = websocket(address, "fragment-over", "server", "2", "shared");
 
     send_raw_frame(&mut rejected, 0x2, b"abcd", false);
     send_raw_frame(&mut rejected, 0x0, b"efghi", true);
     let close = wait_for_close(&mut rejected);
     assert_eq!(close.code, CloseCode::Size);
     assert_eq!(close.reason, "");
+    let paired_close = wait_for_close(&mut rejected_destination);
+    assert_eq!(paired_close.code, CloseCode::Away);
+    assert_eq!(paired_close.reason, "Client disconnected");
 
     healthy_client
         .send(Message::Binary(vec![0x00, 0xff, 0x7e].into()))
@@ -119,8 +181,8 @@ fn fragmented_control_message_over_limit_closes_with_empty_1009() {
     );
     let _sync = control.read().unwrap();
 
-    send_raw_frame(&mut control, 0x1, b"12", false);
-    send_raw_frame(&mut control, 0x0, b"345", true);
+    send_raw_frame(&mut control, 0x1, b"123", false);
+    send_raw_frame(&mut control, 0x0, b"45", false);
     let close = wait_for_close(&mut control);
     assert_eq!(close.code, CloseCode::Size);
     assert_eq!(close.reason, "");
