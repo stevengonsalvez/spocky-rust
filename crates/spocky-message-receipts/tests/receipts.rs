@@ -167,6 +167,35 @@ async fn failed_local_message_preparation_does_not_leave_an_ambiguous_receipt() 
     assert_eq!(sends.load(Ordering::SeqCst), 1);
 }
 
+/// The baseline queues a send when `send` is called, not when it is awaited:
+/// polling the later call first must not let it overtake the earlier one.
+#[tokio::test]
+async fn sends_run_in_call_order_when_polled_out_of_order() {
+    let (_guard, directory) = fixture();
+    let requests = MessageReceipts::new(directory);
+    let sends = Arc::new(AtomicUsize::new(0));
+    let body = request(&[]);
+    let failing = Scripted {
+        send_error: Some("connection lost"),
+        ..Scripted::new(&sends)
+    };
+    let first = requests.send("agent", "message", &body, failing);
+    let second = requests.send("agent", "message", &body, Scripted::new(&sends));
+    // `tokio::join!` polls its arguments in order: the later call first.
+    let (second, first) = tokio::join!(second, first);
+    assert!(matches!(
+        first,
+        Err(ReceiptError::Delivery(Thrown("connection lost")))
+    ));
+    assert_eq!(
+        second
+            .expect_err("queued behind the failed send")
+            .to_string(),
+        "agent_request_outcome_unknown"
+    );
+    assert_eq!(sends.load(Ordering::SeqCst), 1);
+}
+
 /// Known pinned defect, reproduced on purpose: a failed `completed` write
 /// after a successful send leaves the receipt `pending`, so the delivered
 /// message can never be confirmed and every retry is an unknown outcome.
