@@ -122,6 +122,13 @@ Success criterion 3 requires Sol to author all fixes, so every Claude-authored
 commit in the window carries a recorded evidence limitation. Details live in
 `routing.revisions` in `porting/tasks.json`.
 
+Integration workflow, 2026-10-01: writers make very small commits that each
+change one file. The lead runs the code-review skill on each writer commit
+range, routes fixes back to the writer, then cherry-picks signed commits to
+main at every verified checkpoint, not only at lane end. Lead ledger and docs
+commits follow the same one-file rule. The objective is exact like-for-like
+parity with Paseo, nothing more.
+
 ## Task states
 
 Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrating`, and `done`. A blocked task names its exact unmet dependency and evidence. The durable ledger is [`porting/tasks.json`](porting/tasks.json).
@@ -192,4 +199,8 @@ wait when a descendant escapes that group while retaining pipes. Physical
 audio, PulseAudio and PipeWire server graphs,
 STT, and TTS remain open. Signed delivery and native Windows, iOS, Android, and
 browser delivery remain open. Phase 3 remains blocked. No runtime parity
-milestone is complete. No runtime compatibility exception is accepted.
+milestone is complete. On 2026-10-01 Stevie accepted the Hub retained
+JavaScript PGlite host as a time-boxed interim compatibility exception
+(`accepted-interim`) with an unchanged removal condition. Lane
+`p2_pglite_rust_host` builds the Rust Wasm host that replaces it. No other
+runtime compatibility exception is accepted.
