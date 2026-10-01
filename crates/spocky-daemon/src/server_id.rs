@@ -63,25 +63,47 @@ mod tests {
         let first = get_or_create_server_id(home.path(), None);
         assert!(first.starts_with("srv_"));
         assert_eq!(first.len(), 16);
-        assert!(first[4..].bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
-        assert_eq!(fs::read_to_string(home.path().join("server-id")).unwrap(), format!("{first}\n"));
+        assert!(
+            first[4..]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        );
+        assert_eq!(
+            fs::read_to_string(home.path().join("server-id")).unwrap(),
+            format!("{first}\n")
+        );
         assert_eq!(get_or_create_server_id(home.path(), None), first);
     }
 
     #[test]
     fn the_environment_override_is_trimmed_and_persisted_once() {
         let home = tempfile::tempdir().unwrap();
-        assert_eq!(get_or_create_server_id(home.path(), Some("  srv_fixed \n")), "srv_fixed");
-        assert_eq!(fs::read_to_string(home.path().join("server-id")).unwrap(), "srv_fixed\n");
-        assert_eq!(get_or_create_server_id(home.path(), Some("srv_other")), "srv_other");
-        assert_eq!(fs::read_to_string(home.path().join("server-id")).unwrap(), "srv_fixed\n");
+        assert_eq!(
+            get_or_create_server_id(home.path(), Some("  srv_fixed \n")),
+            "srv_fixed"
+        );
+        assert_eq!(
+            fs::read_to_string(home.path().join("server-id")).unwrap(),
+            "srv_fixed\n"
+        );
+        assert_eq!(
+            get_or_create_server_id(home.path(), Some("srv_other")),
+            "srv_other"
+        );
+        assert_eq!(
+            fs::read_to_string(home.path().join("server-id")).unwrap(),
+            "srv_fixed\n"
+        );
     }
 
     #[test]
     fn a_blank_override_is_ignored() {
         let home = tempfile::tempdir().unwrap();
         fs::write(home.path().join("server-id"), "srv_disk\n").unwrap();
-        assert_eq!(get_or_create_server_id(home.path(), Some("   ")), "srv_disk");
+        assert_eq!(
+            get_or_create_server_id(home.path(), Some("   ")),
+            "srv_disk"
+        );
     }
 
     #[test]
@@ -90,7 +112,10 @@ mod tests {
         fs::write(home.path().join("server-id"), "  \n").unwrap();
         let id = get_or_create_server_id(home.path(), None);
         assert!(id.starts_with("srv_"));
-        assert_eq!(fs::read_to_string(home.path().join("server-id")).unwrap(), format!("{id}\n"));
+        assert_eq!(
+            fs::read_to_string(home.path().join("server-id")).unwrap(),
+            format!("{id}\n")
+        );
     }
 
     #[test]
