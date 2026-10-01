@@ -8,8 +8,10 @@
 
 use std::process::Command;
 
-use spocky_session::timeline_content::limit_agent_timeline_item_content;
-use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
+use spocky_session::timeline_content::{
+    assert_plugin_timeline_data_size, limit_agent_timeline_item_content,
+};
+use spocky_store::js_value::{JsObject, JsValue, js_text_from_utf16, parse, stringify};
 
 /// Items with placeholders: `__BIG__` is 65,537 `x`s, `__EXACT__` is
 /// 65,536 `y`s, and `__SPLIT__` puts an emoji across the 65,536 cut.
@@ -40,9 +42,15 @@ const ITEMS: &str = r#"[
    "error":{"content":"__SPLIT__"},"detail":{"type":"shell","command":"x","output":"__BIG__"}}
 ]"#;
 
+/// Plugin data around the 64 KiB limit: `["x", n]` is a string of `n` `x`s,
+/// `["e", n]` of `n` `é`s (two UTF-8 bytes each), `["s", n]` of `n` lone
+/// surrogates (six escaped bytes each), `["u"]` is `undefined`.
+const PLUGIN_DATA: &str = r#"[["x", 65534], ["x", 65535], ["e", 32767], ["e", 32768],
+  ["s", 10922], ["s", 10923], ["u"]]"#;
+
 const NODE_SCRIPT: &str = r#"
-const [dist, itemsJson] = process.argv.slice(1);
-const { limitAgentTimelineItemContent } = await import(`${dist}/server/agent/agent-timeline-content.js`);
+const [dist, itemsJson, pluginJson] = process.argv.slice(1);
+const { limitAgentTimelineItemContent, assertPluginTimelineDataSize } = await import(`${dist}/server/agent/agent-timeline-content.js`);
 const big = { __BIG__: "x".repeat(65537), __EXACT__: "y".repeat(65536), __SPLIT__: "a".repeat(65535) + "😀tail" };
 const fill = (value) => {
   if (typeof value === "string") return big[value] ?? value;
@@ -59,7 +67,16 @@ const results = JSON.parse(itemsJson).map((item) => {
     return { name: error.constructor.name, message: error.message };
   }
 });
-process.stdout.write(JSON.stringify(results));
+const unit = { x: "x", e: "é", s: "\ud800" };
+const plugin = JSON.parse(pluginJson).map(([kind, count]) => {
+  try {
+    assertPluginTimelineDataSize(kind === "u" ? undefined : unit[kind].repeat(count));
+    return { ok: true };
+  } catch (error) {
+    return { name: error.name, message: error.message };
+  }
+});
+process.stdout.write(JSON.stringify({ results, plugin }));
 "#;
 
 fn fill(value: &JsValue) -> JsValue {
@@ -100,7 +117,45 @@ fn rust_output() -> String {
             JsValue::Object(result)
         })
         .collect();
-    stringify(&JsValue::Array(results))
+    let plugin = parse(PLUGIN_DATA)
+        .expect("plugin data")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|case| {
+            let case = case.as_array().expect("case");
+            let data = match case[0].as_str().expect("kind") {
+                "u" => JsValue::Undefined,
+                kind => {
+                    let unit = match kind {
+                        "x" => "x".to_owned(),
+                        "e" => "é".to_owned(),
+                        _ => js_text_from_utf16(&[0xd800]),
+                    };
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "fixture counts are small positive integers"
+                    )]
+                    let count = case[1].as_f64().expect("count") as usize;
+                    JsValue::String(unit.repeat(count))
+                }
+            };
+            let mut result = JsObject::new();
+            match assert_plugin_timeline_data_size(&data) {
+                Ok(()) => result.insert("ok", JsValue::Bool(true)),
+                Err(error) => {
+                    result.insert("name", JsValue::String(error.name));
+                    result.insert("message", JsValue::String(error.message));
+                }
+            }
+            JsValue::Object(result)
+        })
+        .collect();
+    let mut output = JsObject::new();
+    output.insert("results", JsValue::Array(results));
+    output.insert("plugin", JsValue::Array(plugin));
+    stringify(&JsValue::Object(output))
 }
 
 /// The pinned dist modules this test runs, relative to `SPOCKY_PASEO_DIST`,
@@ -149,7 +204,7 @@ fn item_limits_match_pinned_content_module() {
         .arg(&node)
         .args(["--input-type=module", "-e", NODE_SCRIPT])
         .arg(&dist)
-        .arg(ITEMS)
+        .args([ITEMS, PLUGIN_DATA])
         .output()
         .expect("run pinned node");
     assert!(
