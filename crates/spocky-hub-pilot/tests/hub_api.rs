@@ -493,3 +493,28 @@ fn a_client_supplied_client_address_header_does_not_choose_the_capacity_key() {
         .expect("start");
     assert_eq!(limited.status, 429);
 }
+
+#[test]
+fn megabyte_deep_nesting_is_answered_without_overflowing_the_stack() {
+    let mut api = api();
+    let headers = [
+        ("authorization", "Bearer ok"),
+        ("content-type", "application/json"),
+    ];
+    let url = "https://hub.test/api/v1/triggers/validate";
+    let depth = 500_000;
+    let array = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    let rejected = api.handle(&request("POST", url, &headers, &array));
+    assert_eq!(rejected.status, 400);
+    assert!(
+        rejected
+            .text()
+            .contains("Invalid input: expected object, received array")
+    );
+    let object = format!("{}1{}", "{\"a\":".repeat(200_000), "}".repeat(200_000));
+    let unknown_key = api.handle(&request("POST", url, &headers, &object));
+    assert_eq!(unknown_key.status, 400);
+    assert!(unknown_key.text().contains("Unrecognized key: \\\"a\\\""));
+    let unterminated = api.handle(&request("POST", url, &headers, &"[".repeat(1_000_000)));
+    assert_eq!(field(&body(&unterminated), "code"), "invalid_json");
+}
