@@ -117,12 +117,14 @@ fn materialize(body: &Json, substitute: &dyn Fn(&str) -> String) -> Vec<u8> {
     if let Some(repeat) = body.get("repeat") {
         let count = usize::try_from(integer(member(repeat, "count"))).expect("count");
         let close = repeat.get("closeFill").map_or("", text);
+        let tail = repeat.get("tail").map_or("", text);
         return format!(
-            "{}{}{}{}",
+            "{}{}{}{}{}",
             text(member(repeat, "prefix")),
             text(member(repeat, "fill")).repeat(count),
             text(member(repeat, "suffix")),
-            close.repeat(count)
+            close.repeat(count),
+            tail
         )
         .into_bytes();
     }
@@ -1269,7 +1271,7 @@ fn manifest_trace() -> Json {
 }
 
 /// Fixture counts are part of the evidence: a shrunken case list or an empty baseline fails.
-const CASE_COUNT: usize = 462;
+const CASE_COUNT: usize = 468;
 const SCENARIO_COUNT: usize = 62;
 
 fn build_trace(openapi: &str) -> String {

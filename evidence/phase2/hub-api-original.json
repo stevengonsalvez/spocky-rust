@@ -5315,6 +5315,78 @@
       ],
       "operationCalls": []
     },
+    "body/validateTrigger/deep-length-1000": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-request\",\"title\":\"Invalid request\",\"status\":400,\"detail\":\"The request body contains invalid fields.\",\"code\":\"invalid_request\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"issues\":[{\"path\":[\"yaml\"],\"message\":\"Invalid input: expected string, received object\"},{\"path\":[\"yaml\"],\"message\":\"Too small: expected unknown to be >=1\"}]}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-length-3000": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-request\",\"title\":\"Invalid request\",\"status\":400,\"detail\":\"The request body contains invalid fields.\",\"code\":\"invalid_request\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"issues\":[{\"path\":[\"yaml\"],\"message\":\"Invalid input: expected string, received object\"},{\"path\":[\"yaml\"],\"message\":\"Too small: expected unknown to be >=1\"}]}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-length-4000": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-request\",\"title\":\"Invalid request\",\"status\":400,\"detail\":\"The request body contains invalid fields.\",\"code\":\"invalid_request\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"issues\":[{\"path\":[\"yaml\"],\"message\":\"Invalid input: expected string, received object\"},{\"path\":[\"yaml\"],\"message\":\"Too small: expected unknown to be >=1\"}]}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-length-6000": {
+      "status": 500,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/internal-error\",\"title\":\"Internal server error\",\"status\":500,\"detail\":\"The operation failed unexpectedly. Contact the Hub operator with the request ID.\",\"code\":\"internal_error\",\"requestId\":\"00000000-0000-4000-8000-000000000001\"}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-length-10000": {
+      "status": 500,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/internal-error\",\"title\":\"Internal server error\",\"status\":500,\"detail\":\"The operation failed unexpectedly. Contact the Hub operator with the request ID.\",\"code\":\"internal_error\",\"requestId\":\"00000000-0000-4000-8000-000000000001\"}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-length-100000": {
+      "status": 500,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/internal-error\",\"title\":\"Internal server error\",\"status\":500,\"detail\":\"The operation failed unexpectedly. Contact the Hub operator with the request ID.\",\"code\":\"internal_error\",\"requestId\":\"00000000-0000-4000-8000-000000000001\"}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
     "body/listTriggers/ignored-garbage": {
       "status": 200,
       "headers": {

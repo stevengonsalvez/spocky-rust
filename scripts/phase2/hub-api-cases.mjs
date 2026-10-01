@@ -42,8 +42,8 @@ const VALID_BODIES = {
 
 const text = (value) => ({ text: value });
 const json = (value) => ({ text: JSON.stringify(value) });
-// prefix + fill x count + suffix + closeFill x count (closeFill is optional)
-const repeat = (prefix, fill, count, suffix, closeFill = "") => ({ repeat: { prefix, fill, count, suffix, closeFill } });
+// prefix + fill x count + suffix + closeFill x count + tail (closeFill and tail are optional)
+const repeat = (prefix, fill, count, suffix, closeFill = "", tail = "") => ({ repeat: { prefix, fill, count, suffix, closeFill, tail } });
 const base64 = (bytes) => ({ base64: Buffer.from(bytes).toString("base64") });
 
 function request(operation, overrides = {}) {
@@ -355,6 +355,15 @@ for (const [name, body] of [
   add(`body/validateTrigger/${name}`, "handle", request("validateTrigger", { body }), {
     operation: { result: RESULTS.validateTrigger.valid },
   });
+}
+// A deeply nested array as an object's `length` is joined recursively by the baseline
+// (ToPrimitive on the array) and overflows V8's stack at some depth.
+// The overflow depth depends on V8's stack: in the capture it lies between 4,400 (joined) and 4,600
+// (RangeError), so only depths well clear of that band are compared.
+for (const depth of [1000, 3000, 4000, 6000, 10000, 100000]) {
+  add(`body/validateTrigger/deep-length-${depth}`, "handle", request("validateTrigger", {
+    body: repeat('{"yaml":{"length":', "[", depth, "", "]", "}}"),
+  }), { operation: { result: RESULTS.validateTrigger.valid } });
 }
 // Garbage bodies on operations without a request schema are ignored.
 for (const operation of ["listTriggers", "listProjects", "issueEnrollmentToken"]) {

@@ -49,7 +49,7 @@ const BASE = "https://hub.test";
 interface BodySpec {
   text?: string;
   base64?: string;
-  repeat?: { prefix: string; fill: string; count: number; suffix: string; closeFill?: string };
+  repeat?: { prefix: string; fill: string; count: number; suffix: string; closeFill?: string; tail?: string };
   template?: Record<string, unknown>;
 }
 
@@ -78,8 +78,8 @@ function materialize(body: BodySpec | null, substitutions?: (text: string) => st
   if (body.text !== undefined) return body.text;
   if (body.base64 !== undefined) return new Uint8Array(Buffer.from(body.base64, "base64"));
   if (body.repeat !== undefined) {
-    const { prefix, fill, count, suffix, closeFill } = body.repeat;
-    return `${prefix}${fill.repeat(count)}${suffix}${(closeFill ?? "").repeat(count)}`;
+    const { prefix, fill, count, suffix, closeFill, tail } = body.repeat;
+    return `${prefix}${fill.repeat(count)}${suffix}${(closeFill ?? "").repeat(count)}${tail ?? ""}`;
   }
   if (body.template !== undefined) {
     const text = JSON.stringify(body.template);

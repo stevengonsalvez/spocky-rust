@@ -9186,7 +9186,8 @@
             "fill": "[",
             "count": 500000,
             "suffix": "",
-            "closeFill": "]"
+            "closeFill": "]",
+            "tail": ""
           }
         }
       },
@@ -9221,7 +9222,8 @@
             "fill": "{\"a\":",
             "count": 200000,
             "suffix": "1",
-            "closeFill": "}"
+            "closeFill": "}",
+            "tail": ""
           }
         }
       },
@@ -9256,7 +9258,224 @@
             "fill": "[",
             "count": 1000000,
             "suffix": "",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-1000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 1000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-3000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 3000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-4000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 4000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-6000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 6000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-10000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 10000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-100000",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 100000,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
           }
         }
       },
@@ -9782,7 +10001,8 @@
             "fill": "x",
             "count": 1000000,
             "suffix": "\"}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -9820,7 +10040,8 @@
             "fill": "x",
             "count": 1000001,
             "suffix": "\"}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -9858,7 +10079,8 @@
             "fill": "😀",
             "count": 499999,
             "suffix": "\"}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -9896,7 +10118,8 @@
             "fill": "😀",
             "count": 500001,
             "suffix": "\"}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -12634,7 +12857,8 @@
             "fill": "x",
             "count": 1000000,
             "suffix": "\"}]}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -12671,7 +12895,8 @@
             "fill": "x",
             "count": 1000001,
             "suffix": "\"}]}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -12708,7 +12933,8 @@
             "fill": "😀",
             "count": 500001,
             "suffix": "\"}]}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -14525,7 +14751,8 @@
             "fill": "[",
             "count": 1000,
             "suffix": "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
@@ -14563,7 +14790,8 @@
             "fill": "{\"a\":",
             "count": 100,
             "suffix": "1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}",
-            "closeFill": ""
+            "closeFill": "",
+            "tail": ""
           }
         }
       },
