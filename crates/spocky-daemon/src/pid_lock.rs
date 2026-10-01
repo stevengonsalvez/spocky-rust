@@ -284,8 +284,8 @@ fn touch(pid_path: &Path) -> io::Result<()> {
 /// the retries was abandoned and is `None`; anything else unreadable is an
 /// error with code `DAEMON_STATE_READ_FAILED` whose text ends in `String(lastError)`:
 /// `Error: Invalid lock shape` or `SyntaxError: <V8 text>`. A file system error
-/// still carries Rust's text, not node's: it waits for the FsError in spocky-store
-/// (`atomic.rs`, public once p3_session 59cf316 is on main).
+/// still carries Rust's text, not node's: it waits for the `FsError` in `spocky-store`
+/// (`atomic.rs`, public once p3_session `59cf316` is on main).
 fn read_pid_lock(pid_path: &Path) -> Result<Option<PidLockInfo>, PidLockError> {
     let mut last_error = String::new();
     let mut empty = false;
