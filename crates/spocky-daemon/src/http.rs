@@ -283,6 +283,36 @@ fn matches_route(path: &str, route: &str) -> bool {
     path.eq_ignore_ascii_case(route)
 }
 
+/// `isExcludedPath` in `web-ui.ts`: case-sensitive, on `req.path`.
+fn is_web_ui_excluded(path: &str) -> bool {
+    ["/api/", "/mcp/", "/public/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+        || matches!(path, "/api" | "/mcp" | "/public")
+}
+
+/// `res.status(404).end()` from the disabled web UI: no body, so Node adds
+/// `Content-Length: 0` after the other headers, except for HEAD.
+fn web_ui_disabled(
+    request: &UpgradeRequest,
+    now: i64,
+    cors: &[(String, String)],
+    keep_alive: bool,
+) -> HttpResponse {
+    let mut headers = vec![("X-Powered-By".to_owned(), "Express".to_owned())];
+    headers.extend(cors.iter().cloned());
+    headers.extend(tail_headers(now, keep_alive));
+    if request.method != "HEAD" {
+        headers.push(("Content-Length".to_owned(), "0".to_owned()));
+    }
+    HttpResponse {
+        status: 404,
+        headers,
+        body: Vec::new(),
+        keep_alive,
+    }
+}
+
 /// `res.json(body)` as Express writes it.
 fn json_response(
     status: u16,
@@ -447,6 +477,12 @@ pub fn handle_request<S: BuildHasher>(
     }
 
     let path = request_path(request);
+    // The web UI middleware sits before bearer auth. With the web UI disabled,
+    // which is the default, it answers every GET or HEAD outside /api/, /mcp/
+    // and /public/ with an empty 404.
+    if (request.method == "GET" || request.method == "HEAD") && !is_web_ui_excluded(path) {
+        return web_ui_disabled(request, ctx.now_ms, &cors, keep_alive);
+    }
     if let Some(password_hash) = ctx.password_hash.filter(|hash| !hash.is_empty())
         && !bypasses_bearer_auth(&request.method, path)
     {
@@ -664,7 +700,7 @@ mod tests {
         );
         assert_eq!(response.status, 404);
         let odd = respond(
-            &request("GET", "/nope<x", &[("Host", "localhost")]),
+            &request("GET", "/api/nope<x", &[("Host", "localhost")]),
             None,
             &HashSet::new(),
             true,
@@ -672,7 +708,7 @@ mod tests {
         assert!(
             String::from_utf8(odd.body)
                 .unwrap()
-                .contains("Cannot GET /nope%3Cx")
+                .contains("Cannot GET /api/nope%3Cx")
         );
     }
 
@@ -751,7 +787,7 @@ mod tests {
         assert_eq!(call("GET", "/api/status", Some("Bearer secret")), 200);
         assert_eq!(call("GET", "/api/health", None), 200);
         assert_eq!(call("OPTIONS", "/api/status", None), 204);
-        assert_eq!(call("GET", "/other", None), 401);
+        assert_eq!(call("GET", "/api/other", None), 401);
         assert_eq!(call("GET", "/api/files/download", None), 404);
     }
 
@@ -772,7 +808,7 @@ mod tests {
             .status
         };
         assert_eq!(call("/api/status"), 200);
-        assert_eq!(call("/other"), 401);
+        assert_eq!(call("/api/other"), 401);
     }
 
     #[test]
