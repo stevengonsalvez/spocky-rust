@@ -3,3 +3,6 @@
 //! pinned Paseo `5de45e2`.
 
 pub mod output_coalescer;
+pub mod restore;
+pub mod size_ownership;
+pub mod utf8_decoder;
