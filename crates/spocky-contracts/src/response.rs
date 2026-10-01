@@ -7,7 +7,8 @@ use serde::Serialize;
 use crate::creation::CreationSnapshot;
 use crate::field::optional;
 use crate::json::JsonValue;
-use crate::request::{TimelineDirection, TimelineProjection};
+use crate::permission::PermissionRequest;
+use crate::request::{PermissionResponse, TimelineDirection, TimelineProjection};
 use crate::snapshot::AgentSnapshot;
 use crate::text::JsText;
 use crate::timeline::{TimelineCursor, TimelineEntry, TimelineWindow};
@@ -241,4 +242,52 @@ pub struct SubscriptionReleaseResponse {
     pub request_id: JsText,
     #[serde(rename = "subscriptionId")]
     pub subscription_id: JsText,
+}
+
+/// `cancel_agent_response` (`session.ts:4623-4664`): `requestId, agentId,
+/// agent, error`, with `error` null on success.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CancelAgentResponse {
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    pub agent: Option<AgentSnapshot>,
+    pub error: Option<JsText>,
+}
+
+/// `agent_permission_request` (`session.ts:1976-1983`): `agentId, request`,
+/// with `subscriptionId` appended when sent on a subscription. `request`
+/// is the raw provider object, not sanitized.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentPermissionRequestEvent {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    pub request: PermissionRequest,
+    #[serde(
+        rename = "subscriptionId",
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub subscription_id: Option<JsText>,
+}
+
+/// `agent_permission_resolved`: `agentId, requestId, resolution`, with
+/// `subscriptionId` appended on a subscription. As the reply to
+/// `agent_permission_response` (`session.ts:5014-5050`), `resolution` is the
+/// daemon's zod-parsed inbound response; on cancel the agent manager sends
+/// `{ behavior: "deny", message: "Interrupted" }`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentPermissionResolved {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+    pub resolution: PermissionResponse,
+    #[serde(
+        rename = "subscriptionId",
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub subscription_id: Option<JsText>,
 }
