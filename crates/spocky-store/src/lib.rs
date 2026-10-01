@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 pub mod agent_record;
-mod atomic;
+pub mod atomic;
 pub mod collate;
 pub mod path_compare;
 pub mod registry;
@@ -27,6 +27,8 @@ pub enum StoreError {
         operation: &'static str,
         source: io::Error,
     },
+    /// A failed file write, with node's error text.
+    Fs(atomic::FsError),
 }
 
 impl Display for StoreError {
@@ -39,6 +41,7 @@ impl Display for StoreError {
             Self::InvalidRecord(error) => write!(formatter, "invalid registry record: {error}"),
             Self::JsonSyntax(error) => write!(formatter, "invalid JSON: {error}"),
             Self::Io { operation, source } => write!(formatter, "{operation}: {source}"),
+            Self::Fs(error) => error.fmt(formatter),
         }
     }
 }
@@ -50,6 +53,7 @@ impl Error for StoreError {
             Self::InvalidRecord(error) => Some(error),
             Self::JsonSyntax(error) => Some(error),
             Self::Io { source, .. } => Some(source),
+            Self::Fs(error) => Some(error),
             Self::MissingString(_) => None,
         }
     }
