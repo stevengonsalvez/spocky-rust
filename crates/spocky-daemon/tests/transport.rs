@@ -1093,6 +1093,26 @@ fn unparsable_text_after_hello_is_a_protocol_failure_with_the_v8_message() {
     harness.finish();
 }
 
+/// `JSON.parse` takes a lone surrogate escape and deep nesting; zod then
+/// strips the unknown key, so the ping is a ping.
+#[test]
+fn valid_json_that_serde_json_refuses_still_reaches_the_schema() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("one-pass"));
+    next_json(&mut ws);
+    let deep = format!("{}{}", "[".repeat(1000), "]".repeat(1000));
+    for text in [
+        r#"{"type":"ping","note":"\ud800"}"#.to_owned(),
+        format!(r#"{{"type":"ping","deep":{deep}}}"#),
+    ] {
+        ws.send(Message::text(text)).unwrap();
+        assert_eq!(next_json(&mut ws), json!({"type": "pong"}));
+    }
+    assert!(harness.calls.failures.lock().unwrap().is_empty());
+    harness.finish();
+}
+
 #[test]
 fn a_slow_session_open_holds_up_only_its_own_client() {
     let harness = start(config());
