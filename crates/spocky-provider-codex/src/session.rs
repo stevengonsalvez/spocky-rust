@@ -32,7 +32,9 @@ use crate::items::{
 };
 use crate::launch::{self, CODEX_PROVIDER, CodexGates, CustomProvider, ProviderRuntimeSettings};
 use crate::notification::{ItemSource, ParsedNotification, parse_notification};
-use crate::transport::{AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, js_trim};
+use spocky_contracts::text::{is_js_whitespace, js_trim};
+
+use crate::transport::{AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, js_truthy};
 
 const TURN_START_TIMEOUT: Duration = Duration::from_millis(90 * 1000);
 const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(2_000);
@@ -1399,16 +1401,6 @@ fn upgrade(weak: &Weak<Inner>) -> Option<CodexSession> {
     weak.upgrade().map(|inner| CodexSession { inner })
 }
 
-fn js_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
-}
-
 /// `String(value ?? "")` for the provider-option fallbacks.
 fn js_string(value: &Value) -> String {
     match value {
@@ -1648,12 +1640,12 @@ fn is_markdown_list_or_heading(step: &str) -> bool {
     let mut chars = step.chars();
     let hashes = step.chars().take_while(|c| *c == '#').count();
     if (1..=6).contains(&hashes) {
-        return step.chars().nth(hashes).is_some_and(char::is_whitespace);
+        return step.chars().nth(hashes).is_some_and(is_js_whitespace);
     }
     if let Some(first) = chars.next()
         && matches!(first, '-' | '*' | '+')
     {
-        return chars.next().is_some_and(char::is_whitespace);
+        return chars.next().is_some_and(is_js_whitespace);
     }
     let digits = step.chars().take_while(char::is_ascii_digit).count();
     digits > 0
@@ -1661,7 +1653,7 @@ fn is_markdown_list_or_heading(step: &str) -> bool {
         && step[digits + 1..]
             .chars()
             .next()
-            .is_some_and(char::is_whitespace)
+            .is_some_and(is_js_whitespace)
 }
 
 fn reset_turn_tracking_state(state: &mut State) {
@@ -2243,7 +2235,7 @@ fn parse_slash_command(text: &str) -> Option<String> {
     if rest.is_empty() {
         return None;
     }
-    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let end = rest.find(is_js_whitespace).unwrap_or(rest.len());
     let name = &rest[..end];
     (!name.is_empty() && !name.contains('/')).then(|| name.to_owned())
 }
