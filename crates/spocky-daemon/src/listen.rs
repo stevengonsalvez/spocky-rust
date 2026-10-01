@@ -83,7 +83,9 @@ pub fn parse_listen_string(listen: &str) -> Result<ListenTarget, ListenError> {
     if let Some(last_colon) = listen.rfind(':') {
         let (host, port_text) = (&listen[..last_colon], &listen[last_colon + 1..]);
         let Some(port) = parse_int_radix10(port_text) else {
-            return Err(ListenError(format!("Invalid port in listen string: {listen}")));
+            return Err(ListenError(format!(
+                "Invalid port in listen string: {listen}"
+            )));
         };
         let clean_host = host
             .strip_prefix('[')
@@ -127,9 +129,22 @@ fn is_windows_drive_path(text: &str) -> bool {
 fn is_js_whitespace(c: char) -> bool {
     matches!(
         c,
-        '\u{9}' | '\u{a}' | '\u{b}' | '\u{c}' | '\u{d}' | '\u{20}' | '\u{a0}' | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\u{9}'
+            | '\u{a}'
+            | '\u{b}'
+            | '\u{c}'
+            | '\u{d}'
+            | '\u{20}'
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
     )
 }
 
@@ -174,7 +189,12 @@ mod tests {
     #[test]
     fn precedence_takes_the_first_present_source() {
         assert_eq!(
-            resolve_listen_address(Some("1.1.1.1:1"), Some("2.2.2.2:2"), Some("3.3.3.3:3"), Some("9")),
+            resolve_listen_address(
+                Some("1.1.1.1:1"),
+                Some("2.2.2.2:2"),
+                Some("3.3.3.3:3"),
+                Some("9")
+            ),
             "1.1.1.1:1"
         );
         assert_eq!(
@@ -185,8 +205,14 @@ mod tests {
             resolve_listen_address(None, None, Some("3.3.3.3:3"), Some("9")),
             "3.3.3.3:3"
         );
-        assert_eq!(resolve_listen_address(None, None, None, Some("9")), "127.0.0.1:9");
-        assert_eq!(resolve_listen_address(None, None, None, None), "127.0.0.1:6767");
+        assert_eq!(
+            resolve_listen_address(None, None, None, Some("9")),
+            "127.0.0.1:9"
+        );
+        assert_eq!(
+            resolve_listen_address(None, None, None, None),
+            "127.0.0.1:6767"
+        );
     }
 
     #[test]
@@ -201,12 +227,18 @@ mod tests {
 
     #[test]
     fn parses_tcp_forms() {
-        assert_eq!(parse_listen_string("127.0.0.1:6767"), Ok(tcp("127.0.0.1", 6767)));
+        assert_eq!(
+            parse_listen_string("127.0.0.1:6767"),
+            Ok(tcp("127.0.0.1", 6767))
+        );
         assert_eq!(parse_listen_string("8080"), Ok(tcp("127.0.0.1", 8080)));
         assert_eq!(parse_listen_string(" 8080 "), Ok(tcp("127.0.0.1", 8080)));
         assert_eq!(parse_listen_string("[::1]:7000"), Ok(tcp("::1", 7000)));
         assert_eq!(parse_listen_string(":7000"), Ok(tcp("127.0.0.1", 7000)));
-        assert_eq!(parse_listen_string("localhost:7000x"), Ok(tcp("localhost", 7000)));
+        assert_eq!(
+            parse_listen_string("localhost:7000x"),
+            Ok(tcp("localhost", 7000))
+        );
         assert_eq!(parse_listen_string("0.0.0.0:0"), Ok(tcp("0.0.0.0", 0)));
         assert_eq!(parse_listen_string("host:-5"), Ok(tcp("host", -5)));
         assert_eq!(parse_listen_string("host: 12"), Ok(tcp("host", 12)));
@@ -219,11 +251,21 @@ mod tests {
 
     #[test]
     fn parses_socket_and_pipe_forms() {
-        let socket = |path: &str| ListenTarget::Socket { path: path.to_owned() };
-        let pipe = |path: &str| ListenTarget::Pipe { path: path.to_owned() };
-        assert_eq!(parse_listen_string("/tmp/p.sock"), Ok(socket("/tmp/p.sock")));
+        let socket = |path: &str| ListenTarget::Socket {
+            path: path.to_owned(),
+        };
+        let pipe = |path: &str| ListenTarget::Pipe {
+            path: path.to_owned(),
+        };
+        assert_eq!(
+            parse_listen_string("/tmp/p.sock"),
+            Ok(socket("/tmp/p.sock"))
+        );
         assert_eq!(parse_listen_string("~/p.sock"), Ok(socket("~/p.sock")));
-        assert_eq!(parse_listen_string("unix:///tmp/p.sock"), Ok(socket("/tmp/p.sock")));
+        assert_eq!(
+            parse_listen_string("unix:///tmp/p.sock"),
+            Ok(socket("/tmp/p.sock"))
+        );
         assert_eq!(parse_listen_string("pipe://paseo"), Ok(pipe("paseo")));
         assert_eq!(
             parse_listen_string("\\\\.\\pipe\\paseo"),
@@ -242,11 +284,15 @@ mod tests {
         );
         assert_eq!(
             parse_listen_string("host:abc"),
-            Err(ListenError("Invalid port in listen string: host:abc".to_owned()))
+            Err(ListenError(
+                "Invalid port in listen string: host:abc".to_owned()
+            ))
         );
         assert_eq!(
             parse_listen_string("host:"),
-            Err(ListenError("Invalid port in listen string: host:".to_owned()))
+            Err(ListenError(
+                "Invalid port in listen string: host:".to_owned()
+            ))
         );
         assert_eq!(
             parse_listen_string("nonsense"),
@@ -264,10 +310,15 @@ mod tests {
 
     #[test]
     fn formats_targets_like_format_listen_target() {
-        assert_eq!(format_listen_target(&tcp("127.0.0.1", 6767)), "127.0.0.1:6767");
+        assert_eq!(
+            format_listen_target(&tcp("127.0.0.1", 6767)),
+            "127.0.0.1:6767"
+        );
         assert_eq!(format_listen_target(&tcp("::1", 7000)), "[::1]:7000");
         assert_eq!(
-            format_listen_target(&ListenTarget::Socket { path: "/tmp/p.sock".to_owned() }),
+            format_listen_target(&ListenTarget::Socket {
+                path: "/tmp/p.sock".to_owned()
+            }),
             "/tmp/p.sock"
         );
     }
