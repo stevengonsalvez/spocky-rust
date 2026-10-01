@@ -668,6 +668,31 @@
       "acceptanceCases": ["unchanged existing client passes success, failure, disconnect, retry, restart, and old-state scenarios against Rust daemon"],
       "platforms": ["macOS first slice", "cross-platform follow-up before completion"],
       "implementationCommits": [], "integrationCommits": [],
+      "checkpoints": [
+        {
+          "lane": "p3_contracts",
+          "date": "2026-10-01",
+          "writer": "Claude Opus 5.5 high, term_7941f5d1",
+          "sourceCommits": ["7aff067", "cf01c1b", "fa09884", "0d9d545", "231ace4", "06a2c99", "56eb08c"],
+          "integrationCommits": ["012b81d", "eeaaf10", "90d920a", "e7c4874", "2328c0d", "4be2e7e", "40bc106", "65d3af2 (lead Cargo.lock regeneration)"],
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus, launched by the Claude lead, probing pinned zod 4.4.3 in .baselines/paseo-runtime", "verdict": "INTEGRATE-WITH-FOLLOWUPS; every Option field in ws.rs is zod .optional(), no .nullable() or .nullish() in scope; number, UTF-16 length, trim, and array-index key order checked against node; uncommitted golden fixtures are captured from pinned zod with matching provenance hashes" },
+          "leadVerification": "gated: spocky-contracts unit tests 14/14, all-target clippy and package fmt clean",
+          "g1Blockers": ["P1 serde_json lacks float_roundtrip so decimal parse may double-round", "P1 passthrough extras serialize after declared fields with serde number text; zod emits array-index keys first and JS number text"],
+          "routedFindings": ["P2 derived Deserialize rejects duplicate keys that zod accepts; make parse_frame the only entry point", "P2 emit-only types derive Deserialize that disagrees with client zod; serverId must be trim().min(1)", "P2 JsRecord linear scans are O(n^2); use indexmap", "P3 optional::serialize(None) writes null if skip attribute forgotten", "P3 ws.rs tests assert substrings only", "preview P2 session.rs StatusPayload closed enum versus zod z.string() passthrough", "preview golden gaps: float and -0 extras, integer-like extra keys, duplicate keys, protocolVersion 1.0 and -0, 2^53 boundary"],
+          "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-01",
+          "writer": "Claude Opus 5.5 high, term_51416cca",
+          "sourceCommits": ["3aff24d", "f248d46", "9e74436", "9edd5a2", "0ee7254", "de9fc46"],
+          "state": "held, not integrated",
+          "leadVerification": "gated on integration branch: spocky-store 14/14 including unchanged baseline_roundtrip 3/3, clippy and fmt clean",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS with one P1" },
+          "heldFor": "P1 registry.rs:461 serde_json rejects lone-surrogate escapes that JSON.parse accepts; the registry loads empty and the next commit overwrites every record",
+          "routedFindings": ["P2 records() drops initialize() load error", "P2 tie-break uses byte order, baseline uses localeCompare", "P2 missing per-registry archive helpers", "P3 updater id change appends instead of replacing at index", "P3 Date.parse lacks 8.64e15 ms range limit", "P3 expected zod output in registry_files.rs:133 is hand-written"]
+        }
+      ],
       "revisions": [
         {
           "date": "2026-10-01",
