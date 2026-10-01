@@ -323,7 +323,11 @@ fn run_tracked(
         if let Ok(bytes) = receiver.recv_timeout(PIPE_GRACE) {
             return bytes;
         }
-        kill_group(group);
+        // The leader is already reaped, so only signal the group while it
+        // still has other members: then its ID cannot have been reused.
+        if group_has_members(group) {
+            kill_group(group);
+        }
         if let Exit::Code(code) = exit {
             exit = Exit::PipesHeld(code);
         }
@@ -332,6 +336,24 @@ fn run_tracked(
     let stdout = collect(&stdout);
     let stderr = collect(&stderr);
     (stdout, stderr, exit)
+}
+
+/// Whether any process other than the leader is in process group `group`.
+fn group_has_members(group: u32) -> bool {
+    Command::new("/bin/ps")
+        .args(["-A", "-o", "pid=,pgid="])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|output| {
+            String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                let mut words = line.split_whitespace();
+                let pid = words.next().and_then(|word| word.parse::<u32>().ok());
+                let member_of = words.next().and_then(|word| word.parse::<u32>().ok());
+                member_of == Some(group) && pid != Some(group)
+            })
+        })
 }
 
 fn kill_group(group: u32) {
@@ -628,11 +650,18 @@ fn launch_script(
 
 /// Dedicated tmux socket for every gate session. The gate never talks to the
 /// default tmux server, so it can never address or stop anyone else's session.
-pub const TMUX_SOCKET: &str = "spocky-p3-gate";
+/// The socket is per gate run (this harness PID), and `-f /dev/null` keeps
+/// any user tmux configuration out of the gate's server.
+#[must_use]
+pub fn tmux_socket() -> String {
+    format!("spocky-p3-gate-{}", std::process::id())
+}
 
 fn tmux(args: &[&str]) -> (Vec<u8>, Vec<u8>, Exit) {
     run_bounded(
-        Command::new("tmux").args(["-L", TMUX_SOCKET]).args(args),
+        Command::new("tmux")
+            .args(["-L", &tmux_socket(), "-f", "/dev/null"])
+            .args(args),
         Duration::from_secs(15),
     )
 }
@@ -687,7 +716,9 @@ pub fn is_tmux(process: &Proc) -> bool {
 /// All processes, from one `ps -A -o pid=,ppid=,stat=,lstart=,comm=` snapshot.
 fn snapshot() -> Vec<Proc> {
     let (stdout, _, exit) = run_bounded(
-        Command::new("/bin/ps").args(["-A", "-o", "pid=,ppid=,stat=,lstart=,comm="]),
+        Command::new("/bin/ps")
+            .args(["-A", "-o", "pid=,ppid=,stat=,lstart=,comm="])
+            .env("LC_ALL", "C"),
         Duration::from_secs(10),
     );
     if exit != Exit::Code(0) {
@@ -928,7 +959,9 @@ pub fn egress_violations(window: Duration, pids: &[u32]) -> Vec<String> {
 /// report unowned processes; the gate never signals a PID from this scan.
 fn processes_mentioning(needle: &str) -> Vec<u32> {
     let (stdout, _, exit) = run_bounded(
-        Command::new("/bin/ps").args(["-A", "-E", "-ww", "-o", "pid=,command="]),
+        Command::new("/bin/ps")
+            .args(["-A", "-E", "-ww", "-o", "pid=,command="])
+            .env("LC_ALL", "C"),
         Duration::from_secs(10),
     );
     if exit != Exit::Code(0) {
@@ -1306,6 +1339,8 @@ fn run_in_layout(
     )
     .map_err(|error| error.to_string())?;
 
+    // Sample from before the launch so even the earliest descendants are seen.
+    let sampler = Sampler::start();
     let launched = tmux(&[
         "new-session",
         "-d",
@@ -1329,7 +1364,6 @@ fn run_in_layout(
     } else {
         None
     };
-    let sampler = Sampler::start();
     let pane = pane_pid(&session);
     // Only the pane is a root. The daemon (read from a file) becomes owned
     // only by being the pane's descendant, never because the file names it.
@@ -1340,7 +1374,7 @@ fn run_in_layout(
         side_evidence.join("pid.json"),
         serde_json::to_vec(&serde_json::json!({
             "session": session,
-            "tmuxSocket": TMUX_SOCKET,
+            "tmuxSocket": tmux_socket(),
             "panePid": pane,
             "daemonPid": daemon_pid
         }))
@@ -1901,6 +1935,29 @@ mod tests {
         for forbidden in [100, 104, 105, 200] {
             assert!(!targets.contains(&forbidden), "{forbidden}");
         }
+    }
+
+    #[test]
+    fn group_membership_guards_the_held_pipe_kill() {
+        use std::os::unix::process::CommandExt;
+        let mut lone = Command::new("/bin/sleep")
+            .arg("10")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let mut leader = Command::new("/bin/sh")
+            .args(["-c", "/bin/sleep 10 & wait"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        assert!(wait_until(Duration::from_secs(5), || group_has_members(
+            leader.id()
+        )));
+        assert!(!group_has_members(lone.id()));
+        kill_group(leader.id());
+        let _ = leader.wait();
+        let _ = lone.kill();
+        let _ = lone.wait();
     }
 
     #[test]
