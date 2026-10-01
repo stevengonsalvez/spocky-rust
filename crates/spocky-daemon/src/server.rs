@@ -216,6 +216,17 @@ struct SessionConnection {
     session_key: String,
     client_id: String,
     state: Mutex<ConnectionState>,
+    /// Set by the first cleanup, so the grace thread and `close` cannot both
+    /// run `SessionHandle::cleanup`.
+    cleaned: AtomicBool,
+}
+
+impl SessionConnection {
+    fn cleanup_once(&self) {
+        if !self.cleaned.swap(true, Ordering::SeqCst) {
+            self.session.cleanup();
+        }
+    }
 }
 
 struct ConnectionState {
@@ -245,11 +256,12 @@ struct Shared {
     /// the socket is terminated (`MAX_PHYSICAL_SOCKET_BUFFERED_BYTES`).
     max_buffered_bytes: AtomicUsize,
     janitor_started: AtomicBool,
-    /// Serializes the "find or create the session for this client" step of a
-    /// hello with the grace-period cleanup, so two hellos for one client cannot
-    /// both create a session and a resume cannot land on a session being
-    /// cleaned up. Always taken before `registry`.
-    hello_lock: Mutex<()>,
+    /// One lock per session key. It serializes "find or create the session for
+    /// this client" with the grace-period cleanup of the same key, so two hellos
+    /// for one client cannot both create a session and a resume cannot land on a
+    /// session being cleaned up. A slow `SessionBackend::open` holds up only its
+    /// own client. Always taken before `registry`.
+    key_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     registry: Mutex<Registry>,
     stop: AtomicBool,
     /// `formatListenTarget(boundListenTarget)` and whether it is TCP.
@@ -321,10 +333,19 @@ impl Shared {
         }
     }
 
+    /// The lock for a session key. Locks nobody holds or waits on are dropped
+    /// here, which bounds the map to the keys in use.
+    fn key_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        let mut locks = lock(&self.key_locks);
+        locks.retain(|_, held| Arc::strong_count(held) > 1);
+        Arc::clone(locks.entry(key.to_owned()).or_default())
+    }
+
     /// Ends a session: detach its sockets, forget its key, call `cleanup`.
     fn cleanup_connection(&self, connection: &Arc<SessionConnection>, message: &str) {
         {
-            let _hello = lock(&self.hello_lock);
+            let key_lock = self.key_lock(&connection.session_key);
+            let _serialized = lock(&key_lock);
             let mut registry = lock(&self.registry);
             let mut state = lock(&connection.state);
             // A hello that resumed the session since the caller looked wins.
@@ -346,7 +367,7 @@ impl Shared {
         self.deps
             .logger
             .info(&[("clientId", &connection.client_id)], message);
-        connection.session.cleanup();
+        connection.cleanup_once();
     }
 }
 
@@ -556,7 +577,7 @@ impl Server {
             max_connections: AtomicUsize::new(default_max_connections()),
             max_buffered_bytes: AtomicUsize::new(MAX_BUFFERED_BYTES),
             janitor_started: AtomicBool::new(false),
-            hello_lock: Mutex::new(()),
+            key_locks: Mutex::new(HashMap::new()),
             registry: Mutex::new(Registry::default()),
             stop: AtomicBool::new(false),
             listen: Mutex::new((String::new(), true)),
@@ -735,7 +756,7 @@ impl Server {
         let mut seen: Vec<Arc<SessionConnection>> = Vec::new();
         for connection in connections {
             if !seen.iter().any(|known| Arc::ptr_eq(known, &connection)) {
-                connection.session.cleanup();
+                connection.cleanup_once();
                 seen.push(connection);
             }
         }
@@ -1415,7 +1436,8 @@ impl SocketTask {
             .capabilities
             .as_ref()
             .and_then(|capabilities| serde_json::to_value(capabilities).ok());
-        let _serialized = lock(&self.shared.hello_lock);
+        let key_lock = self.shared.key_lock(&session_key);
+        let _serialized = lock(&key_lock);
         let existing = lock(&self.shared.registry)
             .by_key
             .get(&session_key)
@@ -1475,6 +1497,7 @@ impl SocketTask {
                     sockets: vec![self.id],
                     cleanup_at: None,
                 }),
+                cleaned: AtomicBool::new(false),
             }
         });
         connection.session.update_client_capabilities(
