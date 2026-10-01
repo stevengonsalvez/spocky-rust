@@ -5064,6 +5064,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-cli"
+version = "0.1.0"
+
+[[package]]
 name = "spocky-contracts"
 version = "0.1.0"
 dependencies = [
@@ -5087,6 +5091,10 @@ dependencies = [
 
 [[package]]
 name = "spocky-daemon"
+version = "0.1.0"
+
+[[package]]
+name = "spocky-daemon-app"
 version = "0.1.0"
 
 [[package]]
@@ -5127,6 +5135,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-message-receipts"
+version = "0.1.0"
+
+[[package]]
 name = "spocky-platform-bridge"
 version = "0.1.0"
 dependencies = [
@@ -5142,6 +5154,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
 ]
+
+[[package]]
+name = "spocky-provider-claude"
+version = "0.1.0"
 
 [[package]]
 name = "spocky-provider-codex"
@@ -5192,6 +5208,10 @@ dependencies = [
  "serde_json",
  "spocky-differential",
 ]
+
+[[package]]
+name = "spocky-terminal"
+version = "0.1.0"
 
 [[package]]
 name = "spocky-ui-pilot"
