@@ -9,6 +9,7 @@ use crate::field::optional;
 use crate::json::JsonValue;
 use crate::request::{TimelineDirection, TimelineProjection};
 use crate::snapshot::AgentSnapshot;
+use crate::text::JsText;
 use crate::timeline::{TimelineCursor, TimelineEntry, TimelineWindow};
 use crate::workspace::{ProjectPlacement, WorkspaceDescriptor};
 
@@ -18,7 +19,7 @@ use crate::workspace::{ProjectPlacement, WorkspaceDescriptor};
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkspaceCreateResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub workspace: Option<Box<WorkspaceDescriptor>>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub agent: Option<AgentSnapshot>,
@@ -29,26 +30,26 @@ pub struct WorkspaceCreateResponse {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub setup_skipped_reason: Option<String>,
-    pub error: Option<String>,
+    pub setup_skipped_reason: Option<JsText>,
+    pub error: Option<JsText>,
     #[serde(
         rename = "errorCode",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub error_code: Option<String>,
+    pub error_code: Option<JsText>,
     /// Always `null` from this handler.
     #[serde(rename = "setupTerminalId")]
-    pub setup_terminal_id: Option<String>,
+    pub setup_terminal_id: Option<JsText>,
 }
 
 /// `agent.create.response`: `requestId, agent, error, creation?`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentCreateResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub agent: Option<AgentSnapshot>,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
     pub creation: Option<Box<CreationSnapshot>>,
 }
@@ -57,25 +58,25 @@ pub struct AgentCreateResponse {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CreationSubscribeResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "subscriptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
     pub snapshot: Option<Box<CreationSnapshot>>,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
 }
 
 /// `fetch_agent_response`: `requestId, agent, project, error`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FetchAgentResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub agent: Option<AgentSnapshot>,
     pub project: Option<ProjectPlacement>,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
 }
 
 /// `{ agent, project }` directory entry.
@@ -89,9 +90,9 @@ pub struct AgentDirectoryEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PageInfo {
     #[serde(rename = "nextCursor")]
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<JsText>,
     #[serde(rename = "prevCursor")]
-    pub prev_cursor: Option<String>,
+    pub prev_cursor: Option<JsText>,
     #[serde(rename = "hasMore")]
     pub has_more: bool,
 }
@@ -101,13 +102,13 @@ pub struct PageInfo {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FetchAgentsResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "subscriptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
     pub entries: Vec<AgentDirectoryEntry>,
     #[serde(rename = "pageInfo")]
     pub page_info: PageInfo,
@@ -118,13 +119,13 @@ pub struct FetchAgentsResponse {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FetchWorkspacesResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "subscriptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
     pub entries: Vec<WorkspaceDescriptor>,
     /// Workspace directory project descriptors, carried as built.
     #[serde(rename = "emptyProjects")]
@@ -139,13 +140,13 @@ pub struct FetchWorkspacesResponse {
 #[allow(clippy::struct_excessive_bools)]
 pub struct FetchAgentTimelineResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "agentId")]
-    pub agent_id: String,
+    pub agent_id: JsText,
     pub agent: Option<AgentSnapshot>,
     pub direction: TimelineDirection,
     pub projection: TimelineProjection,
-    pub epoch: String,
+    pub epoch: JsText,
     pub reset: bool,
     #[serde(rename = "staleCursor")]
     pub stale_cursor: bool,
@@ -167,7 +168,7 @@ pub struct FetchAgentTimelineResponse {
     )]
     pub merge_window: Option<bool>,
     pub entries: Vec<TimelineEntry>,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
 }
 
 /// `wait_for_finish_response.status`.
@@ -184,37 +185,37 @@ pub enum WaitStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WaitForFinishResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub status: WaitStatus,
     #[serde(rename = "final")]
     pub final_agent: Option<AgentSnapshot>,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
     #[serde(rename = "lastMessage")]
-    pub last_message: Option<String>,
+    pub last_message: Option<JsText>,
 }
 
 /// `send_agent_message_response`: `requestId, agentId, accepted, error`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SendAgentMessageResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "agentId")]
-    pub agent_id: String,
+    pub agent_id: JsText,
     pub accepted: bool,
-    pub error: Option<String>,
+    pub error: Option<JsText>,
 }
 
 /// `session.events.set_subscription.response`: `requestId, subscriptionId?`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionEventsSetSubscriptionResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "subscriptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
 }
 
 /// `agent.timeline.set_subscription.response`: `agentIds` (deduplicated and
@@ -222,22 +223,22 @@ pub struct SessionEventsSetSubscriptionResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SetAgentTimelineSubscriptionResponse {
     #[serde(rename = "agentIds")]
-    pub agent_ids: Vec<String>,
+    pub agent_ids: Vec<JsText>,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "subscriptionId",
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
 }
 
 /// `subscription.release.response`: `requestId, subscriptionId`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SubscriptionReleaseResponse {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "subscriptionId")]
-    pub subscription_id: String,
+    pub subscription_id: JsText,
 }
