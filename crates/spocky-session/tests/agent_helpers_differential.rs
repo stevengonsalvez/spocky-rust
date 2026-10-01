@@ -135,6 +135,42 @@ fn rust_output() -> String {
     stringify(&JsValue::Object(output))
 }
 
+/// The pinned dist modules this test runs, relative to `SPOCKY_PASEO_DIST`,
+/// with their SHA-256: a different build fails instead of silently passing.
+const PINNED_MODULES: &[(&str, &str)] = &[
+    (
+        "../../../protocol/dist/agent-labels.js",
+        "45eb1cdeeef92dbe391138dceb148b411a71ac22b4eac3ffc17207d36240fbdf",
+    ),
+    (
+        "server/agent/agent-prompt.js",
+        "a4d7a19d6f82cb4932d03db441a2bcf31fbe0b5fb506faf73e80b676e7a96f12",
+    ),
+    (
+        "server/agent/runtime-mcp-config.js",
+        "2d4ec30a925c3a247409b9acd584cb48437b1e355c1a75b9b50cf69983f68aef",
+    ),
+    (
+        "server/agent/agent-manager.js",
+        "09e1a170a75fc6b1f4eca29779feb7ada0c6d607bd33588f545e619174d7fa65",
+    ),
+];
+
+fn assert_pinned_modules(dist: &std::ffi::OsStr) {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    for (path, expected) in PINNED_MODULES {
+        let bytes = std::fs::read(std::path::Path::new(dist).join(path)).expect("pinned module");
+        let actual = Sha256::digest(&bytes)
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            });
+        assert_eq!(&actual, expected, "{path} is not the pinned build");
+    }
+}
+
 #[test]
 fn helpers_match_pinned_modules() {
     let (node, dist) = match (
@@ -148,6 +184,7 @@ fn helpers_match_pinned_modules() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    assert_pinned_modules(&dist);
     let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
         "gtimeout"
     } else {
