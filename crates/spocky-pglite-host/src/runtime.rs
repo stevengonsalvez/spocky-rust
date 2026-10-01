@@ -1102,6 +1102,22 @@ pub fn fs_abort(error: FsError) -> wasmtime::Error {
     }
 }
 
+/// The glue's `newSize` for one `cutDown` step of `_emscripten_resize_heap`:
+/// `Math.min(maxHeapSize, alignMemory(Math.max(requestedSize,
+/// Math.min(oldSize * (1 + .2 / cutDown), requestedSize + 100663296)), 65536))`.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the glue computes in doubles and aligns before any rounding; sizes are at most 2^31, so the doubles are exact and the result is a non-negative integer"
+)]
+fn heap_target(old_size: u64, requested: u64, cut_down: u64) -> u64 {
+    let over_grown =
+        (old_size as f64 * (1.0 + 0.2 / cut_down as f64)).min(requested as f64 + 100_663_296.0);
+    let aligned = ((requested as f64).max(over_grown) / 65536.0).ceil() * 65536.0;
+    (HEAP_MAX as f64).min(aligned) as u64
+}
+
 /// `emscripten_resize_heap(requested)`.
 pub fn resize_heap(
     store: &mut impl AsContextMut<Data = Runtime>,
@@ -1116,16 +1132,7 @@ pub fn resize_heap(
     }
     let mut cut_down = 1_u64;
     while cut_down <= 4 {
-        // overGrownHeapSize = oldSize * (1 + 0.2 / cutDown), capped.
-        #[allow(
-            clippy::cast_precision_loss,
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
-        )]
-        let over_grown = (old_size as f64 * (1.0 + 0.2 / cut_down as f64)) as u64;
-        let over_grown = over_grown.min(requested + 100_663_296);
-        let candidate = requested.max(over_grown);
-        let new_size = HEAP_MAX.min(candidate.div_ceil(65536) * 65536);
+        let new_size = heap_target(old_size, requested, cut_down);
         let current = memory.data_size(store.as_context_mut()) as u64;
         let pages = new_size.saturating_sub(current).div_ceil(65536);
         if memory.grow(store.as_context_mut(), pages).is_ok() {
@@ -1192,4 +1199,18 @@ pub fn dl_set_error(
         &[Val::I32(pointer), Val::I32(0)],
     )?;
     stack_restore(store, index, saved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heap_target_aligns_the_double_like_the_glue() {
+        // Values from the glue's arithmetic in Node: the overgrown size is
+        // 3604480.0000000005, which alignMemory rounds up a whole page.
+        assert_eq!(heap_target(3_276_800, 3_276_801, 2), 3_670_016);
+        assert_eq!(heap_target(3_276_800, 3_276_801, 1), 3_932_160);
+        assert_eq!(heap_target(2_147_418_112, 2_147_418_113, 1), HEAP_MAX);
+    }
 }
