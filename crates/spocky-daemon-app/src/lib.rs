@@ -4,4 +4,5 @@
 //! `5de45e2`.
 
 pub mod authorization;
+pub mod provider;
 pub mod request;
