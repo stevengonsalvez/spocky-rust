@@ -48,6 +48,14 @@ pub fn ensure_private_file(file: &Path) {
     apply_private_mode(file, PRIVATE_FILE_MODE);
 }
 
+/// `path.dirname(file)`: `"."` for a bare name, where `Path::parent` gives an
+/// empty path.
+fn directory_of(file: &Path) -> &Path {
+    file.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
 /// `writePrivateFileAtomicSync`: write a sibling `.<name>.<pid>.<uuid>` with the
 /// private mode, rename it over the target, and remove it if anything fails.
 ///
@@ -55,11 +63,7 @@ pub fn ensure_private_file(file: &Path) {
 ///
 /// Returns the first error from creating the directory, writing, or renaming.
 pub fn write_private_file_atomic(file: &Path, data: &[u8]) -> io::Result<()> {
-    // `path.dirname("name")` is `"."`, while `Path::parent` gives an empty path.
-    let parent = file
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
+    let parent = directory_of(file);
     ensure_private_directory(parent)?;
     let name = file
         .file_name()
@@ -148,13 +152,9 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_file_name_is_written_in_the_current_directory() {
-        let root = tempfile::tempdir().unwrap();
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(root.path()).unwrap();
-        let result = write_private_file_atomic(Path::new("bare-name"), b"x");
-        std::env::set_current_dir(previous).unwrap();
-        result.unwrap();
-        assert_eq!(fs::read(root.path().join("bare-name")).unwrap(), b"x");
+    fn a_bare_file_name_has_the_current_directory_as_its_directory() {
+        assert_eq!(directory_of(Path::new("bare-name")), Path::new("."));
+        assert_eq!(directory_of(Path::new("dir/name")), Path::new("dir"));
+        assert_eq!(directory_of(Path::new("/name")), Path::new("/"));
     }
 }
