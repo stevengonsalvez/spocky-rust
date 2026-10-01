@@ -13,7 +13,8 @@
 //
 // For every case in contracts-cases.mjs it records the exact input text and
 // what the pinned validators produce:
-//   inbound  -> WSInboundMessageSchema.safeParse (what the daemon accepts)
+//   inbound  -> WSInboundMessageSchema.safeParse (what the daemon accepts,
+//               and error.message for a rejection)
 //   outbound -> validateWSOutboundMessage (the client's zod-aot validator)
 //               and WSOutboundMessageSchema.safeParse (plain zod)
 // Outputs are JSON.stringify of the parsed data, so key order, defaults,
@@ -164,7 +165,10 @@ async function main() {
       return record;
     }
     if (testCase.direction === "inbound") {
-      record.zod = outcome(messages.WSInboundMessageSchema.safeParse(value));
+      const result = messages.WSInboundMessageSchema.safeParse(value);
+      record.zod = outcome(result);
+      // The daemon's rejection text is `Invalid message: ${error.message}`.
+      if (!result.success) record.zod.message = result.error.message;
     } else if (testCase.direction === "outbound") {
       record.aot = outcome(validateWSOutboundMessage(value));
       record.zod = outcome(messages.WSOutboundMessageSchema.safeParse(value));

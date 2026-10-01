@@ -1653,3 +1653,58 @@ CASES.push(
       }),
   },
 );
+
+// Rejections whose zod error.message reaches paths the cases above do not:
+// several issues at once, missing keys, non-object frames, plural
+// unrecognized keys, zod's `length` read on a non-string, the unsafe-integer
+// lower bound, and z.json() nested past the port's deep-stack threshold.
+CASES.push(
+  {
+    id: "ws.reject_array_frame",
+    direction: "inbound",
+    source: "discriminatedUnion on a non-object",
+    raw: "[]",
+  },
+  {
+    id: "ws.reject_string_frame",
+    direction: "inbound",
+    source: "discriminatedUnion on a non-object",
+    raw: '"ping"',
+  },
+  {
+    id: "ws.hello.reject_many_issues",
+    direction: "inbound",
+    source: "issues from every shape key, in shape order",
+    raw: '{"type":"hello","clientId":{"length":"x"},"protocolVersion":"1","auth":{"kind":"password"},"capabilities":{"voice":1}}',
+  },
+  {
+    id: "ws.hello.reject_protocol_version_below_min_safe",
+    direction: "inbound",
+    source: "z.number().int() unsafe lower bound",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":-9007199254740992}',
+  },
+  {
+    id: "session.reject_non_object_message",
+    direction: "inbound",
+    source: "session envelope with a non-object message",
+    raw: '{"type":"session","message":5}',
+  },
+  {
+    id: "session.cancel_agent.reject_missing_request_id",
+    direction: "inbound",
+    source: "missing required key: expected nonoptional",
+    raw: '{"type":"session","message":{"type":"cancel_agent_request"}}',
+  },
+  {
+    id: "session.agent_create.reject_tool_policy_extra_keys",
+    direction: "inbound",
+    source: "strict object with several unknown keys",
+    raw: '{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","toolPolicy":{"preapproved":[],"b":1,"1":2}}}}',
+  },
+  {
+    id: "session.agent_create.reject_deep_infinity_in_json_options",
+    direction: "inbound",
+    source: "z.json() union issues nested 30 arrays deep",
+    raw: `{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","providerOptions":{"n":${"[".repeat(30)}1e400${"]".repeat(30)}}}}}`,
+  },
+);

@@ -6,6 +6,8 @@
 //!
 //! - inbound: Rust accepts exactly when the daemon's zod parse accepts, and
 //!   writes byte-for-byte what zod outputs (key order, defaults, stripping);
+//!   on a rejection its error text is byte-for-byte the daemon's
+//!   `Invalid message: ${error.message}`;
 //! - outbound: pinned server code (`toAgentPayload`, `buildStoredAgentPayload`,
 //!   `checkoutFromPersistedWorkspacePlacement`) builds the snapshot parts, the
 //!   pinned client's zod-aot validator accepts the frame and returns it
@@ -21,7 +23,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use spocky_contracts::frame::{WsInbound, WsOutbound, frame_text, parse_frame};
+use spocky_contracts::frame::{InboundRejection, WsOutbound, frame_text, parse_inbound};
 use spocky_contracts::number::Int;
 use spocky_contracts::session::{SessionOutbound, StatusPayload};
 use spocky_contracts::ws::{
@@ -31,7 +33,7 @@ use spocky_contracts::ws::{
 };
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 132;
+const EXPECTED_CASES: usize = 140;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
@@ -55,8 +57,7 @@ fn flag(value: &Value, pointer: &str) -> bool {
 }
 
 fn check_inbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>) {
-    let accepted = flag(case, "/zod/success");
-    match (parse_frame::<WsInbound>(input), accepted) {
+    match (parse_inbound(input), flag(case, "/zod/success")) {
         (Ok(frame), true) => {
             let written = frame_text(&frame).unwrap();
             let expected = text(case, "/zod/output");
@@ -64,9 +65,17 @@ fn check_inbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>
                 failures.push(format!("{id}: wrote\n  {written}\nzod\n  {expected}"));
             }
         }
-        (Err(_), false) => {}
+        (Err(InboundRejection::Syntax(_)), false) if flag(case, "/zod/syntaxError") => {}
+        (Err(rejection), false) if case.pointer("/zod/syntaxError").is_none() => {
+            let expected = format!("Invalid message: {}", text(case, "/zod/message"));
+            if rejection.invalid_message().as_deref() != Some(expected.as_str()) {
+                failures.push(format!(
+                    "{id}: Rust rejects with\n  {rejection}\ndaemon\n  {expected}"
+                ));
+            }
+        }
         (Ok(frame), false) => failures.push(format!("{id}: zod rejects, Rust accepted {frame:?}")),
-        (Err(error), true) => failures.push(format!("{id}: zod accepts, Rust rejected: {error}")),
+        (Err(rejection), _) => failures.push(format!("{id}: Rust rejected: {rejection}")),
     }
 }
 
@@ -191,6 +200,11 @@ fn fixture_provenance_is_pinned() {
     ] {
         assert_eq!(text(&fixture, pointer), digest, "{pointer}");
     }
+    // The generated zod schemas come from the same messages.js.
+    assert_eq!(
+        text(&fixture, "/provenance/messagesJsSha256"),
+        spocky_contracts::zod_schemas::MESSAGES_JS_SHA256
+    );
 }
 
 /// The fixture was captured from the committed cases file, not an edit of it.
