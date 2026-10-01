@@ -873,12 +873,17 @@ fn typescript_and_rust_interoperate_in_every_direction() {
     };
     let steps = pair_steps();
     let reference = pair(Side::Node, Side::Node, &pinned, &steps);
+    support::record_lines("pair.client-node-daemon-node", &reference);
     for (client, daemon) in [
         (Side::Node, Side::Rust),
         (Side::Rust, Side::Node),
         (Side::Rust, Side::Rust),
     ] {
         let transcript = pair(client, daemon, &pinned, &steps);
+        support::record_lines(
+            &format!("pair.client-{client:?}-daemon-{daemon:?}").to_lowercase(),
+            &transcript,
+        );
         assert_eq!(
             transcript, reference,
             "client {client:?} with daemon {daemon:?}"
