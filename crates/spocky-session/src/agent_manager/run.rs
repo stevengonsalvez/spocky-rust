@@ -57,6 +57,21 @@ pub struct AgentRunResult {
     pub canceled: bool,
 }
 
+impl AgentRunResult {
+    /// The object `runAgent` resolves: `usage` stays an own `undefined`
+    /// property when the turn reported none.
+    #[must_use]
+    pub fn to_js(&self) -> JsValue {
+        let mut value = JsObject::new();
+        value.insert("sessionId", JsValue::String(self.session_id.clone()));
+        value.insert("finalText", JsValue::String(self.final_text.clone()));
+        value.insert("usage", self.usage.clone().unwrap_or(JsValue::Undefined));
+        value.insert("timeline", JsValue::Array(self.timeline.clone()));
+        value.insert("canceled", JsValue::Bool(self.canceled));
+        JsValue::Object(value)
+    }
+}
+
 /// `WaitForAgentOptions`.
 #[derive(Debug, Clone, Default)]
 pub struct WaitForAgentOptions {
@@ -100,6 +115,26 @@ pub struct WaitForAgentResult {
     pub status: AgentLifecycle,
     pub permission: Option<JsValue>,
     pub last_message: Option<String>,
+}
+
+impl WaitForAgentResult {
+    /// The object `waitForAgentEvent` resolves.
+    #[must_use]
+    pub fn to_js(&self) -> JsValue {
+        let mut value = JsObject::new();
+        value.insert("status", JsValue::String(self.status.as_str().to_owned()));
+        value.insert(
+            "permission",
+            self.permission.clone().unwrap_or(JsValue::Null),
+        );
+        value.insert(
+            "lastMessage",
+            self.last_message
+                .clone()
+                .map_or(JsValue::Null, JsValue::String),
+        );
+        JsValue::Object(value)
+    }
 }
 
 impl AgentManager {
