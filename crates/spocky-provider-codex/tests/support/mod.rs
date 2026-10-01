@@ -27,11 +27,22 @@ pub const PINNED_CODEX_PATH: &str = "/usr/local/Caskroom/codex/0.159.0/bin/codex
 pub const PINNED_CODEX_SHA256: &str =
     "1ad71e5ed117114f9d04cdd8d5dd411515b5ab7ebc725b8ca2f484695d71c838";
 
+/// Explicit opt-in for real-Codex tests, on top of `#[ignore]`: running
+/// them with `--include-ignored` but without `SPOCKY_REAL_CODEX=1` fails
+/// instead of passing on an unprepared machine.
+pub const REAL_CODEX_GATE: &str = "SPOCKY_REAL_CODEX";
+
 /// The pinned Codex binary, verified by path, SHA-256, and version. Panics
 /// when it is missing or different, so a real-Codex test cannot pass on
 /// another binary.
 pub fn real_codex() -> String {
     static VERIFIED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    assert_eq!(
+        std::env::var_os(REAL_CODEX_GATE).as_deref(),
+        Some(std::ffi::OsStr::new("1")),
+        "{REAL_CODEX_GATE}=1 is required to run real-codex tests; they launch the pinned \
+         {PINNED_CODEX_VERSION} binary"
+    );
     VERIFIED.get_or_init(|| {
         let digest = std::process::Command::new("shasum")
             .args(["-a", "256", PINNED_CODEX_PATH])
