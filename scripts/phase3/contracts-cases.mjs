@@ -1491,3 +1491,55 @@ CASES.push(
     raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{"__proto__":{"voice":true},"x":{"__proto__":1},"voice":false}}',
   },
 );
+
+// G2 inbound requests: permission responses and cancel.
+CASES.push(
+  {
+    id: "session.permission_response.allow",
+    direction: "inbound",
+    source: "AgentPermissionResponseMessageSchema allow arm",
+    raw: '{"type":"session","message":{"response":{"updatedPermissions":[{"b":1,"__proto__":2,"1":0}],"updatedInput":{"cmd":"ls","2":1},"x":1,"selectedActionId":"a","behavior":"allow"},"requestId":"perm-1","agentId":"a","extra":true,"type":"agent_permission_response"}}',
+  },
+  {
+    id: "session.permission_response.deny",
+    direction: "inbound",
+    source: "AgentPermissionResponseMessageSchema deny arm",
+    raw: '{"type":"session","message":{"type":"agent_permission_response","agentId":"a","requestId":"perm-1","response":{"behavior":"deny","interrupt":true,"message":"no"}}}',
+  },
+  {
+    id: "session.permission_response.minimal_allow",
+    direction: "inbound",
+    source: "AgentPermissionResponseSchema allow with no options",
+    raw: '{"type":"session","message":{"type":"agent_permission_response","agentId":"a","requestId":"perm-1","response":{"behavior":"allow"}}}',
+  },
+  {
+    id: "session.permission_response.reject_unknown_behavior",
+    direction: "inbound",
+    source: "AgentPermissionResponseSchema discriminator",
+    raw: '{"type":"session","message":{"type":"agent_permission_response","agentId":"a","requestId":"perm-1","response":{"behavior":"ask"}}}',
+  },
+  {
+    id: "session.permission_response.reject_non_object_permission",
+    direction: "inbound",
+    source: "updatedPermissions items are records",
+    raw: '{"type":"session","message":{"type":"agent_permission_response","agentId":"a","requestId":"perm-1","response":{"behavior":"allow","updatedPermissions":[1]}}}',
+  },
+  {
+    id: "session.cancel_agent",
+    direction: "inbound",
+    source: "CancelAgentRequestMessageSchema",
+    raw: '{"type":"session","message":{"requestId":"r","agentId":"a","type":"cancel_agent_request"}}',
+  },
+  {
+    id: "session.cancel_agent.without_request_id",
+    direction: "inbound",
+    source: "CancelAgentRequestMessageSchema requestId optional",
+    raw: '{"type":"session","message":{"type":"cancel_agent_request","agentId":"a"}}',
+  },
+  {
+    id: "session.cancel_agent.reject_null_request_id",
+    direction: "inbound",
+    source: "CancelAgentRequestMessageSchema requestId optional, not nullable",
+    raw: '{"type":"session","message":{"type":"cancel_agent_request","agentId":"a","requestId":null}}',
+  },
+);

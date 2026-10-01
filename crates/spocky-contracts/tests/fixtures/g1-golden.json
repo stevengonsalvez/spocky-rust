@@ -7,7 +7,7 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "ee09489b7d8a2c33c3a6ce7c3c5c9797ebbce8c6d40920418e959d2669d2e2e5",
+    "casesSha256": "045774418e3613d130a2532a4c81d5f660811a1c7ad1c6ea4e7054c6653f4e87",
     "pinnedServer": {
       "buildMarkerSha256": "d2a479bfec301b3d2659c25a9cc42393cce1c09f9c457f92356008e3d48cea2f",
       "agentProjectionsJsSha256": "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
@@ -1566,6 +1566,113 @@
       "zod": {
         "success": true,
         "output": "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"voice\":false,\"x\":{\"__proto__\":1}}}"
+      }
+    },
+    {
+      "id": "session.permission_response.allow",
+      "direction": "inbound",
+      "source": "AgentPermissionResponseMessageSchema allow arm",
+      "input": "{\"type\":\"session\",\"message\":{\"response\":{\"updatedPermissions\":[{\"b\":1,\"__proto__\":2,\"1\":0}],\"updatedInput\":{\"cmd\":\"ls\",\"2\":1},\"x\":1,\"selectedActionId\":\"a\",\"behavior\":\"allow\"},\"requestId\":\"perm-1\",\"agentId\":\"a\",\"extra\":true,\"type\":\"agent_permission_response\"}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"allow\",\"selectedActionId\":\"a\",\"updatedInput\":{\"2\":1,\"cmd\":\"ls\"},\"updatedPermissions\":[{\"1\":0,\"b\":1}]}}}"
+      }
+    },
+    {
+      "id": "session.permission_response.deny",
+      "direction": "inbound",
+      "source": "AgentPermissionResponseMessageSchema deny arm",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"deny\",\"interrupt\":true,\"message\":\"no\"}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"deny\",\"message\":\"no\",\"interrupt\":true}}}"
+      }
+    },
+    {
+      "id": "session.permission_response.minimal_allow",
+      "direction": "inbound",
+      "source": "AgentPermissionResponseSchema allow with no options",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"allow\"}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"allow\"}}}"
+      }
+    },
+    {
+      "id": "session.permission_response.reject_unknown_behavior",
+      "direction": "inbound",
+      "source": "AgentPermissionResponseSchema discriminator",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"ask\"}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_union",
+            "path": [
+              "message",
+              "response",
+              "behavior"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "session.permission_response.reject_non_object_permission",
+      "direction": "inbound",
+      "source": "updatedPermissions items are records",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent_permission_response\",\"agentId\":\"a\",\"requestId\":\"perm-1\",\"response\":{\"behavior\":\"allow\",\"updatedPermissions\":[1]}}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "message",
+              "response",
+              "updatedPermissions",
+              "0"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "session.cancel_agent",
+      "direction": "inbound",
+      "source": "CancelAgentRequestMessageSchema",
+      "input": "{\"type\":\"session\",\"message\":{\"requestId\":\"r\",\"agentId\":\"a\",\"type\":\"cancel_agent_request\"}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"cancel_agent_request\",\"agentId\":\"a\",\"requestId\":\"r\"}}"
+      }
+    },
+    {
+      "id": "session.cancel_agent.without_request_id",
+      "direction": "inbound",
+      "source": "CancelAgentRequestMessageSchema requestId optional",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"cancel_agent_request\",\"agentId\":\"a\"}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"cancel_agent_request\",\"agentId\":\"a\"}}"
+      }
+    },
+    {
+      "id": "session.cancel_agent.reject_null_request_id",
+      "direction": "inbound",
+      "source": "CancelAgentRequestMessageSchema requestId optional, not nullable",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"cancel_agent_request\",\"agentId\":\"a\",\"requestId\":null}}",
+      "zod": {
+        "success": false,
+        "issues": [
+          {
+            "code": "invalid_type",
+            "path": [
+              "message",
+              "requestId"
+            ]
+          }
+        ]
       }
     }
   ]
