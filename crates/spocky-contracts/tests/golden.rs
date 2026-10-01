@@ -17,7 +17,7 @@ use serde_json::Value;
 use spocky_contracts::frame::{WsInbound, WsOutbound, frame_text, parse_frame};
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 21;
+const EXPECTED_CASES: usize = 69;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
