@@ -112,6 +112,11 @@ pub enum Check {
         step: &'static str,
         needle: &'static str,
     },
+    /// A step's stdout has a line exactly equal to this text.
+    StdoutLine {
+        step: &'static str,
+        line: &'static str,
+    },
     /// Every scripted reply was consumed and no unscripted request arrived.
     StubExactlyConsumed,
     /// The daemon exited with this code after SIGTERM.
@@ -141,6 +146,8 @@ pub struct GateSpec {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Exit {
     Code(i32),
+    /// Exited with this code but a leftover process held its output open.
+    PipesHeld(i32),
     Signal(i32),
     TimedOut,
     NotRun(String),
@@ -165,6 +172,7 @@ impl Exit {
     pub fn render(&self) -> String {
         match self {
             Self::Code(code) => format!("exit {code}"),
+            Self::PipesHeld(code) => format!("exit {code}, output pipes held open"),
             Self::Signal(signal) => format!("signal {signal}"),
             Self::TimedOut => "timed out".into(),
             Self::NotRun(reason) => format!("not run: {reason}"),
@@ -248,23 +256,36 @@ pub fn free_port() -> io::Result<u16> {
     listener.local_addr().map(|address| address.port())
 }
 
-/// Runs `command` with piped output and a hard timeout, killing it on expiry.
+/// How long output pipes may stay open after the process itself ended.
+const PIPE_GRACE: Duration = Duration::from_secs(5);
+
+/// Runs `command` in its own process group with piped output and a hard
+/// timeout. On expiry the whole group is killed. Output collection is bounded:
+/// if a leftover group member keeps a pipe open past [`PIPE_GRACE`], the group
+/// is killed and the result is [`Exit::PipesHeld`], which fails every check.
 fn run_bounded(command: &mut Command, timeout: Duration) -> (Vec<u8>, Vec<u8>, Exit) {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return (Vec::new(), Vec::new(), Exit::NotRun(error.to_string())),
     };
+    let group = child.id();
     let stdout = drain(child.stdout.take());
     let stderr = drain(child.stderr.take());
     let started = Instant::now();
-    let exit = loop {
+    let mut exit = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Exit::from_status(status),
             Ok(None) if started.elapsed() >= timeout => {
+                kill_group(group);
                 let _ = child.kill();
                 let _ = child.wait();
                 break Exit::TimedOut;
@@ -273,19 +294,40 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> (Vec<u8>, Vec<u8>, E
             Err(error) => break Exit::NotRun(error.to_string()),
         }
     };
-    let stdout = stdout.join().unwrap_or_default();
-    let stderr = stderr.join().unwrap_or_default();
+    let mut collect = |receiver: &std::sync::mpsc::Receiver<Vec<u8>>| {
+        if let Ok(bytes) = receiver.recv_timeout(PIPE_GRACE) {
+            return bytes;
+        }
+        kill_group(group);
+        if let Exit::Code(code) = exit {
+            exit = Exit::PipesHeld(code);
+        }
+        receiver.recv_timeout(PIPE_GRACE).unwrap_or_default()
+    };
+    let stdout = collect(&stdout);
+    let stderr = collect(&stderr);
     (stdout, stderr, exit)
 }
 
-fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<u8>> {
+fn kill_group(group: u32) {
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", "--", &format!("-{group}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn drain(pipe: Option<impl Read + Send + 'static>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
     thread::spawn(move || {
         let mut bytes = Vec::new();
         if let Some(mut pipe) = pipe {
             let _ = pipe.read_to_end(&mut bytes);
         }
-        bytes
-    })
+        let _ = sender.send(bytes);
+    });
+    receiver
 }
 
 /// Directory layout of one disposable root.
@@ -385,12 +427,66 @@ fn create_layout(gate: &str, tools: &Tools) -> io::Result<Layout> {
         "bin",
         "tmp",
         "stub",
+        "codex-io",
     ] {
         fs::create_dir(layout.path(directory))?;
     }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&tools.codex, layout.path("bin/codex"))?;
+    write_codex_wrapper(&layout, &tools.codex)?;
     Ok(layout)
+}
+
+/// The `codex` the daemon finds on `PATH`. It records each invocation's argv
+/// and the exact bytes the daemon writes to codex stdin (the app-server
+/// JSON-RPC input) under `codex-io/<n>/`, then execs the pinned binary as the
+/// same PID with stdin fed through a FIFO by `tee`.
+#[must_use]
+pub fn codex_wrapper_script(io_dir: &str, codex: &str) -> String {
+    format!(
+        "#!/bin/sh\n\
+         io={io}\n\
+         n=1\n\
+         while ! mkdir \"$io/$n\" 2>/dev/null; do n=$((n + 1)); done\n\
+         for arg in \"$@\"; do printf '%s\\n' \"$arg\"; done >\"$io/$n/argv\"\n\
+         mkfifo \"$io/$n/fifo\" || exit 98\n\
+         exec 3<&0\n\
+         tee \"$io/$n/stdin\" <&3 >\"$io/$n/fifo\" &\n\
+         exec {codex} \"$@\" <\"$io/$n/fifo\" 3<&-\n",
+        io = shell_quote(io_dir),
+        codex = shell_quote(codex),
+    )
+}
+
+fn write_codex_wrapper(layout: &Layout, codex: &Path) -> io::Result<()> {
+    let path = layout.path("bin/codex");
+    fs::write(
+        &path,
+        codex_wrapper_script(&layout.text("codex-io"), &codex.display().to_string()),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
+fn git_command(layout: &Layout, args: &[&str]) -> Command {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .args(args)
+        .current_dir(layout.path("project"))
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", layout.text("home"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Spocky Fixture")
+        .env("GIT_AUTHOR_EMAIL", "fixture@spocky.invalid")
+        .env("GIT_AUTHOR_DATE", FIXTURE_DATE)
+        .env("GIT_COMMITTER_NAME", "Spocky Fixture")
+        .env("GIT_COMMITTER_EMAIL", "fixture@spocky.invalid")
+        .env("GIT_COMMITTER_DATE", FIXTURE_DATE);
+    command
 }
 
 fn init_project(layout: &Layout) -> Result<(), String> {
@@ -401,21 +497,7 @@ fn init_project(layout: &Layout) -> Result<(), String> {
         &["add", "README.md"],
         &["commit", "-q", "-m", "fixture"],
     ] {
-        let mut command = Command::new("/usr/bin/git");
-        command
-            .args(args)
-            .current_dir(&project)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", layout.text("home"))
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "Spocky Fixture")
-            .env("GIT_AUTHOR_EMAIL", "fixture@spocky.invalid")
-            .env("GIT_AUTHOR_DATE", FIXTURE_DATE)
-            .env("GIT_COMMITTER_NAME", "Spocky Fixture")
-            .env("GIT_COMMITTER_EMAIL", "fixture@spocky.invalid")
-            .env("GIT_COMMITTER_DATE", FIXTURE_DATE);
+        let mut command = git_command(layout, args);
         let (_, stderr, exit) = run_bounded(&mut command, Duration::from_secs(30));
         if exit != Exit::Code(0) {
             return Err(format!(
@@ -563,6 +645,25 @@ fn process_tree(root_pid: u32) -> Vec<u32> {
     tree
 }
 
+/// PIDs of this user's processes whose arguments or environment contain
+/// `needle` (macOS `ps -E`), excluding this harness process.
+fn processes_mentioning(needle: &str) -> Vec<u32> {
+    let (stdout, _, exit) = run_bounded(
+        Command::new("/bin/ps").args(["-A", "-E", "-ww", "-o", "pid=,command="]),
+        Duration::from_secs(10),
+    );
+    if exit != Exit::Code(0) {
+        return Vec::new();
+    }
+    let own = std::process::id();
+    String::from_utf8_lossy(&stdout)
+        .lines()
+        .filter(|line| line.contains(needle))
+        .filter_map(|line| line.split_whitespace().next()?.parse::<u32>().ok())
+        .filter(|pid| *pid != own)
+        .collect()
+}
+
 fn wait_until(deadline: Duration, mut done: impl FnMut() -> bool) -> bool {
     let started = Instant::now();
     loop {
@@ -578,6 +679,16 @@ fn wait_until(deadline: Duration, mut done: impl FnMut() -> bool) -> bool {
 
 /// Collects files under `directory` (relative to the root), sorted by path.
 fn collect_files(layout: &Layout, directory: &str, out: &mut Vec<CapturedFile>) -> io::Result<()> {
+    collect_files_except(layout, directory, &[], out)
+}
+
+/// Like [`collect_files`], skipping directories whose root-relative path is in `skip`.
+fn collect_files_except(
+    layout: &Layout,
+    directory: &str,
+    skip: &[&str],
+    out: &mut Vec<CapturedFile>,
+) -> io::Result<()> {
     let base = layout.path(directory);
     if !base.exists() {
         return Ok(());
@@ -590,23 +701,29 @@ fn collect_files(layout: &Layout, directory: &str, out: &mut Vec<CapturedFile>) 
             let kind = entry.file_type()?;
             let path = entry.path();
             if kind.is_dir() {
-                pending.push(path);
+                let relative = path.strip_prefix(&layout.root).map_err(io::Error::other)?;
+                if !skip.iter().any(|skipped| relative == Path::new(skipped)) {
+                    pending.push(path);
+                }
             } else {
-                found.push((path, kind.is_symlink()));
+                found.push((path, kind));
             }
         }
     }
-    found.sort();
-    for (path, symlink) in found {
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    for (path, kind) in found {
         let relative = path
             .strip_prefix(&layout.root)
             .map_err(io::Error::other)?
             .display()
             .to_string();
-        let bytes = if symlink {
+        // Never open FIFOs, sockets, or devices: reading one can block forever.
+        let bytes = if kind.is_symlink() {
             format!("symlink -> {}", fs::read_link(&path)?.display()).into_bytes()
-        } else {
+        } else if kind.is_file() {
             fs::read(&path)?
+        } else {
+            b"special file".to_vec()
         };
         out.push(CapturedFile {
             path: relative,
@@ -614,6 +731,28 @@ fn collect_files(layout: &Layout, directory: &str, out: &mut Vec<CapturedFile>) 
         });
     }
     Ok(())
+}
+
+/// One compared record per codex invocation: its argv and the exact bytes the
+/// daemon wrote to its stdin. The wrapper's arrival number is dropped, because
+/// concurrent `--version` probes and app-server starts race for it; canonical
+/// state ordering then orders invocations by content.
+fn codex_invocations(layout: &Layout) -> io::Result<Vec<CapturedFile>> {
+    let mut invocations = Vec::new();
+    for entry in fs::read_dir(layout.path("codex-io"))? {
+        let directory = entry?.path();
+        let argv = fs::read(directory.join("argv"))?;
+        let stdin = fs::read(directory.join("stdin"))?;
+        let mut bytes = b"argv:\n".to_vec();
+        bytes.extend_from_slice(&argv);
+        bytes.extend_from_slice(b"stdin:\n");
+        bytes.extend_from_slice(&stdin);
+        invocations.push(CapturedFile {
+            path: "codex-io/invocation".into(),
+            bytes,
+        });
+    }
+    Ok(invocations)
 }
 
 fn is_daemon_log(path: &str) -> bool {
@@ -630,6 +769,42 @@ fn capture_files(
         if let Err(error) = collect_files(layout, directory, &mut all) {
             errors.push(format!("capture {directory}: {error}"));
         }
+    }
+    if let Err(error) = collect_files_except(layout, "project", &["project/.git"], &mut all) {
+        errors.push(format!("capture project: {error}"));
+    }
+    match codex_invocations(layout) {
+        Ok(invocations) => all.extend(invocations),
+        Err(error) => errors.push(format!("capture codex-io: {error}")),
+    }
+    for (name, args) in [
+        ("project.git-status", &["status", "--porcelain"][..]),
+        ("project.git-head", &["rev-parse", "HEAD"]),
+    ] {
+        let (stdout, stderr, exit) =
+            run_bounded(&mut git_command(layout, args), Duration::from_secs(30));
+        let mut bytes = format!("{}\n", exit.render()).into_bytes();
+        bytes.extend_from_slice(&stdout);
+        bytes.extend_from_slice(&stderr);
+        all.push(CapturedFile {
+            path: name.into(),
+            bytes,
+        });
+    }
+    let mut tmp = Vec::new();
+    match collect_files(layout, "tmp", &mut tmp) {
+        Ok(()) => all.push(CapturedFile {
+            path: "tmp.listing".into(),
+            bytes: tmp
+                .iter()
+                .fold(String::new(), |mut listing, file| {
+                    listing.push_str(&file.path);
+                    listing.push('\n');
+                    listing
+                })
+                .into_bytes(),
+        }),
+        Err(error) => errors.push(format!("capture tmp listing: {error}")),
     }
     let (uncompared_logs, mut state): (Vec<_>, Vec<_>) =
         all.into_iter().partition(|file| is_daemon_log(&file.path));
@@ -879,10 +1054,11 @@ fn run_in_layout(
     let readiness = loop {
         readiness_attempts += 1;
         let argv: Vec<String> = vec!["ls".into(), "--host".into(), host.clone(), "--json".into()];
-        let (stdout, stderr, exit) = run_bounded(
-            &mut cli_command(tools, layout, &environment, &argv),
-            Duration::from_secs(30),
-        );
+        let left = READY_TIMEOUT
+            .saturating_sub(ready_started.elapsed())
+            .clamp(Duration::from_secs(1), Duration::from_secs(30));
+        let (stdout, stderr, exit) =
+            run_bounded(&mut cli_command(tools, layout, &environment, &argv), left);
         let attempt = StepRun {
             name: "ready".into(),
             argv,
@@ -936,7 +1112,13 @@ fn run_in_layout(
         });
     }
 
-    let (force_killed, survivors) = stop_daemon(layout, &session, daemon_pid, &mut errors);
+    let (force_killed, survivors) = stop_daemon(
+        layout,
+        &session,
+        daemon_pid,
+        &[stub.child.id()],
+        &mut errors,
+    );
     let daemon_exit = fs::read_to_string(layout.path("daemon.exit"))
         .ok()
         .and_then(|text| text.trim().parse::<i32>().ok())
@@ -988,10 +1170,13 @@ fn run_in_layout(
     Ok(side)
 }
 
+/// Stops the daemon and verifies nothing of the side survives. `keep` lists
+/// harness-owned processes (the stub) that the root-path scan must not touch.
 fn stop_daemon(
     layout: &Layout,
     session: &str,
     daemon_pid: Option<u32>,
+    keep: &[u32],
     errors: &mut Vec<String>,
 ) -> (Vec<u32>, Vec<u32>) {
     let tree = daemon_pid.map(process_tree).unwrap_or_default();
@@ -1022,11 +1207,30 @@ fn stop_daemon(
     wait_until(KILL_GRACE, || {
         force_killed.iter().all(|pid| !pid_alive(*pid))
     });
-    let survivors: Vec<u32> = force_killed
+    let mut force_killed = force_killed;
+    let mut survivors: Vec<u32> = force_killed
         .iter()
         .copied()
         .filter(|pid| pid_alive(*pid))
         .collect();
+    // Processes outside the recorded tree (reparented helpers) still carry the
+    // disposable root in their environment or arguments.
+    let strays: Vec<u32> = processes_mentioning(&layout.text(""))
+        .into_iter()
+        .filter(|pid| !keep.contains(pid))
+        .collect();
+    for pid in &strays {
+        signal(*pid, "KILL");
+    }
+    wait_until(KILL_GRACE, || strays.iter().all(|pid| !pid_alive(*pid)));
+    for pid in strays {
+        if !force_killed.contains(&pid) {
+            force_killed.push(pid);
+        }
+        if pid_alive(pid) && !survivors.contains(&pid) {
+            survivors.push(pid);
+        }
+    }
     if session_exists(session) {
         errors.push(format!("tmux session {session} survived"));
     }
@@ -1040,8 +1244,15 @@ fn write_raw(side: &SideRun, directory: &Path) {
         serde_json::to_vec_pretty(side).unwrap_or_default(),
     );
     let files = directory.join("files");
+    let mut written: Vec<PathBuf> = Vec::new();
     for file in side.state.iter().chain(&side.uncompared) {
-        let target = files.join(&file.path);
+        let mut target = files.join(&file.path);
+        let mut copy = 1;
+        while written.contains(&target) {
+            copy += 1;
+            target = files.join(format!("{}.{copy}", file.path));
+        }
+        written.push(target.clone());
         if let Some(parent) = target.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -1073,6 +1284,18 @@ pub fn failed_checks(gate: &GateSpec, side: &SideRun) -> Vec<String> {
                 (found != Some(Value::String((*expected).to_owned())))
                     .then(|| format!("{step}{pointer} is {found:?}, expected {expected:?}"))
             }
+            Check::StdoutLine { step, line } => {
+                let found = side
+                    .steps
+                    .iter()
+                    .find(|run| run.name == *step)
+                    .is_some_and(|run| {
+                        String::from_utf8_lossy(&run.stdout)
+                            .lines()
+                            .any(|text| text == *line)
+                    });
+                (!found).then(|| format!("{step} stdout has no line {line:?}"))
+            }
             Check::StdoutContains { step, needle } => {
                 let contains = side
                     .steps
@@ -1102,6 +1325,116 @@ pub fn failed_checks(gate: &GateSpec, side: &SideRun) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scratch(tag: u32) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("spocky-side-test-{}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn codex_wrapper_records_argv_and_exact_stdin_and_passes_through() {
+        let directory = scratch(line!());
+        let io = directory.join("io");
+        fs::create_dir(&io).unwrap();
+        // Stand-in for codex: echoes stdin and ignores its arguments.
+        let fake = directory.join("fake-codex");
+        fs::write(&fake, "#!/bin/sh\nexec /bin/cat\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let wrapper = directory.join("codex");
+        fs::write(
+            &wrapper,
+            codex_wrapper_script(&io.display().to_string(), &fake.display().to_string()),
+        )
+        .unwrap();
+        let input = b"{\"id\":1,\"method\":\"initialize\"}\n{\"b\":2,\"a\":1}\n";
+        let mut child = Command::new("/bin/sh")
+            .arg(&wrapper)
+            .args(["app-server", "two words"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(input).unwrap();
+        }
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.stdout, input);
+        assert!(wait_until(Duration::from_secs(5), || {
+            fs::read(io.join("1/stdin")).is_ok_and(|bytes| bytes == input)
+        }));
+        assert_eq!(
+            fs::read_to_string(io.join("1/argv")).unwrap(),
+            "app-server\ntwo words\n"
+        );
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn special_files_are_never_opened() {
+        let directory = scratch(line!());
+        let layout = Layout {
+            root: directory.clone(),
+        };
+        fs::create_dir(directory.join("io")).unwrap();
+        fs::write(directory.join("io/plain"), b"x").unwrap();
+        let fifo = directory.join("io/fifo");
+        let made = Command::new("/usr/bin/mkfifo").arg(&fifo).status().unwrap();
+        assert!(made.success());
+        let mut out = Vec::new();
+        collect_files(&layout, "io", &mut out).unwrap();
+        let summary: Vec<(String, Vec<u8>)> = out
+            .into_iter()
+            .map(|file| (file.path, file.bytes))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("io/fifo".to_owned(), b"special file".to_vec()),
+                ("io/plain".to_owned(), b"x".to_vec()),
+            ]
+        );
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn held_pipes_fail_closed_within_the_grace() {
+        let started = Instant::now();
+        let (_, _, exit) = run_bounded(
+            Command::new("/bin/sh").args(["-c", "/bin/sleep 30 & exit 0"]),
+            Duration::from_secs(10),
+        );
+        assert_eq!(exit, Exit::PipesHeld(0));
+        assert!(started.elapsed() < Duration::from_secs(20));
+    }
+
+    #[test]
+    fn stray_processes_are_found_by_root_in_environment() {
+        let needle = format!(
+            "/private/tmp/spocky-p3-test-{}-{}",
+            std::process::id(),
+            line!()
+        );
+        let mut child = Command::new("/bin/sleep")
+            .arg("30")
+            .env("SPOCKY_TEST_ROOT", &needle)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
+            &needle
+        )
+        .contains(&pid)));
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(!processes_mentioning(&needle).contains(&pid));
+    }
 
     #[test]
     fn shell_quote_escapes_single_quotes() {
@@ -1256,6 +1589,10 @@ mod tests {
                     step: "logs",
                     needle: "READY",
                 },
+                Check::StdoutLine {
+                    step: "logs",
+                    line: "READY",
+                },
                 Check::StubExactlyConsumed,
                 Check::DaemonExit(0),
             ],
@@ -1280,6 +1617,20 @@ mod tests {
         ]);
         bad.stub_unscripted = 1;
         bad.daemon_exit = Exit::Code(143);
-        assert_eq!(failed_checks(&gate, &bad).len(), 5);
+        assert_eq!(failed_checks(&gate, &bad).len(), 6);
+
+        // The prompt echo alone contains READY but has no exact READY line.
+        let echo_only = side_with(vec![
+            run("run", br#"{"status":"completed"}"#, Exit::Code(0)),
+            run(
+                "logs",
+                b"[User] Reply with the single word READY.\n",
+                Exit::Code(0),
+            ),
+        ]);
+        assert_eq!(
+            failed_checks(&gate, &echo_only),
+            vec!["original: logs stdout has no line \"READY\"".to_owned()]
+        );
     }
 }
