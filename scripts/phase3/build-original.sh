@@ -2,8 +2,16 @@
 # Builds the pinned Paseo CLI and daemon (git archive of .baselines/paseo-runtime
 # at the pinned commit) with Node 22.20.0 into a disposable build root outside
 # every git worktree. Never writes into the baseline checkout. Prints the build
-# root on success. A completed root carries .spocky-build with the commit, lock,
-# and Node digests; a root whose marker differs is rebuilt from scratch.
+# root on success.
+#
+# `npm ci` runs with lifecycle scripts, as a real checkout install does, so
+# native and binary packages (node-pty, sharp, esbuild, workerd) are installed
+# and the original daemon is not degraded. The staging copy is git-initialized
+# because the root `prepare` script installs lefthook hooks into it.
+#
+# A completed root carries .spocky-build with the commit, lock, Node digests,
+# and install mode; a root whose marker differs is rebuilt from scratch. One
+# build at a time per root, guarded by a lock directory holding the owner PID.
 #
 # Usage: scripts/phase3/build-original.sh
 # Env:   SPOCKY_P3_BUILD_PARENT  parent of build roots
@@ -22,27 +30,66 @@ build_gate=${SPOCKY_BUILD_GATE:-/private/tmp/spocky-targets/build-gate.sh}
 baseline=$(p3_paseo_baseline "$repository_root")
 node_bin=$(p3_node_bin_dir)
 build_root=$build_parent/paseo-original-$P3_PASEO_COMMIT
-marker_expected=$(printf 'commit=%s\nlock=%s\nnode=%s\n' \
+lock=$build_root.lock
+marker_expected=$(printf 'commit=%s\nlock=%s\nnode=%s\ninstall=lifecycle-scripts\n' \
   "$P3_PASEO_COMMIT" "$P3_PASEO_LOCK_SHA256" "$P3_NODE_BINARY_SHA256")
 
-if [ -f "$build_root/.spocky-build" ] &&
-  [ "$(cat "$build_root/.spocky-build")" = "$marker_expected" ] &&
-  [ -f "$build_root/packages/cli/dist/index.js" ]; then
+complete() {
+  [ -f "$build_root/.spocky-build" ] &&
+    [ "$(cat "$build_root/.spocky-build")" = "$marker_expected" ] &&
+    [ -f "$build_root/packages/cli/dist/index.js" ]
+}
+
+if complete; then
   printf '%s\n' "$build_root"
   exit 0
 fi
 
 mkdir -p "$build_parent"
-staging=$(mktemp -d "$build_parent/paseo-original-staging.XXXXXX")
+staging=
+held_lock=false
 cleanup() {
-  case "$staging" in
-    "$build_parent"/paseo-original-staging.*) rm -rf "$staging" ;;
-    *) printf 'refusing to remove unexpected staging directory: %s\n' "$staging" >&2 ;;
-  esac
+  if [ -n "$staging" ]; then
+    case "$staging" in
+      "$build_parent"/paseo-original-staging.*) rm -rf "$staging" ;;
+      *) printf 'refusing to remove unexpected staging directory: %s\n' "$staging" >&2 ;;
+    esac
+  fi
+  if [ "$held_lock" = true ]; then
+    rm -rf "$lock"
+  fi
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM HUP
 
-git -C "$baseline" archive "$P3_PASEO_COMMIT" | tar -x -C "$staging"
+# Take the per-root lock; a lock whose owner PID is gone is stale.
+waited=0
+until mkdir "$lock" 2>/dev/null; do
+  owner=$(cat "$lock/pid" 2>/dev/null || true)
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+    rm -rf "$lock"
+    continue
+  fi
+  [ "$waited" -lt 3600 ] || p3_fail "build lock $lock still held after 3600 s by PID ${owner:-unknown}"
+  sleep 5
+  waited=$((waited + 5))
+done
+held_lock=true
+printf '%s\n' "$$" >"$lock/pid"
+
+# Another process may have finished the build while this one waited.
+if complete; then
+  printf '%s\n' "$build_root"
+  exit 0
+fi
+
+staging=$(mktemp -d "$build_parent/paseo-original-staging.XXXXXX")
+archive=$staging.tar
+git -C "$baseline" archive --format=tar -o "$archive" "$P3_PASEO_COMMIT" ||
+  p3_fail "git archive of $P3_PASEO_COMMIT failed"
+tar -x -f "$archive" -C "$staging" || p3_fail "extracting $archive failed"
+rm -f "$archive"
 [ "$(p3_sha256 "$staging/package-lock.json")" = "$P3_PASEO_LOCK_SHA256" ] ||
   p3_fail "archived package-lock.json digest mismatch"
 
@@ -51,13 +98,12 @@ log=$staging/.spocky-build.log
   cd "$staging"
   PATH=$node_bin:$PATH
   export PATH
-  "$build_gate" gtimeout --kill-after=30 1800 \
-    npm ci --ignore-scripts --no-audit --no-fund
-  PATH="$staging/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
+  git init -q .
+  "$build_gate" gtimeout --kill-after=30 2400 npm ci --no-audit --no-fund
   "$build_gate" gtimeout --kill-after=30 1800 npm run build:server
 ) >"$log" 2>&1 || {
   tail -n 40 "$log" >&2
-  p3_fail "pinned Paseo build failed; full log above was in $log"
+  p3_fail "pinned Paseo build failed; log was $log"
 }
 [ -f "$staging/packages/cli/dist/index.js" ] ||
   p3_fail "pinned Paseo build produced no packages/cli/dist/index.js"
@@ -68,5 +114,5 @@ case "$build_root" in
   *) p3_fail "refusing to replace unexpected build root: $build_root" ;;
 esac
 mv "$staging" "$build_root"
-trap - EXIT HUP INT TERM
+staging=
 printf '%s\n' "$build_root"
