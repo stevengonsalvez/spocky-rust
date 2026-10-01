@@ -10,6 +10,9 @@
 //!   and returns it unchanged, and the Rust value the Spocky daemon would emit
 //!   writes exactly those bytes. Outbound types are emit-only.
 
+#[path = "support/outbound_frames.rs"]
+mod outbound_frames;
+
 use std::fs;
 use std::path::Path;
 
@@ -24,7 +27,7 @@ use spocky_contracts::ws::{
 };
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 89;
+const EXPECTED_CASES: usize = 109;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
@@ -123,7 +126,7 @@ fn outbound_frame(id: &str) -> Option<WsOutbound> {
                 },
             }),
         ),
-        _ => return None,
+        _ => return outbound_frames::frame(id),
     })
 }
 
