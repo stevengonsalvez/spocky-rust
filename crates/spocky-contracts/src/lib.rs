@@ -29,3 +29,6 @@ pub mod text;
 pub mod timeline;
 pub mod workspace;
 pub mod ws;
+pub mod zod;
+#[rustfmt::skip]
+pub mod zod_schemas;
