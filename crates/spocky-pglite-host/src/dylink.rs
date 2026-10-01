@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use wasmparser::{Dylink0Subsection, KnownCustom, Parser, Payload, SymbolFlags};
 use wasmtime::{
-    AsContextMut, Caller, Extern, ExternType, Func, Global, GlobalType, Instance, Module,
-    Mutability, Ref, Val, ValType,
+    Caller, Extern, ExternType, Func, Global, GlobalType, Instance, Module, Mutability, Ref, Val,
+    ValType,
 };
 
 use crate::runtime::{
@@ -153,7 +153,10 @@ fn merge_symbols(runtime: &mut Runtime, index: usize, exports: &[(String, Symbol
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one port of the glue loadWebAssemblyModule, kept in its order for comparison"
+)]
 fn load_webassembly_module(
     caller: &mut Caller<'_, Runtime>,
     index: usize,
@@ -413,6 +416,3 @@ fn dso_name(runtime: &Runtime, index: usize, dso: usize) -> String {
         .map(|(name, _)| name.clone())
         .unwrap_or_default()
 }
-
-#[allow(dead_code)]
-fn context_type(_: &mut impl AsContextMut<Data = Runtime>) {}
