@@ -797,6 +797,19 @@
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
         },
         {
+          "batch": "v4",
+          "date": "2026-10-01",
+          "integrationRange": "c9e7aba..64e232a, 38 signed commits",
+          "lanes": {
+            "p3_slice_harness": "157d1c4..87a607e plus transforms.json follow-ups: constant-UUID fix, codex stdin compare, named client_metadata transform, sandbox egress guard, dedicated tmux socket and owned-process signalling (safety review: SAFE TO RUN GATE)",
+            "p3_session": "f7ad868..1a36a33: seeding from stored rows, raw timeline differential, TypeError parity against pinned store, crate::js operators, stored-record projection differential, AgentClient/AgentSession provider seam (agent_sdk.rs)"
+          },
+          "leadVerification": "gated on lead slot with pinned env, SPOCKY_ALLOW_SKIP unset: spocky-slice-harness, spocky-session, spocky-store, spocky-contracts green; clippy -D warnings, fmt, sh -n scripts/phase3 clean; cargo metadata --locked on main",
+          "blockersBeforeG1Parity": ["harness daemon TERM ownership and start-time guard", "harness live decoy sweep test", "harness bounded codex-io mkdir loop", "harness codex-io negative test, absolute shim binaries, macOS cfg gate"],
+          "findings": "/private/tmp/claude-501/-Users-stevengonsalvez-orca-workspaces-paseo-paseo-rust/1b07299c-9eb9-4bb1-a98b-4db77f240f59/scratchpad/findings/ (p3_slice_harness-87a607e-safety.md, p3_session-10e40a4.md, p3_session-js-projection-c1aedbb.md, p3_session-agent_sdk-1a36a33.md)",
+          "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+        },
+        {
           "batch": "v3",
           "date": "2026-10-01",
           "integrationRange": "aa4fc93..99743c8, 91 signed commits",
