@@ -821,6 +821,23 @@
           "followUps": ["P3 side.rs:2096 argv_decoy needs process_group(0)", "P3 gate-g1.md:100 name the argv decoy"]
         },
         {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-01",
+          "sourceRange": "9ac2c60..c044101 (2 commits): sandboxed bounded real codex launch, watchdog abort test",
+          "integrationHead": "c03333e",
+          "review": "integration reviewer PASS (verdicts/p3_provider_codex-c044101.txt)",
+          "leadVerification": "gated: SPOCKY_REAL_CODEX=1 spocky-provider-codex --include-ignored 81/21/8/5/2 passed, clippy -D warnings (provider-codex, daemon-app), fmt check",
+          "followUps": ["P2 tests/support/mod.rs:60 sandboxed_version probe HOME is shared temp_dir with no egress-guard proxy env", "P3 watchdog abort skips Drop: disposable root and app-server process group left behind", "P3 disarm-on-drop covered only by ignored tests"]
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-01",
+          "sourceRange": "f9ab232..aeb550d (agent manager checkpoint 8)",
+          "status": "held: reviewer BLOCK (verdicts/p3_session-aeb550d.txt); not landed until resend PASS; G1 wiring dispatch waits on it",
+          "routedFindings": ["P1 agent_storage.rs:99 per-agent prev.then rejection chaining not reproduced", "P2 global FIFO becomes per-agent queue, no exception", "P2 wait signal and abort path ported", "P2 wait_for_agent_event drop-guard unsubscribe", "P2 differential scenarios for error and non-happy paths", "P3s fixed: AGENT_ID normalization, node version assert, to_js serializers, flush initialize"],
+          "evidenceLimitation": "commits 90e995e, b9da3ec, 6b6667d, bbd80de add agent_manager files not compiled until 547b3d5 registers the module; those intermediates are green only vacuously"
+        },
+        {
           "batch": "v5-v7",
           "date": "2026-10-01",
           "integrations": {
