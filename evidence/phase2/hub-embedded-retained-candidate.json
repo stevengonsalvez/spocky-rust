@@ -6,6 +6,7 @@
     "schema": "baseline relational"
   },
   "failures": {
+    "close": "Remote { code: \"CLOSE_FAILED\", message: \"injected close failure after durable close\", details: Object {\"column\": Null, \"constraint\": Null, \"detail\": Null, \"hint\": Null, \"name\": String(\"Error\"), \"position\": Null, \"schema\": Null, \"severity\": Null, \"table\": Null} }",
     "lostReply": "ReplyLost { request_id: 6, write_may_have_committed: true, cause: \"failed to fill whole buffer\" }",
     "rollback": {
       "code": "23505",
@@ -3691,6 +3692,59 @@
         ]
       ]
     },
+    "jsonTags": {
+      "affectedRows": 1,
+      "columns": [
+        "sql_null",
+        "sql_boolean",
+        "json_null",
+        "json_boolean",
+        "json_numeric",
+        "json_string",
+        "json_object",
+        "json_array"
+      ],
+      "rows": [
+        [
+          {
+            "type": "null"
+          },
+          {
+            "type": "boolean",
+            "value": true
+          },
+          {
+            "type": "json",
+            "value": null
+          },
+          {
+            "type": "json",
+            "value": true
+          },
+          {
+            "type": "json",
+            "value": 42
+          },
+          {
+            "type": "json",
+            "value": "value"
+          },
+          {
+            "type": "json",
+            "value": {
+              "key": "value"
+            }
+          },
+          {
+            "type": "json",
+            "value": [
+              1,
+              2
+            ]
+          }
+        ]
+      ]
+    },
     "migration": {
       "applied": 49,
       "journalRows": 49
@@ -4486,14 +4540,18 @@
     ]
   },
   "operations": {
+    "closeFailureRecovery": true,
+    "committedWriteCrashRecovery": true,
     "crossProcessRejection": true,
     "historicalResume": {
       "prefixJournalRows": 1,
       "suffix": {
         "applied": 48,
         "journalRows": 49
-      }
+      },
+      "userRowPreserved": true
     },
+    "partialMigrationRollback": true,
     "restart": true,
     "staleOwnerRecovery": true,
     "transactionRollback": true

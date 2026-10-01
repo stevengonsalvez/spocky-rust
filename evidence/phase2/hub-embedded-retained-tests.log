@@ -1,17 +1,24 @@
    Compiling spocky-hub-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-storage-spocky/crates/spocky-hub-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.11s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.07s
      Running tests/retained_pglite_runtime.rs (target/debug/deps/retained_pglite_runtime-94aa5d842d13f25a)
 
-running 9 tests
+running 16 tests
+test retained_host_acknowledges_close_after_persistence_and_recovers_close_failure ... ok
+test retained_host_bounds_delivery_when_child_stops_reading ... ok
 test retained_host_enforces_frame_bound_and_timeout_without_replay ... ok
+test retained_host_gives_partial_live_owner_bounded_grace ... ok
 test retained_host_keeps_baseline_partial_journal_semantics ... ok
+test retained_host_preserves_json_tags_distinct_from_sql_scalars ... ok
+test retained_host_reclaims_stale_owner_with_one_concurrent_winner ... ok
+test retained_host_recovers_committed_write_after_lost_crash_reply ... ok
 test retained_host_rejects_second_owner_and_recovers_after_child_crash ... ok
 test retained_host_releases_owner_when_parent_process_dies ... ok
 test retained_host_reopens_real_historical_state_and_applies_remaining_migrations ... ok
 test retained_host_replays_history_and_preserves_typed_values ... ok
+test retained_host_rolls_back_applied_steps_when_later_migration_fails ... ok
 test retained_host_rolls_back_pending_migrations_after_partial_journal ... ok
 test retained_host_rolls_back_transaction ... ok
 test retained_host_serializes_concurrent_callers ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 66.18s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 112.97s
 

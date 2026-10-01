@@ -11,6 +11,12 @@
     "staleOwnerRecovery": true,
     "historicalResume": true
   },
+  "candidateRecoveryEvidence": {
+    "committedWriteCrashRecovery": true,
+    "closeFailureRecovery": true,
+    "partialMigrationRollback": true,
+    "historicalUserRow": true
+  },
   "runtime": {
     "adapterDependencies": [
       "node:crypto",
@@ -51,6 +57,7 @@
     }
   },
   "failures": {
+    "close": "Remote { code: \"CLOSE_FAILED\", message: \"injected close failure after durable close\", details: Object {\"column\": Null, \"constraint\": Null, \"detail\": Null, \"hint\": Null, \"name\": String(\"Error\"), \"position\": Null, \"schema\": Null, \"severity\": Null, \"table\": Null} }",
     "lostReply": "ReplyLost { request_id: 6, write_may_have_committed: true, cause: \"failed to fill whole buffer\" }",
     "rollback": {
       "code": "23505",
@@ -78,7 +85,9 @@
   "unqualifiedResiduals": [
     "Node executable availability and platform packaging are not qualified",
     "Framed IPC throughput and latency are not qualified",
-    "Retained JavaScript delivery, updates, and support ownership are not qualified"
+    "Retained JavaScript delivery, updates, and support ownership are not qualified",
+    "Callback transactions and keyed application locks are not ported or qualified",
+    "Catalog parity does not prove full schema-definition provenance parity"
   ],
   "compatibilityException": {
     "status": "required-not-accepted",
