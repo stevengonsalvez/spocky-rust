@@ -8,7 +8,8 @@ Task `P2-AUDIO-01`, bounded checkpoint against
 The repository mount was read-only. The output mount contained generated audio
 and the structured report. The exact named container used `--rm` and the runner
 retained no container after exit. Output is restricted to this owned evidence
-root. Docker probes and cleanup have hard deadlines, cleanup is verified before
+root and symlinked root ancestors are rejected. Docker probes and cleanup have
+hard deadlines, inspection errors fail closed, cleanup is verified before
 metadata publication, and container ownership changes name only generated files.
 
 ## Observed runtime
@@ -21,18 +22,19 @@ metadata publication, and container ownership changes name only generated files.
 - `pactl` 16.1 and `pw-cli` 0.3.65 executed version probes. These are tool
   availability observations, not PulseAudio or PipeWire server-graph runtime.
 - The Linux process deadline test killed and reaped a spawned descendant process
-  group. A second test proves an exited parent cannot leave an inherited-pipe
-  descendant alive past the command boundary.
-- The targeted Linux runtime suite passed 4 tests. Locked all-target package
+  group. A second test proves the same behavior after the direct parent exits.
+  A regrouped descendant can escape that group, but cannot retain output pipes
+  beyond the command deadline; the test removes its exact PID afterward.
+- The targeted Linux runtime suite passed 5 tests. Locked all-target package
   clippy passed with warnings denied.
 
 The retained report is
 `evidence/phase2/audio-linux-runtime/run/linux-audio-report.json`. Its SHA-256 is
 `bc1ab525d4ed05fb4ddd41f487465e7e1aa0c0d20cf3ff421f25abc6ec2f209e`.
 The container log SHA-256 is
-`bbf80f7f07edc24ff8c8b817d4b2841c8d1890874b7ffc31647da3c399b09244`.
+`5bf26ea90b01add0e4ac30c5b0fcda011139ed1e336e5324dbc91809f1f4dfad`.
 The run metadata SHA-256 is
-`74ae11de75db429fad2102e8c7dcb04600bb557e3aa4f23b73b8467284db44d3`.
+`15a8dac0f4f134b337d7563ce6b1937894d5df5636b2e894b34d5e3ea6df6de4`.
 
 ## Limits
 
