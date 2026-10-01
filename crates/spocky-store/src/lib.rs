@@ -9,7 +9,9 @@ use serde_json::Value;
 
 pub mod agent_record;
 mod atomic;
+pub mod collate;
 pub mod js_json;
+pub mod js_value;
 pub mod path_compare;
 pub mod registry;
 pub mod time;
@@ -23,6 +25,7 @@ pub enum StoreError {
     InvalidJson(serde_json::Error),
     MissingString(&'static str),
     InvalidRecord(RecordError),
+    JsonSyntax(js_value::JsonSyntaxError),
     Io {
         operation: &'static str,
         source: io::Error,
@@ -37,6 +40,7 @@ impl Display for StoreError {
                 write!(formatter, "missing required string field '{field}'")
             }
             Self::InvalidRecord(error) => write!(formatter, "invalid registry record: {error}"),
+            Self::JsonSyntax(error) => write!(formatter, "invalid JSON: {error}"),
             Self::Io { operation, source } => write!(formatter, "{operation}: {source}"),
         }
     }
@@ -47,6 +51,7 @@ impl Error for StoreError {
         match self {
             Self::InvalidJson(error) => Some(error),
             Self::InvalidRecord(error) => Some(error),
+            Self::JsonSyntax(error) => Some(error),
             Self::Io { source, .. } => Some(source),
             Self::MissingString(_) => None,
         }
