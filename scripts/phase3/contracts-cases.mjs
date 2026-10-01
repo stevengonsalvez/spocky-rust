@@ -966,32 +966,36 @@ const PLAN_FEATURE = {
   value: false,
 };
 
-function liveAgent(overrides = {}) {
-  return {
+// Live snapshot from pinned toAgentPayload (agent-projections.ts), then the
+// two assignments of enrichAgentPayload (session.ts:2033-2037) for an agent
+// with no stored title or archive time.
+function liveAgent(pinned, { idle = false } = {}) {
+  const payload = pinned.toAgentPayload({
     id: AGENT_ID,
     provider: "codex",
     cwd: "/tmp/project",
     workspaceId: WKS,
-    model: null,
-    thinkingOptionId: null,
-    effectiveThinkingOptionId: null,
+    config: { provider: "codex", cwd: "/tmp/project", modeId: "full-access" },
     runtimeInfo: {
       provider: "codex",
       sessionId: THREAD,
       model: null,
       thinkingOptionId: null,
       modeId: "full-access",
+      extra: undefined,
     },
-    createdAt: T0,
-    updatedAt: T1,
-    lastUserMessageAt: T0,
-    status: "running",
-    activeTurn: { turnId: "turn-1", startedAt: T0 },
+    createdAt: new Date(T0),
+    updatedAt: new Date(T1),
+    lastUserMessageAt: new Date(T0),
+    lifecycle: idle ? "idle" : "running",
+    activeTurnId: idle ? null : "turn-1",
+    activeTurnStartedAt: idle ? null : new Date(T0),
     capabilities: CODEX_CAPABILITIES,
     currentModeId: "full-access",
     availableModes: CODEX_MODES,
     features: [PLAN_FEATURE],
-    pendingPermissions: [],
+    pendingPermissions: new Map(),
+    // codex-app-server-agent.ts describePersistence
     persistence: {
       provider: "codex",
       sessionId: THREAD,
@@ -1004,80 +1008,100 @@ function liveAgent(overrides = {}) {
         modeId: "full-access",
         model: null,
         thinkingOptionId: null,
+        providerOptions: undefined,
+        toolPolicy: undefined,
+        systemPrompt: undefined,
+        mcpServers: undefined,
         asyncQuestions: [],
       },
     },
-    title: null,
     labels: {},
-    requiresAttention: false,
-    attentionReason: null,
-    attentionTimestamp: null,
-    archivedAt: null,
-    ...overrides,
-  };
+    lastUsage: idle
+      ? { inputTokens: 1200, cachedInputTokens: 0, outputTokens: 34, totalCostUsd: 0.0123 }
+      : undefined,
+    lastError: undefined,
+    attention: idle
+      ? { requiresAttention: true, attentionReason: "finished", attentionTimestamp: new Date(T1) }
+      : { requiresAttention: false },
+  });
+  payload.title = null;
+  payload.archivedAt = null;
+  return payload;
 }
 
-const IDLE_AGENT_FIELDS = {
-  status: "idle",
-  activeTurn: null,
-  lastUsage: { inputTokens: 1200, cachedInputTokens: 0, outputTokens: 34, totalCostUsd: 0.0123 },
-  requiresAttention: true,
-  attentionReason: "finished",
-  attentionTimestamp: T1,
-};
+function idleAgent(pinned) {
+  return liveAgent(pinned, { idle: true });
+}
 
-function idleAgent() {
-  const agent = liveAgent();
-  // lastUsage is assigned after labels, then attention fields are reassigned in place.
-  const { requiresAttention, attentionReason, attentionTimestamp, archivedAt, ...rest } = agent;
+// Stored snapshot from pinned buildStoredAgentPayload.
+function storedAgent(pinned) {
+  return pinned.buildStoredAgentPayload(
+    {
+      id: AGENT_ID,
+      provider: "codex",
+      cwd: "/tmp/project",
+      workspaceId: WKS,
+      createdAt: T0,
+      updatedAt: T1,
+      lastActivityAt: T1,
+      lastUserMessageAt: T0,
+      title: null,
+      labels: {},
+      lastStatus: "closed",
+      lastModeId: "full-access",
+      config: null,
+      persistence: { provider: "codex", sessionId: THREAD, nativeHandle: THREAD },
+      requiresAttention: false,
+      attentionReason: null,
+      attentionTimestamp: null,
+    },
+    ["codex"],
+  );
+}
+
+// Placement from buildProjectPlacementForWorkspace (session.ts:2065-2088) with
+// the checkout from pinned checkoutFromPersistedWorkspacePlacement.
+function placement(pinned) {
   return {
-    ...rest,
-    status: "idle",
-    activeTurn: null,
-    lastUsage: IDLE_AGENT_FIELDS.lastUsage,
-    requiresAttention: true,
-    attentionReason: "finished",
-    attentionTimestamp: T1,
-    archivedAt: null,
+    projectKey: "proj_golden",
+    projectName: "project",
+    workspaceName: "main",
+    checkout: pinned.checkoutFromPersistedWorkspacePlacement({
+      workspace: {
+        kind: "local_checkout",
+        cwd: "/tmp/project",
+        branch: "main",
+        worktreeRoot: "/tmp/project",
+        isPaseoOwnedWorktree: false,
+        mainRepoRoot: null,
+      },
+    }),
   };
 }
 
-const PLACEMENT = {
-  projectKey: "proj_golden",
-  projectName: "project",
-  workspaceName: "main",
-  checkout: {
-    cwd: "/tmp/project",
-    currentBranch: "main",
-    remoteUrl: null,
-    worktreeRoot: "/tmp/project",
-    isGit: true,
-    isPaseoOwnedWorktree: false,
-    mainRepoRoot: null,
-  },
-};
-
-const WORKSPACE = {
-  id: WKS,
-  projectId: "proj_golden",
-  projectDisplayName: "project",
-  projectCustomName: null,
-  projectCustomIconRevision: null,
-  projectRootPath: "/tmp/project",
-  workspaceDirectory: "/tmp/project",
-  projectKind: "git",
-  workspaceKind: "local_checkout",
-  name: "main",
-  title: null,
-  pinnedAt: null,
-  archivingAt: null,
-  status: "done",
-  statusEnteredAt: null,
-  activityAt: null,
-  diffStat: null,
-  scripts: [],
-  project: PLACEMENT,
-};
+function workspace(pinned) {
+  return {
+    id: WKS,
+    projectId: "proj_golden",
+    projectDisplayName: "project",
+    projectCustomName: null,
+    projectCustomIconRevision: null,
+    projectRootPath: "/tmp/project",
+    workspaceDirectory: "/tmp/project",
+    projectKind: "git",
+    workspaceKind: "local_checkout",
+    name: "main",
+    title: null,
+    pinnedAt: null,
+    archivingAt: null,
+    status: "done",
+    statusEnteredAt: null,
+    activityAt: null,
+    diffStat: null,
+    scripts: [],
+    project: placement(pinned),
+  };
+}
 
 function creation(kind, revision, phase, extra = {}) {
   return {
@@ -1099,27 +1123,27 @@ CASES.push(
     id: "out.workspace_create.update_accepted",
     direction: "outbound",
     source: "creation/index.ts initialRecord; session.ts creationUpdate",
-    input: session({ type: "workspace.create.update", payload: creation("workspace", 0, "accepted") }),
+    build: (pinned) => session({ type: "workspace.create.update", payload: creation("workspace", 0, "accepted") }),
   },
   {
     id: "out.workspace_create.update_ready",
     direction: "outbound",
     source: "creation/index.ts publish workspace_ready; session.ts describeWorkspaceRecord",
-    input: session({
+    build: (pinned) => session({
       type: "workspace.create.update",
-      payload: creation("workspace", 1, "workspace_ready", { workspace: WORKSPACE }),
+      payload: creation("workspace", 1, "workspace_ready", { workspace: workspace(pinned) }),
     }),
   },
   {
     id: "out.workspace_create.response",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleWorkspaceCreation success`,
-    input: session({
+    build: (pinned) => session({
       type: "workspace.create.response",
       payload: {
         requestId: "r",
-        workspace: WORKSPACE,
-        creation: creation("workspace", 2, "completed", { workspace: WORKSPACE }),
+        workspace: workspace(pinned),
+        creation: creation("workspace", 2, "completed", { workspace: workspace(pinned) }),
         error: null,
         setupTerminalId: null,
       },
@@ -1129,7 +1153,7 @@ CASES.push(
     id: "out.workspace_create.response_error",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleWorkspaceCreation catch`,
-    input: session({
+    build: (pinned) => session({
       type: "workspace.create.response",
       payload: {
         requestId: "r",
@@ -1144,16 +1168,16 @@ CASES.push(
     id: "out.agent_create.update_ready",
     direction: "outbound",
     source: "creation/index.ts publish agent_ready; agent-projections.ts toAgentPayload",
-    input: session({
+    build: (pinned) => session({
       type: "agent.create.update",
-      payload: creation("agent", 1, "agent_ready", { agent: liveAgent() }),
+      payload: creation("agent", 1, "agent_ready", { agent: liveAgent(pinned) }),
     }),
   },
   {
     id: "out.agent_create.update_failed",
     direction: "outbound",
     source: "creation/index.ts publish failed",
-    input: session({
+    build: (pinned) => session({
       type: "agent.create.update",
       payload: {
         ...creation("agent", 1, "failed"),
@@ -1167,13 +1191,13 @@ CASES.push(
     id: "out.agent_create.response",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleAgentCreation`,
-    input: session({
+    build: (pinned) => session({
       type: "agent.create.response",
       payload: {
         requestId: "r",
-        agent: liveAgent(),
+        agent: liveAgent(pinned),
         error: null,
-        creation: creation("agent", 3, "completed", { agent: liveAgent() }),
+        creation: creation("agent", 3, "completed", { agent: liveAgent(pinned) }),
       },
     }),
   },
@@ -1181,16 +1205,16 @@ CASES.push(
     id: "out.fetch_agent.response",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleFetchAgent`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agent_response",
-      payload: { requestId: "r", agent: idleAgent(), project: PLACEMENT, error: null },
+      payload: { requestId: "r", agent: idleAgent(pinned), project: placement(pinned), error: null },
     }),
   },
   {
     id: "out.fetch_agent.not_found",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleFetchAgent not found`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agent_response",
       payload: { requestId: "r", agent: null, project: null, error: "Agent not found: x" },
     }),
@@ -1199,45 +1223,12 @@ CASES.push(
     id: "out.fetch_agent.stored",
     direction: "outbound",
     source: "agent-projections.ts buildStoredAgentPayload",
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agent_response",
       payload: {
         requestId: "r",
-        agent: {
-          id: AGENT_ID,
-          provider: "codex",
-          cwd: "/tmp/project",
-          workspaceId: WKS,
-          model: null,
-          thinkingOptionId: null,
-          effectiveThinkingOptionId: null,
-          createdAt: T0,
-          updatedAt: T1,
-          lastUserMessageAt: T0,
-          status: "closed",
-          capabilities: {
-            supportsStreaming: false,
-            supportsSessionPersistence: true,
-            supportsDynamicModes: false,
-            supportsMcpServers: false,
-            supportsReasoningStream: false,
-            supportsToolInvocations: true,
-            supportsRewindConversation: false,
-            supportsRewindFiles: false,
-            supportsRewindBoth: false,
-          },
-          currentModeId: "full-access",
-          availableModes: [],
-          pendingPermissions: [],
-          persistence: { provider: "codex", sessionId: THREAD, nativeHandle: THREAD },
-          title: null,
-          requiresAttention: false,
-          attentionReason: null,
-          attentionTimestamp: null,
-          archivedAt: null,
-          labels: {},
-        },
-        project: PLACEMENT,
+        agent: storedAgent(pinned),
+        project: placement(pinned),
         error: null,
       },
     }),
@@ -1246,11 +1237,11 @@ CASES.push(
     id: "out.fetch_agents.response",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleFetchAgents, listFetchAgentsEntries`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agents_response",
       payload: {
         requestId: "r",
-        entries: [{ agent: idleAgent(), project: PLACEMENT }],
+        entries: [{ agent: idleAgent(pinned), project: placement(pinned) }],
         pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
       },
     }),
@@ -1259,14 +1250,14 @@ CASES.push(
     id: "out.fetch_workspaces.response_git_data",
     direction: "outbound",
     source: `${SESSION_SOURCE} describeWorkspaceRecordWithGitData; workspace-directory.ts`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_workspaces_response",
       payload: {
         requestId: "r",
         subscriptionId: "sub-1",
         entries: [
           {
-            ...WORKSPACE,
+            ...workspace(pinned),
             diffStat: { additions: 3, deletions: 1 },
             gitRuntime: {
               currentBranch: "main",
@@ -1290,12 +1281,12 @@ CASES.push(
     id: "out.fetch_agent_timeline.response",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleFetchAgentTimelineRequest; agent-manager.ts recordSubmittedPrompt; timeline-projection.ts; codex/tool-call-mapper.ts`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agent_timeline_response",
       payload: {
         requestId: "r",
         agentId: AGENT_ID,
-        agent: idleAgent(),
+        agent: idleAgent(pinned),
         direction: "tail",
         projection: "projected",
         epoch: "ep-1",
@@ -1364,7 +1355,7 @@ CASES.push(
     id: "out.fetch_agent_timeline.error",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleFetchAgentTimelineRequest catch`,
-    input: session({
+    build: (pinned) => session({
       type: "fetch_agent_timeline_response",
       payload: {
         requestId: "r",
@@ -1391,16 +1382,16 @@ CASES.push(
     id: "out.wait_for_finish.idle",
     direction: "outbound",
     source: `${SESSION_SOURCE} handleWaitForFinish`,
-    input: session({
+    build: (pinned) => session({
       type: "wait_for_finish_response",
-      payload: { requestId: "r", status: "idle", final: idleAgent(), error: null, lastMessage: "Hello!" },
+      payload: { requestId: "r", status: "idle", final: idleAgent(pinned), error: null, lastMessage: "Hello!" },
     }),
   },
   {
     id: "out.session_pong",
     direction: "outbound",
     source: `${SESSION_SOURCE}:2586-2597`,
-    input: session({
+    build: (pinned) => session({
       type: "pong",
       payload: { requestId: "r", clientSentAt: 1, serverReceivedAt: 1790000000000, serverSentAt: 1790000000000 },
     }),
@@ -1409,7 +1400,7 @@ CASES.push(
     id: "out.rpc_error",
     direction: "outbound",
     source: "owned-subscriptions/index.ts:221-224",
-    input: session({
+    build: (pinned) => session({
       type: "rpc_error",
       payload: { requestId: "r", requestType: "fetch_agent_request", error: "Invalid message", code: "invalid_message" },
     }),
@@ -1418,13 +1409,13 @@ CASES.push(
     id: "out.status_error",
     direction: "outbound",
     source: "owned-subscriptions/index.ts:221-224 without requestId",
-    input: session({ type: "status", payload: { status: "error", message: "Invalid message" } }),
+    build: (pinned) => session({ type: "status", payload: { status: "error", message: "Invalid message" } }),
   },
   {
     id: "out.subscription_responses",
     direction: "outbound",
     source: `${SESSION_SOURCE}:2273-2281`,
-    input: session({
+    build: (pinned) => session({
       type: "agent.timeline.set_subscription.response",
       payload: { agentIds: ["a", "b"], requestId: "r", subscriptionId: "sub-1" },
     }),
@@ -1433,7 +1424,7 @@ CASES.push(
     id: "out.send_agent_message.response",
     direction: "outbound",
     source: `${SESSION_SOURCE}:8119-8127`,
-    input: session({
+    build: (pinned) => session({
       type: "send_agent_message_response",
       payload: { requestId: "r", agentId: AGENT_ID, accepted: true, error: null },
     }),
