@@ -43,3 +43,33 @@ pub fn submitted_prompt_text(prompt: &AgentPromptInput) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::submitted_prompt_text;
+    use crate::agent_sdk::AgentPromptInput;
+    use spocky_store::js_value::parse;
+
+    #[test]
+    fn submitted_text_joins_plain_text_blocks() {
+        assert_eq!(
+            submitted_prompt_text(&AgentPromptInput::Text("  as is  ".to_owned())),
+            "  as is  "
+        );
+        // node: [{type:"text",text:" a"},{type:"image",data:"x",mimeType:"image/png"},
+        //   {type:"text",text:"b",mimeType:"text/plain"},{type:"text"},{type:"text",text:"c\n"}]
+        //   .flatMap(b => b.type === "text" && !("mimeType" in b) ? [b.text] : [])
+        //   .join("\n").trim() === "a\n\nc"
+        let blocks = parse(
+            r#"[{"type":"text","text":" a"},{"type":"image","data":"x","mimeType":"image/png"},
+                {"type":"text","text":"b","mimeType":"text/plain"},{"type":"text"},
+                {"type":"text","text":"c\n"}]"#,
+        )
+        .expect("blocks");
+        let blocks = blocks.as_array().expect("array").to_vec();
+        assert_eq!(
+            submitted_prompt_text(&AgentPromptInput::Blocks(blocks)),
+            "a\n\nc"
+        );
+    }
+}
