@@ -13,21 +13,7 @@
     "reviewOnly": { "model": "gpt-6-astra", "effort": "xhigh" },
     "runnerEvidence": "Native goal active. Worker spawn receipts expose requested model and effort. Permission preflight is recorded before replacement work begins.",
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
-  "activeChildren": [
-    {
-      "id": "p2_hub_schema_downgrade",
-      "canonicalThread": "/root/p2_relay_frame_parity",
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
-      "approvalPolicy": "never",
-      "sandbox": "danger-full-access/unrestricted",
-      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-schema-downgrade",
-      "branch": "phase2/hub-schema-downgrade",
-      "paths": ["crates/spocky-hub-pilot/", "scripts/phase2/hub-schema-downgrade*", "evidence/phase2/hub-schema-downgrade*"],
-      "delegation": "forbidden",
-      "state": "running from preserved RED checkpoint"
-    }
-  ],
+  "activeChildren": [],
     "retiredWorkers": [
       { "id": "inventory_daemon", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "interrupted and permanently retired", "reason": "EPERM during Phase 2 cloud/plugin pilot", "reuseForbidden": true, "preservedWorktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-cloud-plugin-pilot" },
       { "id": "inventory_clients", "priorApprovalPolicy": "on-request", "priorSandbox": "workspace-write", "status": "thread absent and permanently retired", "reason": "permission profile predates full-access authorization", "reuseForbidden": true },
@@ -347,7 +333,7 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "disabled/unrestricted",
-          "status": "implementing; resumed from preserved RED harness checkpoint",
+          "status": "done; bounded additive future-journal handoff accepted; arbitrary downgrade parity unproven",
           "permissionPreflight": {
             "reportedBy": "/root/p2_relay_frame_parity",
             "approvalPolicy": "never",
@@ -356,7 +342,8 @@
             "result": "pass"
           },
           "baseCommit": "f48af3ee95622898734dc4566d19bc3945a9cb06",
-          "checkpoint": ["crates/spocky-hub-pilot/src/bin/hub-schema-downgrade-evidence.rs", "scripts/phase2/hub-schema-downgrade-baseline.mjs", "scripts/phase2/hub-schema-downgrade.test.sh"],
+          "sourceCommits": ["7a07cafd9d8258df42d530574bdf78d80954631b", "04c23eb1e201caae7ed2aaff4cda4bd6d3d447c9"],
+          "integrationCommits": ["6f6a5ec273a44de6875873836c60cc210d8c60d4", "c1e9c4b1e8b710295e05939e89d79501212ea9c6"],
           "dependencies": ["p2_hub_legacy_handoff", "p2_hub_mixed_ownership", "p2_hub_simultaneous_ownership"],
           "acceptanceCommands": [
             "targeted directory-lock, retained-host, and embedded-SQL tests only",
@@ -374,6 +361,11 @@
             "all processes and commands have forced-kill deadlines",
             "baseline checkout stays clean and port 6767 stays untouched"
           ],
+          "workerVerification": "bounded differential harness passes; actual pinned runtime and candidate both open additive future journal state without applying older migrations and preserve both producers; candidate multi-migration failure rolls journal 49 to 49 and removes the partial table; all-target clippy, package format, shell and Node syntax, diff-check, signatures, baseline cleanliness, and survivor cleanup pass",
+          "integrationVerification": "both worker commits cherry-picked with new valid signatures; named paths only; main clean",
+          "evidence": ["evidence/phase2/hub-schema-downgrade.md", "evidence/phase2/hub-schema-downgrade-report.json"],
+          "evidenceSha256": {"harness": "bc25159ab9865b5ccb556d7c3ca3d67e182b440e357b32ca678b18891a49bff4", "test": "d6db3c09ddcda58d1bdc42526b916dff045912c6f67841a0a90b075936af0b91", "report": "5de06f6bf72036a1d5970e7a59566265f3aefa770ad3e452c569cdc186d8e317", "baselineJournal": "cb4130fb028cb2f1077d72252b9fdb456026ed613b197e8f3968304fc9dd7f41", "pinnedRuntime": "5883459a421c34338e5c8f35365b9cedc8fb2001707384c13bae761e67b62210"},
+          "limitations": ["synthetic additive future migration only", "neither runtime validates journal prefix or migration hash", "destructive or semantic future migrations unqualified", "general downgrade parity not claimed"],
           "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-schema-downgrade",
           "branch": "phase2/hub-schema-downgrade",
           "delegation": "forbidden",

@@ -142,9 +142,12 @@ callback-transaction, keyed-lock, full-schema, and mixed-legacy gaps.
 Real pinned-baseline forward handoff and same-schema baseline reopen pass with
 exact marker payloads and no journal change. The hardened harness enforces those
 values before publication and bounds long commands with forced-kill fallbacks.
-Read-only review accepts this same-schema handoff checkpoint. Schema downgrade,
-simultaneous mixed-owner races, and the retained compatibility exception remain
-open.
+Read-only review accepts this same-schema handoff checkpoint. A bounded
+cross-version harness also proves additive future-journal handoff in both
+directions and atomic rollback of a failed candidate migration batch. Neither
+runtime validates journal prefixes or hashes, so destructive and semantic
+future migrations remain unqualified. Simultaneous mixed-owner races and the
+retained compatibility exception remain open.
 Ordered mixed legacy/candidate starts now exclude the second owner in both
 directions, and clean handoff preserves the same directory, 49-row journal, and
 baseline marker. Publication derives both observed journal counts, requires zero
@@ -156,9 +159,9 @@ candidate creation prevents replacement of a completed live legacy owner, and
 the canonical harness passes strict signal cleanup, baseline integrity, and
 bounded execution gates. A paused incomplete legacy writer and a stale-unlink
 TOCTOU still permit dual live owners in deterministic operation models. Both
-remain unaccepted compatibility-exception candidates. Windows, pinned database
-runtime for these two races, schema downgrade, and full parity remain
-unqualified.
+remain unaccepted compatibility-exception candidates. Windows and pinned
+database runtime for these two races remain unqualified. General schema
+downgrade and full parity remain unqualified.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
