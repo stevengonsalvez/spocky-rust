@@ -22,6 +22,17 @@
         "writers": "Claude writer lanes are launched by the coordinator; each integration records the writer model and effort reported by the coordinator, or the limitation when not exposed",
         "successCriterion3Limitation": "Criterion 3 requires Sol to author all fixes. Commits authored by Claude sessions in this window, including lead integration and ledger commits, are not Sol-authored. Each such commit is recorded with its Claude model so the limitation stays auditable; criterion 3 cannot be claimed for them without a later decision by Stevie.",
         "afterWindow": "Sol routing resumes unless Stevie extends the window"
+      },
+      {
+        "date": "2026-10-01",
+        "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
+        "change": "Integration workflow: very small commits with one file changed per commit. Writer commits; the lead runs the code-review skill on that commit range, routes fixes back to the writer, then cherry-picks signed to main. Integrate at every verified checkpoint, not only at lane end. The one-file rule also applies to lead ledger and docs commits.",
+        "objective": "Exact like-for-like parity with Paseo, nothing more."
+      },
+      {
+        "date": "2026-10-01",
+        "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
+        "change": "Hub retained JavaScript PGlite host accepted as a time-boxed interim compatibility exception (accepted-interim). Removal condition unchanged. Lane p2_pglite_rust_host opened to replace it with a Rust Wasm host."
       }
     ],
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
@@ -51,6 +62,18 @@
       "paths": ["crates/spocky-hub-pilot/src/triggers/ (new files only)", "crates/spocky-hub-pilot/tests/hub_triggers*.rs", "scripts/phase2/hub-triggers*", "evidence/phase2/hub-triggers*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"],
       "delegation": "forbidden",
       "state": "running; offline loopback trigger and execution parity only; moving to a Claude writer under the 2026-10-01 routing revision, prior Sol output uncommitted in the worktree"
+    },
+    {
+      "id": "p2_pglite_rust_host",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-pglite-rust-host",
+      "branch": "phase2-pglite-rust-host",
+      "paths": ["crates/spocky-pglite-host/", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"],
+      "sharedFileReview": "root Cargo.toml and Cargo.lock changes are reviewed by the lead at integration",
+      "delegation": "forbidden",
+      "state": "launched; Rust Wasm host to replace the accepted-interim retained JavaScript PGlite host"
     }
   ],
     "retiredWorkers": [
@@ -496,6 +519,22 @@
           "branch": "phase2-renderer-linux",
           "delegation": "forbidden",
           "permittedPaths": ["crates/spocky-ui-renderer-pilot/", "scripts/phase2/renderer-platform*", "evidence/phase2/renderer-platform*"]
+        },
+        {
+          "task": "p2_pglite_rust_host",
+          "launchedBy": "Claude coordinator term_d3e130a0",
+          "model": "claude-opus-5-5",
+          "effort": "high",
+          "status": "implementing",
+          "capabilities": ["CLOUD-HUB-DATA-015"],
+          "dependencies": ["p2_hub_schema_downgrade"],
+          "replaces": "accepted-interim Hub retained JavaScript PGlite host in porting/compatibility-exceptions.md",
+          "acceptanceCases": ["host pinned PGlite 0.5.4 Wasm with its custom env, WASI, and GOT.mem imports from Rust", "replay all 49 historical migrations", "reopen old state produced by the pinned baseline", "survive process crashes without losing committed data", "match embedded and PostgreSQL mutation traces against the pinned baseline without normalization", "keep the shared OS directory lock contract", "port 6767 remains untouched"],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-pglite-rust-host",
+          "branch": "phase2-pglite-rust-host",
+          "delegation": "forbidden",
+          "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3",
+          "permittedPaths": ["crates/spocky-pglite-host/", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"]
         }
       ],
       "blockedBy": null
