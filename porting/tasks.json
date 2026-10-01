@@ -916,6 +916,15 @@
         },
         {
           "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "fccec97..36eb624 (8 commits): storage gate ceiling doc, ProviderSubagentStore and its node differential, manager provider_subagent events, JS helper sweep to spocky_contracts::js (operators, JsTypeError, strict_equals); ca22558..71a742e skipped as already on main",
+          "integrationHead": "a9406bf",
+          "review": "integration reviewer PASS (verdicts/p3_session-36eb624.txt); contracts strict_equals uses reference equality for objects as JS === does, no call site result changes",
+          "leadChanges": ["9576f33 spocky-daemon-app codex_agent.rs imports truthy from spocky_contracts::js, so the session js re-export can be deleted"],
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-session plus spocky-daemon-app 83 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
           "integrationHead": "0d90e37",
@@ -1309,7 +1318,7 @@
       "capabilities": ["shared JS semantics (truthiness, spread, String, JsTypeError, strict_equals, UTF-16 strings, JSON.parse acceptance)"],
       "dependencies": ["p3_contracts resend with crates/spocky-contracts/src/js.rs landed on main"],
       "priority": 3,
-      "state": "in progress: contracts js.rs on main at 2365d3f; GO sent to p3_session on 2026-10-01; p3_provider_codex and p3_e2ee_channel switch later, paused for budget",
+      "state": "in progress: spocky-session and spocky-daemon-app switched (a9406bf, 9576f33); session js re-export deletion pending; p3_provider_codex and p3_e2ee_channel switch later, paused for budget",
       "owner": "tracked sweep across lanes p3_session, p3_provider_codex and p3_e2ee_channel; each lane switches its own crate; lead sends GO",
       "copies": [
         "crates/spocky-session (js.rs and the agent manager local strict_equals)",
