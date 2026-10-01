@@ -1,7 +1,22 @@
 //! JavaScript operators the baseline applies to plain values: truthiness,
 //! object spread, and `String(value)`, over [`JsValue`].
 
+use std::fmt::{self, Display, Formatter};
+
 use crate::js_value::{JsObject, JsValue, js_number, js_text_from_utf16, js_text_utf16};
+
+/// A JavaScript `TypeError` carrying V8's exact message, such as
+/// `Cannot read properties of undefined (reading 'type')`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsTypeError(pub String);
+
+impl Display for JsTypeError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for JsTypeError {}
 
 /// JavaScript truthiness; a missing value is `undefined`.
 #[must_use]
@@ -87,8 +102,18 @@ pub fn js_string(value: Option<&JsValue>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{js_string, spread, truthy};
+    use super::{JsTypeError, js_string, spread, truthy};
     use crate::js_value::{JsValue, parse, stringify};
+
+    #[test]
+    fn type_error_displays_its_v8_message() {
+        let message = "Cannot read properties of undefined (reading 'type')";
+        let error = JsTypeError(message.to_owned());
+        assert_eq!(error.to_string(), message);
+        let boxed: Box<dyn std::error::Error> = Box::new(error);
+        assert_eq!(boxed.to_string(), message);
+        assert!(boxed.source().is_none());
+    }
 
     #[test]
     fn spread_and_string_follow_javascript() {
