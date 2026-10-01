@@ -3,22 +3,21 @@
 //! the same error, `remove` awaits and rethrows it, a delete begun first
 //! skips the queued writes, and the chain starts fresh once it drains.
 //!
-//! Each outcome records the error's name and `code`, and whether it is the
-//! first failure itself (`===` in JS, the same shared error in Rust). The
-//! `TypeError` message is compared too. A file system error's message is
-//! not: node's text (`EISDIR: illegal operation on a directory, rename
-//! '<temp>' -> '<path>'`) is not reproduced by the store yet.
+//! Each outcome records the error's name, `code` and message, and whether
+//! it is the first failure itself (`===` in JS, the same shared error in
+//! Rust).
 //!
 //! The JS side lets a write start before `remove` by awaiting microtasks,
 //! which never complete file I/O. The Rust side holds the projection open
-//! instead. Nothing is normalized: dates are fixed inputs.
+//! instead. Normalized: the disposable home directory (`<home>`) and the
+//! temp file suffix `.<pid>.<millis>.<uuid>.tmp` in file error messages,
+//! nothing else; dates are fixed inputs.
 //!
 //! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` like
 //! `checkout_differential`; without them the test FAILS unless
 //! `SPOCKY_ALLOW_SKIP=1` (exactly).
 
 use std::future::Future;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
@@ -27,15 +26,15 @@ use std::task::Poll;
 
 use spocky_session::agent_projection::{AgentAttention, ManagedAgentRecordView, SnapshotOverrides};
 use spocky_session::agent_storage::{AgentStorage, StorageError};
+use spocky_store::atomic::FsError;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
 const NODE_SCRIPT: &str = r#"
-const [dist] = process.argv.slice(1);
+const [dist, root] = process.argv.slice(1);
 if (process.version !== "v22.20.0") {
   throw new Error(`node ${process.version} is not the pinned v22.20.0`);
 }
 const fs = await import("node:fs");
-const os = await import("node:os");
 const path = await import("node:path");
 const { AgentStorage } = await import(`${dist}/server/agent/agent-storage.js`);
 const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
@@ -53,23 +52,17 @@ const outcomes = async (promises) => {
   return settled.map((result) => {
     if (result.status === "fulfilled") return { ok: true };
     const error = result.reason;
-    const out = { name: error.constructor.name, code: error.code ?? null, first: error === first };
-    if (error instanceof TypeError) out.message = error.message;
-    return out;
+    return { name: error.constructor.name, code: error.code ?? null, first: error === first, message: error.message };
   });
 };
 const title = async (storage, id) => (await storage.get(id))?.title ?? null;
-const scenario = async (run) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "spocky-storage-"));
-  try {
-    const storage = new AgentStorage(home, logger);
-    await storage.initialize();
-    return await run(storage, home);
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+const scenario = async (name, run) => {
+  const home = path.join(root, name);
+  const storage = new AgentStorage(home, logger);
+  await storage.initialize();
+  return await run(storage, home);
 };
-const shortCircuit = await scenario(async (storage) => {
+const shortCircuit = await scenario("short-circuit", async (storage) => {
   const queued = [storage.applySnapshot(failing()), storage.upsert(record("a1", "queued"))];
   await storage.flush();
   const settled = await outcomes(queued);
@@ -77,7 +70,7 @@ const shortCircuit = await scenario(async (storage) => {
   await storage.upsert(record("a1", "fresh"));
   return { settled, afterFailure, afterFresh: await title(storage, "a1") };
 });
-const deleteFirst = await scenario(async (storage) => {
+const deleteFirst = await scenario("delete-first", async (storage) => {
   const settled = await outcomes([
     storage.applySnapshot(failing()),
     storage.upsert(record("a1", "queued")),
@@ -87,7 +80,7 @@ const deleteFirst = await scenario(async (storage) => {
   await storage.upsert(record("a1", "late"));
   return { settled, afterRemove, afterLate: await title(storage, "a1") };
 });
-const fsError = await scenario(async (storage, home) => {
+const fsError = await scenario("fs-error", async (storage, home) => {
   await storage.upsert(record("a0", "first"));
   const [projectDir] = fs.readdirSync(home);
   const directory = path.join(home, projectDir);
@@ -177,23 +170,16 @@ async fn wait_entered(entered: mpsc::Receiver<()>) {
         .expect("projection started");
 }
 
-fn io_code(error: &io::Error) -> JsValue {
-    match error.kind() {
-        io::ErrorKind::IsADirectory => JsValue::String("EISDIR".to_owned()),
-        other => JsValue::String(format!("{other:?}")),
-    }
-}
-
-/// The `io::Error` a store error wraps, at any depth.
-fn io_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a io::Error {
+/// The file error a store error wraps, at any depth.
+fn fs_error<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a FsError {
     let mut current = Some(error);
     while let Some(error) = current {
-        if let Some(io) = error.downcast_ref::<io::Error>() {
-            return io;
+        if let Some(fs_error) = error.downcast_ref::<FsError>() {
+            return fs_error;
         }
         current = error.source();
     }
-    panic!("store error without an io::Error source")
+    panic!("store error without a file error source")
 }
 
 fn same(left: &StorageError, right: &StorageError) -> bool {
@@ -217,7 +203,7 @@ fn outcomes<T>(results: &[Result<T, StorageError>]) -> JsValue {
                         let (name, code) = match error {
                             StorageError::Projection(_) => ("TypeError", JsValue::Null),
                             StorageError::Store(store) => {
-                                ("Error", io_code(io_source(store.as_ref())))
+                                ("Error", JsValue::String(fs_error(store.as_ref()).code()))
                             }
                         };
                         out.insert("name", JsValue::String(name.to_owned()));
@@ -226,9 +212,7 @@ fn outcomes<T>(results: &[Result<T, StorageError>]) -> JsValue {
                             "first",
                             JsValue::Bool(first.is_some_and(|first| same(first, error))),
                         );
-                        if let StorageError::Projection(type_error) = error {
-                            out.insert("message", JsValue::String(type_error.0.clone()));
-                        }
+                        out.insert("message", JsValue::String(error.to_string()));
                     }
                 }
                 JsValue::Object(out)
@@ -253,13 +237,20 @@ impl Drop for Home {
     }
 }
 
-async fn scenario(name: &str) -> (Home, AgentStorage) {
-    let home = Home(std::env::temp_dir().join(format!(
+/// A disposable root holding one home per scenario.
+fn root(name: &str) -> Home {
+    let path = std::env::temp_dir().join(format!(
         "spocky-storage-differential-{name}-{}",
         std::process::id()
-    )));
-    let _ = std::fs::remove_dir_all(&home.0);
-    let storage = AgentStorage::new(&home.0);
+    ));
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(&path).expect("root");
+    Home(std::fs::canonicalize(&path).expect("canonical root"))
+}
+
+async fn scenario(root: &Path, name: &str) -> (PathBuf, AgentStorage) {
+    let home = root.join(name);
+    let storage = AgentStorage::new(&home);
     storage.initialize().await;
     (home, storage)
 }
@@ -272,8 +263,8 @@ fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
     JsValue::Object(out)
 }
 
-async fn short_circuit() -> JsValue {
-    let (_home, storage) = scenario("short-circuit").await;
+async fn short_circuit(root: &Path) -> JsValue {
+    let (_home, storage) = scenario(root, "short-circuit").await;
     let mut snapshot = Box::pin(storage.apply_snapshot(
         "a1",
         || view("a1", FAILING),
@@ -296,8 +287,8 @@ async fn short_circuit() -> JsValue {
     ])
 }
 
-async fn delete_first() -> JsValue {
-    let (_home, storage) = scenario("delete-first").await;
+async fn delete_first(root: &Path) -> JsValue {
+    let (_home, storage) = scenario(root, "delete-first").await;
     let mut snapshot = Box::pin(storage.apply_snapshot(
         "a1",
         || view("a1", FAILING),
@@ -333,13 +324,13 @@ fn only_entry(directory: &Path) -> PathBuf {
     entries.into_iter().next().expect("project directory")
 }
 
-async fn fs_error() -> JsValue {
-    let (home, storage) = scenario("fs-error").await;
+async fn fs_error_scenario(root: &Path) -> JsValue {
+    let (home, storage) = scenario(root, "fs-error").await;
     storage
         .upsert(record("a0", "first"))
         .await
         .expect("first write");
-    let directory = only_entry(&home.0);
+    let directory = only_entry(&home);
     std::fs::create_dir(directory.join("a1.json")).expect("blocking directory");
     let (entered, open, agent) = gated("a1", r#"{"provider":"codex","cwd":"/w"}"#);
     let mut snapshot = Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
@@ -403,6 +394,8 @@ async fn write_chains_match_pinned_storage() {
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
     assert_pinned_modules(&dist);
+    let node_root = root("node");
+    let rust_root = root("rust");
     let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
         "gtimeout"
     } else {
@@ -413,6 +406,7 @@ async fn write_chains_match_pinned_storage() {
         .arg(&node)
         .args(["--input-type=module", "-e", NODE_SCRIPT])
         .arg(&dist)
+        .arg(&node_root.0)
         .output()
         .expect("run pinned node");
     assert!(
@@ -421,9 +415,75 @@ async fn write_chains_match_pinned_storage() {
         String::from_utf8_lossy(&output.stderr)
     );
     let rust = object(vec![
-        ("shortCircuit", short_circuit().await),
-        ("deleteFirst", delete_first().await),
-        ("fsError", fs_error().await),
+        ("shortCircuit", short_circuit(&rust_root.0).await),
+        ("deleteFirst", delete_first(&rust_root.0).await),
+        ("fsError", fs_error_scenario(&rust_root.0).await),
     ]);
-    assert_eq!(stringify(&rust), String::from_utf8_lossy(&output.stdout));
+    assert_eq!(
+        normalize(&stringify(&rust), &rust_root.0.to_string_lossy()),
+        normalize(
+            &String::from_utf8_lossy(&output.stdout),
+            &node_root.0.to_string_lossy()
+        )
+    );
+}
+
+/// Replaces `home` with `<home>` and each temp suffix
+/// `.<digits>.<digits>.<uuid>.tmp` with `.<pid>.<millis>.<uuid>.tmp`.
+fn normalize(text: &str, home: &str) -> String {
+    let text = text.replace(home, "<home>");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(index) = rest.find(".tmp") {
+        let (head, tail) = rest.split_at(index);
+        match temp_suffix_start(head) {
+            Some(start) => {
+                out.push_str(&head[..start]);
+                out.push_str(".<pid>.<millis>.<uuid>");
+            }
+            None => out.push_str(head),
+        }
+        out.push_str(".tmp");
+        rest = &tail[4..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Where `.<digits>.<digits>.<uuid>` starts, when `head` ends with it.
+fn temp_suffix_start(head: &str) -> Option<usize> {
+    let uuid_start = head.len().checked_sub(36)?;
+    let uuid = &head[uuid_start..];
+    let is_uuid = uuid.char_indices().all(|(index, character)| {
+        if [8, 13, 18, 23].contains(&index) {
+            character == '-'
+        } else {
+            character.is_ascii_hexdigit()
+        }
+    });
+    if !is_uuid || !head[..uuid_start].ends_with('.') {
+        return None;
+    }
+    let mut end = uuid_start - 1;
+    for _ in 0..2 {
+        let digits = head[..end]
+            .bytes()
+            .rev()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        if digits == 0 || !head[..end - digits].ends_with('.') {
+            return None;
+        }
+        end -= digits + 1;
+    }
+    Some(end)
+}
+
+#[test]
+fn normalize_only_touches_home_and_temp_suffixes() {
+    let text = "EISDIR: x, rename '/h/d/.a.json.81063.1790891361759.dbc10825-60a8-4a41-a4c1-ef3fcd3ba69e.tmp' -> '/h/d/a.json' .b.1.x.tmp 12.tmp";
+    assert_eq!(
+        normalize(text, "/h"),
+        "EISDIR: x, rename '<home>/d/.a.json.<pid>.<millis>.<uuid>.tmp' -> '<home>/d/a.json' .b.1.x.tmp 12.tmp"
+    );
 }
