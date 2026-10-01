@@ -3,6 +3,8 @@
 //! Source at Paseo `5de45e2`: `isWebSocketSameOrigin` and its helpers in
 //! `websocket-server.ts`.
 
+use std::collections::HashSet;
+
 use url::Url;
 
 use crate::js;
@@ -128,6 +130,24 @@ pub fn is_web_socket_same_origin(origin: Option<&str>, request_host: Option<&str
         && is_loopback_alias(&request_authority.hostname)
 }
 
+/// The Origin rule of `verifyWsUpgrade`:
+/// `!origin || allowedOrigins.has("*") || allowedOrigins.has(origin) || sameOrigin`.
+/// A request with no Origin header, or an empty one, is admitted; a browser
+/// always sends one.
+#[must_use]
+pub fn is_origin_allowed(
+    origin: Option<&str>,
+    allowed_origins: &HashSet<String>,
+    request_host: Option<&str>,
+) -> bool {
+    let Some(origin) = origin.filter(|origin| !origin.is_empty()) else {
+        return true;
+    };
+    allowed_origins.contains("*")
+        || allowed_origins.contains(origin)
+        || is_web_socket_same_origin(Some(origin), request_host)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +215,70 @@ mod tests {
         assert_eq!(parse("host:"), None);
         assert_eq!(parse(":80"), None);
         assert_eq!(parse(" "), None);
+    }
+
+    fn allowed(list: &[&str]) -> HashSet<String> {
+        list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_missing_or_empty_origin_is_admitted() {
+        assert!(is_origin_allowed(None, &allowed(&[]), Some("evil:1")));
+        assert!(is_origin_allowed(Some(""), &allowed(&[]), Some("evil:1")));
+    }
+
+    #[test]
+    fn a_listed_origin_or_a_wildcard_is_admitted() {
+        let list = allowed(&["https://app.paseo.sh", "paseo://app"]);
+        assert!(is_origin_allowed(Some("https://app.paseo.sh"), &list, None));
+        assert!(is_origin_allowed(
+            Some("paseo://app"),
+            &list,
+            Some("localhost:1")
+        ));
+        assert!(!is_origin_allowed(
+            Some("https://app.paseo.sh/"),
+            &list,
+            None
+        ));
+        assert!(!is_origin_allowed(
+            Some("https://evil.example"),
+            &list,
+            None
+        ));
+        assert!(is_origin_allowed(
+            Some("https://evil.example"),
+            &allowed(&["*"]),
+            None
+        ));
+    }
+
+    #[test]
+    fn the_literal_origin_star_is_not_a_wildcard() {
+        assert!(!is_origin_allowed(
+            Some("*"),
+            &allowed(&["https://a.example"]),
+            None
+        ));
+    }
+
+    #[test]
+    fn a_same_origin_request_is_admitted_without_a_list() {
+        let none = allowed(&[]);
+        assert!(is_origin_allowed(
+            Some("http://localhost:6767"),
+            &none,
+            Some("127.0.0.1:6767")
+        ));
+        assert!(!is_origin_allowed(
+            Some("http://localhost:6767"),
+            &none,
+            Some("127.0.0.1:6768")
+        ));
+        assert!(!is_origin_allowed(
+            Some("http://localhost:6767"),
+            &none,
+            None
+        ));
     }
 }
