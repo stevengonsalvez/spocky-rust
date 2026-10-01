@@ -28,10 +28,9 @@ fn message(id: &str, deltas: &[&str]) -> Reply {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn happy_path_turns_emit_paseo_events_in_paseo_key_order() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![
         message("msg_stub_1", &["Hello", " from stub."]),
         message("msg_stub_2", &["Second", " reply."]),
@@ -227,10 +226,9 @@ fn assert_second_turn_reuses_the_loaded_thread(
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn interrupt_cancels_the_active_turn() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![Reply::Hold]);
     let root = DisposableRoot::new("interrupt");
     let provider = stub_provider(&root, &stub, &codex);
@@ -267,10 +265,9 @@ fn interrupt_cancels_the_active_turn() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn app_server_exit_mid_turn_fails_the_turn() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![Reply::Hold]);
     let root = DisposableRoot::new("exit");
     let provider = stub_provider(&root, &stub, &codex);
@@ -309,13 +306,12 @@ fn app_server_exit_mid_turn_fails_the_turn() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn turn_start_without_a_model_is_rejected_by_codex() {
     // Without the agent manager's catalog model the collaboration mode
     // settings carry no `model`; pinned Paseo sends the same params and
     // Codex 0.159.0 rejects them.
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![]);
     let root = DisposableRoot::new("no-model");
     let provider = stub_provider(&root, &stub, &codex);
@@ -335,10 +331,9 @@ fn turn_start_without_a_model_is_rejected_by_codex() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn dropping_an_unclosed_session_stops_its_app_server() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![]);
     let root = DisposableRoot::new("drop");
     let provider = stub_provider(&root, &stub, &codex);
@@ -352,12 +347,11 @@ fn dropping_an_unclosed_session_stops_its_app_server() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn a_subscriber_can_interrupt_from_inside_turn_started() {
     // Subscribers run off the stdout reader, so one that calls back into the
     // session (here `interrupt`, which waits on a Codex response) completes.
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![Reply::Hold]);
     let root = DisposableRoot::new("reentrant");
     let provider = stub_provider(&root, &stub, &codex);
