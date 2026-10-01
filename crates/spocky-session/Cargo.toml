@@ -5,6 +5,16 @@ edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.94"
 
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.145", features = ["preserve_order"] }
+tokio = { version = "1.53.1", features = ["sync", "time", "rt", "macros", "process"] }
+uuid = { version = "1.26.1", features = ["v4"] }
+sha2 = "0.10.9"
+spocky-store = { path = "../spocky-store" }
+spocky-domain = { path = "../spocky-domain" }
+spocky-contracts = { path = "../spocky-contracts" }
+
 [lints.rust]
 unsafe_code = "forbid"
 
