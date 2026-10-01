@@ -23,13 +23,14 @@ use crate::response::{
     SessionEventsSetSubscriptionResponse, SetAgentTimelineSubscriptionResponse,
     SubscriptionReleaseResponse, WaitForFinishResponse, WorkspaceCreateResponse,
 };
+use crate::text::JsText;
 use crate::ws::ServerInfo;
 
 /// Session-level `ping` (`PingMessageSchema`), answered with [`SessionPong`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionPing {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "clientSentAt",
         default,
@@ -44,7 +45,7 @@ pub struct SessionPing {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionPong {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "clientSentAt",
         default,
@@ -64,17 +65,17 @@ pub struct SessionPong {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RpcError {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "requestType",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub request_type: Option<String>,
-    pub error: String,
+    pub request_type: Option<JsText>,
+    pub error: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub code: Option<String>,
+    pub code: Option<JsText>,
 }
 
 /// `status` payloads. `StatusMessageSchema` types `status` as an open
@@ -84,11 +85,11 @@ pub enum StatusPayload {
     /// `status: "server_info"`.
     ServerInfo(Box<ServerInfo>),
     /// `status: "error"`, a protocol failure without a `requestId`.
-    Error { message: String },
+    Error { message: JsText },
     /// Any other status with its remaining keys; a `status` entry in
     /// `fields` is ignored.
     Other {
-        status: String,
+        status: JsText,
         fields: JsRecord<JsonValue>,
     },
 }
@@ -103,11 +104,11 @@ impl Serialize for StatusPayload {
         }
         #[derive(Serialize)]
         struct ErrorFields<'a> {
-            message: &'a str,
+            message: &'a JsText,
         }
         #[derive(Serialize)]
         struct StatusKey<'a> {
-            status: &'a str,
+            status: &'a JsText,
         }
         match self {
             Self::ServerInfo(info) => Tagged {
@@ -276,7 +277,7 @@ mod tests {
             serde_json::from_str(r#"{"status":"x","b":1,"2":true}"#).unwrap();
         let status = SessionOutbound::Status {
             payload: StatusPayload::Other {
-                status: "agent_refreshed".to_owned(),
+                status: "agent_refreshed".into(),
                 fields,
             },
         };
@@ -290,10 +291,10 @@ mod tests {
     fn rpc_error_and_status_error_keep_construction_order() {
         let error = SessionOutbound::RpcError {
             payload: RpcError {
-                request_id: "r".to_owned(),
-                request_type: Some("fetch_agent_request".to_owned()),
-                error: "Request failed: x".to_owned(),
-                code: Some("handler_error".to_owned()),
+                request_id: "r".into(),
+                request_type: Some("fetch_agent_request".into()),
+                error: "Request failed: x".into(),
+                code: Some("handler_error".into()),
             },
         };
         assert_eq!(
@@ -302,7 +303,7 @@ mod tests {
         );
         let status = SessionOutbound::Status {
             payload: StatusPayload::Error {
-                message: "bad".to_owned(),
+                message: "bad".into(),
             },
         };
         assert_eq!(
