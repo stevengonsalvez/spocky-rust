@@ -13,7 +13,7 @@ use crate::id::{WorkspaceId, ZodUuid};
 use crate::json::{JsRecord, JsonValue, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::{NonNegativeInt, PageLimit, PositiveInt};
-use crate::text::{BoundedString, NonEmptyString};
+use crate::text::{BoundedString, JsText, NonEmptyString};
 
 /// `z.string().min(1).max(512)`, the creation idempotency key.
 pub type IdempotencyKey = BoundedString<1, 512>;
@@ -22,7 +22,7 @@ pub type IdempotencyKey = BoundedString<1, 512>;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DirectorySyncRequest {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub generation: Option<String>,
+    pub generation: Option<JsText>,
     #[serde(
         rename = "afterSeq",
         default,
@@ -49,7 +49,7 @@ pub struct DirectorySubscribe {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub subscription_id: Option<String>,
+    pub subscription_id: Option<JsText>,
 }
 
 /// Sort direction.
@@ -98,14 +98,14 @@ pub struct WorkspaceSort {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentDirectoryFilter {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub labels: Option<JsRecord<String>>,
+    pub labels: Option<JsRecord<JsText>>,
     #[serde(
         rename = "projectKeys",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_keys: Option<Vec<String>>,
+    pub project_keys: Option<Vec<JsText>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub statuses: Option<Vec<AgentStatus>>,
     #[serde(
@@ -128,7 +128,7 @@ pub struct AgentDirectoryFilter {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub thinking_option_id: Option<Nullable<String>>,
+    pub thinking_option_id: Option<Nullable<JsText>>,
 }
 
 string_literal!(ActiveScope = "active");
@@ -137,7 +137,7 @@ string_literal!(ActiveScope = "active");
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FetchAgentsRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub scope: Option<ActiveScope>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
@@ -156,14 +156,14 @@ pub struct FetchAgentsRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceDirectoryFilter {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub query: Option<String>,
+    pub query: Option<JsText>,
     #[serde(
         rename = "projectId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_id: Option<String>,
+    pub project_id: Option<JsText>,
     /// Accepted for older clients; the daemon does not filter on it.
     #[serde(
         rename = "idPrefix",
@@ -171,14 +171,14 @@ pub struct WorkspaceDirectoryFilter {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub id_prefix: Option<String>,
+    pub id_prefix: Option<JsText>,
 }
 
 /// `FetchWorkspacesRequestMessageSchema`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FetchWorkspacesRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub filter: Option<WorkspaceDirectoryFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
@@ -196,9 +196,9 @@ pub struct FetchWorkspacesRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FetchAgentRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "agentId")]
-    pub agent_id: String,
+    pub agent_id: JsText,
 }
 
 /// `ActiveTurnBehaviorSchema`.
@@ -213,17 +213,17 @@ pub enum ActiveTurnBehavior {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SendAgentMessageRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "agentId")]
-    pub agent_id: String,
-    pub text: String,
+    pub agent_id: JsText,
+    pub text: JsText,
     #[serde(
         rename = "messageId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub message_id: Option<String>,
+    pub message_id: Option<JsText>,
     #[serde(
         rename = "activeTurnBehavior",
         default,
@@ -241,9 +241,9 @@ pub struct SendAgentMessageRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WaitForFinishRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "agentId")]
-    pub agent_id: String,
+    pub agent_id: JsText,
     #[serde(
         rename = "timeoutMs",
         default,
@@ -273,7 +273,7 @@ pub enum TimelineProjection {
 /// `AgentTimelineCursorSchema`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentTimelineCursor {
-    pub epoch: String,
+    pub epoch: JsText,
     pub seq: NonNegativeInt,
 }
 
@@ -282,9 +282,9 @@ pub struct AgentTimelineCursor {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FetchAgentTimelineRequest {
     #[serde(rename = "agentId")]
-    pub agent_id: String,
+    pub agent_id: JsText,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub direction: Option<TimelineDirection>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
@@ -306,9 +306,9 @@ pub struct FetchAgentTimelineRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetAgentTimelineSubscriptionRequest {
     #[serde(rename = "agentIds")]
-    pub agent_ids: Vec<String>,
+    pub agent_ids: Vec<JsText>,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
 }
 
 /// `SessionEventSubscriptionSchema`.
@@ -354,7 +354,7 @@ pub enum SessionEventSubscription {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionEventsSetSubscriptionRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub events: Vec<SessionEventSubscription>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub notifications: Option<bool>,
@@ -364,9 +364,9 @@ pub struct SessionEventsSetSubscriptionRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubscriptionReleaseRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(rename = "subscriptionId")]
-    pub subscription_id: String,
+    pub subscription_id: JsText,
 }
 
 /// `CreationSubscribeRequestSchema.kind`.
@@ -381,7 +381,7 @@ pub enum CreationKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreationSubscribeRequest {
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     pub kind: CreationKind,
     #[serde(rename = "idempotencyKey")]
     pub idempotency_key: IdempotencyKey,
@@ -401,42 +401,42 @@ pub struct CreateAgentRequest {
     pub idempotency_key: Option<IdempotencyKey>,
     pub config: AgentSessionConfig,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub env: Option<JsRecord<String>>,
+    pub env: Option<JsRecord<JsText>>,
     #[serde(
         rename = "workspaceId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub workspace_id: Option<String>,
+    pub workspace_id: Option<JsText>,
     #[serde(
         rename = "callerAgentId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub caller_agent_id: Option<String>,
+    pub caller_agent_id: Option<JsText>,
     #[serde(
         rename = "worktreeName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub worktree_name: Option<String>,
+    pub worktree_name: Option<JsText>,
     #[serde(
         rename = "initialPrompt",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub initial_prompt: Option<String>,
+    pub initial_prompt: Option<JsText>,
     #[serde(
         rename = "clientMessageId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub client_message_id: Option<String>,
+    pub client_message_id: Option<JsText>,
     #[serde(
         rename = "outputSchema",
         default,
@@ -461,9 +461,9 @@ pub struct CreateAgentRequest {
     pub auto_archive: Option<bool>,
     /// Defaults to `{}`.
     #[serde(default)]
-    pub labels: JsRecord<String>,
+    pub labels: JsRecord<JsText>,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
 }
 
 /// `AgentCreateRequestSchema`: the legacy shape extended in place with a
@@ -479,42 +479,42 @@ pub struct AgentCreateRequest {
     pub idempotency_key: Option<IdempotencyKey>,
     pub config: AgentSessionConfig,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub env: Option<JsRecord<String>>,
+    pub env: Option<JsRecord<JsText>>,
     #[serde(
         rename = "workspaceId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub workspace_id: Option<String>,
+    pub workspace_id: Option<JsText>,
     #[serde(
         rename = "callerAgentId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub caller_agent_id: Option<String>,
+    pub caller_agent_id: Option<JsText>,
     #[serde(
         rename = "worktreeName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub worktree_name: Option<String>,
+    pub worktree_name: Option<JsText>,
     #[serde(
         rename = "initialPrompt",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub initial_prompt: Option<String>,
+    pub initial_prompt: Option<JsText>,
     #[serde(
         rename = "clientMessageId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub client_message_id: Option<String>,
+    pub client_message_id: Option<JsText>,
     #[serde(
         rename = "outputSchema",
         default,
@@ -539,9 +539,9 @@ pub struct AgentCreateRequest {
     pub auto_archive: Option<bool>,
     /// Defaults to `{}`.
     #[serde(default)]
-    pub labels: JsRecord<String>,
+    pub labels: JsRecord<JsText>,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "agentId",
         default,
@@ -560,28 +560,28 @@ pub struct AgentCreateRequest {
 pub struct WorkspaceInitialAgent {
     pub config: AgentSessionConfig,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub env: Option<JsRecord<String>>,
+    pub env: Option<JsRecord<JsText>>,
     #[serde(
         rename = "callerAgentId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub caller_agent_id: Option<String>,
+    pub caller_agent_id: Option<JsText>,
     #[serde(
         rename = "initialPrompt",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub initial_prompt: Option<String>,
+    pub initial_prompt: Option<JsText>,
     #[serde(
         rename = "clientMessageId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub client_message_id: Option<String>,
+    pub client_message_id: Option<JsText>,
     #[serde(
         rename = "outputSchema",
         default,
@@ -602,7 +602,7 @@ pub struct WorkspaceInitialAgent {
     pub auto_archive: Option<bool>,
     /// Defaults to `{}`.
     #[serde(default)]
-    pub labels: JsRecord<String>,
+    pub labels: JsRecord<JsText>,
     #[serde(
         rename = "agentId",
         default,
@@ -616,7 +616,7 @@ pub struct WorkspaceInitialAgent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FirstAgentContext {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub prompt: Option<String>,
+    pub prompt: Option<JsText>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub attachments: Option<LenientAttachments>,
 }
@@ -637,14 +637,14 @@ pub enum WorkspaceSource {
     /// An existing local directory or checkout.
     #[serde(rename = "directory")]
     Directory {
-        path: String,
+        path: JsText,
         #[serde(
             rename = "projectId",
             default,
             skip_serializing_if = "Option::is_none",
             with = "optional"
         )]
-        project_id: Option<String>,
+        project_id: Option<JsText>,
     },
     /// A new Paseo worktree cut from a project's repository.
     #[serde(rename = "worktree")]
@@ -655,9 +655,9 @@ deserialize_tagged!(WorkspaceSource, "kind", {
     "directory" => |input| {
         #[derive(Deserialize)]
         struct Fields {
-            path: String,
+            path: JsText,
             #[serde(rename = "projectId", default, with = "optional")]
-            project_id: Option<String>,
+            project_id: Option<JsText>,
         }
         Fields::deserialize(input).map(|fields| WorkspaceSource::Directory {
             path: fields.path,
@@ -671,14 +671,14 @@ deserialize_tagged!(WorkspaceSource, "kind", {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorktreeSource {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub cwd: Option<String>,
+    pub cwd: Option<JsText>,
     #[serde(
         rename = "projectId",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_id: Option<String>,
+    pub project_id: Option<JsText>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub action: Option<WorktreeAction>,
     #[serde(
@@ -694,7 +694,7 @@ pub struct WorktreeSource {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub base_branch: Option<String>,
+    pub base_branch: Option<JsText>,
     #[serde(
         rename = "branchName",
         default,
@@ -722,7 +722,7 @@ pub struct WorktreeSource {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub worktree_slug: Option<String>,
+    pub worktree_slug: Option<JsText>,
 }
 
 /// `WorkspaceCreateRequestSchema`.
@@ -740,7 +740,7 @@ pub struct WorkspaceCreateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub subscribe: Option<bool>,
     #[serde(rename = "requestId")]
-    pub request_id: String,
+    pub request_id: JsText,
     #[serde(
         rename = "idempotencyKey",
         default,
@@ -749,7 +749,7 @@ pub struct WorkspaceCreateRequest {
     )]
     pub idempotency_key: Option<IdempotencyKey>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub title: Option<String>,
+    pub title: Option<JsText>,
     #[serde(
         rename = "firstAgentContext",
         default,
