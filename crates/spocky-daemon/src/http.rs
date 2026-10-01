@@ -41,8 +41,13 @@ pub enum ParsedHead {
     TooLarge,
 }
 
-/// Parses an HTTP/1.x request head. Header values that are not UTF-8 are
-/// decoded lossily.
+/// Node decodes header values as Latin-1: one byte, one code point. A UTF-8
+/// `é` therefore reads as two characters, exactly as in the baseline.
+fn latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|&byte| char::from(byte)).collect()
+}
+
+/// Parses an HTTP/1.x request head. Header values are decoded as Latin-1.
 #[must_use]
 pub fn parse_head(buffer: &[u8]) -> ParsedHead {
     let mut headers = [httparse::EMPTY_HEADER; 128];
@@ -65,7 +70,7 @@ pub fn parse_head(buffer: &[u8]) -> ParsedHead {
                         .map(|header| {
                             (
                                 header.name.to_owned(),
-                                String::from_utf8_lossy(header.value).trim().to_owned(),
+                                latin1(header.value).trim_matches([' ', '\t']).to_owned(),
                             )
                         })
                         .collect(),
@@ -715,6 +720,18 @@ mod tests {
         assert_eq!(parse_head(huge.as_bytes()), ParsedHead::TooLarge);
         let unterminated = vec![b'a'; MAX_HEADER_BYTES + 1];
         assert_eq!(parse_head(&unterminated), ParsedHead::TooLarge);
+    }
+
+    #[test]
+    fn header_values_are_decoded_as_latin1_like_node() {
+        let head = b"GET / HTTP/1.1\r\nX-A: caf\xE9\r\nX-B: \xC3\xA9\r\nX-C: \xA0x\xA0 \r\n\r\n";
+        let ParsedHead::Complete(parsed, _) = parse_head(head) else {
+            panic!("expected a complete head");
+        };
+        assert_eq!(parsed.header("x-a").as_deref(), Some("caf\u{e9}"));
+        assert_eq!(parsed.header("x-b").as_deref(), Some("\u{c3}\u{a9}"));
+        // Only spaces and tabs are trimmed; U+00A0 is data.
+        assert_eq!(parsed.header("x-c").as_deref(), Some("\u{a0}x\u{a0}"));
     }
 
     #[test]
