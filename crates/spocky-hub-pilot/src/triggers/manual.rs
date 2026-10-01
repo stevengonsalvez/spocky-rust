@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use super::timezone::LocalOffset;
 use super::webhook::json_type_name;
 
 const MISSING_PAYLOAD: &str = "Invalid input: expected nonoptional, received undefined";
@@ -39,7 +40,7 @@ pub(super) fn decode_request_json(body: &[u8]) -> Option<Value> {
 }
 
 /// Parses a manual trigger request body the way the baseline does: the first issue, in schema
-/// key order, becomes the error message. `local_offset_ms` is the host offset applied to
+/// key order, becomes the error message. `local_offset` supplies the host offset applied to
 /// date-times written without an offset.
 ///
 /// # Errors
@@ -47,7 +48,7 @@ pub(super) fn decode_request_json(body: &[u8]) -> Option<Value> {
 /// Returns [`ManualParseFailure`] when the body is not JSON or fails the payload schema.
 pub fn parse_manual_payload(
     body: &[u8],
-    local_offset_ms: i64,
+    local_offset: impl LocalOffset,
 ) -> Result<ManualTriggerInput, ManualParseFailure> {
     let value = decode_request_json(body).ok_or(ManualParseFailure::InvalidJson)?;
     let Value::Object(map) = &value else {
@@ -83,7 +84,7 @@ pub fn parse_manual_payload(
     let received_at_ms = match map.get("receivedAt") {
         None => None,
         Some(Value::String(text)) => Some(
-            parse_iso_ms(text, i128::from(local_offset_ms))
+            parse_iso_ms(text, &local_offset)
                 .and_then(|ms| i64::try_from(ms).ok())
                 .ok_or_else(|| invalid(RECEIVED_AT_MESSAGE.to_owned()))?,
         ),
@@ -171,11 +172,11 @@ fn digits(bytes: &[u8], cursor: &mut usize, count: usize) -> Option<i128> {
 
 /// Epoch milliseconds of the ISO-8601 forms `new Date(text)` accepts in the baseline runtime.
 ///
-/// Date-only forms are UTC; date-times without an offset are local time (`local_offset_ms`).
+/// Date-only forms are UTC; date-times without an offset are local time (`local_offset`).
 /// Fractions keep their first three digits. Known gap: the baseline runtime also accepts non-ISO
 /// legacy forms such as `Aug 6 2026`, `2026/08/06` and `2026-08-06 12:00`; those are rejected
 /// here.
-fn parse_iso_ms(text: &str, local_offset_ms: i128) -> Option<i128> {
+fn parse_iso_ms(text: &str, local_offset: &impl LocalOffset) -> Option<i128> {
     let bytes = text.as_bytes();
     let mut cursor = 0;
     let year = match bytes.first()? {
@@ -203,17 +204,17 @@ fn parse_iso_ms(text: &str, local_offset_ms: i128) -> Option<i128> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-    let (time_ms, offset_ms) = if bytes.get(cursor) == Some(&b'T') {
+    let (time_ms, offset) = if bytes.get(cursor) == Some(&b'T') {
         cursor += 1;
-        let (time_ms, offset) = parse_clock(text, &mut cursor)?;
-        (time_ms, offset.unwrap_or(local_offset_ms))
+        parse_clock(text, &mut cursor)?
     } else {
-        (0, 0)
+        (0, Some(0))
     };
     if cursor != bytes.len() {
         return None;
     }
-    let total = days_from_civil(year, month, day) * 86_400_000 + time_ms - offset_ms;
+    let wall_ms = days_from_civil(year, month, day) * 86_400_000 + time_ms;
+    let total = wall_ms - offset.unwrap_or_else(|| local_offset.offset_ms_at_local(wall_ms));
     (total.abs() <= 8_640_000_000_000_000).then_some(total)
 }
 
