@@ -291,7 +291,7 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
         exit_code,
     };
     if !truncated && !options.accept_exit_codes.contains(&exit_code.unwrap_or(-1)) {
-        let preview = match output.stderr.trim() {
+        let preview = match crate::text::js_trim(&output.stderr) {
             "" => "(no stderr)",
             text => text,
         };
