@@ -15,10 +15,12 @@
 #[path = "support/outbound_frames.rs"]
 mod outbound_frames;
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use spocky_contracts::frame::{WsInbound, WsOutbound, frame_text, parse_frame};
 use spocky_contracts::number::Int;
 use spocky_contracts::session::{SessionOutbound, StatusPayload};
@@ -167,10 +169,44 @@ fn fixture_provenance_is_pinned() {
     );
     assert_eq!(text(&fixture, "/provenance/zod"), "4.4.3");
     assert_eq!(text(&fixture, "/provenance/zodAot"), "0.20.4");
-    for module in ["agentProjectionsJsSha256", "workspaceRegistryModelJsSha256"] {
-        let digest = text(&fixture, &format!("/provenance/pinnedServer/{module}"));
-        assert_eq!(digest.len(), 64, "{module} digest recorded");
+    // Pinned artifacts the capture read; a recapture against anything else
+    // fails here.
+    for (pointer, digest) in [
+        (
+            "/provenance/messagesJsSha256",
+            "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
+        ),
+        (
+            "/provenance/wsOutboundAotJsSha256",
+            "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
+        ),
+        (
+            "/provenance/pinnedServer/agentProjectionsJsSha256",
+            "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
+        ),
+        (
+            "/provenance/pinnedServer/workspaceRegistryModelJsSha256",
+            "99035b682844ef38281733462dc777a5219df9229264d05dc716c962f22ec6c1",
+        ),
+    ] {
+        assert_eq!(text(&fixture, pointer), digest, "{pointer}");
     }
+}
+
+/// The fixture was captured from the committed cases file, not an edit of it.
+#[test]
+fn fixture_matches_committed_cases() {
+    let cases_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/phase3/contracts-cases.mjs");
+    let cases =
+        fs::read(&cases_path).unwrap_or_else(|error| panic!("{}: {error}", cases_path.display()));
+    let digest = Sha256::digest(&cases)
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        });
+    assert_eq!(text(&fixture(), "/provenance/casesSha256"), digest);
 }
 
 #[test]
