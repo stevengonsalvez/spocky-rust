@@ -17,9 +17,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Child;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak, mpsc};
+use std::thread;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -340,10 +342,24 @@ struct State {
     unported: Vec<String>,
 }
 
+/// Work for the event dispatch thread.
+enum Dispatch {
+    Events(Vec<Value>),
+    /// Answered once every earlier event was delivered.
+    Barrier(mpsc::Sender<()>),
+}
+
+type Subscribers = Arc<Mutex<Vec<(u64, Subscriber)>>>;
+
 struct Inner {
     state: Mutex<State>,
     state_changed: Condvar,
-    subscribers: Mutex<Vec<(u64, Subscriber)>>,
+    subscribers: Subscribers,
+    /// Events go to subscribers on a dedicated thread, in production order,
+    /// so a subscriber may call back into the session (`start_turn`,
+    /// `interrupt`) without blocking the stdout reader it would wait on.
+    dispatch: Mutex<Option<mpsc::Sender<Dispatch>>>,
+    dispatch_thread: thread::ThreadId,
     next_subscriber: AtomicU64,
     spawn: SpawnAppServer,
     custom_codex_config: Option<Map<String, Value>>,
@@ -355,6 +371,10 @@ impl Drop for Inner {
     /// A session dropped without `close()` still stops its app-server, so a
     /// panicking caller never leaks a Codex process.
     fn drop(&mut self) {
+        self.dispatch
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
         let client = self
             .state
             .get_mut()
@@ -458,11 +478,15 @@ impl CodexSession {
             resolved_collaboration_mode: None,
             unported,
         };
+        let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
+        let (dispatch, dispatch_thread) = spawn_dispatcher(Arc::clone(&subscribers));
         Ok(Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(state),
                 state_changed: Condvar::new(),
-                subscribers: Mutex::new(Vec::new()),
+                subscribers,
+                dispatch: Mutex::new(Some(dispatch)),
+                dispatch_thread,
                 next_subscriber: AtomicU64::new(0),
                 spawn: options.spawn,
                 custom_codex_config: options.custom_codex_config,
@@ -594,9 +618,9 @@ impl CodexSession {
                     ("resolution", response.clone()),
                 ]),
             );
+            self.publish(&events);
             pending
         };
-        self.publish(&events);
         match pending.kind {
             PermissionKind::Command | PermissionKind::File => pending
                 .responder
@@ -785,9 +809,11 @@ impl CodexSession {
             client.set_request_handler(
                 method,
                 Arc::new(move |_params, _id, responder| {
-                    // Paseo holds the request open until the user answers;
-                    // the approval flow is not ported, so it stays unanswered.
-                    drop(responder);
+                    // TEMPORARY guard, not parity: Paseo shows these as
+                    // questions or MCP approvals and waits for the user. Until
+                    // that flow is ported, decline at once so Codex never waits
+                    // forever, and record the divergence.
+                    responder.respond(Ok(Some(unported_request_reply(method))));
                     if let Some(session) = upgrade(&weak) {
                         session.record_unported(format!("server request {method}"));
                     }
@@ -829,8 +855,8 @@ impl CodexSession {
                 kind,
                 responder,
             });
+            self.publish(&events);
         }
-        self.publish(&events);
     }
 
     fn record_unported(&self, what: String) {
@@ -1415,6 +1441,8 @@ impl CodexSession {
                 pending.slot.resolve(None);
             }
         }
+        // Paseo delivered every earlier event synchronously before close.
+        self.flush_dispatch();
         lock(&self.inner.subscribers).clear();
         let outcome = self.dispose_client();
         lock(&self.inner.state).current_thread_id = None;
@@ -1459,22 +1487,34 @@ impl CodexSession {
             if let Some(pending) = state.pending_identification.take() {
                 pending.slot.resolve(None);
             }
+            self.publish(&events);
         }
-        self.publish(&events);
     }
 
+    /// Queues events for the dispatch thread. Callers publish while holding
+    /// the state lock so events reach subscribers in production order.
     fn publish(&self, events: &[Value]) {
         if events.is_empty() {
             return;
         }
-        let subscribers: Vec<Subscriber> = lock(&self.inner.subscribers)
-            .iter()
-            .map(|(_, subscriber)| Arc::clone(subscriber))
-            .collect();
-        for event in events {
-            for subscriber in &subscribers {
-                subscriber(event);
-            }
+        if let Some(dispatch) = lock(&self.inner.dispatch).as_ref() {
+            let _ = dispatch.send(Dispatch::Events(events.to_vec()));
+        }
+    }
+
+    /// Waits until every event published so far reached the subscribers.
+    /// Returns at once on the dispatch thread itself, which cannot wait for
+    /// its own queue.
+    fn flush_dispatch(&self) {
+        if thread::current().id() == self.inner.dispatch_thread {
+            return;
+        }
+        let (done, delivered) = mpsc::channel();
+        let sent = lock(&self.inner.dispatch)
+            .as_ref()
+            .is_some_and(|dispatch| dispatch.send(Dispatch::Barrier(done)).is_ok());
+        if sent {
+            let _ = delivered.recv();
         }
     }
 
@@ -1508,20 +1548,27 @@ impl CodexSession {
                     .unported
                     .push(format!("sub-agent thread notification {method}"));
             }
+            self.publish(&events);
         }
-        self.publish(&events);
     }
 
-    /// Feeds one notification through the session as the transport would.
-    /// Exposed for tests that replay Paseo's notification fixtures.
-    #[doc(hidden)]
+    /// Feeds one notification through the session as the transport would,
+    /// then waits for its events to reach subscribers.
+    #[cfg(feature = "test-hooks")]
     pub fn receive_notification(&self, method: &str, params: Option<&Value>) {
         self.handle_notification(method, params);
+        self.flush_dispatch();
+    }
+
+    /// Waits until every event published so far reached the subscribers.
+    #[cfg(feature = "test-hooks")]
+    pub fn flush_events(&self) {
+        self.flush_dispatch();
     }
 
     /// Puts the session in the state Paseo's `createSession()` test fixture
     /// builds: connected, on `thread_id`, with an optional foreground turn.
-    #[doc(hidden)]
+    #[cfg(feature = "test-hooks")]
     pub fn prime_for_notification_test(&self, thread_id: &str, foreground_turn_id: Option<&str>) {
         let mut state = lock(&self.inner.state);
         state.connection = ConnectionState::Connected;
@@ -1530,7 +1577,7 @@ impl CodexSession {
     }
 
     /// Pid of the running `codex app-server` child, for process tests.
-    #[doc(hidden)]
+    #[cfg(feature = "test-hooks")]
     #[must_use]
     pub fn app_server_pid(&self) -> Option<u32> {
         lock(&self.inner.state)
@@ -1538,6 +1585,34 @@ impl CodexSession {
             .as_ref()
             .map(AppServerClient::pid)
     }
+}
+
+/// Delivers queued events to subscribers until the session is dropped. A
+/// panicking subscriber is isolated: other subscribers and later events
+/// still run, as Paseo's `notifySubscribers` catches a throwing callback.
+fn spawn_dispatcher(subscribers: Subscribers) -> (mpsc::Sender<Dispatch>, thread::ThreadId) {
+    let (sender, receiver) = mpsc::channel::<Dispatch>();
+    let handle = thread::spawn(move || {
+        for work in receiver {
+            match work {
+                Dispatch::Events(events) => {
+                    for event in &events {
+                        let current: Vec<Subscriber> = lock(&subscribers)
+                            .iter()
+                            .map(|(_, subscriber)| Arc::clone(subscriber))
+                            .collect();
+                        for subscriber in current {
+                            let _ = catch_unwind(AssertUnwindSafe(|| subscriber(event)));
+                        }
+                    }
+                }
+                Dispatch::Barrier(done) => {
+                    let _ = done.send(());
+                }
+            }
+        }
+    });
+    (sender, handle.thread().id())
 }
 
 fn upgrade(weak: &Weak<Inner>) -> Option<CodexSession> {
@@ -1774,6 +1849,16 @@ fn notification_kind(parsed: &ParsedNotification) -> &'static str {
         ParsedNotification::PatchApplyStarted { .. } => "patch_apply_started",
         ParsedNotification::PatchApplyCompleted { .. } => "patch_apply_completed",
         _ => "other",
+    }
+}
+
+/// The reply Paseo itself sends when it dismisses each of these requests:
+/// an MCP elicitation declined, a question answered with no answers.
+fn unported_request_reply(method: &str) -> Value {
+    if method == "mcpServer/elicitation/request" {
+        json!({"action": "decline", "content": null, "_meta": null})
+    } else {
+        json!({"answers": {}})
     }
 }
 
@@ -3089,6 +3174,74 @@ impl CodexProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bare_session() -> CodexSession {
+        let session = CodexSession::new(SessionOptions {
+            config: SessionConfig {
+                cwd: "/w".to_owned(),
+                ..SessionConfig::default()
+            },
+            spawn: Box::new(|| Err("no app-server in unit tests".to_owned())),
+            custom_codex_config: None,
+            ephemeral: false,
+            gates: CodexGates {
+                goals_enabled: false,
+                auto_review_enabled: false,
+            },
+        })
+        .expect("session");
+        {
+            let mut state = lock(&session.inner.state);
+            state.current_thread_id = Some("t".to_owned());
+            state.active_foreground_turn_id = Some("codex-turn-0".to_owned());
+        }
+        session
+    }
+
+    #[test]
+    fn subscribers_run_on_the_dispatch_thread_and_panics_are_isolated() {
+        let session = bare_session();
+        session.subscribe(Arc::new(|_| panic!("subscriber panic")));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let reentrant = session.clone();
+        let sink = Arc::clone(&seen);
+        let caller = thread::current().id();
+        session.subscribe(Arc::new(move |event: &Value| {
+            // Calling back into the session from a subscriber must not
+            // deadlock: no lock is held while subscribers run.
+            let _ = reentrant.pending_permissions();
+            let _ = reentrant.interrupt();
+            assert_ne!(thread::current().id(), caller);
+            sink.lock().unwrap().push(event["type"].clone());
+        }));
+        session.handle_notification("turn/started", Some(&json!({"turn": {"id": "n1"}})));
+        session.handle_notification(
+            "turn/completed",
+            Some(&json!({"turn": {"status": "completed"}})),
+        );
+        session.flush_dispatch();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![json!("turn_started"), json!("turn_completed")]
+        );
+        session.close().expect("close");
+    }
+
+    #[test]
+    fn unported_server_requests_are_answered_not_left_waiting() {
+        assert_eq!(
+            unported_request_reply("mcpServer/elicitation/request"),
+            json!({"action": "decline", "content": null, "_meta": null})
+        );
+        assert_eq!(
+            unported_request_reply("item/tool/requestUserInput"),
+            json!({"answers": {}})
+        );
+        assert_eq!(
+            unported_request_reply("tool/requestUserInput"),
+            json!({"answers": {}})
+        );
+    }
 
     #[test]
     fn invalid_mode_message_lists_modes_in_paseo_order() {
