@@ -237,6 +237,22 @@ impl JsValue {
         matches!(self, Self::Null)
     }
 
+    #[must_use]
+    pub const fn is_string(&self) -> bool {
+        matches!(self, Self::String(_))
+    }
+
+    #[must_use]
+    pub const fn is_object(&self) -> bool {
+        matches!(self, Self::Object(_))
+    }
+
+    /// `value[key]` for an object; `None` for a missing key or a non-object.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&JsValue> {
+        self.as_object().and_then(|object| object.get(key))
+    }
+
     fn take_children(&mut self, stack: &mut Vec<JsValue>) {
         match self {
             Self::Array(items) => stack.append(items),
@@ -735,6 +751,16 @@ mod tests {
         assert_eq!(js_number(1e20), "100000000000000000000");
         assert_eq!(js_number(0.000_001), "0.000001");
         assert_eq!(js_number(-2.5e-7), "-2.5e-7");
+    }
+
+    #[test]
+    fn accessors_follow_value_kind() {
+        let parsed = parse(r#"{"a":"x","b":{}}"#).expect("object");
+        assert!(parsed.is_object());
+        assert!(parsed.get("a").is_some_and(JsValue::is_string));
+        assert!(parsed.get("b").is_some_and(JsValue::is_object));
+        assert!(parsed.get("missing").is_none());
+        assert!(JsValue::Null.get("a").is_none());
     }
 
     #[test]
