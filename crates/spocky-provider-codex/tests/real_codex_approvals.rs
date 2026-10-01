@@ -87,10 +87,9 @@ fn expected_request(turn: &Turn, request: &Value) -> Value {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn allowed_command_runs_and_matches_paseo_events() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let turn = start_turn("allow", vec![escalated_echo(), done()], &codex);
     let pending = turn.session.pending_permissions();
     assert_eq!(pending.len(), 1, "permit ls shows the request");
@@ -166,10 +165,9 @@ fn allowed_command_runs_and_matches_paseo_events() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn denied_command_emits_the_failed_tool_call_and_declines() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let turn = start_turn("deny", vec![escalated_echo(), done()], &codex);
     let request = turn.session.pending_permissions()[0].clone();
     turn.session
@@ -212,10 +210,9 @@ fn denied_command_emits_the_failed_tool_call_and_declines() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn interrupting_a_turn_waiting_on_approval_cancels_it() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let turn = start_turn("cancel", vec![escalated_echo(), done()], &codex);
     turn.session.interrupt().expect("interrupt");
     let canceled = turn.events.wait_for("turn_canceled", WAIT);
