@@ -156,6 +156,36 @@ impl AgentManager {
         persist
     }
 
+    /// `setTitle(agentId, title)`: a blank title is ignored; otherwise the
+    /// agent is touched, persisted with the trimmed title, and emitted.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent errors and the persist failure.
+    pub async fn set_title(&self, agent_id: &str, title: &str) -> Result<(), AgentError> {
+        let id = {
+            let state = self.lock();
+            Self::require_agent(&state, agent_id)?.snapshot.id.clone()
+        };
+        let normalized = crate::text::js_trim(title);
+        if normalized.is_empty() {
+            return Ok(());
+        }
+        if let Some(agent) = self.lock().agent_mut(&id) {
+            touch_updated_at(&mut agent.snapshot);
+        }
+        self.persist_snapshot(
+            &id,
+            SnapshotOverrides {
+                title: Some(Some(normalized.to_owned())),
+                internal: None,
+            },
+        )
+        .await?;
+        self.emit_state(&id, false);
+        Ok(())
+    }
+
     /// `cancelRunningProviderSubagents(parentAgentId)`: marks each running
     /// provider child canceled and publishes the update.
     fn cancel_running_provider_subagents(&self, state: &mut State, parent_agent_id: &str) {
