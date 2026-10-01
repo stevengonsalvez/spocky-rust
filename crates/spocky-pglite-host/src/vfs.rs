@@ -1,11 +1,15 @@
 //! Port of the Emscripten 3.1.74 virtual filesystem shipped in the pinned
-//! PGlite 0.5.4 glue (`FS`, `MEMFS`, `NODEFS`, `PROXYFS`, `TTY`, `PIPEFS`
+//! `PGlite` 0.5.4 glue (`FS`, `MEMFS`, `NODEFS`, `PROXYFS`, `TTY`, `PIPEFS`
 //! and the socket node of `SOCKFS`).
 //!
 //! The structure follows the glue so each operation can be compared with its
 //! JavaScript source: node lookup goes through a name table first, every
 //! filesystem decides its own node and stream operations, and errors carry
 //! Emscripten errno values.
+#![allow(
+    clippy::decimal_bitwise_operands,
+    reason = "flag and mode constants keep the decimal literals of the pinned glue"
+)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -54,7 +58,6 @@ pub const S_IFSOCK: u32 = 49152;
 
 pub const O_ACCMODE: i32 = 2_097_155;
 pub const O_WRONLY: i32 = 1;
-pub const O_RDWR: i32 = 2;
 pub const O_CREAT: i32 = 64;
 pub const O_EXCL: i32 = 128;
 pub const O_TRUNC: i32 = 512;
@@ -228,7 +231,7 @@ pub fn path_normalize(path: &str) -> String {
         .collect();
     let mut joined = normalize_array(parts, !absolute).join("/");
     if joined.is_empty() && !absolute {
-        joined = ".".to_owned();
+        ".".clone_into(&mut joined);
     }
     if !joined.is_empty() && trailing {
         joined.push('/');
@@ -298,19 +301,15 @@ pub fn path_join(parts: &[&str]) -> String {
 fn path_fs_resolve(cwd: &str, paths: &[&str]) -> String {
     let mut resolved = String::new();
     let mut absolute = false;
-    let mut index = paths.len() as isize - 1;
-    while index >= -1 && !absolute {
-        let part = if index >= 0 {
-            paths[usize::try_from(index).unwrap_or(0)]
-        } else {
-            cwd
-        };
+    for part in paths.iter().rev().copied().chain(std::iter::once(cwd)) {
+        if absolute {
+            break;
+        }
         if part.is_empty() {
             return String::new();
         }
         resolved = format!("{part}/{resolved}");
         absolute = path_is_abs(part);
-        index -= 1;
     }
     let parts = resolved
         .split('/')
@@ -326,33 +325,24 @@ fn path_fs_resolve(cwd: &str, paths: &[&str]) -> String {
     }
 }
 
+/// The `trim` helper of `PATH_FS.relative`: drop leading and trailing empty
+/// parts.
+fn trim_empty<'a>(parts: &[&'a str]) -> Vec<&'a str> {
+    let start = parts.iter().position(|part| !part.is_empty());
+    let end = parts.iter().rposition(|part| !part.is_empty());
+    match (start, end) {
+        (Some(start), Some(end)) if start <= end => parts[start..=end].to_vec(),
+        _ => Vec::new(),
+    }
+}
+
 fn path_fs_relative(cwd: &str, from: &str, to: &str) -> String {
     let from = path_fs_resolve(cwd, &[from]);
     let to = path_fs_resolve(cwd, &[to]);
     let from = from.get(1..).unwrap_or("");
     let to = to.get(1..).unwrap_or("");
-    fn trim(parts: Vec<&str>) -> Vec<&str> {
-        let mut start = 0;
-        while start < parts.len() && parts[start].is_empty() {
-            start += 1;
-        }
-        let mut end = parts.len() as isize - 1;
-        while end >= 0 && parts[usize::try_from(end).unwrap_or(0)].is_empty() {
-            end -= 1;
-        }
-        let end_index = usize::try_from(end).ok();
-        match end_index {
-            Some(end_index) if start <= end_index => {
-                // The glue slices with `d.slice(u, c - u + 1)`, which keeps the
-                // historical off-by-start quirk; start is always 0 for paths
-                // produced by resolve, so the slice equals start..=end.
-                parts[start..(end_index + 1 - start).max(start)].to_vec()
-            }
-            _ => Vec::new(),
-        }
-    }
-    let from_parts = trim(from.split('/').collect());
-    let to_parts = trim(to.split('/').collect());
+    let from_parts = trim_empty(&from.split('/').collect::<Vec<_>>());
+    let to_parts = trim_empty(&to.split('/').collect::<Vec<_>>());
     let length = from_parts.len().min(to_parts.len());
     let mut same = length;
     for index in 0..length {
@@ -361,10 +351,7 @@ fn path_fs_relative(cwd: &str, from: &str, to: &str) -> String {
             break;
         }
     }
-    let mut output: Vec<&str> = Vec::new();
-    for _ in same..from_parts.len() {
-        output.push("..");
-    }
+    let mut output: Vec<&str> = std::iter::repeat_n("..", from_parts.len() - same).collect();
     output.extend_from_slice(&to_parts[same..]);
     output.join("/")
 }
@@ -400,12 +387,6 @@ fn array_index(key: &str) -> Option<u32> {
 }
 
 impl JsObjectMap {
-    fn get(&self, key: &str) -> Option<NodeId> {
-        self.entries
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, id)| *id)
-    }
     fn set(&mut self, key: &str, id: NodeId) {
         if let Some(entry) = self.entries.iter_mut().find(|(name, _)| name == key) {
             entry.1 = id;
@@ -446,16 +427,9 @@ pub enum NodeKind {
     Host,
     Proxy,
     Pipe(Rc<RefCell<Pipe>>),
-    Socket(SocketState),
+    Socket,
     ProcFdDir,
     Plain,
-}
-
-#[derive(Debug, Clone)]
-pub struct SocketState {
-    pub family: i32,
-    pub kind: i32,
-    pub protocol: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -524,9 +498,7 @@ pub enum Device {
     Random,
     /// `FS.createDevice` input callback returning `null` (end of input).
     InputNull,
-    /// `FS.createDevice` with only an output callback.
-    Output(usize),
-    /// PGlite `/dev/blob`.
+    /// `PGlite` `/dev/blob`.
     Blob,
 }
 
@@ -534,10 +506,6 @@ pub enum Device {
 pub struct Tty {
     pub output: Vec<u8>,
     pub sink: usize,
-}
-
-pub enum HostHandle {
-    File(host::File),
 }
 
 pub struct StreamShared {
@@ -613,7 +581,6 @@ pub struct SetAttr {
     pub atime: Option<f64>,
     pub mtime: Option<f64>,
     pub ctime: Option<f64>,
-    pub timestamp: Option<f64>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -653,7 +620,6 @@ pub struct Fs {
     socket_names: u32,
     random_pool: Vec<u8>,
     pub console: Console,
-    pub output_devices: Vec<Vec<u8>>,
     pub blob: Option<Vec<u8>>,
     pub blob_written: Vec<Vec<u8>>,
     pub sock_root: Option<NodeId>,
@@ -686,7 +652,6 @@ impl Fs {
             socket_names: 0,
             random_pool: Vec::new(),
             console: Console::default(),
-            output_devices: Vec::new(),
             blob: None,
             blob_written: Vec::new(),
             sock_root: None,
@@ -1007,7 +972,7 @@ impl Fs {
     // ----- mounts -----------------------------------------------------------
 
     /// `FS.mount`.
-    pub fn mount(&mut self, kind: MountKind, mountpoint: Option<&str>) -> FsResult<NodeId> {
+    pub fn mount(&mut self, kind: &MountKind, mountpoint: Option<&str>) -> FsResult<NodeId> {
         let is_root = mountpoint == Some("/");
         let pseudo = mountpoint.is_none();
         if is_root && self.root.is_some() {
@@ -1040,7 +1005,7 @@ impl Fs {
             root: 0,
             mounts: Vec::new(),
         });
-        let root = match &kind {
+        let root = match kind {
             MountKind::Mem => self.mem_create_node(None, "/", 16895, 0, Some(mount_id))?,
             MountKind::Host(root) => {
                 let mode = host_lstat(&root.to_string_lossy())?.mode;
@@ -1299,7 +1264,7 @@ impl Fs {
                 let stat = target.borrow_mut().lstat(&path)?;
                 Ok(stat)
             }
-            NodeKind::Pipe(_) | NodeKind::Socket(_) | NodeKind::ProcFdDir | NodeKind::Plain
+            NodeKind::Pipe(_) | NodeKind::Socket | NodeKind::ProcFdDir | NodeKind::Plain
                 if !matches!(node.kind, NodeKind::Plain)
                     || self.mounts[node.mount].kind_is_special() =>
             {
@@ -1335,11 +1300,12 @@ impl Fs {
     }
 
     fn has_setattr(&self, id: NodeId) -> bool {
-        !matches!(
-            self.node(id).kind,
-            NodeKind::Pipe(_) | NodeKind::Socket(_) | NodeKind::ProcFdDir
-        ) && !(matches!(self.node(id).kind, NodeKind::Plain)
-            && self.mounts[self.node(id).mount].kind_is_special())
+        let node = self.node(id);
+        match node.kind {
+            NodeKind::Pipe(_) | NodeKind::Socket | NodeKind::ProcFdDir => false,
+            NodeKind::Plain => !self.mounts[node.mount].kind_is_special(),
+            _ => true,
+        }
     }
 
     /// `node_ops.setattr`.
@@ -1396,10 +1362,10 @@ impl Fs {
                 if let Some(ctime) = attr.ctime.filter(|value| *value != 0.0) {
                     node.ctime = ctime;
                 }
-                if let Some(size) = attr.size {
-                    if let NodeKind::MemFile(data) = &mut node.kind {
-                        data.resize(usize::try_from(size).unwrap_or(0), 0);
-                    }
+                if let Some(size) = attr.size
+                    && let NodeKind::MemFile(data) = &mut node.kind
+                {
+                    data.resize(usize::try_from(size).unwrap_or(0), 0);
                 }
                 Ok(())
             }
@@ -1489,22 +1455,6 @@ impl Fs {
 
     pub fn mkdir(&mut self, path: &str, mode: u32) -> FsResult<NodeId> {
         self.mknod(path, (mode & 1023) | S_IFDIR, 0)
-    }
-
-    pub fn mkdir_tree(&mut self, path: &str, mode: u32) -> FsResult<()> {
-        let mut current = String::new();
-        for part in path.split('/') {
-            if part.is_empty() {
-                continue;
-            }
-            current.push('/');
-            current.push_str(part);
-            match self.mkdir(&current, mode) {
-                Ok(_) | Err(FsError::Errno(EEXIST)) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(())
     }
 
     pub fn mkdev(&mut self, path: &str, mode: Option<u32>, dev: u32) -> FsResult<NodeId> {
@@ -1617,14 +1567,11 @@ impl Fs {
             NodeKind::Host => {
                 let old = self.real_path(node);
                 let new = path_join2(&self.real_path(new_parent), new_name);
-                let destination = format!(
-                    "{}/{new_name}",
-                    self.get_path(new_parent).trim_end_matches('/')
-                );
-                // NODEFS.rename first tries FS.unlink on the destination.
-                let _ = self.unlink(&destination);
+                // NODEFS.rename calls FS.unlink with the host path, which the
+                // virtual filesystem normally does not contain.
+                let _ = self.unlink(&new);
                 host::rename(&old, &new).map_err(|error| host_error(&error))?;
-                self.node_mut(node).name = new_name.to_owned();
+                new_name.clone_into(&mut self.node_mut(node).name);
                 Ok(())
             }
             NodeKind::Proxy => {
@@ -1632,17 +1579,16 @@ impl Fs {
                 let old = self.real_path(node);
                 let new = path_join2(&self.real_path(new_parent), new_name);
                 target.borrow_mut().rename(&old, &new)?;
-                self.node_mut(node).name = new_name.to_owned();
+                new_name.clone_into(&mut self.node_mut(node).name);
                 Ok(())
             }
             _ => {
                 if let Ok(existing) = self.lookup_node(new_parent, new_name) {
-                    if is_dir(self.node(node).mode) {
-                        if let NodeKind::MemDir(contents) = &self.node(existing).kind {
-                            if !contents.is_empty() {
-                                return errno(ENOTEMPTY);
-                            }
-                        }
+                    if is_dir(self.node(node).mode)
+                        && let NodeKind::MemDir(contents) = &self.node(existing).kind
+                        && !contents.is_empty()
+                    {
+                        return errno(ENOTEMPTY);
                     }
                     self.hash_remove(existing);
                 }
@@ -1654,7 +1600,7 @@ impl Fs {
                 if let NodeKind::MemDir(contents) = &mut self.node_mut(new_parent).kind {
                     contents.set(new_name, node);
                 }
-                self.node_mut(node).name = new_name.to_owned();
+                new_name.clone_into(&mut self.node_mut(node).name);
                 let now = date_now();
                 for touched in [new_parent, old_parent] {
                     let touched = self.node_mut(touched);
@@ -1683,10 +1629,10 @@ impl Fs {
         match self.node(parent).kind {
             NodeKind::MemDir(_) => {
                 let child = self.lookup_node(parent, &name)?;
-                if let NodeKind::MemDir(contents) = &self.node(child).kind {
-                    if !contents.is_empty() {
-                        return errno(ENOTEMPTY);
-                    }
+                if let NodeKind::MemDir(contents) = &self.node(child).kind
+                    && !contents.is_empty()
+                {
+                    return errno(ENOTEMPTY);
                 }
                 if let NodeKind::MemDir(contents) = &mut self.node_mut(parent).kind {
                     contents.remove(&name);
@@ -1823,7 +1769,6 @@ impl Fs {
         self.setattr(
             node,
             SetAttr {
-                timestamp: Some(date_now()),
                 ..SetAttr::default()
             },
         )
@@ -1859,7 +1804,6 @@ impl Fs {
             node,
             SetAttr {
                 size: Some(length),
-                timestamp: Some(date_now()),
                 ..SetAttr::default()
             },
         )
@@ -1936,20 +1880,19 @@ impl Fs {
     pub fn statfs(&mut self, path: &str) -> FsResult<[i64; 10]> {
         let mut values = self.statfs_values();
         let node = self.lookup_follow(path, true)?.node;
-        if let Some(node) = node {
-            if let NodeKind::Host = self.node(node).kind {
-                if let MountKind::Host(root) = &self.mounts[self.node(node).mount].kind {
-                    let host_values = host_statfs(root);
-                    if let Some([bsize, blocks, bfree, bavail, files, ffree]) = host_values {
-                        values[0] = bsize;
-                        values[1] = bsize;
-                        values[2] = blocks;
-                        values[3] = bfree;
-                        values[4] = bavail;
-                        values[5] = files;
-                        values[6] = ffree;
-                    }
-                }
+        if let Some(node) = node
+            && let NodeKind::Host = self.node(node).kind
+            && let MountKind::Host(root) = &self.mounts[self.node(node).mount].kind
+        {
+            let host_values = host_statfs(root);
+            if let Some([bsize, blocks, bfree, bavail, files, ffree]) = host_values {
+                values[0] = bsize;
+                values[1] = bsize;
+                values[2] = blocks;
+                values[3] = bfree;
+                values[4] = bavail;
+                values[5] = files;
+                values[6] = ffree;
             }
         }
         Ok(values)
@@ -2023,10 +1966,10 @@ impl Fs {
         };
         let ops = copy.ops;
         let new_fd = self.create_stream(copy, target)?;
-        if ops == StreamOps::Host {
-            if let Some(stream) = self.get_stream(new_fd) {
-                stream.shared.borrow_mut().refcount += 1;
-            }
+        if ops == StreamOps::Host
+            && let Some(stream) = self.get_stream(new_fd)
+        {
+            stream.shared.borrow_mut().refcount += 1;
         }
         Ok(new_fd)
     }
@@ -2034,16 +1977,15 @@ impl Fs {
     fn stream_ops_for(&self, node: NodeId) -> StreamOps {
         let node_ref = self.node(node);
         match &node_ref.kind {
-            NodeKind::MemDir(_) => StreamOps::MemDir,
+            NodeKind::MemDir(_) | NodeKind::Plain => StreamOps::MemDir,
             NodeKind::MemFile(_) => StreamOps::MemFile,
             NodeKind::MemLink(_) => StreamOps::MemLink,
             NodeKind::MemChrdev => StreamOps::Chrdev,
             NodeKind::Host => StreamOps::Host,
             NodeKind::Proxy => StreamOps::Proxy,
             NodeKind::Pipe(_) => StreamOps::Pipe,
-            NodeKind::Socket(_) => StreamOps::Socket,
+            NodeKind::Socket => StreamOps::Socket,
             NodeKind::ProcFdDir => StreamOps::ProcFd,
-            NodeKind::Plain => StreamOps::MemDir,
         }
     }
 
@@ -2115,10 +2057,7 @@ impl Fs {
             fd: None,
         };
         let fd = self.create_stream(stream, None)?;
-        if let Err(error) = self.stream_open(fd) {
-            // The glue leaves the stream registered when stream_ops.open throws.
-            return Err(error);
-        }
+        self.stream_open(fd)?;
         Ok(fd)
     }
 
@@ -2142,7 +2081,7 @@ impl Fs {
                         stream.tty = Some(usize::try_from(rdev).unwrap_or(0));
                         stream.seekable = false;
                     }
-                    Device::Random | Device::InputNull | Device::Output(_) => {
+                    Device::Random | Device::InputNull => {
                         let stream = self.get_stream_mut(fd).ok_or(FsError::Errno(EBADF))?;
                         stream.seekable = false;
                     }
@@ -2209,12 +2148,6 @@ impl Fs {
             StreamOps::Device(Device::Tty(_)) => {
                 let tty = self.get_stream_checked(fd)?.tty.unwrap_or(0);
                 self.tty_flush(u32::try_from(tty).unwrap_or(0));
-                Ok(())
-            }
-            StreamOps::Device(Device::Output(index)) => {
-                // createDevice close: `a?.buffer?.length && a(10)`; output
-                // callbacks here are TTY-style and keep no buffer property.
-                let _ = index;
                 Ok(())
             }
             StreamOps::Pipe => {
@@ -2301,10 +2234,11 @@ impl Fs {
             _ => {
                 if whence == 1 {
                     target += position;
-                } else if whence == 2 && is_file(self.node(node).mode) {
-                    if let NodeKind::MemFile(data) = &self.node(node).kind {
-                        target += i64::try_from(data.len()).unwrap_or(0);
-                    }
+                } else if whence == 2
+                    && is_file(self.node(node).mode)
+                    && let NodeKind::MemFile(data) = &self.node(node).kind
+                {
+                    target += i64::try_from(data.len()).unwrap_or(0);
                 }
                 if target < 0 {
                     return errno(EINVAL);
@@ -2427,7 +2361,7 @@ impl Fs {
         offset: i64,
     ) -> FsResult<usize> {
         match device {
-            Device::Null => Ok(0),
+            Device::Null | Device::InputNull => Ok(0),
             Device::Blob => {
                 let blob = self.blob.as_ref().ok_or_else(|| {
                     FsError::Fatal("No /dev/blob File or Blob provided to read from".into())
@@ -2457,7 +2391,6 @@ impl Fs {
                 }
                 Ok(count)
             }
-            Device::InputNull | Device::Output(_) => Ok(0),
             Device::Tty(_) => {
                 let tty = self.get_stream_checked(fd)?.tty;
                 if tty.is_none() {
@@ -2580,18 +2513,6 @@ impl Fs {
                 // createDevice without an output callback calls `a(...)` on
                 // undefined, which the device catches as EIO.
                 if buffer.is_empty() { Ok(0) } else { errno(EIO) }
-            }
-            Device::Output(index) => {
-                if let Some(sink) = self.output_devices.get_mut(index) {
-                    sink.extend_from_slice(buffer);
-                }
-                if !buffer.is_empty() {
-                    let now = date_now();
-                    let node = self.node_mut(node);
-                    node.mtime = now;
-                    node.ctime = now;
-                }
-                Ok(buffer.len())
             }
             Device::Tty(_) => {
                 let tty = self.get_stream_checked(fd)?.tty;
@@ -2775,7 +2696,7 @@ impl Fs {
 
     /// `FS.staticInit` plus the default directories, devices and `/proc`.
     pub fn static_init(&mut self) -> FsResult<()> {
-        self.mount(MountKind::Mem, Some("/"))?;
+        self.mount(&MountKind::Mem, Some("/"))?;
         self.mkdir("/tmp", 511)?;
         self.mkdir("/home", 511)?;
         self.mkdir("/home/web_user", 511)?;
@@ -2807,12 +2728,12 @@ impl Fs {
         self.mkdir("/proc", 511)?;
         self.mkdir("/proc/self", 511)?;
         self.mkdir("/proc/self/fd", 511)?;
-        self.mount(MountKind::ProcFd, Some("/proc/self/fd"))?;
+        self.mount(&MountKind::ProcFd, Some("/proc/self/fd"))?;
         Ok(())
     }
 
     /// `FS.init` with a null-returning stdin callback and default stdout and
-    /// stderr, as both PGlite modules configure it.
+    /// stderr, as both `PGlite` modules configure it.
     pub fn init_standard_streams(&mut self) -> FsResult<()> {
         self.initialized = true;
         self.create_device("/dev", "stdin", Device::InputNull, true, false)?;
@@ -2827,8 +2748,8 @@ impl Fs {
     /// `initRuntime` mounts after FS.init.
     pub fn init_runtime_mounts(&mut self) -> FsResult<()> {
         self.ignore_permissions = false;
-        self.sock_root = Some(self.mount(MountKind::Sock, None)?);
-        self.pipe_root = Some(self.mount(MountKind::Pipe, None)?);
+        self.sock_root = Some(self.mount(&MountKind::Sock, None)?);
+        self.pipe_root = Some(self.mount(&MountKind::Pipe, None)?);
         Ok(())
     }
 
@@ -2996,7 +2917,7 @@ impl Fs {
     }
 
     /// `SOCKFS.createSocket` up to the stream; no peer is ever created.
-    pub fn create_socket(&mut self, family: i32, kind: i32, protocol: i32) -> FsResult<i32> {
+    pub fn create_socket(&mut self, kind: i32, protocol: i32) -> FsResult<i32> {
         let kind = kind & !526_337;
         let stream_socket = kind == 1;
         if stream_socket && protocol != 0 && protocol != 6 {
@@ -3005,18 +2926,7 @@ impl Fs {
         let root = self.sock_root.ok_or(FsError::Errno(EINVAL))?;
         let name = format!("socket[{}]", self.socket_names);
         self.socket_names += 1;
-        let node = self.create_node(
-            Some(root),
-            &name,
-            S_IFSOCK,
-            0,
-            NodeKind::Socket(SocketState {
-                family,
-                kind,
-                protocol,
-            }),
-            None,
-        );
+        let node = self.create_node(Some(root), &name, S_IFSOCK, 0, NodeKind::Socket, None);
         self.create_stream(
             Stream {
                 node,
@@ -3106,7 +3016,7 @@ impl Fs {
     }
 
     /// `node_ops.readdir` of every directory below `path` in the order the
-    /// PGlite tar dump walks it: name, mode, size, mtime and file bytes.
+    /// `PGlite` tar dump walks it: name, mode, size, mtime and file bytes.
     pub fn walk(&mut self, path: &str) -> FsResult<Vec<WalkEntry>> {
         let mut entries = Vec::new();
         self.walk_into(path, path, &mut entries)?;
@@ -3128,7 +3038,6 @@ impl Fs {
             let directory_entry = is_dir(stat.mode);
             out.push(WalkEntry {
                 name: full[base.len()..].to_owned(),
-                mode: stat.mode,
                 mtime: stat.mtime,
                 is_file: is_file(stat.mode),
                 data,
@@ -3149,7 +3058,6 @@ impl Mount {
 
 pub struct WalkEntry {
     pub name: String,
-    pub mode: u32,
     pub mtime: f64,
     pub is_file: bool,
     pub data: Vec<u8>,
