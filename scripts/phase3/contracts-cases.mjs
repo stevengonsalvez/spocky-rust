@@ -1458,6 +1458,12 @@ CASES.push(
     raw: agentCreate(`,"title":"${"y".repeat(199)}\\udbff\\udfff"`),
   },
   {
+    id: "session.agent_create.title_198_plus_astral",
+    direction: "inbound",
+    source: "title max(200): U+10FFFF is two code units, so 198 + 2 = 200 passes",
+    raw: agentCreate(`,"title":"${"y".repeat(198)}\\udbff\\udfff"`),
+  },
+  {
     id: "session.agent_create.idempotency_key_512_with_lone_surrogate",
     direction: "inbound",
     source: "idempotencyKey max(512)",
