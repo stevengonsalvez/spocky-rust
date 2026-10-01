@@ -3,6 +3,8 @@
 
 use url::Url;
 
+pub(crate) use crate::text::js_trim;
+
 /// GitHub cloud hosts from `forge-manifest.ts`.
 const GITHUB_HOSTS: [&str; 2] = ["github.com", "ssh.github.com"];
 
@@ -32,11 +34,6 @@ pub fn is_github_host(host: &str) -> bool {
 #[must_use]
 pub fn normalize_host(host: &str) -> String {
     js_trim(host).trim_end_matches('.').to_lowercase()
-}
-
-/// `String.prototype.trim`: ECMAScript white space and line terminators.
-pub(crate) fn js_trim(value: &str) -> &str {
-    value.trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}')
 }
 
 /// `normalizeRemotePath`.
