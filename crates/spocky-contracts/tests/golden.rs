@@ -6,9 +6,11 @@
 //!
 //! - inbound: Rust accepts exactly when the daemon's zod parse accepts, and
 //!   writes byte-for-byte what zod outputs (key order, defaults, stripping);
-//! - outbound: the pinned client's zod-aot validator accepts the daemon text
-//!   and returns it unchanged, and the Rust value the Spocky daemon would emit
-//!   writes exactly those bytes. Outbound types are emit-only.
+//! - outbound: pinned server code (`toAgentPayload`, `buildStoredAgentPayload`,
+//!   `checkoutFromPersistedWorkspacePlacement`) builds the snapshot parts, the
+//!   pinned client's zod-aot validator accepts the frame and returns it
+//!   unchanged, and the Rust value the Spocky daemon would emit writes exactly
+//!   the captured validator output. Outbound types are emit-only.
 
 #[path = "support/outbound_frames.rs"]
 mod outbound_frames;
@@ -70,8 +72,8 @@ fn server_info(gates: ServerFeatureGates, capabilities: Option<ServerCapabilitie
     let info = ServerInfo {
         protocol_version: Int::new(WS_PROTOCOL_VERSION).unwrap(),
         server_id: ServerId::new("srv_golden").unwrap(),
-        hostname: "golden-host".to_owned(),
-        version: "0.10.0".to_owned(),
+        hostname: "golden-host".into(),
+        version: "0.10.0".into(),
         permissions: DaemonPermission::ALL.to_vec(),
         desktop_managed: gates.desktop_managed,
         capabilities,
@@ -93,7 +95,7 @@ const ALL_GATES_ON: ServerFeatureGates = ServerFeatureGates {
 fn outbound_frame(id: &str) -> Option<WsOutbound> {
     let state = |enabled: bool, reason: &str| ServerCapabilityState {
         enabled,
-        reason: reason.to_owned(),
+        reason: reason.into(),
     };
     Some(match id {
         "ws.pong" => WsOutbound::Control(WsControlOutbound::Pong),
@@ -142,9 +144,12 @@ fn check_outbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String
         failures.push(format!("{id}: no Rust value for this outbound case"));
         return;
     };
+    // Expected bytes are what the pinned client validator returned, captured
+    // from the frame the pinned server code built.
+    let expected = text(case, "/aot/output");
     let written = frame_text(&frame).unwrap();
-    if written != input {
-        failures.push(format!("{id}: wrote\n  {written}\ndaemon\n  {input}"));
+    if written != expected {
+        failures.push(format!("{id}: wrote\n  {written}\npinned\n  {expected}"));
     }
 }
 
@@ -162,6 +167,10 @@ fn fixture_provenance_is_pinned() {
     );
     assert_eq!(text(&fixture, "/provenance/zod"), "4.4.3");
     assert_eq!(text(&fixture, "/provenance/zodAot"), "0.20.4");
+    for module in ["agentProjectionsJsSha256", "workspaceRegistryModelJsSha256"] {
+        let digest = text(&fixture, &format!("/provenance/pinnedServer/{module}"));
+        assert_eq!(digest.len(), 64, "{module} digest recorded");
+    }
 }
 
 #[test]
