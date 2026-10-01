@@ -111,15 +111,15 @@ fn run() -> Result<bool, String> {
     );
     let right = run_side(&gate, options.right, &options.tools, &right_dir)?;
     let outcome = compare_sides(&gate, &left, &right);
+    write_json(&options.evidence.join("rules.json"), &outcome.rules)?;
+    // Named transforms live beside the manifest, which stays a plain
+    // spocky-differential manifest that can be replayed as is.
     write_json(
-        &options.evidence.join("rules.json"),
-        &serde_json::json!({"normalization": outcome.rules, "transforms": outcome.transforms}),
+        &options.evidence.join("transforms.json"),
+        &outcome.transforms,
     )?;
     if let Some(manifest) = &outcome.manifest {
-        write_json(
-            &options.evidence.join("manifest.json"),
-            &serde_json::json!({"transforms": outcome.transforms, "differential": manifest}),
-        )?;
+        write_json(&options.evidence.join("manifest.json"), manifest)?;
         let differing = differing_artifacts(manifest);
         fs::write(
             options.evidence.join("differing.txt"),
