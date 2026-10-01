@@ -84,7 +84,9 @@ fn is_loopback_alias(hostname: &str) -> bool {
         && parts
             .by_ref()
             .take(3)
-            .filter(|part| (1..=3).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit()))
+            .filter(|part| {
+                (1..=3).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())
+            })
             .count()
             == 3
         && parts.next().is_none()
@@ -169,7 +171,10 @@ mod tests {
     fn a_non_loopback_origin_is_not_aliased() {
         assert!(!same("http://evil.example:6767", "127.0.0.1:6767"));
         assert!(!same("http://localhost:6767", "evil.example:6767"));
-        assert!(!same("http://127.0.0.1.evil.example:6767", "127.0.0.1:6767"));
+        assert!(!same(
+            "http://127.0.0.1.evil.example:6767",
+            "127.0.0.1:6767"
+        ));
     }
 
     #[test]
