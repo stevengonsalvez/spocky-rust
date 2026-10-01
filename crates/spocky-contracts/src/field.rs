@@ -18,14 +18,18 @@ pub mod optional {
 
     /// # Errors
     ///
-    /// Propagates the inner serializer error.
+    /// Propagates the inner serializer error. `None` is an error: the field
+    /// must also carry `skip_serializing_if = "Option::is_none"`, because
+    /// writing `null` would turn a missing key into a present one.
     pub fn serialize<S: Serializer, T: Serialize>(
         value: &Option<T>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         match value {
             Some(inner) => inner.serialize(serializer),
-            None => serializer.serialize_none(),
+            None => Err(serde::ser::Error::custom(
+                "optional field written without skip_serializing_if",
+            )),
         }
     }
 
@@ -136,6 +140,16 @@ mod tests {
         ] {
             assert_eq!(roundtrip(text).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn optional_none_without_skip_is_an_error() {
+        #[derive(Serialize)]
+        struct Unskipped {
+            #[serde(with = "super::optional")]
+            value: Option<String>,
+        }
+        assert!(serde_json::to_string(&Unskipped { value: None }).is_err());
     }
 
     #[test]
