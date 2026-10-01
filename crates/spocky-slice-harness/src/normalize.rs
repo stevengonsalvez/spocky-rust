@@ -2,36 +2,43 @@
 //!
 //! Only these value classes are ever normalized, each by exact value through
 //! `spocky-differential` rules (never by pattern at comparison time), in this
-//! application order:
+//! application order. Every token names its class, so values of different
+//! shapes or formats never collapse into one token.
 //!
 //! | Class | Category | Values |
 //! |---|---|---|
-//! | extracted secret (for example `daemon-public-key`) | generated id | a random secret read from its known file on each side |
+//! | extracted secret (allowlist [`EXTRACTED_CLASSES`]) | generated id | a random secret read from its known file on each side |
 //! | `disposable-root` | temporary path | the side's disposable root (realpath form) |
 //! | `disposable-root-tmp-alias` | temporary path | the same root through the `/tmp` symlink |
 //! | `disposable-root-slug` | temporary path | the root as Paseo slugs it for per-cwd directories |
 //! | `daemon-listen`, `stub-listen` | generated id | `127.0.0.1:<port>` of the daemon and the Responses stub |
-//! | `sha256-<kind>-of-generated-id-<n>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of generated id `n` |
-//! | `generated-id-<n>` | generated id | the n-th distinct generated id on each side, in first-appearance order |
-//! | `wall-clock` | wall clock | ISO-8601 UTC instants and Unix epoch milliseconds or seconds inside the side's run window |
+//! | `sha256-of-<preimage>` | generated id | a digest verified to equal `sha256` of an exact preimage the gate sent (creation fingerprints) |
+//! | `sha256-<kind>-of-<id class>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of a paired generated id |
+//! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
+//! | `short7-of-<id class>` | generated id | a standalone 7-character prefix of a paired UUID (`agent.id.slice(0, 7)`) |
+//! | `wall-clock-<format>` | wall clock | instants of one format inside the side's run window |
 //!
-//! Generated ids are paired by first-appearance order across the canonical
-//! text sequence, so the comparison still fails when one side reuses an id
-//! where the other mints a new one, or mints them in a different order. A side
-//! with a different number of distinct generated ids, a digest derived on one
-//! side only, or a secret extracted on one side only fails discovery.
-//! Wall-clock values outside the run window (for example fixed fixture dates)
-//! stay literal and must match exactly.
+//! Discovery fails, which fails the gate, when the sides differ in generated
+//! id count, in the shape at any pairing position, in which derived digests
+//! or short prefixes exist, in which wall-clock formats occur, or in which
+//! extracted secrets exist. Any other 64-hex value (for example a content
+//! hash) is never normalized and must match exactly. Wall-clock values outside
+//! the run window (for example fixed fixture dates) also stay literal.
 
 use serde_json::Value;
 use spocky_differential::{NormalizationCategory, NormalizationRule, NormalizationTarget};
 
 const OWNER: &str = "p3_slice_harness";
 
+/// Secret classes the harness may read from known files. No other class id is
+/// accepted for extracted values.
+pub const EXTRACTED_CLASSES: [&str; 3] =
+    ["daemon-public-key", "daemon-secret-key", "local-credential"];
+
 /// Facts about one side's run that bound which literal values may be normalized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SideFacts {
-    /// Canonical disposable root, for example `/private/tmp/spocky-p3-g1-original-1`.
+    /// Canonical disposable root, for example `/private/tmp/spocky-p3-g1-0199a3c41b2`.
     pub root: String,
     pub daemon_port: u16,
     pub stub_port: u16,
@@ -45,19 +52,6 @@ pub struct SideFacts {
 pub struct Text {
     pub target: NormalizationTarget,
     pub text: String,
-}
-
-/// Generated id shapes, in the order they are scanned at each position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdShape {
-    /// Lowercase hyphenated UUID (agent ids, Codex thread, turn, and window ids).
-    Uuid,
-    /// A fixed prefix followed by exactly `len` characters from `alphabet`.
-    Prefixed {
-        prefix: &'static str,
-        len: usize,
-        alphabet: Alphabet,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,25 +70,96 @@ impl Alphabet {
     }
 }
 
-fn is_lower_hex(byte: u8) -> bool {
-    Alphabet::LowerHex.contains(byte)
+/// A generated id shape. The name is part of every token minted for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdShape {
+    /// A fixed prefix (possibly empty) followed by a lowercase hyphenated UUID.
+    Uuid {
+        name: &'static str,
+        prefix: &'static str,
+    },
+    /// A non-empty fixed prefix followed by exactly `len` `alphabet` characters.
+    Prefixed {
+        name: &'static str,
+        prefix: &'static str,
+        len: usize,
+        alphabet: Alphabet,
+    },
 }
 
-/// Returns the id of `shape` starting at `at`, if one starts there and is not
-/// glued to a longer run of id characters on either side.
+impl IdShape {
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Uuid { name, .. } | Self::Prefixed { name, .. } => name,
+        }
+    }
+}
+
+/// Every generated id shape minted on the slice path, with its source.
+pub const SLICE_SHAPES: [IdShape; 7] = [
+    // Codex `additional_tools` item ids (`at_` + UUID) in Responses request bodies.
+    IdShape::Uuid {
+        name: "codex-tools-id",
+        prefix: "at_",
+    },
+    // Codex input message item ids (`msg_` + UUID) in Responses request bodies.
+    IdShape::Uuid {
+        name: "codex-message-id",
+        prefix: "msg_",
+    },
+    // Agent ids, creation idempotency keys, Codex thread, turn, window, and installation ids.
+    IdShape::Uuid {
+        name: "uuid",
+        prefix: "",
+    },
+    // workspace-registry-model.ts:13 `wks_${randomBytes(8).toString("hex")}`.
+    IdShape::Prefixed {
+        name: "workspace-id",
+        prefix: "wks_",
+        len: 16,
+        alphabet: Alphabet::LowerHex,
+    },
+    // workspace-registry-model.ts:17 `prj_${randomBytes(8).toString("hex")}`.
+    IdShape::Prefixed {
+        name: "project-id",
+        prefix: "prj_",
+        len: 16,
+        alphabet: Alphabet::LowerHex,
+    },
+    // cli/src/utils/client-id.ts:12 `cid_${randomUUID().replace(/-/g, "")}`.
+    IdShape::Prefixed {
+        name: "client-id",
+        prefix: "cid_",
+        len: 32,
+        alphabet: Alphabet::LowerHex,
+    },
+    // server-id.ts:25-26 `srv_${randomBytes(9).toString("base64url")}`.
+    IdShape::Prefixed {
+        name: "server-id",
+        prefix: "srv_",
+        len: 12,
+        alphabet: Alphabet::Base64Url,
+    },
+];
+
+fn is_id_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'
+}
+
+/// Returns the end of an id of `shape` starting at `at`, if one starts there
+/// and is not glued to a longer run of id characters on either side.
 fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
-    let boundary = |index: usize| {
-        text.get(index)
-            .is_none_or(|byte| !(byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-'))
-    };
-    if at > 0 && !boundary(at - 1) {
+    if at > 0 && is_id_byte(text[at - 1]) {
         return None;
     }
     let end = match shape {
-        IdShape::Uuid => {
-            let groups = [8, 4, 4, 4, 12];
-            let mut index = at;
-            for (group, length) in groups.iter().enumerate() {
+        IdShape::Uuid { prefix, .. } => {
+            if !text[at..].starts_with(prefix.as_bytes()) {
+                return None;
+            }
+            let mut index = at + prefix.len();
+            for (group, length) in [8, 4, 4, 4, 12].into_iter().enumerate() {
                 if group > 0 {
                     if text.get(index) != Some(&b'-') {
                         return None;
@@ -102,7 +167,7 @@ fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
                     index += 1;
                 }
                 let slice = text.get(index..index + length)?;
-                if !slice.iter().all(|byte| is_lower_hex(*byte)) {
+                if !slice.iter().all(|byte| Alphabet::LowerHex.contains(*byte)) {
                     return None;
                 }
                 index += length;
@@ -113,8 +178,9 @@ fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
             prefix,
             len,
             alphabet,
+            ..
         } => {
-            if !text[at..].starts_with(prefix.as_bytes()) {
+            if prefix.is_empty() || !text[at..].starts_with(prefix.as_bytes()) {
                 return None;
             }
             let start = at + prefix.len();
@@ -125,24 +191,37 @@ fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
             start + len
         }
     };
-    boundary(end).then_some(end)
+    text.get(end)
+        .is_none_or(|byte| !is_id_byte(*byte))
+        .then_some(end)
+}
+
+/// A generated id with the shape it matched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundId {
+    pub shape: &'static str,
+    pub value: String,
 }
 
 /// Lists distinct generated ids in first-appearance order across `texts`.
+/// At each position the first matching shape in `shapes` wins.
 #[must_use]
-pub fn distinct_ids(texts: &[&str], shapes: &[IdShape]) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
+pub fn distinct_ids(texts: &[&str], shapes: &[IdShape]) -> Vec<FoundId> {
+    let mut found: Vec<FoundId> = Vec::new();
     for text in texts {
         let bytes = text.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
             let hit = shapes
                 .iter()
-                .find_map(|shape| id_at(bytes, index, *shape).map(|end| (index, end)));
-            if let Some((start, end)) = hit {
-                let id = &text[start..end];
-                if !found.iter().any(|known| known == id) {
-                    found.push(id.to_owned());
+                .find_map(|shape| id_at(bytes, index, *shape).map(|end| (shape.name(), end)));
+            if let Some((shape, end)) = hit {
+                let value = &text[index..end];
+                if !found.iter().any(|known| known.value == value) {
+                    found.push(FoundId {
+                        shape,
+                        value: value.to_owned(),
+                    });
                 }
                 index = end;
             } else {
@@ -171,8 +250,9 @@ fn digits(bytes: &[u8]) -> Option<i64> {
     std::str::from_utf8(bytes).ok()?.parse().ok()
 }
 
-/// Parses `YYYY-MM-DDTHH:MM:SS[.fraction]Z` at `at`; returns (end, unix ms).
-fn iso_at(text: &[u8], at: usize) -> Option<(usize, u64)> {
+/// Parses `YYYY-MM-DDTHH:MM:SS[.fraction]Z` at `at`; returns
+/// (end, unix ms, fraction digit count).
+fn iso_at(text: &[u8], at: usize) -> Option<(usize, u64, usize)> {
     if at > 0 && text[at - 1].is_ascii_digit() {
         return None;
     }
@@ -202,6 +282,7 @@ fn iso_at(text: &[u8], at: usize) -> Option<(usize, u64)> {
     }
     let mut end = at + 19;
     let mut millis = 0_i64;
+    let mut fraction_digits = 0;
     if text.get(end) == Some(&b'.') {
         let start = end + 1;
         let mut stop = start;
@@ -217,6 +298,7 @@ fn iso_at(text: &[u8], at: usize) -> Option<(usize, u64)> {
             *slot = *byte;
         }
         millis = digits(&padded)?;
+        fraction_digits = stop - start;
         end = stop;
     }
     if text.get(end) != Some(&b'Z') {
@@ -225,27 +307,42 @@ fn iso_at(text: &[u8], at: usize) -> Option<(usize, u64)> {
     let days = days_from_civil(year, month, day);
     let total = ((days * 24 + hour) * 60 + minute) * 60 + second;
     let unix_ms = u64::try_from(total * 1000 + millis).ok()?;
-    Some((end + 1, unix_ms))
+    Some((end + 1, unix_ms, fraction_digits))
+}
+
+fn is_word(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
+}
+
+/// A wall-clock literal and its format name (`iso-frac3`, `iso-frac0`,
+/// `epoch-ms`, `epoch-s`, ...).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Instant {
+    pub format: String,
+    pub value: String,
 }
 
 /// Lists distinct wall-clock literals inside `[start_ms, end_ms]`, in first
 /// appearance order: ISO-8601 UTC instants, 13-digit epoch milliseconds, and
 /// 10-digit epoch seconds. Digit runs of any other length are never touched.
 #[must_use]
-pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    let mut push = |value: &str| {
-        if !found.iter().any(|known| known == value) {
-            found.push(value.to_owned());
+pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Instant> {
+    let mut found: Vec<Instant> = Vec::new();
+    let mut push = |format: String, value: &str| {
+        if !found.iter().any(|known| known.value == value) {
+            found.push(Instant {
+                format,
+                value: value.to_owned(),
+            });
         }
     };
     for text in texts {
         let bytes = text.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
-            if let Some((end, unix_ms)) = iso_at(bytes, index) {
+            if let Some((end, unix_ms, fraction)) = iso_at(bytes, index) {
                 if (start_ms..=end_ms).contains(&unix_ms) {
-                    push(&text[index..end]);
+                    push(format!("iso-frac{fraction}"), &text[index..end]);
                 }
                 index = end;
                 continue;
@@ -257,17 +354,23 @@ pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Stri
                 }
                 if stop == bytes.len() || !is_word(bytes[stop]) {
                     let run = &text[index..stop];
-                    let in_window = match run.len() {
-                        13 => run
+                    let format = match run.len() {
+                        13 if run
                             .parse::<u64>()
-                            .is_ok_and(|ms| (start_ms..=end_ms).contains(&ms)),
-                        10 => run.parse::<u64>().is_ok_and(|seconds| {
+                            .is_ok_and(|ms| (start_ms..=end_ms).contains(&ms)) =>
+                        {
+                            Some("epoch-ms")
+                        }
+                        10 if run.parse::<u64>().is_ok_and(|seconds| {
                             (start_ms / 1000..=end_ms / 1000).contains(&seconds)
-                        }),
-                        _ => false,
+                        }) =>
+                        {
+                            Some("epoch-s")
+                        }
+                        _ => None,
                     };
-                    if in_window {
-                        push(run);
+                    if let Some(format) = format {
+                        push(format.to_owned(), run);
                     }
                 }
                 index = stop;
@@ -279,37 +382,21 @@ pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Stri
     found
 }
 
-fn is_word(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
-}
-
 /// The `/tmp` alias of a `/private/tmp` root, if it has one.
 #[must_use]
 pub fn tmp_alias(root: &str) -> Option<String> {
     root.strip_prefix("/private").map(str::to_owned)
 }
 
-/// One value class with the exact literals to replace on each side.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueClass {
-    pub id: String,
-    pub category: NormalizationCategory,
-    pub reason: String,
-    pub left: Vec<String>,
-    pub right: Vec<String>,
+/// The slug Paseo derives from a disposable root path for per-cwd directories.
+#[must_use]
+pub fn root_slug(root: &str) -> String {
+    root.trim_start_matches('/').replace('/', "-")
 }
 
 /// Kinds whose `sha256(JSON.stringify([kind, id]))` digests Paseo uses as
-/// content-addressed file names under `creations/`.
+/// content-addressed file names under `creations/` (creation/index.ts:265,353).
 pub const DIGEST_KINDS: [&str; 3] = ["agent", "workspace", "create"];
-
-/// Lowercase hex SHA-256 of `JSON.stringify([kind, id])` for plain ids.
-#[must_use]
-pub fn kind_digest(kind: &str, id: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let input = format!("[{},{}]", Value::from(kind), Value::from(id));
-    lower_hex(&Sha256::digest(input.as_bytes()))
-}
 
 /// Lowercase hex encoding.
 #[must_use]
@@ -323,7 +410,15 @@ pub fn lower_hex(bytes: &[u8]) -> String {
     hex
 }
 
-/// A digest proven to equal `sha256([kind, id])` for an id on the same side.
+/// Lowercase hex SHA-256 of `JSON.stringify([kind, id])` for plain ids.
+#[must_use]
+pub fn kind_digest(kind: &str, id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let input = format!("[{},{}]", Value::from(kind), Value::from(id));
+    lower_hex(&Sha256::digest(input.as_bytes()))
+}
+
+/// A digest present in the texts and proven to equal `sha256([kind, id])`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedDigest {
     pub digest: String,
@@ -331,23 +426,105 @@ pub struct DerivedDigest {
     pub id: String,
 }
 
-/// Finds every digest in `found` that is derived from another id in `found`.
+/// Finds every `sha256([kind, id])` of a found id that occurs in `texts`.
 #[must_use]
-pub fn derived_digests(found: &[String]) -> Vec<DerivedDigest> {
+pub fn derived_digests(found: &[FoundId], texts: &[&str]) -> Vec<DerivedDigest> {
     let mut derived = Vec::new();
     for id in found {
         for kind in DIGEST_KINDS {
-            let digest = kind_digest(kind, id);
-            if found.contains(&digest) {
+            let digest = kind_digest(kind, &id.value);
+            if texts.iter().any(|text| text.contains(digest.as_str())) {
                 derived.push(DerivedDigest {
                     digest,
                     kind,
-                    id: id.clone(),
+                    id: id.value.clone(),
                 });
             }
         }
     }
     derived
+}
+
+/// Lowercase hex SHA-256 of a UTF-8 string.
+#[must_use]
+pub fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    lower_hex(&Sha256::digest(text.as_bytes()))
+}
+
+/// Digests of known preimages that occur in `texts`, named by preimage.
+#[must_use]
+pub fn preimage_digests(
+    preimages: &[(&'static str, String)],
+    texts: &[&str],
+) -> Vec<DerivedDigest> {
+    preimages
+        .iter()
+        .map(|(name, preimage)| (name, sha256_hex(preimage)))
+        .filter(|(_, digest)| texts.iter().any(|text| text.contains(digest.as_str())))
+        .map(|(name, digest)| DerivedDigest {
+            digest,
+            kind: name,
+            id: String::new(),
+        })
+        .collect()
+}
+
+/// Pairs verified preimage digests by name.
+fn preimage_classes(
+    left: &SideInput<'_>,
+    right: &SideInput<'_>,
+) -> Result<Vec<ValueClass>, String> {
+    let names = |side: &SideInput<'_>| -> Vec<&'static str> {
+        side.preimages.iter().map(|(name, _)| *name).collect()
+    };
+    if names(left) != names(right) {
+        return Err("sides declare different digest preimages".into());
+    }
+    let left_found = preimage_digests(&left.preimages, &left.texts);
+    let right_found = preimage_digests(&right.preimages, &right.texts);
+    let mut classes = Vec::new();
+    for name in names(left) {
+        let find = |found: &[DerivedDigest]| {
+            found
+                .iter()
+                .find(|entry| entry.kind == name)
+                .map(|entry| entry.digest.clone())
+        };
+        match (find(&left_found), find(&right_found)) {
+            (Some(left_digest), Some(right_digest)) => classes.push(pair(
+                &format!("sha256-of-{name}"),
+                NormalizationCategory::GeneratedId,
+                "digest verified as sha256 of the exact preimage the gate sent",
+                left_digest,
+                right_digest,
+            )),
+            (None, None) => {}
+            _ => return Err(format!("sha256 of {name} occurs on one side only")),
+        }
+    }
+    Ok(classes)
+}
+
+/// Whether `prefix` occurs in `text` as a standalone token, not glued to id
+/// characters (so not inside the full UUID it came from).
+fn has_standalone(text: &str, prefix: &str) -> bool {
+    let bytes = text.as_bytes();
+    text.match_indices(prefix).any(|(start, _)| {
+        let end = start + prefix.len();
+        (start == 0 || !is_id_byte(bytes[start - 1]))
+            && bytes.get(end).is_none_or(|byte| !is_id_byte(*byte))
+    })
+}
+
+/// One value class with the exact literals to replace on each side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueClass {
+    pub id: String,
+    pub category: NormalizationCategory,
+    pub reason: String,
+    pub left: Vec<String>,
+    pub right: Vec<String>,
 }
 
 /// One side's inputs to rule discovery.
@@ -356,14 +533,11 @@ pub struct SideInput<'a> {
     pub facts: &'a SideFacts,
     /// Every compared text in canonical scan order.
     pub texts: Vec<&'a str>,
-    /// Generated secrets read from known locations, as (class id, value).
+    /// Generated secrets read from known files, as (class id, value).
     pub extracted: Vec<(String, String)>,
-}
-
-/// The slug Paseo derives from a disposable root path for per-cwd directories.
-#[must_use]
-pub fn root_slug(root: &str) -> String {
-    root.trim_start_matches('/').replace('/', "-")
+    /// Exact `JSON.stringify` preimages the gate knows were hashed with
+    /// SHA-256 (for example creation request fingerprints), as (name, preimage).
+    pub preimages: Vec<(&'static str, String)>,
 }
 
 fn pair(
@@ -382,35 +556,38 @@ fn pair(
     }
 }
 
-/// Extracted secrets, disposable-root forms, and listen addresses.
+/// Extracted secrets (allowlisted), disposable-root forms, and listen addresses.
 fn fixed_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Result<Vec<ValueClass>, String> {
     let (lf, rf) = (left.facts, right.facts);
     let mut classes = Vec::new();
-    let mut extracted_ids: Vec<&String> = left.extracted.iter().map(|(id, _)| id).collect();
-    for (id, _) in &right.extracted {
-        if !extracted_ids.contains(&id) {
-            extracted_ids.push(id);
+    for (class_id, _) in left.extracted.iter().chain(&right.extracted) {
+        if !EXTRACTED_CLASSES.contains(&class_id.as_str()) {
+            return Err(format!("extracted class {class_id} is not allowlisted"));
         }
     }
-    for class_id in extracted_ids {
-        let find = |side: &SideInput<'_>| {
+    for class_id in EXTRACTED_CLASSES {
+        let find = |side: &SideInput<'_>| -> Vec<String> {
             side.extracted
                 .iter()
-                .find(|(id, _)| id == class_id)
+                .filter(|(id, _)| id == class_id)
                 .map(|(_, value)| value.clone())
+                .collect()
         };
-        let (Some(left_value), Some(right_value)) = (find(left), find(right)) else {
-            return Err(format!(
-                "extracted secret {class_id} exists on one side only"
-            ));
-        };
-        classes.push(pair(
-            class_id,
-            NormalizationCategory::GeneratedId,
-            "generated secret read from its known file",
-            left_value,
-            right_value,
-        ));
+        match (find(left).as_slice(), find(right).as_slice()) {
+            ([], []) => {}
+            ([left_value], [right_value]) => classes.push(pair(
+                class_id,
+                NormalizationCategory::GeneratedId,
+                "generated secret read from its known file",
+                left_value.clone(),
+                right_value.clone(),
+            )),
+            _ => {
+                return Err(format!(
+                    "extracted secret {class_id} differs in presence or count"
+                ));
+            }
+        }
     }
     classes.push(pair(
         "disposable-root",
@@ -449,37 +626,69 @@ fn fixed_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Result<Vec<Valu
         format!("127.0.0.1:{}", lf.stub_port),
         format!("127.0.0.1:{}", rf.stub_port),
     ));
-
     Ok(classes)
 }
 
-/// Builds every value class for a gate, in application order.
-///
-/// # Errors
-///
-/// Returns a message when the sides mint a different number of distinct
-/// generated ids, derive digests from different ids, or extract different
-/// secret classes; each is a mismatch in itself.
-pub fn value_classes(
+/// Paired classes derived from one generated id: its digests and short prefix.
+fn derived_classes(
+    class: &str,
+    left: (&SideInput<'_>, &FoundId, &[DerivedDigest]),
+    right: (&SideInput<'_>, &FoundId, &[DerivedDigest]),
+    digests: &mut Vec<ValueClass>,
+    shorts: &mut Vec<ValueClass>,
+) -> Result<(), String> {
+    for kind in DIGEST_KINDS {
+        let from = |derived: &[DerivedDigest], id: &str| {
+            derived
+                .iter()
+                .find(|entry| entry.kind == kind && entry.id == id)
+                .map(|entry| entry.digest.clone())
+        };
+        match (from(left.2, &left.1.value), from(right.2, &right.1.value)) {
+            (Some(left_digest), Some(right_digest)) => digests.push(pair(
+                &format!("sha256-{kind}-of-{class}"),
+                NormalizationCategory::GeneratedId,
+                "content-addressed name verified as sha256 of [kind, id]",
+                left_digest,
+                right_digest,
+            )),
+            (None, None) => {}
+            _ => {
+                return Err(format!(
+                    "sha256 {kind} digest of {class} exists on one side only"
+                ));
+            }
+        }
+    }
+    if left.1.shape == "uuid" {
+        let (left_short, right_short) = (&left.1.value[..7], &right.1.value[..7]);
+        let present = |side: &SideInput<'_>, short: &str| {
+            side.texts.iter().any(|text| has_standalone(text, short))
+        };
+        match (present(left.0, left_short), present(right.0, right_short)) {
+            (true, true) => shorts.push(pair(
+                &format!("short7-of-{class}"),
+                NormalizationCategory::GeneratedId,
+                "standalone 7-character prefix of a paired UUID",
+                left_short.to_owned(),
+                right_short.to_owned(),
+            )),
+            (false, false) => {}
+            _ => return Err(format!("short prefix of {class} exists on one side only")),
+        }
+    }
+    Ok(())
+}
+
+/// Pairs generated ids, their verified digests, and their standalone short
+/// prefixes. Returns (digest classes, id classes, short-prefix classes).
+fn id_classes(
     left: &SideInput<'_>,
     right: &SideInput<'_>,
     shapes: &[IdShape],
-) -> Result<Vec<ValueClass>, String> {
-    let (lf, rf) = (left.facts, right.facts);
-    let mut classes = fixed_classes(left, right)?;
-
-    let left_found = distinct_ids(&left.texts, shapes);
-    let right_found = distinct_ids(&right.texts, shapes);
-    let left_derived = derived_digests(&left_found);
-    let right_derived = derived_digests(&right_found);
-    let plain = |found: Vec<String>, derived: &[DerivedDigest]| -> Vec<String> {
-        found
-            .into_iter()
-            .filter(|id| !derived.iter().any(|entry| entry.digest == *id))
-            .collect()
-    };
-    let left_ids = plain(left_found, &left_derived);
-    let right_ids = plain(right_found, &right_derived);
+) -> Result<[Vec<ValueClass>; 3], String> {
+    let left_ids = distinct_ids(&left.texts, shapes);
+    let right_ids = distinct_ids(&right.texts, shapes);
     if left_ids.len() != right_ids.len() {
         return Err(format!(
             "generated id count differs: left {} right {}",
@@ -487,81 +696,123 @@ pub fn value_classes(
             right_ids.len()
         ));
     }
-    let mut derived_classes = Vec::new();
-    let mut id_classes = Vec::new();
+    let left_derived = derived_digests(&left_ids, &left.texts);
+    let right_derived = derived_digests(&right_ids, &right.texts);
+    let mut digests = Vec::new();
+    let mut ids = Vec::new();
+    let mut shorts = Vec::new();
+    let mut per_shape: Vec<(&str, usize)> = Vec::new();
     for (index, (left_id, right_id)) in left_ids.iter().zip(&right_ids).enumerate() {
-        let number = index + 1;
-        for kind in DIGEST_KINDS {
-            let from = |derived: &[DerivedDigest], id: &str| {
-                derived
-                    .iter()
-                    .find(|entry| entry.kind == kind && entry.id == id)
-                    .map(|entry| entry.digest.clone())
-            };
-            match (from(&left_derived, left_id), from(&right_derived, right_id)) {
-                (Some(left_digest), Some(right_digest)) => derived_classes.push(pair(
-                    &format!("sha256-{kind}-of-generated-id-{number}"),
-                    NormalizationCategory::GeneratedId,
-                    "content-addressed name verified as sha256 of [kind, id]",
-                    left_digest,
-                    right_digest,
-                )),
-                (None, None) => {}
-                _ => {
-                    return Err(format!(
-                        "sha256 {kind} digest of generated id {number} exists on one side only"
-                    ));
-                }
-            }
+        if left_id.shape != right_id.shape {
+            return Err(format!(
+                "generated id {} has shape {} on the left and {} on the right",
+                index + 1,
+                left_id.shape,
+                right_id.shape
+            ));
         }
-        id_classes.push(pair(
-            &format!("generated-id-{number}"),
+        let number = if let Some((_, count)) = per_shape
+            .iter_mut()
+            .find(|(shape, _)| *shape == left_id.shape)
+        {
+            *count += 1;
+            *count
+        } else {
+            per_shape.push((left_id.shape, 1));
+            1
+        };
+        let class = format!("generated-id-{}-{number}", left_id.shape);
+        derived_classes(
+            &class,
+            (left, left_id, &left_derived),
+            (right, right_id, &right_derived),
+            &mut digests,
+            &mut shorts,
+        )?;
+        ids.push(pair(
+            &class,
             NormalizationCategory::GeneratedId,
-            "generated id paired by first appearance",
-            left_id.clone(),
-            right_id.clone(),
+            "generated id paired by first appearance and shape",
+            left_id.value.clone(),
+            right_id.value.clone(),
         ));
     }
-    if left_derived.len() != derived_classes.len() || right_derived.len() != derived_classes.len() {
-        return Err("a derived digest refers to an extracted or unpaired id".into());
-    }
-    classes.extend(derived_classes);
-    classes.extend(id_classes);
+    Ok([digests, ids, shorts])
+}
 
+/// Builds every value class for a gate, in application order.
+///
+/// # Errors
+///
+/// Returns a message for any presence, count, shape, or format difference
+/// between the sides listed in the module documentation.
+pub fn value_classes(
+    left: &SideInput<'_>,
+    right: &SideInput<'_>,
+    shapes: &[IdShape],
+) -> Result<Vec<ValueClass>, String> {
+    let mut classes = fixed_classes(left, right)?;
+    classes.extend(preimage_classes(left, right)?);
+    let [digests, ids, shorts] = id_classes(left, right, shapes)?;
+    classes.extend(digests);
+    classes.extend(ids);
+    classes.extend(shorts);
+
+    let (lf, rf) = (left.facts, right.facts);
     let left_clock = wall_clock_values(&left.texts, lf.window_start_ms, lf.window_end_ms);
     let right_clock = wall_clock_values(&right.texts, rf.window_start_ms, rf.window_end_ms);
-    if !left_clock.is_empty() || !right_clock.is_empty() {
+    let mut formats: Vec<&str> = Vec::new();
+    for instant in left_clock.iter().chain(&right_clock) {
+        if !formats.contains(&instant.format.as_str()) {
+            formats.push(&instant.format);
+        }
+    }
+    for format in formats {
+        let of = |instants: &[Instant]| -> Vec<String> {
+            instants
+                .iter()
+                .filter(|instant| instant.format == format)
+                .map(|instant| instant.value.clone())
+                .collect()
+        };
+        let (left_values, right_values) = (of(&left_clock), of(&right_clock));
+        if left_values.is_empty() || right_values.is_empty() {
+            return Err(format!(
+                "wall-clock format {format} occurs on one side only"
+            ));
+        }
         classes.push(ValueClass {
-            id: "wall-clock".into(),
+            id: format!("wall-clock-{format}"),
             category: NormalizationCategory::WallClock,
-            reason: "wall-clock instant inside the run window".into(),
-            left: left_clock,
-            right: right_clock,
+            reason: "wall-clock instant of one format inside the run window".into(),
+            left: left_values,
+            right: right_values,
         });
     }
     Ok(classes)
 }
 
-/// Replaces every generated id in `text` with `{id}` and every derived digest
-/// with `{sha256:<kind>}`, for ordering files whose names are generated.
+/// Replaces verified derived digests with `{sha256:<kind>}` and every other
+/// generated id with `{<shape>}`, for ordering files whose names are generated.
 #[must_use]
 pub fn mask(text: &str, shapes: &[IdShape], derived: &[DerivedDigest]) -> String {
+    let mut text = text.to_owned();
+    for entry in derived {
+        text = text.replace(&entry.digest, &format!("{{sha256:{}}}", entry.kind));
+    }
     let bytes = text.as_bytes();
     let mut masked = String::with_capacity(text.len());
     let mut index = 0;
     let mut copied = 0;
     while index < bytes.len() {
-        if let Some(end) = shapes.iter().find_map(|shape| id_at(bytes, index, *shape)) {
+        if let Some((shape, end)) = shapes
+            .iter()
+            .find_map(|shape| id_at(bytes, index, *shape).map(|end| (shape.name(), end)))
+        {
             masked.push_str(&text[copied..index]);
-            let id = &text[index..end];
-            match derived.iter().find(|entry| entry.digest == id) {
-                Some(entry) => {
-                    masked.push_str("{sha256:");
-                    masked.push_str(entry.kind);
-                    masked.push('}');
-                }
-                None => masked.push_str("{id}"),
-            }
+            masked.push('{');
+            masked.push_str(shape);
+            masked.push('}');
             index = end;
             copied = end;
         } else {
@@ -586,6 +837,16 @@ fn replace_all(text: &str, values: &[String], token: &str) -> (String, bool) {
 
 fn target_key(target: &NormalizationTarget) -> String {
     format!("{target:?}")
+}
+
+fn rule_suffix(target: &NormalizationTarget) -> String {
+    match target {
+        NormalizationTarget::StructuredJsonPointer(pointer) => format!("json:{pointer}"),
+        NormalizationTarget::Stdout => "stdout".into(),
+        NormalizationTarget::Stderr => "stderr".into(),
+        NormalizationTarget::Artifact(name) => format!("artifact:{name}"),
+        NormalizationTarget::State(name) => format!("state:{name}"),
+    }
 }
 
 /// Emits one exact-value rule per (class, target) where the class occurs on
@@ -650,16 +911,6 @@ pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<N
     rules
 }
 
-fn rule_suffix(target: &NormalizationTarget) -> String {
-    match target {
-        NormalizationTarget::StructuredJsonPointer(pointer) => format!("json:{pointer}"),
-        NormalizationTarget::Stdout => "stdout".into(),
-        NormalizationTarget::Stderr => "stderr".into(),
-        NormalizationTarget::Artifact(name) => format!("artifact:{name}"),
-        NormalizationTarget::State(name) => format!("state:{name}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,38 +920,290 @@ mod tests {
     use std::collections::BTreeMap;
 
     const UUID_A: &str = "0199a3c4-1b2c-7d3e-8f40-123456789abc";
-    const UUID_B: &str = "0199a3c4-1b2c-7d3e-8f40-cba987654321";
+    const UUID_B: &str = "0299a3c4-1b2c-7d3e-8f40-cba987654321";
     const UUID_C: &str = "11111111-2222-4333-8444-555555555555";
     const UUID_D: &str = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+    const WKS_A: &str = "wks_0123456789abcdef";
+    const WKS_B: &str = "wks_fedcba9876543210";
 
-    fn wks() -> IdShape {
-        IdShape::Prefixed {
-            prefix: "wks_",
-            len: 16,
-            alphabet: Alphabet::LowerHex,
+    fn facts(root: &str, daemon_port: u16, stub_port: u16) -> SideFacts {
+        SideFacts {
+            root: root.into(),
+            daemon_port,
+            stub_port,
+            window_start_ms: 1_790_862_700_000,
+            window_end_ms: 1_790_862_710_000,
         }
     }
 
-    fn hex64() -> IdShape {
-        IdShape::Prefixed {
-            prefix: "",
-            len: 64,
-            alphabet: Alphabet::LowerHex,
+    fn artifact(name: &str, text: String) -> Text {
+        Text {
+            target: NormalizationTarget::Artifact(name.into()),
+            text,
         }
+    }
+
+    const COUNTS: ExecutionCounts = ExecutionCounts {
+        fixtures: 1,
+        assertions: 1,
+    };
+
+    fn observation(texts: &[Text]) -> Observation {
+        let artifacts = texts
+            .iter()
+            .map(|text| {
+                let NormalizationTarget::Artifact(name) = &text.target else {
+                    panic!("tests only use artifact targets");
+                };
+                Artifact::new(name.clone(), text.text.clone().into_bytes())
+            })
+            .collect();
+        Observation {
+            structured_output: ObservationSlot::Missing,
+            stdout: ObservationSlot::Missing,
+            stderr: ObservationSlot::Missing,
+            exit_code: ObservationSlot::Missing,
+            artifacts: ObservationSlot::Value(artifacts),
+            state: ObservationSlot::Missing,
+            screenshots: ObservationSlot::Missing,
+            accessibility: ObservationSlot::Missing,
+            performance: ObservationSlot::Missing,
+            recovery: ObservationSlot::Missing,
+            counts: ObservationSlot::Value(COUNTS),
+            raw_failures: Vec::new(),
+        }
+    }
+
+    fn input<'a>(
+        facts: &'a SideFacts,
+        texts: &'a [Text],
+        extracted: Vec<(String, String)>,
+    ) -> SideInput<'a> {
+        SideInput {
+            facts,
+            texts: texts.iter().map(|text| text.text.as_str()).collect(),
+            extracted,
+            preimages: texts
+                .iter()
+                .filter_map(|text| {
+                    text.text
+                        .split_once("preimage=")
+                        .map(|(_, preimage)| ("request", preimage.to_owned()))
+                })
+                .collect(),
+        }
+    }
+
+    /// Runs discovery and the real differential comparison: `Ok(equivalent)`,
+    /// or `Err` when discovery fails or a rule misses one side.
+    fn equivalent_with(
+        left: &[Text],
+        right: &[Text],
+        left_extracted: Vec<(String, String)>,
+        right_extracted: Vec<(String, String)>,
+    ) -> Result<bool, String> {
+        let left_facts = facts("/private/tmp/spocky-p3-g1-0000000000a", 41001, 42001);
+        let right_facts = facts("/private/tmp/spocky-p3-g1-0000000000b", 41002, 42002);
+        let classes = value_classes(
+            &input(&left_facts, left, left_extracted),
+            &input(&right_facts, right, right_extracted),
+            &SLICE_SHAPES,
+        )?;
+        let rules = rules_for(&classes, left, right);
+        let scenario = Scenario {
+            id: "normalize-test".into(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            initial_files: Vec::new(),
+            expected_counts: COUNTS,
+        };
+        compare_observations(&scenario, observation(left), observation(right), &rules)
+            .map(|manifest| manifest.equivalent)
+            .map_err(|error| error.to_string())
+    }
+
+    fn equivalent(left: &[Text], right: &[Text]) -> Result<bool, String> {
+        equivalent_with(left, right, Vec::new(), Vec::new())
+    }
+
+    fn one(text: String) -> Vec<Text> {
+        vec![artifact("a", text)]
+    }
+
+    #[test]
+    fn every_slice_shape_matches_its_own_ids_only() {
+        let cases = [
+            ("codex-tools-id", "at_48e072de-185d-5a9f-845b-30056570557f"),
+            (
+                "codex-message-id",
+                "msg_01a0f7f3-0f0a-73c0-8794-b52e6b1eb1d4",
+            ),
+            ("uuid", UUID_A),
+            ("workspace-id", WKS_A),
+            ("project-id", "prj_ac1ccce5517ad5ef"),
+            ("client-id", "cid_c5f12a43fd4a45a886205cc6a41030d7"),
+            ("server-id", "srv_mxf4gW1rH0OU"),
+        ];
+        for (shape, value) in cases {
+            let quoted = format!("\"{value}\"");
+            assert_eq!(
+                distinct_ids(&[&quoted], &SLICE_SHAPES),
+                vec![FoundId {
+                    shape,
+                    value: value.to_owned()
+                }],
+                "{shape}"
+            );
+            let glued = format!("x{value} {value}x {value}_");
+            assert!(
+                distinct_ids(&[&glued], &SLICE_SHAPES).is_empty(),
+                "{shape} glued"
+            );
+            let truncated = &value[..value.len() - 1];
+            assert!(
+                distinct_ids(&[truncated], &SLICE_SHAPES).is_empty(),
+                "{shape} truncated"
+            );
+        }
+        let upper = UUID_A.to_uppercase();
+        assert!(distinct_ids(&[&upper], &SLICE_SHAPES).is_empty());
+        let hex64 = kind_digest("agent", UUID_A);
+        assert!(distinct_ids(&[&hex64], &SLICE_SHAPES).is_empty());
+    }
+
+    #[test]
+    fn finds_ids_in_first_appearance_order() {
+        let text = format!("a {UUID_B} b {WKS_A} c {UUID_A} {UUID_B}");
+        let values: Vec<String> = distinct_ids(&[&text], &SLICE_SHAPES)
+            .into_iter()
+            .map(|id| id.value)
+            .collect();
+        assert_eq!(values, vec![UUID_B, WKS_A, UUID_A]);
+    }
+
+    #[test]
+    fn wall_clock_only_inside_window_with_format() {
+        // 2026-10-01T13:51:43.463Z == 1790862703463 ms.
+        let text = "2026-10-01T13:51:43.463Z 2020-01-02T03:04:05Z 1790862703463 1790862703 \
+                    179086270346 17908627034630 x1790862703463 2026-10-01T13:51:44Z";
+        let found = wall_clock_values(&[text], 1_790_862_700_000, 1_790_862_710_000);
+        let pairs: Vec<(&str, &str)> = found
+            .iter()
+            .map(|instant| (instant.format.as_str(), instant.value.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("iso-frac3", "2026-10-01T13:51:43.463Z"),
+                ("epoch-ms", "1790862703463"),
+                ("epoch-s", "1790862703"),
+                ("iso-frac0", "2026-10-01T13:51:44Z"),
+            ]
+        );
+        assert!(wall_clock_values(&[text], 1_800_000_000_000, 1_800_000_001_000).is_empty());
+    }
+
+    #[test]
+    fn iso_fractions_and_seconds_parse_exactly() {
+        assert_eq!(iso_at(b"1970-01-01T00:00:00Z", 0), Some((20, 0, 0)));
+        assert_eq!(iso_at(b"1970-01-01T00:00:01.5Z", 0), Some((22, 1500, 1)));
+        assert_eq!(
+            iso_at(b"2000-02-29T00:00:00.123456Z", 0),
+            Some((27, 951_782_400_123, 6))
+        );
+        assert_eq!(iso_at(b"2000-13-01T00:00:00Z", 0), None);
+        assert_eq!(iso_at(b"2000-01-01T00:00:00+01:00", 0), None);
+    }
+
+    #[test]
+    fn equivalent_sides_normalize_to_identical_text() {
+        let left = one(format!(
+            "{UUID_A} {WKS_A} /private/tmp/spocky-p3-g1-0000000000a/project /tmp/spocky-p3-g1-0000000000a/x \
+             private-tmp-spocky-p3-g1-0000000000a-project 127.0.0.1:41001 127.0.0.1:42001 \
+             2026-10-01T13:51:43.463Z {UUID_C} {UUID_A} short={}",
+            &UUID_A[..7]
+        ));
+        let right = one(format!(
+            "{UUID_B} {WKS_B} /private/tmp/spocky-p3-g1-0000000000b/project /tmp/spocky-p3-g1-0000000000b/x \
+             private-tmp-spocky-p3-g1-0000000000b-project 127.0.0.1:41002 127.0.0.1:42002 \
+             2026-10-01T13:51:44.001Z {UUID_D} {UUID_B} short={}",
+            &UUID_B[..7]
+        ));
+        assert_eq!(equivalent(&left, &right), Ok(true));
+    }
+
+    #[test]
+    fn swapped_id_identity_still_differs() {
+        // Left reuses its first id; right mints a new one at the same position.
+        let left = one(format!("{UUID_A} {UUID_C} {UUID_A}"));
+        let right = one(format!("{UUID_B} {UUID_D} {UUID_D}"));
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn different_generated_id_counts_fail_discovery() {
+        let left = one(format!("{UUID_A} {UUID_C}"));
+        let right = one(UUID_B.into());
+        assert!(equivalent(&left, &right).is_err());
+    }
+
+    #[test]
+    fn id_shape_mismatch_at_a_position_fails_discovery() {
+        // A workspace id where the other side has a UUID never shares a token.
+        let left = one(format!("id={UUID_A}"));
+        let right = one(format!("id={WKS_B}"));
+        let error = equivalent(&left, &right).unwrap_err();
+        assert!(error.contains("shape"), "{error}");
+    }
+
+    #[test]
+    fn wall_clock_format_mismatch_fails_discovery() {
+        let left = one("at 2026-10-01T13:51:43.463Z".into());
+        let right = one("at 2026-10-01T13:51:43.463123Z".into());
+        let error = equivalent(&left, &right).unwrap_err();
+        assert!(error.contains("iso-frac3"), "{error}");
+        let left = one("at 1790862703463".into());
+        let right = one("at 1790862703".into());
+        assert!(equivalent(&left, &right).is_err());
+    }
+
+    #[test]
+    fn wall_clock_outside_window_must_match_exactly() {
+        let left = one("fixture 2020-01-02T03:04:05Z".into());
+        let right = one("fixture 2020-01-02T03:04:06Z".into());
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn realpath_and_tmp_alias_stay_distinguishable() {
+        let left = one("/private/tmp/spocky-p3-g1-0000000000a/p".into());
+        let right = one("/tmp/spocky-p3-g1-0000000000b/p".into());
+        assert!(equivalent(&left, &right).is_err());
+    }
+
+    #[test]
+    fn value_present_on_one_side_only_fails_comparison() {
+        let left = one("listening on 127.0.0.1:41001".into());
+        let right = one("listening".into());
+        assert!(equivalent(&left, &right).is_err());
+    }
+
+    #[test]
+    fn untouched_differences_survive_normalization() {
+        let left = one(format!("{UUID_A} status=completed"));
+        let right = one(format!("{UUID_B} status=error"));
+        assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
     #[test]
     fn kind_digest_matches_paseo_creation_digest() {
-        // sha256 of the exact UTF-8 bytes ["agent","a09a900c-7425-4446-93ea-66f22d55593e"].
+        use sha2::{Digest, Sha256};
         assert_eq!(
             kind_digest("agent", "a09a900c-7425-4446-93ea-66f22d55593e"),
-            sha256_hex(br#"["agent","a09a900c-7425-4446-93ea-66f22d55593e"]"#)
+            lower_hex(&Sha256::digest(
+                br#"["agent","a09a900c-7425-4446-93ea-66f22d55593e"]"#
+            ))
         );
-    }
-
-    fn sha256_hex(bytes: &[u8]) -> String {
-        use sha2::{Digest, Sha256};
-        lower_hex(&Sha256::digest(bytes))
     }
 
     #[test]
@@ -731,249 +1234,93 @@ mod tests {
     }
 
     #[test]
-    fn derived_digest_of_a_different_kind_differs() {
-        let left = vec![artifact(
-            "a",
-            format!("{UUID_A} {}", kind_digest("agent", UUID_A)),
-        )];
-        let right = vec![artifact(
-            "a",
-            format!("{UUID_B} {}", kind_digest("workspace", UUID_B)),
-        )];
+    fn derived_digest_of_a_different_kind_fails() {
+        let left = one(format!("{UUID_A} {}", kind_digest("agent", UUID_A)));
+        let right = one(format!("{UUID_B} {}", kind_digest("workspace", UUID_B)));
         assert!(equivalent(&left, &right).is_err());
     }
 
     #[test]
-    fn underived_digest_is_a_plain_generated_id() {
-        let digest = kind_digest("other", UUID_A);
-        let left = vec![artifact("a", format!("{UUID_A} {digest}"))];
-        let right = vec![artifact(
-            "a",
-            format!("{UUID_B} {}", kind_digest("other", UUID_B)),
-        )];
+    fn underived_digest_is_never_normalized() {
+        // Content hashes that are not sha256([kind, id]) of a paired id must
+        // match byte for byte; differing ones are a mismatch.
+        let left = one(format!("{UUID_A} {}", kind_digest("other", UUID_A)));
+        let right = one(format!("{UUID_B} {}", kind_digest("other", UUID_B)));
+        assert_eq!(equivalent(&left, &right), Ok(false));
+        let same = kind_digest("other", UUID_C);
+        let left = one(format!("{UUID_A} {same}"));
+        let right = one(format!("{UUID_B} {same}"));
         assert_eq!(equivalent(&left, &right), Ok(true));
-        let classes_left = distinct_ids(&[&left[0].text], &[IdShape::Uuid, hex64()]);
-        assert!(derived_digests(&classes_left).is_empty());
     }
 
     #[test]
-    fn mask_hides_ids_and_names_derived_kinds() {
-        let derived = derived_digests(&[UUID_A.to_owned(), kind_digest("agent", UUID_A)]);
-        let text = format!(
-            "creations/{}.claim {UUID_A} wks_0123456789abcdef",
-            kind_digest("agent", UUID_A)
-        );
+    fn preimage_digest_is_verified_not_assumed() {
+        let fingerprint = |preimage: &str| sha256_hex(preimage);
+        let left_pre = format!("{{\"workspaceId\":\"{WKS_A}\"}}");
+        let right_pre = format!("{{\"workspaceId\":\"{WKS_B}\"}}");
+        let left = vec![
+            artifact("a", format!("{WKS_A} fp={}", fingerprint(&left_pre))),
+            artifact("p", format!("preimage={left_pre}")),
+        ];
+        let right = vec![
+            artifact("a", format!("{WKS_B} fp={}", fingerprint(&right_pre))),
+            artifact("p", format!("preimage={right_pre}")),
+        ];
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // A fingerprint computed over a different request is not normalized.
+        let wrong = vec![
+            artifact("a", format!("{WKS_B} fp={}", fingerprint("{}"))),
+            artifact("p", format!("preimage={right_pre}")),
+        ];
+        assert!(equivalent(&left, &wrong).is_err());
+    }
+
+    #[test]
+    fn short_prefix_is_derived_and_checked() {
+        let left = one(format!("{UUID_A} short {}", &UUID_A[..7]));
+        let right = one(format!("{UUID_B} short {}", &UUID_B[..7]));
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // A short id that is not the prefix of the paired UUID stays literal.
+        let wrong = one(format!("{UUID_B} short {}", &UUID_D[..7]));
+        assert!(equivalent(&left, &wrong).is_err());
+        // An eight-character prefix is a different format and is not derived.
+        let long = one(format!("{UUID_B} short {}", &UUID_B[..8]));
+        assert!(equivalent(&left, &long).is_err());
+    }
+
+    #[test]
+    fn mask_hides_ids_by_shape_and_names_derived_kinds() {
+        let found = distinct_ids(&[UUID_A], &SLICE_SHAPES);
+        let digest = kind_digest("agent", UUID_A);
+        let text = format!("creations/{digest}.claim {UUID_A} {WKS_A}");
+        let derived = derived_digests(&found, &[&text]);
         assert_eq!(
-            mask(&text, &[IdShape::Uuid, wks(), hex64()], &derived),
-            "creations/{sha256:agent}.claim {id} {id}"
+            mask(&text, &SLICE_SHAPES, &derived),
+            "creations/{sha256:agent}.claim {uuid} {workspace-id}"
         );
     }
 
     #[test]
     fn root_slug_matches_paseo_cwd_slug() {
         assert_eq!(
-            root_slug("/private/tmp/spocky-p3-g1-0199a3c41b2c"),
-            "private-tmp-spocky-p3-g1-0199a3c41b2c"
+            root_slug("/private/tmp/spocky-p3-g1-0199a3c41b2"),
+            "private-tmp-spocky-p3-g1-0199a3c41b2"
         );
     }
 
     #[test]
-    fn extracted_secret_on_one_side_fails_discovery() {
-        let left_facts = facts("/private/tmp/a", 1, 2);
-        let right_facts = facts("/private/tmp/b", 3, 4);
-        let left = SideInput {
-            facts: &left_facts,
-            texts: vec!["k"],
-            extracted: vec![("daemon-public-key".into(), "k".into())],
-        };
-        let right = SideInput {
-            facts: &right_facts,
-            texts: vec!["k"],
-            extracted: Vec::new(),
-        };
-        assert!(value_classes(&left, &right, &[IdShape::Uuid]).is_err());
-    }
-
-    #[test]
-    fn finds_uuids_and_prefixed_ids_in_first_appearance_order() {
-        let text = format!("a {UUID_B} b wks_0123456789abcdef c {UUID_A} {UUID_B}");
+    fn extracted_secrets_are_allowlisted_and_paired() {
+        let left = one("pub=".into());
+        let right = one("bup=".into());
+        let secret = |value: &str| vec![("daemon-public-key".to_owned(), value.to_owned())];
         assert_eq!(
-            distinct_ids(&[&text], &[IdShape::Uuid, wks()]),
-            vec![UUID_B, "wks_0123456789abcdef", UUID_A]
+            equivalent_with(&left, &right, secret("pub="), secret("bup=")),
+            Ok(true)
         );
-    }
-
-    #[test]
-    fn ignores_ids_glued_to_longer_tokens_or_wrong_case() {
-        let upper = UUID_A.to_uppercase();
-        let text =
-            format!("x{UUID_A} {UUID_A}0 wks_0123456789abcdef0 wks_0123456789ABCDEF {upper}");
-        assert!(distinct_ids(&[&text], &[IdShape::Uuid, wks()]).is_empty());
-    }
-
-    #[test]
-    fn wall_clock_only_inside_window() {
-        // 2026-10-01T13:51:43.463Z == 1790862703463 ms.
-        let inside = "2026-10-01T13:51:43.463Z";
-        let fixed = "2020-01-02T03:04:05Z";
-        let text = format!(
-            "{inside} {fixed} 1790862703463 1790862703 179086270346 17908627034630 x1790862703463"
-        );
-        assert_eq!(
-            wall_clock_values(&[&text], 1_790_862_700_000, 1_790_862_710_000),
-            vec![inside, "1790862703463", "1790862703"]
-        );
-        assert!(wall_clock_values(&[&text], 1_800_000_000_000, 1_800_000_001_000).is_empty());
-    }
-
-    #[test]
-    fn iso_fractions_and_seconds_parse_exactly() {
-        assert_eq!(iso_at(b"1970-01-01T00:00:00Z", 0), Some((20, 0)));
-        assert_eq!(iso_at(b"1970-01-01T00:00:01.5Z", 0), Some((22, 1500)));
-        assert_eq!(
-            iso_at(b"2000-02-29T00:00:00.123456Z", 0),
-            Some((27, 951_782_400_123))
-        );
-        assert_eq!(iso_at(b"2000-13-01T00:00:00Z", 0), None);
-        assert_eq!(iso_at(b"2000-01-01T00:00:00+01:00", 0), None);
-    }
-
-    fn facts(root: &str, daemon_port: u16, stub_port: u16) -> SideFacts {
-        SideFacts {
-            root: root.into(),
-            daemon_port,
-            stub_port,
-            window_start_ms: 1_790_862_700_000,
-            window_end_ms: 1_790_862_710_000,
-        }
-    }
-
-    fn artifact(name: &str, text: String) -> Text {
-        Text {
-            target: NormalizationTarget::Artifact(name.into()),
-            text,
-        }
-    }
-
-    fn observation(texts: &[Text]) -> Observation {
-        let artifacts = texts
-            .iter()
-            .map(|text| {
-                let NormalizationTarget::Artifact(name) = &text.target else {
-                    panic!("tests only use artifact targets");
-                };
-                Artifact::new(name.clone(), text.text.clone().into_bytes())
-            })
-            .collect();
-        Observation {
-            structured_output: ObservationSlot::Missing,
-            stdout: ObservationSlot::Missing,
-            stderr: ObservationSlot::Missing,
-            exit_code: ObservationSlot::Missing,
-            artifacts: ObservationSlot::Value(artifacts),
-            state: ObservationSlot::Missing,
-            screenshots: ObservationSlot::Missing,
-            accessibility: ObservationSlot::Missing,
-            performance: ObservationSlot::Missing,
-            recovery: ObservationSlot::Missing,
-            counts: ObservationSlot::Value(COUNTS),
-            raw_failures: Vec::new(),
-        }
-    }
-
-    const COUNTS: ExecutionCounts = ExecutionCounts {
-        fixtures: 1,
-        assertions: 1,
-    };
-
-    /// Runs the real differential comparison: `Ok(equivalent)`, or `Err` when
-    /// a rule misses one side.
-    fn equivalent(left: &[Text], right: &[Text]) -> Result<bool, String> {
-        let rules = classes_and_rules(left, right)?;
-        let scenario = Scenario {
-            id: "normalize-test".into(),
-            arguments: Vec::new(),
-            environment: BTreeMap::new(),
-            initial_files: Vec::new(),
-            expected_counts: COUNTS,
-        };
-        compare_observations(&scenario, observation(left), observation(right), &rules)
-            .map(|manifest| manifest.equivalent)
-            .map_err(|error| error.to_string())
-    }
-
-    fn classes_and_rules(left: &[Text], right: &[Text]) -> Result<Vec<NormalizationRule>, String> {
-        let left_facts = facts("/private/tmp/spocky-p3-g1-original-1", 41001, 42001);
-        let right_facts = facts("/private/tmp/spocky-p3-g1-spocky-22", 41002, 42002);
-        let left_input = SideInput {
-            facts: &left_facts,
-            texts: left.iter().map(|text| text.text.as_str()).collect(),
-            extracted: Vec::new(),
-        };
-        let right_input = SideInput {
-            facts: &right_facts,
-            texts: right.iter().map(|text| text.text.as_str()).collect(),
-            extracted: Vec::new(),
-        };
-        let classes = value_classes(&left_input, &right_input, &[IdShape::Uuid, wks(), hex64()])?;
-        Ok(rules_for(&classes, left, right))
-    }
-
-    #[test]
-    fn equivalent_sides_normalize_to_identical_text() {
-        let left = vec![artifact(
-            "run.stdout",
-            format!(
-                "{UUID_A} /private/tmp/spocky-p3-g1-original-1/project /tmp/spocky-p3-g1-original-1/x 127.0.0.1:41001 127.0.0.1:42001 2026-10-01T13:51:43.463Z {UUID_C} {UUID_A}"
-            ),
-        )];
-        let right = vec![artifact(
-            "run.stdout",
-            format!(
-                "{UUID_B} /private/tmp/spocky-p3-g1-spocky-22/project /tmp/spocky-p3-g1-spocky-22/x 127.0.0.1:41002 127.0.0.1:42002 2026-10-01T13:51:44.001Z {UUID_D} {UUID_B}"
-            ),
-        )];
-        assert_eq!(equivalent(&left, &right), Ok(true));
-    }
-
-    #[test]
-    fn swapped_id_identity_still_differs() {
-        // Left reuses its first id; right mints a new one at the same position.
-        let left = vec![artifact("a", format!("{UUID_A} {UUID_C} {UUID_A}"))];
-        let right = vec![artifact("a", format!("{UUID_B} {UUID_D} {UUID_D}"))];
-        assert_eq!(equivalent(&left, &right), Ok(false));
-    }
-
-    #[test]
-    fn different_generated_id_counts_fail_discovery() {
-        let left = vec![artifact("a", format!("{UUID_A} {UUID_C}"))];
-        let right = vec![artifact("a", UUID_B.into())];
-        assert!(classes_and_rules(&left, &right).is_err());
-    }
-
-    #[test]
-    fn realpath_and_tmp_alias_stay_distinguishable() {
-        let left = vec![artifact(
-            "a",
-            "/private/tmp/spocky-p3-g1-original-1/p".into(),
-        )];
-        let right = vec![artifact("a", "/tmp/spocky-p3-g1-spocky-22/p".into())];
-        // Each class matches only one side, so the comparison itself fails.
-        assert!(equivalent(&left, &right).is_err());
-    }
-
-    #[test]
-    fn value_present_on_one_side_only_fails_comparison() {
-        let left = vec![artifact("a", "listening on 127.0.0.1:41001".into())];
-        let right = vec![artifact("a", "listening".into())];
-        assert!(equivalent(&left, &right).is_err());
-    }
-
-    #[test]
-    fn untouched_differences_survive_normalization() {
-        let left = vec![artifact("a", format!("{UUID_A} status=completed"))];
-        let right = vec![artifact("a", format!("{UUID_B} status=error"))];
-        assert_eq!(equivalent(&left, &right), Ok(false));
+        assert!(equivalent_with(&left, &right, secret("pub="), Vec::new()).is_err());
+        let other = vec![("anything".to_owned(), "pub=".to_owned())];
+        let error = equivalent_with(&left, &right, other.clone(), other).unwrap_err();
+        assert!(error.contains("allowlisted"), "{error}");
     }
 
     #[test]
@@ -986,14 +1333,22 @@ mod tests {
             artifact("ids", UUID_B.into()),
             artifact("plain", "no generated values".into()),
         ];
-        let rules = classes_and_rules(&left, &right).unwrap();
+        let left_facts = facts("/private/tmp/a", 1, 2);
+        let right_facts = facts("/private/tmp/b", 3, 4);
+        let classes = value_classes(
+            &input(&left_facts, &left, Vec::new()),
+            &input(&right_facts, &right, Vec::new()),
+            &SLICE_SHAPES,
+        )
+        .unwrap();
+        let rules = rules_for(&classes, &left, &right);
         assert_eq!(
             rules
                 .iter()
                 .map(|rule| (rule.id.as_str(), rule.exact_values.clone()))
                 .collect::<Vec<_>>(),
             vec![(
-                "generated-id-1@artifact:ids",
+                "generated-id-uuid-1@artifact:ids",
                 vec![UUID_A.to_owned(), UUID_B.to_owned()]
             )]
         );
