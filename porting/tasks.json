@@ -830,6 +830,15 @@
           "followUps": ["P2 tests/support/mod.rs:60 sandboxed_version probe HOME is shared temp_dir with no egress-guard proxy env", "P3 watchdog abort skips Drop: disposable root and app-server process group left behind", "P3 disarm-on-drop covered only by ignored tests"]
         },
         {
+          "lane": "p3_message_receipts",
+          "date": "2026-10-01",
+          "sourceRange": "becf41e..25820a5 (5 commits): dist digest pins and fresh-key race, cancellation versus panic split, fail-closed evidence runner and its test, follow-up evidence",
+          "integrationHead": "096111d",
+          "review": "integration reviewer PASS (verdicts/p3_message_receipts-25820a5.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist: spocky-message-receipts 12/12 on 3 consecutive runs, clippy -D warnings, fmt check; scripts/phase3/receipts-differential.test.sh 6/6 cases",
+          "followUps": ["P2 receipts_differential.rs:512 two-instance race order depends on blocking-pool scheduling; barrier both reads or document flake risk", "P3 lib.rs:94 send joins per-key queue on first poll, not at call time; port eagerly or list exception", "P3 receipts-differential.sh:47 record tree cleanliness and fail when dirty", "P3 receipts-differential.test.sh:84 add a fmt failure case"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..aeb550d (agent manager checkpoint 8)",
