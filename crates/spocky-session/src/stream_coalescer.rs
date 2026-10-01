@@ -11,6 +11,7 @@
 //! wake-up does nothing, as `clearTimeout` would. Flushes come back as
 //! [`CoalescerFlush`] values in the order the baseline calls `onFlush`.
 
+use spocky_contracts::js::strict_equals;
 use spocky_store::js_value::JsValue;
 
 use crate::js::{js_string, spread};
@@ -103,22 +104,6 @@ fn item_type(item: &JsValue) -> Option<&str> {
 
 fn is_text_item(item: &JsValue) -> bool {
     matches!(item_type(item), Some("assistant_message" | "reasoning"))
-}
-
-/// `===` for the values these entries compare; objects are never equal to
-/// another value read from a different event.
-fn strict_equals(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
-    fn normalize(value: Option<&JsValue>) -> Option<&JsValue> {
-        value.filter(|value| !matches!(value, JsValue::Undefined))
-    }
-    match (normalize(left), normalize(right)) {
-        (None, None) | (Some(JsValue::Null), Some(JsValue::Null)) => true,
-        (Some(JsValue::Bool(a)), Some(JsValue::Bool(b))) => a == b,
-        #[allow(clippy::float_cmp, reason = "JavaScript === on numbers")]
-        (Some(JsValue::Number(a)), Some(JsValue::Number(b))) => a == b,
-        (Some(JsValue::String(a)), Some(JsValue::String(b))) => a == b,
-        _ => false,
-    }
 }
 
 /// `ToNumber` of a primitive.
