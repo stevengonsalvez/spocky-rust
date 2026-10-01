@@ -1,7 +1,7 @@
 # Relay frame parity checkpoint
 
-Status: handshake JSON classification and fragmented WebSocket boundaries match
-the pinned relay for the selected runtime surface.
+Status: bounded handshake JSON classification and fragmented WebSocket
+boundaries match the pinned relay for the selected runtime surface.
 
 ## Pinned baseline
 
@@ -26,11 +26,22 @@ duplicate_type_first_ping=:not_handshake
 duplicate_type_first_hello={:reject, :hello}
 duplicate_key_first_valid={:accept, :hello}
 duplicate_key_first_invalid={:reject, :hello}
+positive_exp_overflow=:not_handshake
+negative_exp_overflow=:not_handshake
+integer_1023={:reject, :hello}
+integer_1024={:reject, :hello}
+integer_1025=:not_handshake
+negative_integer_1024=:not_handshake
+negative_integer_1025=:not_handshake
+opaque_depth_20000=:not_handshake
 ```
 
 Jason 1.4.5 rejects the whole document before handshake classification when a
 string contains a lone surrogate, an ignored field is malformed, or trailing
 syntax is present. Duplicate object fields retain their first value.
+Non-finite float tokens invalidate the document. Integer tokens stop at 1,024
+bytes, including a leading minus sign. Jason parsed a valid array nested 20,000
+levels deep as opaque in 1.5 milliseconds.
 
 The pinned maximum fragmented-message test passed 1/1 in 30.4 seconds with a
 4 GiB container cap. A disposable copy changed its two equal fragments from the
@@ -70,7 +81,11 @@ Review RED result: 4 passed, 2 failed. The selected runtime classified a
 handshake from malformed JSON and retained an oversized nonfinal control
 message while waiting for FIN.
 
-GREEN result: 6 passed, 0 failed. Coverage proves:
+Final-review RED result: both new focused tests failed. A 50,000-level opaque
+array caused a stack-overflow abort in a disposable relay subprocess.
+Jason-invalid numeric documents closed the client with `1008`.
+
+GREEN result: 8 passed, 0 failed. Coverage proves:
 
 1. Escaped top-level field names and handshake types are decoded before key
    validation. Accepted frames retain their exact escaped bytes.
@@ -85,6 +100,10 @@ GREEN result: 6 passed, 0 failed. Coverage proves:
 7. An unrelated established route still forwards opaque binary bytes.
 8. Nonfinal control fragments close with `1009` as soon as their aggregate
    exceeds the separate control limit.
+9. An explicit parser stack handles a 50,000-level opaque array without native
+   stack growth. The relay process and an unrelated established route survive.
+10. Non-finite floats and integer tokens over Jason's 1,024-byte limit leave
+    the complete handshake lookalike opaque. The exact boundary stays valid.
 
 ## Regression checks
 
