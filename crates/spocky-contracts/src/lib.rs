@@ -20,6 +20,7 @@ pub mod js_value;
 pub mod json;
 pub mod literal;
 pub mod number;
+pub mod permission;
 pub mod request;
 pub mod response;
 pub mod session;
