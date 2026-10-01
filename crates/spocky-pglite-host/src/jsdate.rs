@@ -5,6 +5,12 @@
 //! database; `jiff::tz::TimeZone::system()` follows the same sources. Gaps
 //! and folds resolve the way ECMAScript `UTC(t)` does (`compatible`).
 
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "time values stay within the Date range of 8.64e15 ms, below 2^53"
+)]
+
 use jiff::Timestamp;
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
@@ -99,6 +105,10 @@ impl JsClock {
 
     /// `new Date(year, month, day, hours, minutes, seconds, ms).getTime()`.
     #[must_use]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the seven arguments of the Date constructor"
+    )]
     pub fn local_constructor(
         &self,
         year: f64,
