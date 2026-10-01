@@ -16,6 +16,7 @@
 //! pool.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -146,12 +147,18 @@ impl AgentStorage {
     /// `queueRecordMutation`: chains `mutate` behind `agent_id`'s pending
     /// writes. When its turn comes it is skipped if a delete has begun;
     /// otherwise it builds the record from the existing one and writes it.
-    async fn queue_record_mutation(
+    ///
+    /// The link joins the chain when this is called, as the baseline's
+    /// calls queue in call order, and runs whether or not the returned
+    /// future is polled.
+    fn queue_record_mutation<M>(
         &self,
         agent_id: &str,
-        mutate: impl FnOnce(Option<&JsValue>) -> Result<JsValue, StorageError> + Send + 'static,
-    ) -> Result<(), StorageError> {
-        self.initialize().await;
+        mutate: M,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'static + use<M>
+    where
+        M: FnOnce(Option<&JsValue>) -> Result<JsValue, StorageError> + Send + 'static,
+    {
         let id = self.inner.next_link.fetch_add(1, Ordering::Relaxed);
         let (settle, settled_link) = watch::channel(None);
         let prev = lock(&self.inner.pending_writes)
@@ -166,6 +173,7 @@ impl AgentStorage {
         let storage = self.clone();
         let agent_id = agent_id.to_owned();
         let link = tokio::spawn(async move {
+            storage.initialize().await;
             let outcome = match prev {
                 Some(prev) => settled(prev).await,
                 None => Ok(()),
@@ -183,8 +191,10 @@ impl AgentStorage {
             settle.send_replace(Some(outcome.clone()));
             outcome
         });
-        link.await
-            .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+        async move {
+            link.await
+                .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+        }
     }
 
     /// The body of one link: the delete check and the projection run
@@ -212,40 +222,45 @@ impl AgentStorage {
         .await
     }
 
-    /// `upsert(record)`.
+    /// `upsert(record)`: queued when called.
     ///
     /// # Errors
     ///
-    /// Returns the write failure, or the failure of an earlier write of the
-    /// same agent that was still pending when this one was queued.
-    pub async fn upsert(&self, record: JsValue) -> Result<(), StorageError> {
+    /// The future returns the write failure, or the failure of an earlier
+    /// write of the same agent that was still pending when this one was
+    /// queued.
+    pub fn upsert(
+        &self,
+        record: JsValue,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'static + use<> {
         let agent_id = record
             .get("id")
             .and_then(JsValue::as_str)
             .unwrap_or_default()
             .to_owned();
         self.queue_record_mutation(&agent_id, move |_| Ok(record))
-            .await
     }
 
-    /// `applySnapshot(agent, options)`: `agent` is read when the write's turn
-    /// comes.
+    /// `applySnapshot(agent, options)`: queued when called; `agent` is read
+    /// when the write's turn comes.
     ///
     /// # Errors
     ///
-    /// Returns the projection's `TypeError` or the write failure, or the
-    /// failure of an earlier write of the same agent that was still pending
-    /// when this one was queued.
-    pub async fn apply_snapshot(
+    /// The future returns the projection's `TypeError` or the write failure,
+    /// or the failure of an earlier write of the same agent that was still
+    /// pending when this one was queued.
+    pub fn apply_snapshot<A>(
         &self,
         agent_id: &str,
-        agent: impl FnOnce() -> ManagedAgentRecordView + Send + 'static,
+        agent: A,
         overrides: SnapshotOverrides,
-    ) -> Result<(), StorageError> {
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'static + use<A>
+    where
+        A: FnOnce() -> ManagedAgentRecordView + Send + 'static,
+    {
         self.queue_record_mutation(agent_id, move |existing| {
             apply_snapshot_record(&agent(), existing, &overrides).map_err(StorageError::Projection)
         })
-        .await
     }
 
     /// `beginDelete(agentId)`.
@@ -253,25 +268,33 @@ impl AgentStorage {
         lock(&self.inner.store).begin_delete(agent_id);
     }
 
-    /// `remove(agentId)`: marks the agent deleting, waits for its pending
-    /// writes, then unlinks the files. Unlink failures other than not-found
-    /// come back for the caller to log.
+    /// `remove(agentId)`: marks the agent deleting and takes its pending
+    /// writes when called, then waits for them and unlinks the files.
+    /// Unlink failures other than not-found come back for the caller to log.
     ///
     /// # Errors
     ///
-    /// Returns the failure of the pending write it waited for; the files
-    /// and the cached record then stay, as the baseline's `await` throws
-    /// before the unlinks.
-    pub async fn remove(&self, agent_id: &str) -> Result<Vec<(PathBuf, io::Error)>, StorageError> {
-        self.initialize().await;
+    /// The future returns the failure of the pending write it waited for;
+    /// the files and the cached record then stay, as the baseline's `await`
+    /// throws before the unlinks.
+    pub fn remove(
+        &self,
+        agent_id: &str,
+    ) -> impl Future<Output = Result<Vec<(PathBuf, io::Error)>, StorageError>> + Send + 'static + use<>
+    {
         self.begin_delete(agent_id);
-        if let Some(tail) = self.tail(agent_id) {
-            settled(tail).await?;
-        }
+        let tail = self.tail(agent_id);
+        let storage = self.clone();
         let agent_id = agent_id.to_owned();
-        Ok(self
-            .blocking(move |inner| lock(&inner.store).remove(&agent_id))
-            .await)
+        async move {
+            storage.initialize().await;
+            if let Some(tail) = tail {
+                settled(tail).await?;
+            }
+            Ok(storage
+                .blocking(move |inner| lock(&inner.store).remove(&agent_id))
+                .await)
+        }
     }
 
     /// `flush()`: loads, then resolves once every write pending when it
@@ -290,11 +313,8 @@ impl AgentStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
     use std::path::PathBuf;
-    use std::pin::Pin;
     use std::sync::mpsc;
-    use std::task::Poll;
     use std::time::Duration;
 
     use spocky_store::js_value::{JsValue, parse};
@@ -417,17 +437,6 @@ mod tests {
         assert_eq!(storage.get("a1").await, None);
     }
 
-    /// Polls `future` once, as a JS call runs up to its first `await`.
-    async fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
-        std::future::poll_fn(|context| {
-            Poll::Ready(match Pin::new(&mut *future).poll(context) {
-                Poll::Ready(output) => Some(output),
-                Poll::Pending => None,
-            })
-        })
-        .await
-    }
-
     /// Lets a test hold a snapshot's projection: `entered` fires once the
     /// projection has started, and it returns once `open` is sent.
     struct Gate {
@@ -479,11 +488,8 @@ mod tests {
         let storage = AgentStorage::new(&home.0);
         storage.initialize().await;
         let (gate, agent) = gated("a1", FAILING);
-        let mut snapshot =
-            Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
-        let mut upsert = Box::pin(storage.upsert(record("a1", "queued")));
-        assert!(poll_once(&mut snapshot).await.is_none());
-        assert!(poll_once(&mut upsert).await.is_none());
+        let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
+        let upsert = storage.upsert(record("a1", "queued"));
         gate.wait_entered().await.send(()).expect("open");
         assert_eq!(
             snapshot.await.expect_err("projection").to_string(),
@@ -518,12 +524,9 @@ mod tests {
             .await
             .expect("first write");
         let (gate, agent) = gated("a1", FAILING);
-        let mut snapshot =
-            Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
-        assert!(poll_once(&mut snapshot).await.is_none());
+        let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
         let open = gate.wait_entered().await;
-        let mut remove = Box::pin(storage.remove("a1"));
-        assert!(poll_once(&mut remove).await.is_none());
+        let remove = storage.remove("a1");
         open.send(()).expect("open");
         assert_eq!(
             snapshot.await.expect_err("projection").to_string(),
@@ -562,8 +565,7 @@ mod tests {
         let storage = AgentStorage::new(&home.0);
         storage.upsert(record("a1", "a")).await.expect("a1 write");
         let (gate, agent) = gated("b1", r#"{"provider":"codex","cwd":"/w"}"#);
-        let mut other = Box::pin(storage.apply_snapshot("b1", agent, SnapshotOverrides::default()));
-        assert!(poll_once(&mut other).await.is_none());
+        let other = storage.apply_snapshot("b1", agent, SnapshotOverrides::default());
         let open = gate.wait_entered().await;
         // b1's write is held open; removing a1 still finishes.
         let removed = tokio::time::timeout(Duration::from_secs(30), storage.remove("a1"))
