@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use spocky_store::agent_record::{AgentRecordStore, parse_stored_agent_record};
-use spocky_store::js_value::{JsValue, parse, stringify};
+use spocky_store::js_value::{JsValue, parse, stringify, stringify_pretty};
 
 struct TestDir(PathBuf);
 
@@ -36,53 +36,37 @@ impl Drop for TestDir {
     }
 }
 
-fn zod(input: &str) -> Result<String, String> {
-    let value = parse(input).expect("test input is JSON");
-    parse_stored_agent_record(&value)
-        .map(|parsed| stringify(&parsed))
-        .map_err(|error| error.field.to_owned())
-}
-
+/// Each case in `tests/fixtures/agent-zod.json` was produced by
+/// `tests/oracle/zod-oracle.sh tests/oracle/agent-cases.json`: node runs
+/// `JSON.stringify(STORED_AGENT_SCHEMA.parse(JSON.parse(input)), null, 2)`
+/// with the pinned zod and the schema text copied from `agent-storage.ts`.
+/// `output` is null where the baseline parse throws.
 #[test]
-fn schema_output_order_strips_unknown_keys_and_keeps_js_property_order() {
-    let input = r#"{"zzz":1,"lastStatus":"idle","updatedAt":"u","createdAt":"c","cwd":"/p","provider":"codex","id":"a","owner":{"executionId":"e","kind":"daemon","daemonId":"d"},"archivedAt":null,"internal":false,"labels":{"b":"1","2":"x"},"persistence":{"metadata":{"k":1,"0":2},"sessionId":"s","provider":"codex","nativeHandle":"n","junk":1},"config":{"model":null,"modeId":"full-access","other":1},"runtimeInfo":{"sessionId":null,"provider":"codex","extra":{}}}"#;
-    assert_eq!(
-        zod(input).expect("valid record"),
-        r#"{"id":"a","provider":"codex","cwd":"/p","createdAt":"c","updatedAt":"u","labels":{"2":"x","b":"1"},"lastStatus":"idle","config":{"modeId":"full-access","model":null},"runtimeInfo":{"provider":"codex","sessionId":null,"extra":{}},"persistence":{"provider":"codex","sessionId":"s","nativeHandle":"n","metadata":{"0":2,"k":1}},"internal":false,"archivedAt":null,"owner":{"kind":"daemon","daemonId":"d","executionId":"e"}}"#
-    );
-}
-
-#[test]
-fn schema_defaults_and_nested_shapes() {
-    assert_eq!(
-        zod(r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u"}"#)
-            .expect("minimal record"),
-        r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","labels":{},"lastStatus":"closed"}"#
-    );
-    let input = r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","features":[{"options":[{"metadata":{"z":1},"label":"L","id":"o","x":1}],"value":null,"label":"F","id":"f","type":"select","icon":"i"},{"type":"toggle","value":true,"id":"t","label":"T"}],"config":{"toolPolicy":{"preapproved":[{"kind":"mcp","server":"s","tool":"t"}]},"systemPrompt":null,"mcpServers":{"m":{"command":"x"}}},"attentionReason":null,"requiresAttention":true,"lastError":null,"lastModeId":null,"title":null,"lastUserMessageAt":null,"lastActivityAt":"l","workspaceId":"w"}"#;
-    assert_eq!(
-        zod(input).expect("full record"),
-        r#"{"id":"a","provider":"p","cwd":"/","workspaceId":"w","createdAt":"c","updatedAt":"u","lastActivityAt":"l","lastUserMessageAt":null,"title":null,"labels":{},"lastStatus":"closed","lastModeId":null,"config":{"toolPolicy":{"preapproved":[{"kind":"mcp","server":"s","tool":"t"}]},"systemPrompt":null,"mcpServers":{"m":{"command":"x"}}},"features":[{"type":"select","id":"f","label":"F","icon":"i","value":null,"options":[{"id":"o","label":"L","metadata":{"z":1}}]},{"type":"toggle","id":"t","label":"T","value":true}],"lastError":null,"requiresAttention":true,"attentionReason":null}"#
-    );
-}
-
-#[test]
-fn schema_rejections_match_zod() {
-    assert_eq!(
-        zod(
-            r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","lastStatus":null}"#
-        ),
-        Err("lastStatus".to_owned())
-    );
-    assert!(
-        zod(r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","config":{"toolPolicy":{"preapproved":[{"kind":"mcp","server":"s","tool":"t","x":1}]}}}"#)
-            .is_err(),
-        "strict tool policy entries reject unknown keys"
-    );
-    assert_eq!(
-        zod(r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c"}"#),
-        Err("updatedAt".to_owned())
-    );
+fn stored_agent_schema_matches_zod_oracle() {
+    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agent-zod.json");
+    let fixture = parse(&fs::read_to_string(fixture_path).expect("read oracle fixture"))
+        .expect("fixture is JSON");
+    let cases = fixture.as_array().expect("fixture is an array of cases");
+    assert_eq!(cases.len(), 18, "every oracle case is checked");
+    for case in cases {
+        let field = |key: &str| {
+            case.get(key)
+                .and_then(JsValue::as_str)
+                .expect("string field")
+        };
+        let (name, input) = (field("name"), field("input"));
+        // Fixture strings are JavaScript text; stringify output holds no lone
+        // surrogate, so only a literal U+10FFFF needs decoding.
+        let expected = case
+            .get("output")
+            .and_then(JsValue::as_str)
+            .map(|text| text.replace("\u{10FFFF}\u{10FFFF}", "\u{10FFFF}"));
+        let actual = parse(input)
+            .ok()
+            .and_then(|value| parse_stored_agent_record(&value).ok())
+            .map(|parsed| stringify_pretty(&parsed));
+        assert_eq!(actual, expected, "case {name}");
+    }
 }
 
 fn record(id: &str, cwd: &str, status: &str) -> JsValue {
@@ -152,7 +136,8 @@ fn write_uses_json_stringify_layout_and_moves_file_on_cwd_change() {
     let mut store = AgentRecordStore::new(home.path());
     let first = store
         .write(record("agent-1", "/tmp/project", "idle"))
-        .expect("write record");
+        .expect("write record")
+        .expect("not deleting");
     assert!(first.ends_with("tmp-project/agent-1.json"));
     assert_eq!(
         fs::read_to_string(&first).expect("read record"),
@@ -161,7 +146,8 @@ fn write_uses_json_stringify_layout_and_moves_file_on_cwd_change() {
 
     let moved = store
         .write(record("agent-1", "/tmp/other", "closed"))
-        .expect("rewrite under new cwd");
+        .expect("rewrite under new cwd")
+        .expect("not deleting");
     assert!(moved.ends_with("tmp-other/agent-1.json"));
     assert!(!first.exists(), "old cwd bucket file is unlinked");
     assert_eq!(store.list().len(), 1);
@@ -175,20 +161,15 @@ fn write_uses_json_stringify_layout_and_moves_file_on_cwd_change() {
             .and_then(JsValue::as_str),
         Some("closed")
     );
-    reopened.remove("agent-1").expect("remove record");
+    assert!(reopened.remove("agent-1").is_empty(), "no unlink failures");
     assert!(!moved.exists());
     assert!(reopened.get("agent-1").is_none());
 }
 
 #[test]
 fn javascript_only_record_loads_and_rewrites_like_node() {
-    // Oracle output for this input: STORED_AGENT_SCHEMA with zod 4.4.3, then
-    // JSON.stringify. serde_json would reject the lone surrogate and 1e400.
-    let input = r#"{"id":"a","provider":"codex","cwd":"/p","createdAt":"c","updatedAt":"u","title":"split \ud83d","persistence":{"provider":"codex","sessionId":"s","metadata":{"big":1e400,"n":12345678901234567890},"nativeHandle":[[[[]]]]}}"#;
-    assert_eq!(
-        zod(input).expect("JSON.parse and zod accept the record"),
-        r#"{"id":"a","provider":"codex","cwd":"/p","createdAt":"c","updatedAt":"u","title":"split \ud83d","labels":{},"lastStatus":"closed","persistence":{"provider":"codex","sessionId":"s","nativeHandle":[[[[]]]],"metadata":{"big":null,"n":12345678901234567000}}}"#
-    );
+    // Fixture case "javascript-only-input" pins the zod output for this text.
+    let input = r#"{"id":"a","provider":"p","cwd":"/","createdAt":"c","updatedAt":"u","title":"split \ud83d","persistence":{"provider":"codex","sessionId":"s","metadata":{"big":1e400,"n":12345678901234567890},"nativeHandle":[[[[]]]]}}"#;
 
     let home = TestDir::new("agent-js-input");
     let bucket = home.path().join("p");
@@ -197,7 +178,103 @@ fn javascript_only_record_loads_and_rewrites_like_node() {
     let mut store = AgentRecordStore::new(home.path());
     assert!(store.skipped().is_empty());
     let loaded = store.get("a").expect("record is not skipped");
-    let path = store.write(loaded).expect("rewrite record");
+    let path = store
+        .write(loaded)
+        .expect("rewrite record")
+        .expect("not deleting");
     let written = fs::read_to_string(path).expect("read record");
     assert!(written.contains(r#""title": "split \ud83d","#), "{written}");
+}
+
+#[test]
+fn scan_follows_sorted_readdir_order_and_last_duplicate_wins() {
+    let home = TestDir::new("agent-sorted-scan");
+    for bucket in ["b-bucket", "a-bucket"] {
+        fs::create_dir_all(home.path().join(bucket)).expect("create bucket");
+    }
+    // libuv scandir sorts names by bytes: "B.json" < "a.json" < "c.json".
+    fs::write(
+        home.path().join("c.json"),
+        stringify(&record("root-c", "/c", "idle")),
+    )
+    .expect("seed root c");
+    fs::write(
+        home.path().join("B.json"),
+        stringify(&record("root-b", "/b", "idle")),
+    )
+    .expect("seed root B");
+    fs::write(
+        home.path().join("b-bucket").join("dup.json"),
+        stringify(&record("dup", "/second", "closed")),
+    )
+    .expect("seed later duplicate");
+    fs::write(
+        home.path().join("a-bucket").join("dup.json"),
+        stringify(&record("dup", "/first", "idle")),
+    )
+    .expect("seed earlier duplicate");
+
+    let mut store = AgentRecordStore::new(home.path());
+    let listed = store
+        .list()
+        .iter()
+        .map(|value| {
+            (
+                value
+                    .get("id")
+                    .and_then(JsValue::as_str)
+                    .expect("id")
+                    .to_owned(),
+                value
+                    .get("cwd")
+                    .and_then(JsValue::as_str)
+                    .expect("cwd")
+                    .to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        listed,
+        vec![
+            ("root-b".to_owned(), "/b".to_owned()),
+            ("root-c".to_owned(), "/c".to_owned()),
+            ("dup".to_owned(), "/second".to_owned()),
+        ],
+        "Map.set keeps the first position and the last value"
+    );
+}
+
+#[test]
+fn delete_tombstone_skips_later_writes_and_unlink_errors_do_not_fail() {
+    let home = TestDir::new("agent-delete");
+    let mut store = AgentRecordStore::new(home.path());
+    let written = store
+        .write(record("agent-1", "/tmp/project", "idle"))
+        .expect("write")
+        .expect("not deleting");
+    assert!(store.remove("agent-1").is_empty());
+    assert!(!written.exists());
+    assert_eq!(
+        store
+            .write(record("agent-1", "/tmp/project", "idle"))
+            .expect("write after delete"),
+        None,
+        "the deleting tombstone outlives the delete"
+    );
+    assert!(!written.exists());
+
+    // A directory where the record file should be makes unlink fail; the
+    // baseline logs it and still finishes the delete.
+    let blocked = home.path().join("tmp-blocked");
+    let mut other = AgentRecordStore::new(home.path());
+    let path = other
+        .write(record("agent-2", "/tmp/blocked", "idle"))
+        .expect("write")
+        .expect("not deleting");
+    fs::remove_file(&path).expect("remove file");
+    fs::create_dir_all(path.join("child")).expect("replace file with directory");
+    let failures = other.remove("agent-2");
+    assert_eq!(failures.len(), 1, "unlink of a directory fails");
+    assert!(other.get("agent-2").is_none());
+    assert!(blocked.exists());
 }
