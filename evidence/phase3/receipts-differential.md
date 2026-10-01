@@ -14,8 +14,11 @@ gtimeout --kill-after=30 1800 scripts/phase3/receipts-differential.sh
 Exit 0. The script runs the three lane acceptance commands through the build
 gate with `SPOCKY_PINNED_NODE` (node 22.20.0, digest checked by
 `scripts/phase3/pins.sh`) and `SPOCKY_PASEO_DIST` set, and with
-`SPOCKY_ALLOW_SKIP` unset. It exits nonzero unless every command passes and
-both normalized differential outputs exist and are byte-identical:
+`SPOCKY_ALLOW_SKIP` unset. It exits nonzero unless the worktree is clean
+outside `logs/` (session hook output; the full `git status --porcelain` is
+kept in `git-status.txt`), every command passes, and both normalized
+differential outputs exist and are byte-identical. All three commands run
+through the gate:
 
 ```sh
 cargo test --locked -p spocky-message-receipts
@@ -23,8 +26,9 @@ cargo clippy --locked -p spocky-message-receipts --all-targets -- -D warnings
 cargo fmt --package spocky-message-receipts -- --check
 ```
 
-Test counts: 4 unit, 4 ported (`tests/receipts.rs`), 4 differential
-(`tests/receipts_differential.rs`), 0 doc tests. 12 passed, 0 failed, 0
+Test counts: 4 unit, 5 ported (`tests/receipts.rs`, including call-order
+queueing when futures are polled out of order), 4 differential
+(`tests/receipts_differential.rs`), 0 doc tests. 13 passed, 0 failed, 0
 ignored. Clippy and fmt are clean. The differential first fails unless node
 reports `v22.20.0` and both dist modules match the digests below.
 
@@ -34,21 +38,26 @@ The runner's own failure handling is proven by:
 gtimeout --kill-after=30 1800 scripts/phase3/receipts-differential.test.sh
 ```
 
-Exit 0, 6 cases: a stubbed match exits 0 even with `SPOCKY_ALLOW_SKIP=1`
-exported; mismatched outputs, missing outputs, a failing test with matching
-outputs, and failing clippy exit nonzero; a real run against a dist with a
+Exit 0, 8 cases, each running the committed runner from a throwaway
+detached worktree at HEAD: a stubbed match exits 0 even with
+`SPOCKY_ALLOW_SKIP=1` exported; mismatched outputs, missing outputs, a
+failing test with matching outputs, failing clippy, failing fmt, and an
+untracked file in the tree exit nonzero; a real run against a dist with a
 tampered `index.js` exits nonzero on the pinned digest. Removing the output
 comparison, the test exit check, or the `SPOCKY_ALLOW_SKIP` unset from the
 runner each made one case fail.
 
-## Recorded run `receipts-20261001T190736Z`
+The two-instance race step passed 20 consecutive gated runs of
+`receipts_match_pinned_build` at `4128f37`.
 
-Raw evidence lives under `evidence/raw/phase3/receipts-20261001T190736Z/`
+## Recorded run `receipts-20261001T220759Z`
+
+Raw evidence lives under `evidence/raw/phase3/receipts-20261001T220759Z/`
 (untracked).
 
 | Input | Value |
 |---|---|
-| Commit | `1a19cb6030da510863d9e42fba1b915aa392d68b` |
+| Commit | `94207e04debb6d4779623cc09d8ef4ffe785779a` |
 | Node | `v22.20.0` |
 | Pinned dist | `paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server` |
 | `server/message-receipts/index.js` SHA-256 | `e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559` |
@@ -58,12 +67,13 @@ Raw evidence lives under `evidence/raw/phase3/receipts-20261001T190736Z/`
 |---|---|
 | `receipts-node-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
 | `receipts-rust-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
-| `receipts-node-raw.json` | `c4c9619cd4ee8f517463790d2eb6a4916e6f2a4259d858d30ca0235ad04a60c8` |
-| `receipts-rust-raw.json` | `57dea0aea4d4d47ada4755836cd6c889006c19c43567d818166f1bb3cbd33565` |
-| `inputs.txt` | `30e893dc75bf33075d8716568e27af9cf35c7b16a96c55b41c0339a21a990e12` |
-| `test.log` | `47834232159872c7a595afdf02765bf0dbefac29cc15097a1144838d34d761c0` |
-| `clippy.log` | `abfeb40db11fb4a1dbe03bd1de171883b7940977ebcb78bb5039a74119c8bc9a` |
+| `receipts-node-raw.json` | `81061b168e9a612258d151907f01c28da92b917df1592ca042b78b9faa15508a` |
+| `receipts-rust-raw.json` | `bfda5fd1d0f4970043d2e52bd7215900e4dba6e37f302dcd0c355eb918f3ed96` |
+| `inputs.txt` | `ec5a347ee7b35ce63a094a23204fea618dac0f5ebfbe6ec196e21bef179921ea` |
+| `test.log` | `b3584c42aa9486395747c7284524361ff1cec3d07ce50e3a305b262bf36e6536` |
+| `clippy.log` | `4921509b62fafc7fa00cd4bd8ac3927cbc70dacf2a6b9eccf90d9ccd4b87fec1` |
 | `fmt.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `git-status.txt` (only `logs/` entries) | `e2a2110fea7d4e3178c32260751f4a1a1fd79c4df695769f5d2addbb096c7fe3` |
 
 The normalized outputs are byte-identical, and an earlier gated run of the
 same 54 steps produced the same digest. Raw digests differ per run
@@ -83,7 +93,7 @@ root with its mode, SHA-256, and text. The two JSON texts must be equal.
 | First delivery | pending then completed receipt, 2-space JSON, key order `fingerprint`, `agentId`, `state` |
 | Duplicates | two concurrent sends of a completed id, a restarted instance, reordered request keys (`localeCompare` and index-key order) |
 | Per-key serialization | two concurrent sends of a fresh id on one instance: one prepare, one delivery |
-| Two instances, one directory | concurrent sends of a fresh id from two instances both prepare and deliver, as in the pinned build |
+| Two instances, one directory | concurrent sends of a fresh id from two instances both prepare and deliver, as in the pinned build; both wait in `prepare` until both arrive, so both reads finish before either write on both sides |
 | Conflicts | same ids with another request: `agent_request_key_conflict` |
 | Failed send | `connection lost`, then a restart: `agent_request_outcome_unknown` |
 | Failed prepare | no receipt left; a later prepared send delivers once |
@@ -128,8 +138,6 @@ Covered by the differential and by
   The pinned caller's request is `{ prompt, activeTurnBehavior }`; `prompt`
   is a string or blocks from closed zod object schemas, so its keys are
   ASCII. Recheck before another caller is ported.
-- Queue position: the baseline queues a send when `send` is called; the port
-  queues it when the future is first polled.
 - Queues are per instance in both: two instances on one directory can
   deliver one message twice (pinned behavior, covered above).
 - A request nested deep enough to overflow V8's stack makes node throw a
