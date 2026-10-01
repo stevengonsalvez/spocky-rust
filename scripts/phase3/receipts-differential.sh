@@ -6,13 +6,19 @@
 # Usage: scripts/phase3/receipts-differential.sh
 #
 # Evidence lands in evidence/raw/phase3/receipts-<utc>/ (untracked) and its
-# SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass.
+# SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass and
+# both sides' normalized differential outputs exist and are byte-identical.
+# SPOCKY_ALLOW_SKIP is always unset, so the differential can never skip.
+# scripts/phase3/receipts-differential.test.sh proves every failure exits
+# nonzero.
 #
 # Env: SPOCKY_PASEO_DIST (default: the p3_slice_harness build of 5de45e2),
 #      CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_message_receipts),
 #      CARGO_BUILD_JOBS (default 2), SPOCKY_BUILD_GATE (default
-#      /private/tmp/spocky-targets/build-gate.sh).
+#      /private/tmp/spocky-targets/build-gate.sh), SPOCKY_RECEIPTS_EVIDENCE_ROOT
+#      (default evidence/raw/phase3).
 set -eu
+unset SPOCKY_ALLOW_SKIP
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 . "$repository_root/scripts/phase3/pins.sh"
@@ -31,8 +37,10 @@ export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 gate=${SPOCKY_BUILD_GATE:-/private/tmp/spocky-targets/build-gate.sh}
 
 run_id=receipts-$(date -u +%Y%m%dT%H%M%SZ)
-evidence=$repository_root/evidence/raw/phase3/$run_id
-mkdir -p "$evidence"
+evidence=${SPOCKY_RECEIPTS_EVIDENCE_ROOT:-$repository_root/evidence/raw/phase3}/$run_id
+mkdir -p "$(dirname "$evidence")"
+# A fresh directory, so outputs of an earlier run can never pass this one.
+mkdir "$evidence" || p3_fail "evidence directory already exists: $evidence"
 export SPOCKY_RECEIPTS_EVIDENCE="$evidence"
 
 {
@@ -48,10 +56,20 @@ status=0
 "$gate" cargo test --locked -p spocky-message-receipts >"$evidence/test.log" 2>&1 || status=1
 "$gate" cargo clippy --locked -p spocky-message-receipts --all-targets -- -D warnings >"$evidence/clippy.log" 2>&1 || status=1
 cargo fmt --package spocky-message-receipts -- --check >"$evidence/fmt.log" 2>&1 || status=1
+node_normalized=$evidence/receipts-node-normalized.json
+rust_normalized=$evidence/receipts-rust-normalized.json
+if [ ! -s "$node_normalized" ] || [ ! -s "$rust_normalized" ]; then
+  printf 'missing differential output in %s\n' "$evidence" >&2
+  status=1
+elif ! cmp -s "$node_normalized" "$rust_normalized"; then
+  printf 'normalized differential outputs differ in %s\n' "$evidence" >&2
+  status=1
+fi
 
 grep -E '^test result|^test ' "$evidence/test.log" || true
 printf 'evidence %s\n' "$evidence"
 for file in "$evidence"/*; do
+  [ -f "$file" ] || continue
   printf '%s  %s\n' "$(p3_sha256 "$file")" "${file#"$repository_root"/}"
 done
 [ "$status" -eq 0 ] || p3_fail "$run_id failed; see $evidence"
