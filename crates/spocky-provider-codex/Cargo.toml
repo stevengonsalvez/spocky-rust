@@ -5,6 +5,9 @@ edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.94"
 
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 
