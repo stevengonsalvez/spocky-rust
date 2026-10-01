@@ -23,8 +23,9 @@ metadata publication, and container ownership changes name only generated files.
   availability observations, not PulseAudio or PipeWire server-graph runtime.
 - The Linux process deadline test killed and reaped a spawned descendant process
   group. A second test proves the same behavior after the direct parent exits.
-  A regrouped descendant can escape that group, but cannot retain output pipes
-  beyond the command deadline; the test removes its exact PID afterward.
+  A regrouped descendant can escape that group, but cannot keep the caller
+  waiting on output pipes beyond the command deadline; the reader threads close
+  only after the test removes its exact PID.
 - The targeted Linux runtime suite passed 5 tests. Locked all-target package
   clippy passed with warnings denied.
 

@@ -156,8 +156,8 @@ incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
 compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
 deb lifecycle pass. Linux ALSA null playback and deterministic null capture pass
 in a pinned container. Its runner rejects symlinked output anchors, bounds and
-verifies exact container cleanup, reaps its process group, and bounds pipe
-draining when a descendant escapes that group. Physical
+verifies exact container cleanup, reaps its process group, and bounds the caller
+wait when a descendant escapes that group while retaining pipes. Physical
 audio, PulseAudio and PipeWire server graphs,
 STT, and TTS remain open. Signed delivery and native Windows, iOS, Android, and
 browser delivery remain open. Phase 3 remains blocked. No runtime parity
