@@ -1,16 +1,20 @@
-//! Writes the Rust side of the Hub trigger differential when `SPOCKY_HUB_TRIGGERS_OUTPUT` is set.
+//! Rust side of the Hub trigger differential.
 //!
 //! The trace shape and case list mirror `scripts/phase2/hub-triggers-original.integration.test.ts`.
+//! Every run compares the Rust trace byte for byte with the committed baseline trace
+//! (`evidence/phase2/hub-triggers-original.json`); `SPOCKY_HUB_TRIGGERS_BASELINE` points at a fresh
+//! capture instead, and `SPOCKY_HUB_TRIGGERS_OUTPUT` also writes the Rust trace to a file.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use serde_json::{Map, Number, Value, json};
 use spocky_hub_pilot::triggers::{
-    AcceptFailure, AcceptedRunInput, AuthOutcome, DispatchedRun, ExecutionReservation,
-    ExecutionStatus, GitHubWebhook, GitHubWebhookRequest, ManualRunPayload, ManualRunResult,
-    ManualSource, RunConfiguration, RunTrigger, TriggerStore, durable_execution_id,
-    github_signature, hash_signature, match_manual_run, public_manual_run,
+    AcceptCall, AcceptFailure, Acceptance, AcceptedRunInput, AuthOutcome, DispatchedRun,
+    ExecutionRequest, ExecutionReservation, ExecutionStatus, GitHubWebhook, GitHubWebhookRequest,
+    LifecycleCall, ManualDispatchError, ManualEvent, ManualHttpResponse, ManualRunPayload,
+    ManualRunResult, RunConfiguration, RunTrigger, TriggerStore, WebhookBackend,
+    durable_execution_id, github_signature, hash_signature, match_manual_run, public_manual_run,
 };
 
 const PROJECT_A: &str = "11111111-1111-4111-8111-111111111111";
@@ -138,8 +142,18 @@ impl From<&String> for J {
         Self::Str(value.clone())
     }
 }
+impl From<i64> for J {
+    fn from(value: i64) -> Self {
+        Self::Number(value.to_string())
+    }
+}
 impl From<usize> for J {
     fn from(value: usize) -> Self {
+        Self::Number(value.to_string())
+    }
+}
+impl From<u64> for J {
+    fn from(value: u64) -> Self {
         Self::Number(value.to_string())
     }
 }
@@ -164,17 +178,29 @@ impl<T: Into<J>> From<Option<T>> for J {
     }
 }
 
-#[test]
-fn writes_candidate_trace_when_requested() {
-    let Some(output_path) = std::env::var_os("SPOCKY_HUB_TRIGGERS_OUTPUT") else {
-        return;
-    };
-    let (manual, lease, execution) = store_trace();
+const COMMITTED_BASELINE: &str =
+    include_str!("../../../evidence/phase2/hub-triggers-original.json");
+
+fn baseline_text() -> String {
+    std::env::var_os("SPOCKY_HUB_TRIGGERS_BASELINE").map_or_else(
+        || COMMITTED_BASELINE.to_owned(),
+        |path| fs::read_to_string(path).expect("read baseline trace"),
+    )
+}
+
+fn local_offset_minutes() -> i32 {
+    std::env::var("SPOCKY_HUB_TRIGGERS_LOCAL_OFFSET_MINUTES")
+        .map_or(0, |value| value.parse().expect("offset minutes"))
+}
+
+fn build_trace(baseline: &Value) -> String {
+    let (manual, lease, execution, identity) = store_trace(baseline);
     let trace = obj! {
         "schemaVersion" => 1_usize,
         "manual" => manual,
         "lease" => lease,
         "execution" => execution,
+        "identity" => identity,
         "durableExecutionId" => obj! {
             "fixed" => durable_execution_id("run-1", "revision-1", "deploy", Some("step-run-1")),
             "noStep" => durable_execution_id("run-1", "revision-1", "deploy", None),
@@ -188,94 +214,152 @@ fn writes_candidate_trace_when_requested() {
     let mut text = String::new();
     trace.render(0, &mut text);
     text.push('\n');
-    fs::write(output_path, text).expect("write trace");
+    text
+}
+
+#[test]
+fn rust_trace_is_byte_identical_to_the_baseline_trace() {
+    let baseline = baseline_text();
+    let parsed: Value = serde_json::from_str(&baseline).expect("baseline trace is JSON");
+    let trace = build_trace(&parsed);
+    if let Some(path) = std::env::var_os("SPOCKY_HUB_TRIGGERS_OUTPUT") {
+        fs::write(path, &trace).expect("write trace");
+    }
+    assert!(
+        trace == baseline,
+        "Rust trace differs from the baseline trace; first differing line: {:?}",
+        trace
+            .lines()
+            .zip(baseline.lines())
+            .enumerate()
+            .find(|(_, (rust, original))| rust != original)
+    );
 }
 
 fn manual_body(org: &str, project: &str, delivery: &str) -> Vec<u8> {
-    json!({
-        "organizationId": org,
-        "projectId": project,
-        "source": "manual.run",
-        "deliveryId": delivery,
-        "payload": {},
-    })
-    .to_string()
+    format!(
+        r#"{{"organizationId":"{org}","projectId":"{project}","source":"manual.run","deliveryId":"{delivery}","payload":{{}}}}"#
+    )
     .into_bytes()
 }
 
+fn baseline_ids(baseline: &Value, run: &str) -> (String, String, Vec<String>) {
+    let entry = &baseline["identity"][run];
+    let text = |value: &Value| value.as_str().expect("baseline id").to_owned();
+    (
+        text(&entry["runId"]),
+        text(&entry["revisionId"]),
+        entry["stepRunIds"]
+            .as_array()
+            .expect("step run ids")
+            .iter()
+            .map(text)
+            .collect(),
+    )
+}
+
+fn execution_request(ordinal: usize, started_at_ms: u64) -> ExecutionRequest {
+    ExecutionRequest {
+        step_id: if ordinal == 0 {
+            "deploy-step"
+        } else {
+            "rollback-step"
+        }
+        .to_owned(),
+        ordinal,
+        started_at_ms,
+        deadline_at_ms: 12_000,
+        idle_deadline_at_ms: 20_000,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
-fn store_trace() -> (J, J, J) {
+fn store_trace(baseline: &Value) -> (J, J, J, J) {
+    let (first_run_id, revision, first_steps) = baseline_ids(baseline, "firstRun");
+    let (fan_run_id, _, fan_steps) = baseline_ids(baseline, "fanOutRun");
     let mut store = TriggerStore::default();
-    store.register_project("org-a", PROJECT_A, "revision-a");
+    store.register_project("org-a", PROJECT_A, &revision);
     store.register_project("org-b", PROJECT_B, "revision-b");
-    let mut source = ManualSource::default();
-    source.start();
+    let mut handled: Vec<ManualEvent> = Vec::new();
     for (org, project) in [
         ("org-a", PROJECT_A),
         ("org-a", PROJECT_A),
         ("org-b", PROJECT_B),
     ] {
+        let mut sink = |event: ManualEvent| handled.push(event);
         store
-            .handle_manual_request(&mut source, &manual_body(org, project, "shared-delivery"))
+            .handle_manual_request(
+                Some(&mut sink),
+                0,
+                &manual_body(org, project, "shared-delivery"),
+            )
             .expect("manual intake");
     }
-    let receipt_of = |index: usize| source.handled()[index].receipt_id.clone();
-    let run_input = |receipt: String, project: &str, revision: &str, name: &str| AcceptedRunInput {
+    let receipt_of = |index: usize| handled[index].receipt_id.clone();
+    let run_input = |receipt: String, trigger: &str| AcceptedRunInput {
         receipt_id: receipt,
-        project_id: project.to_owned(),
-        configuration_revision_id: revision.to_owned(),
-        configured_trigger_name: name.to_owned(),
+        project_id: PROJECT_A.to_owned(),
+        configuration_revision_id: revision.clone(),
+        configured_trigger_name: trigger.to_owned(),
         step_ids: vec!["deploy-step".to_owned()],
         deadline_at_ms: 10_000,
         created_at_ms: 0,
+        run_id: None,
+        step_run_ids: None,
     };
-    let first_input = run_input(receipt_of(0), PROJECT_A, "revision-a", "deploy");
+    let first_input = AcceptedRunInput {
+        run_id: Some(first_run_id.clone()),
+        step_run_ids: Some(first_steps.clone()),
+        ..run_input(receipt_of(0), "deploy")
+    };
     let first_run = store.create_accepted_run(&first_input);
     let replay_run = store.create_accepted_run(&first_input);
-    let step_run_id = store
-        .step_run_id(&first_run.run_id, "deploy-step")
-        .expect("step run")
-        .to_owned();
-    let stable_id = durable_execution_id(
-        &first_run.run_id,
-        "revision-a",
-        "deploy",
-        Some(&step_run_id),
-    );
 
     let first_lease = store.claim_wakeup(1_000, 500).expect("first lease");
     let ExecutionReservation::Created(first_execution) = store
-        .reserve_execution(&first_run.run_id, "deploy-step", 1_000, 10_000)
+        .reserve_execution(&first_run.run_id, &execution_request(0, 1_000))
         .expect("reservation")
     else {
         panic!("expected created execution");
     };
     let blocked_before_expiry = store.claim_wakeup(1_499, 500).is_none();
-    let recovery_lease = store.claim_wakeup(1_501, 500).expect("recovery lease");
+    let recovery_lease = store.claim_wakeup(1_500, 500).expect("recovery lease");
     let ExecutionReservation::Existing(recovered_execution) = store
-        .reserve_execution(&first_run.run_id, "deploy-step", 1_501, 10_000)
+        .reserve_execution(&first_run.run_id, &execution_request(0, 1_500))
         .expect("recovered reservation")
     else {
         panic!("expected existing execution");
     };
+    let executions_after_recovery = store.execution_count();
     store.release_wakeup(&first_lease, 1_502);
     let stale_release_rejected = store.claim_wakeup(1_502, 500).is_none();
     store.release_wakeup(&recovery_lease, 1_502);
     let current_release_accepted = store.claim_wakeup(1_502, 500).is_some();
 
-    let fan_out = store.create_accepted_run(&run_input(
-        receipt_of(0),
-        PROJECT_A,
-        "revision-a",
-        "rollback",
-    ));
-    let fan_out_replay = store.create_accepted_run(&run_input(
-        receipt_of(0),
-        PROJECT_A,
-        "revision-a",
-        "rollback",
-    ));
-    store.create_accepted_run(&run_input(receipt_of(2), PROJECT_B, "revision-b", "deploy"));
+    let fan_input = AcceptedRunInput {
+        run_id: Some(fan_run_id.clone()),
+        step_ids: vec!["rollback-step".to_owned(), "rollback-step".to_owned()],
+        step_run_ids: Some(fan_steps.clone()),
+        ..run_input(receipt_of(0), "rollback")
+    };
+    let fan_out = store.create_accepted_run(&fan_input);
+    let fan_out_replay = store.create_accepted_run(&fan_input);
+    let ExecutionReservation::Created(second_step) = store
+        .reserve_execution(&fan_out.run_id, &execution_request(1, 1_600))
+        .expect("second step reservation")
+    else {
+        panic!("expected created second-step execution");
+    };
+    let missing_ordinal =
+        match store.reserve_execution(&fan_out.run_id, &execution_request(5, 1_600)) {
+            None => "threw: workflow step run not found",
+            Some(_) => "no error",
+        };
+    store.create_accepted_run(&AcceptedRunInput {
+        project_id: PROJECT_B.to_owned(),
+        configuration_revision_id: "revision-b".to_owned(),
+        ..run_input(receipt_of(2), "deploy")
+    });
 
     let running = store
         .transition_execution(&first_execution.id, ExecutionStatus::Running, 2_010)
@@ -306,8 +390,7 @@ fn store_trace() -> (J, J, J) {
         "recoveredAfterExpiry" => recovery_lease.run_id == first_run.run_id,
         "leasedBeforeClaim" => recovery_lease.leased_before_claim,
         "sameExecution" => recovered_execution.id == first_execution.id,
-        "executionIdIsDurable" => first_execution.id == stable_id,
-        "executionCount" => store.execution_count(),
+        "executionCount" => executions_after_recovery,
         "staleReleaseRejected" => stale_release_rejected,
         "currentReleaseAccepted" => current_release_accepted,
     };
@@ -318,13 +401,31 @@ fn store_trace() -> (J, J, J) {
         "conflictingTerminalTransition" => conflicting.transitioned,
         "finalStatus" => conflicting.execution.status.name(),
         "completedAtKept" => conflicting.execution.completed_at_ms == succeeded.execution.completed_at_ms,
-        "idleDeadlineSet" => first_execution.idle_deadline_at_ms == Some(10_000),
+        "idleDeadlineAtMs" => first_execution.idle_deadline_at_ms,
         "idleDeadlineCleared" => conflicting.execution.idle_deadline_at_ms.is_none(),
         "runStatus" => store.run(&first_run.run_id).expect("run").status,
         "runSucceededTransition" => run_succeeded.transitioned,
         "runSucceededAgainTransition" => run_succeeded_again.transitioned,
     };
-    (manual, lease, execution)
+    let ids = |values: &[String]| values.iter().map(J::from).collect::<Vec<J>>();
+    let identity = obj! {
+        "localOffsetMinutes" => i64::from(local_offset_minutes()),
+        "firstRun" => obj! {
+            "runId" => &first_run.run_id,
+            "revisionId" => &revision,
+            "stepRunIds" => ids(&first_steps),
+            "executionId" => &first_execution.id,
+        },
+        "fanOutRun" => obj! {
+            "runId" => &fan_out.run_id,
+            "revisionId" => &revision,
+            "stepRunIds" => ids(&fan_steps),
+            "executionId" => &second_step.id,
+            "selectedStepRunId" => &second_step.step_run_id,
+            "missingOrdinal" => missing_ordinal,
+        },
+    };
+    (manual, lease, execution, identity)
 }
 
 fn delivery(project: &str, org: &str, overrides: &[(&str, Value)]) -> Vec<u8> {
@@ -340,29 +441,55 @@ fn delivery(project: &str, org: &str, overrides: &[(&str, Value)]) -> Vec<u8> {
     Value::Object(map).to_string().into_bytes()
 }
 
+const NOW_MS: i64 = 1_700_000_000_000;
+
+fn deliver(
+    store: &mut TriggerStore,
+    events: Option<&mut Vec<ManualEvent>>,
+    body: &[u8],
+) -> Result<ManualHttpResponse, ManualDispatchError> {
+    match events {
+        Some(events) => {
+            let mut sink = |event: ManualEvent| events.push(event);
+            store.handle_manual_request(Some(&mut sink), NOW_MS, body)
+        }
+        None => store.handle_manual_request(None, NOW_MS, body),
+    }
+}
+
+fn record(
+    cases: &mut Vec<(String, J)>,
+    store: &mut TriggerStore,
+    name: &str,
+    events: Option<&mut Vec<ManualEvent>>,
+    body: &[u8],
+) {
+    let outcome = match deliver(store, events, body) {
+        Ok(response) => obj! {"status" => response.status, "body" => response.body},
+        Err(error) => obj! {"status" => 0_u16, "body" => format!("threw: {error}")},
+    };
+    cases.push((name.to_owned(), outcome));
+}
+
 #[allow(clippy::too_many_lines)]
 fn manual_request_trace() -> J {
     let mut store = TriggerStore::default();
     store.register_project("org_1", PROJECT_A, "revision-1");
+    store.set_local_offset_minutes(local_offset_minutes());
     store.register_project("org_2", PROJECT_B, "revision-2");
-    let mut recording = ManualSource::default();
-    recording.start();
-    let mut idle = ManualSource::default();
+    let mut recording: Vec<ManualEvent> = Vec::new();
     let mut cases: Vec<(String, J)> = Vec::new();
-    let mut record =
-        |store: &mut TriggerStore, name: &str, source: &mut ManualSource, body: &[u8]| {
-            let outcome = match store.handle_manual_request(source, body) {
-                Ok(response) => obj! {"status" => response.status, "body" => response.body},
-                Err(error) => obj! {"status" => 0_u16, "body" => format!("threw: {error}")},
-            };
-            cases.push((name.to_owned(), outcome));
-        };
     let a = |overrides: &[(&str, Value)]| delivery(PROJECT_A, "org_1", overrides);
     let uuid_nine = "7f1b0c1e-2d3a-9b5c-8d6e-9f0a1b2c3d4e";
 
-    record(&mut store, "accepted", &mut recording, &a(&[]));
+    record(
+        &mut cases,
+        &mut store,
+        "accepted",
+        Some(&mut recording),
+        &a(&[]),
+    );
     let accepted_evidence: Vec<J> = recording
-        .handled()
         .iter()
         .map(|event| {
             obj! {
@@ -374,29 +501,33 @@ fn manual_request_trace() -> J {
         })
         .collect();
     record(
+        &mut cases,
         &mut store,
         "duplicateSameOrganization",
-        &mut recording,
+        Some(&mut recording),
         &a(&[]),
     );
-    let handled_after_duplicate = recording.handled().len();
+    let handled_after_duplicate = recording.len();
     record(
+        &mut cases,
         &mut store,
         "sameDeliveryOtherOrganization",
-        &mut recording,
+        Some(&mut recording),
         &delivery(PROJECT_B, "org_2", &[]),
     );
-    let handled_after_other = recording.handled().len();
+    let handled_after_other = recording.len();
     record(
+        &mut cases,
         &mut store,
         "noHandlerDropped",
-        &mut idle,
+        None,
         &a(&[("deliveryId", json!("manual-idle"))]),
     );
     record(
+        &mut cases,
         &mut store,
         "withConnectionEvidence",
-        &mut recording,
+        Some(&mut recording),
         &a(&[
             ("deliveryId", json!("manual-evidence")),
             (
@@ -406,7 +537,7 @@ fn manual_request_trace() -> J {
             ("resourceId", json!("resource-1")),
         ]),
     );
-    let last = recording.handled().last().expect("handled event");
+    let last = recording.last().expect("handled event");
     let connection_evidence = obj! {"connectionId" => last.connection_id.clone(), "resourceId" => last.resource_id.clone()};
     let receipt_of = |store: &TriggerStore, org: &str, delivery: &str| {
         store.receipt(org, delivery).map_or(J::Null, |receipt| {
@@ -514,22 +645,49 @@ fn manual_request_trace() -> J {
         ),
     ];
     for (name, body) in &simple {
-        record(&mut store, name, &mut recording, body);
+        record(&mut cases, &mut store, name, Some(&mut recording), body);
     }
     let mut bom = vec![0xef, 0xbb, 0xbf];
     bom.extend(a(&[("deliveryId", json!("manual-bom"))]));
-    record(&mut store, "utf8BomBody", &mut recording, &bom);
     record(
+        &mut cases,
+        &mut store,
+        "utf8BomBody",
+        Some(&mut recording),
+        &bom,
+    );
+    for (name, count, delivery_id) in [
+        ("doubleBomBody", 2, "manual-double-bom"),
+        ("tripleBomBody", 3, "manual-triple-bom"),
+    ] {
+        let mut body = [0xef, 0xbb, 0xbf].repeat(count);
+        body.extend(a(&[("deliveryId", json!(delivery_id))]));
+        record(&mut cases, &mut store, name, Some(&mut recording), &body);
+    }
+    record(
+        &mut cases,
         &mut store,
         "unknownProject",
-        &mut recording,
+        Some(&mut recording),
         &a(&[
             ("deliveryId", json!("manual-unknown-project")),
             ("projectId", json!("7f1b0c1e-2d3a-4b5c-8d6e-9f0a1b2c3d4e")),
         ]),
     );
-    record(&mut store, "invalidJson", &mut recording, b"{not json");
-    record(&mut store, "arrayBody", &mut recording, b"[]");
+    record(
+        &mut cases,
+        &mut store,
+        "invalidJson",
+        Some(&mut recording),
+        b"{not json",
+    );
+    record(
+        &mut cases,
+        &mut store,
+        "arrayBody",
+        Some(&mut recording),
+        b"[]",
+    );
 
     let mut grid: Vec<(String, J)> = Vec::new();
     for (index, received_at) in RECEIVED_AT_GRID.iter().enumerate() {
@@ -537,15 +695,26 @@ fn manual_request_trace() -> J {
             ("deliveryId", json!(format!("manual-grid-{index}"))),
             ("receivedAt", json!(received_at)),
         ]);
-        let status = store
-            .handle_manual_request(&mut recording, &body)
+        let before = recording.len();
+        let status = deliver(&mut store, Some(&mut recording), &body)
             .expect("grid intake")
             .status;
-        grid.push(((*received_at).to_owned(), J::from(status)));
+        let received_at_ms = (recording.len() > before)
+            .then(|| recording.last().map(|event| event.received_at_ms))
+            .flatten();
+        grid.push((
+            (*received_at).to_owned(),
+            obj! {"status" => status, "receivedAtMs" => received_at_ms},
+        ));
     }
+    let before_omitted = recording.len();
+    let omitted = a(&[("deliveryId", json!("manual-omitted-received-at"))]);
+    deliver(&mut store, Some(&mut recording), &omitted).expect("omitted receivedAt");
+    let omitted_is_now = recording[before_omitted].received_at_ms == NOW_MS;
     obj! {
         "cases" => J::Obj(cases),
         "receivedAtGrid" => J::Obj(grid),
+        "omittedReceivedAtIsNow" => omitted_is_now,
         "handledAfterDuplicate" => handled_after_duplicate,
         "handledAfterOtherOrganization" => handled_after_other,
         "receipts" => receipts,
@@ -643,6 +812,17 @@ fn public_manual_run_trace() -> J {
         )
     };
     let dispatched_result = ManualRunResult::Dispatched(dispatched);
+    let with_boms = |count: usize| {
+        let prefixed = [[0xef, 0xbb, 0xbf].repeat(count).as_slice(), body].concat();
+        call(
+            AuthOutcome::Authorized,
+            &dispatched_result,
+            Some("application/json"),
+            &prefixed,
+        )
+    };
+    let mut lossy = br#"{"projectSlug":"project","trigger":"deploy","actor":"alice","deliveryKey":"delivery-1","input":""#.to_vec();
+    lossy.extend([0xff, b'"', b'}']);
     obj! {
         "results" => obj! {
             "dispatched" => ok(&dispatched_result),
@@ -664,6 +844,15 @@ fn public_manual_run_trace() -> J {
         "invalidJson" => call(AuthOutcome::Authorized, &dispatched_result, Some("application/json"), b"{not json"),
         "wrongContentType" => call(AuthOutcome::Authorized, &dispatched_result, Some("text/plain"), body),
         "missingContentType" => call(AuthOutcome::Authorized, &dispatched_result, None, body),
+        "bomBody" => with_boms(1),
+        "doubleBomBody" => with_boms(2),
+        "tripleBomBody" => with_boms(3),
+        "invalidUtf8InString" => call(
+            AuthOutcome::Authorized,
+            &dispatched_result,
+            Some("application/json"),
+            &lossy,
+        ),
     }
 }
 
@@ -752,6 +941,8 @@ fn webhook_cases() -> Vec<Case> {
         built.deliveries[0].event_type = Some(event_type.to_owned());
         built
     };
+    let mut double_bom = vec![0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf];
+    double_bom.extend(VALID.as_bytes());
     let tampered = format!("{VALID} ");
     let mut replay = text("replayAndDistinct", VALID);
     replay.deliveries = ["d-1", "d-1", "d-2"]
@@ -813,6 +1004,7 @@ fn webhook_cases() -> Vec<Case> {
         text("malformedJson", "{not json"),
         case("invalidUtf8", vec![0x7b, 0x22, 0xff, 0x22, 0x7d]),
         case("utf8Bom", bom),
+        case("doubleUtf8Bom", double_bom),
         text("arrayBody", "[]"),
         text("nullBody", "null"),
         text("stringBody", "\"text\""),
@@ -886,15 +1078,58 @@ fn signature_for(signature: Signature, secret: &str, body: &[u8]) -> Option<Stri
     }
 }
 
+/// Recording acceptance boundary shared (as the same stub) with the baseline capture: the first
+/// delivery is accepted, a repeat is a duplicate, and a drop reason makes it a dropped receipt.
+#[derive(Default)]
+struct Recording {
+    seen: BTreeSet<String>,
+    accepts: Vec<AcceptCall>,
+    lifecycles: Vec<LifecycleCall>,
+    dispatch_count: usize,
+    events_per_acceptance: usize,
+    failure: Option<AcceptFailure>,
+}
+
+impl WebhookBackend for Recording {
+    fn accept(&mut self, call: &AcceptCall) -> Result<Acceptance, AcceptFailure> {
+        self.accepts.push(call.clone());
+        if let Some(failure) = self.failure {
+            return Err(failure);
+        }
+        if !self.seen.insert(call.delivery_id.clone()) {
+            return Ok(Acceptance::Duplicate);
+        }
+        if call.drop_reason.is_some() {
+            return Ok(Acceptance::Dropped);
+        }
+        Ok(Acceptance::Accepted {
+            events: self.events_per_acceptance,
+        })
+    }
+
+    fn apply_lifecycle(&mut self, call: &LifecycleCall) {
+        self.lifecycles.push(call.clone());
+    }
+
+    fn dispatch(&mut self, events: usize, handlers: usize) {
+        self.dispatch_count += events * handlers;
+    }
+}
+
 fn github_trace() -> J {
     let mut cases: Vec<(String, J)> = Vec::new();
     for spec in webhook_cases() {
-        let mut endpoint = GitHubWebhook::new(spec.secret.as_deref());
+        let mut endpoint = GitHubWebhook::new(
+            spec.secret.as_deref(),
+            Recording {
+                events_per_acceptance: spec.events_per_acceptance,
+                failure: spec.failure,
+                ..Recording::default()
+            },
+        );
         for _ in 0..spec.handlers {
             endpoint.start_handler();
         }
-        endpoint.set_events_per_acceptance(spec.events_per_acceptance);
-        endpoint.set_accept_failure(spec.failure);
         let responses: Vec<J> = spec
             .deliveries
             .iter()
@@ -914,7 +1149,8 @@ fn github_trace() -> J {
             })
             .collect();
         let accepts: Vec<J> = endpoint
-            .accepts()
+            .backend()
+            .accepts
             .iter()
             .map(|call| {
                 obj! {
@@ -928,7 +1164,8 @@ fn github_trace() -> J {
             })
             .collect();
         let lifecycles: Vec<J> = endpoint
-            .lifecycles()
+            .backend()
+            .lifecycles
             .iter()
             .map(|call| {
                 obj! {
@@ -945,7 +1182,7 @@ fn github_trace() -> J {
                 "responses" => responses,
                 "accepts" => accepts,
                 "lifecycles" => lifecycles,
-                "dispatchCount" => endpoint.dispatch_count(),
+                "dispatchCount" => endpoint.backend().dispatch_count,
             },
         ));
     }
