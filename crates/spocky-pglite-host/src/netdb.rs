@@ -1,6 +1,11 @@
 //! `getaddrinfo`, `getnameinfo` and the glue's fake `DNS` address map.
+#![allow(
+    clippy::decimal_bitwise_operands,
+    reason = "masks keep the decimal literals of the pinned glue"
+)]
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::net::Ipv6Addr;
 
 use wasmtime::{Caller, Val};
@@ -175,7 +180,7 @@ fn inet_ntop6(words: [i32; 4]) -> String {
             continue;
         }
         let value = htons(u16::try_from(part & 65535).unwrap_or(0));
-        output.push_str(&format!("{value:x}"));
+        let _ = write!(output, "{value:x}");
         if position < 7 {
             output.push(':');
         }
@@ -231,6 +236,7 @@ fn write_sockaddr(
 }
 
 /// `getaddrinfo(node, service, hints, out)`.
+#[allow(clippy::too_many_lines, reason = "one port of the glue function")]
 pub fn getaddrinfo(
     caller: &mut Caller<'_, Runtime>,
     index: usize,
