@@ -9,8 +9,8 @@
 use std::process::Command;
 
 use spocky_session::timeline::{
-    FetchDirection, ProjectedRow, SeedRow, TimelineCursor, TimelineFetch, TimelineRow,
-    TimelineSeed, TimelineStore,
+    FetchDirection, ProjectedRow, SeedRow, TimelineCursor, TimelineError, TimelineFetch,
+    TimelineRow, TimelineSeed, TimelineStore,
 };
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
@@ -159,12 +159,32 @@ const SEED_ITEMS: &str = r#"[
 /// One more item appended to every seeded store.
 const LATE_ITEM: &str = r#"{"type":"assistant_message","text":"late"}"#;
 
+/// Tool calls whose lifecycle merge reads a missing or null detail, which
+/// throws a `TypeError` in the baseline: incoming missing, existing missing,
+/// existing null, then a valid merge and an unrelated item afterwards.
+const BROKEN_ITEMS: &str = r#"[
+  {"type":"tool_call","callId":"d","name":"shell","status":"running","detail":{"type":"unknown"}},
+  {"type":"tool_call","callId":"d","name":"shell","status":"completed"},
+  {"type":"tool_call","callId":"e","name":"shell","status":"running"},
+  {"type":"tool_call","callId":"e","name":"shell","status":"completed","detail":{"type":"shell"}},
+  {"type":"tool_call","callId":"f","name":"shell","status":"running","detail":null},
+  {"type":"tool_call","callId":"f","name":"shell","status":"completed","detail":{"type":"shell"}},
+  {"type":"tool_call","callId":"d","name":"shell","status":"completed","detail":{"type":"shell"}},
+  {"type":"assistant_message","text":"after"}
+]"#;
+
+/// Seed rows whose second row throws while `initialize` projects them.
+const BROKEN_SEED_ROWS: &str = r#"[
+  {"seq":1,"timestamp":"G1","item":{"type":"tool_call","callId":"g","name":"shell","status":"running","detail":{"type":"shell"}}},
+  {"seq":2,"timestamp":"G2","item":{"type":"tool_call","callId":"g","name":"shell","status":"completed"}}
+]"#;
+
 /// The pinned store, driven through the same calls. Every result is written
 /// as the raw object the store returns, so `seq`, key order and the enriched
 /// `providerMessageId` are compared byte for byte. Epochs and timestamps are
 /// fixed inputs, so nothing is normalized.
 const NODE_SCRIPT: &str = r#"
-const [dist, appendsJson, fetchesJson, seedRowsJson, seedItemsJson, lateItemJson] = process.argv.slice(1);
+const [dist, appendsJson, fetchesJson, seedRowsJson, seedItemsJson, lateItemJson, brokenJson, brokenSeedJson] = process.argv.slice(1);
 const { InMemoryAgentTimelineStore } = await import(`${dist}/server/agent/agent-timeline-store.js`);
 const store = new InMemoryAgentTimelineStore();
 const fetchAll = (agentId) => JSON.parse(fetchesJson).map(([direction, epoch, seq, limit]) =>
@@ -194,6 +214,18 @@ store.initialize("rows", { epoch: "E", nextSeq: 3, timestamp: "TS", rows: JSON.p
 store.initialize("gap", { epoch: "E", nextSeq: 20, rows: JSON.parse(seedRowsJson) });
 store.initialize("items", { epoch: "E", nextSeq: 4, timestamp: "TI", items: JSON.parse(seedItemsJson) });
 store.initialize("projected", { epoch: "E", rows: store.getRows("a") });
+const attempt = (run) => {
+  try {
+    return { ok: run() };
+  } catch (error) {
+    return { name: error.constructor.name, message: error.message };
+  }
+};
+store.initialize("broken", { epoch: "E", timestamp: "TB" });
+const brokenAppends = JSON.parse(brokenJson).map((item, index) =>
+  attempt(() => store.append("broken", item, { timestamp: `B${index}`, turnId: "t1" })));
+const broken = { appends: brokenAppends, ...report("broken", false) };
+const seedFailure = attempt(() => store.initialize("seedbroken", { epoch: "E", rows: JSON.parse(brokenSeedJson) }));
 process.stdout.write(JSON.stringify({
   empty,
   appended,
@@ -204,6 +236,9 @@ process.stdout.write(JSON.stringify({
   lastItem: store.getLastItem("a"),
   lastAssistant: store.getLastAssistantMessage("a"),
   submitted: store.getSubmittedUserMessage("a", "c1"),
+  broken,
+  seedFailure,
+  seedFailureStored: store.has("seedbroken"),
 }));
 "#;
 
@@ -420,6 +455,79 @@ fn seed(
     }
 }
 
+/// `{ ok: value }` for a call that returned, else `{ name, message }` of
+/// the `TypeError`; an `undefined` result writes `{}`.
+fn attempt_value(outcome: Result<Option<JsValue>, TimelineError>) -> JsValue {
+    let mut value = JsObject::new();
+    match outcome {
+        Ok(Some(ok)) => value.insert("ok", ok),
+        Ok(None) => {}
+        Err(TimelineError::Type(error)) => {
+            value.insert("name", text("TypeError"));
+            value.insert("message", text(&error.0));
+        }
+        Err(TimelineError::UnknownAgent(error)) => panic!("unexpected {error}"),
+    }
+    JsValue::Object(value)
+}
+
+fn broken_output(store: &mut TimelineStore) -> (JsValue, JsValue) {
+    store
+        .initialize_with("broken", seed(Vec::new(), Vec::new(), None, Some("TB")))
+        .expect("seed");
+    let appends = parse(BROKEN_ITEMS)
+        .expect("broken items")
+        .as_array()
+        .expect("array")
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            attempt_value(
+                store
+                    .append(
+                        "broken",
+                        item.clone(),
+                        Some(format!("B{index}")),
+                        Some("t1".to_owned()),
+                        None,
+                    )
+                    .map(|row| Some(source_row_value(&row))),
+            )
+        })
+        .collect();
+    let report = report(store, "broken", false);
+    let JsValue::Object(report) = &report else {
+        unreachable!("report is an object")
+    };
+    let mut broken = JsObject::new();
+    broken.insert("appends", JsValue::Array(appends));
+    for (key, value) in report.iter() {
+        broken.insert(key, value.clone());
+    }
+    let rows = parse(BROKEN_SEED_ROWS)
+        .expect("broken seed")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|row| {
+            SeedRow::Source(TimelineRow {
+                seq: integer(row.get("seq").expect("seq")),
+                timestamp: optional_string(row.get("timestamp")).expect("timestamp"),
+                item: row.get("item").expect("item").clone(),
+                turn_id: None,
+                provider_message_id: None,
+            })
+        })
+        .collect();
+    let seed_failure = attempt_value(
+        store
+            .initialize_with("seedbroken", seed(rows, Vec::new(), None, None))
+            .map(|()| None)
+            .map_err(TimelineError::Type),
+    );
+    (JsValue::Object(broken), seed_failure)
+}
+
 fn rust_output() -> String {
     let mut store = TimelineStore::default();
     store
@@ -490,6 +598,7 @@ fn rust_output() -> String {
     output.insert("enriched", JsValue::Array(enriched));
     output.insert("afterEnrich", after_enrich);
     output.insert("seeded", JsValue::Array(seeded));
+    let (broken, seed_failure) = broken_output(&mut store);
     output.insert(
         "lastItem",
         store
@@ -511,6 +620,9 @@ fn rust_output() -> String {
             .expect("timeline")
             .map_or(JsValue::Null, |row| row_value(&row, false)),
     );
+    output.insert("broken", broken);
+    output.insert("seedFailure", seed_failure);
+    output.insert("seedFailureStored", JsValue::Bool(store.has("seedbroken")));
     stringify(&JsValue::Object(output))
 }
 
@@ -554,7 +666,13 @@ fn timeline_pages_match_pinned_store() {
         .arg(&dist)
         .arg(&appends)
         .arg(&fetches)
-        .args([SEED_ROWS, SEED_ITEMS, LATE_ITEM])
+        .args([
+            SEED_ROWS,
+            SEED_ITEMS,
+            LATE_ITEM,
+            BROKEN_ITEMS,
+            BROKEN_SEED_ROWS,
+        ])
         .output()
         .expect("run pinned node");
     assert!(
