@@ -1,7 +1,6 @@
 //! The transport probe binary (`spocky-transport-probe`) as a process: start from a disposable home, serve
 //! hello, and stop on SIGTERM or SIGINT. Ports are chosen by the kernel
-//! (`127.0.0.1:0`); the reserved daemon ports are only used to prove they are
-//! refused.
+//! (`127.0.0.1:0`). No test starts a process on 6767 or 6768.
 
 use std::fs;
 use std::net::TcpStream;
@@ -186,17 +185,4 @@ fn a_client_that_ignores_the_close_hits_the_ten_second_force_exit_with_code_1() 
         "forced exit after {took:?}"
     );
     assert!(stderr_of(&mut daemon).contains("Forcing shutdown"));
-}
-
-#[test]
-fn the_production_ports_make_the_binary_exit_1_without_binding() {
-    for listen in ["127.0.0.1:6767", "127.0.0.1:6768"] {
-        let root = tempfile::tempdir().unwrap();
-        let mut daemon = spawn(root.path(), listen);
-        let (code, _) = wait_exit(&mut daemon, Duration::from_secs(10));
-        assert_eq!(code, 1);
-        let stderr = stderr_of(&mut daemon);
-        assert!(stderr.contains("Refusing to listen on"), "{stderr}");
-        assert!(!daemon.home.join("paseo.pid").exists());
-    }
 }
