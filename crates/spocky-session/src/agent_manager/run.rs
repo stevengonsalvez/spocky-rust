@@ -14,7 +14,9 @@ use super::events::{
 };
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
 use crate::agent_prompt::submitted_prompt_text;
-use crate::agent_sdk::{AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession};
+use crate::agent_sdk::{
+    AbortReason, AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
+};
 use crate::js::{js_string, truthy};
 
 /// `finalizedForegroundTurnIds` keeps at most this many ids.
@@ -109,12 +111,12 @@ pub struct WaitForAgentOptions {
 const WAIT_ABORTED: &str = "wait_for_agent aborted";
 
 /// `createAbortError(signal, fallbackMessage)`: an `AbortError` whose
-/// message is a string reason, else the fallback. `abortMessage` also takes
-/// an `Error` reason's message, which [`AbortSignal`] cannot carry: its
-/// reasons are [`JsValue`]s.
+/// message is `abortMessage(signal.reason)`: a string reason, an `Error`
+/// reason's message, else the fallback.
 fn abort_error(signal: &AbortSignal, fallback: &str) -> AgentError {
     let message = match signal.reason() {
-        Some(JsValue::String(reason)) => reason.clone(),
+        Some(AbortReason::Value(JsValue::String(reason))) => reason.clone(),
+        Some(AbortReason::Error(error)) => error.message.clone(),
         _ => fallback.to_owned(),
     };
     AgentError {

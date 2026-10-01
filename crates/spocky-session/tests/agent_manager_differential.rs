@@ -45,7 +45,7 @@ use spocky_session::agent_manager::{
 };
 use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{
-    AbortController, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
+    AbortController, AbortReason, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
     AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentRunOptions,
     AgentSession, AgentStreamEvent, BoxFuture, FetchCatalogOptions, ProviderRefreshContext,
     StreamCallback, Unsubscribe,
@@ -341,6 +341,12 @@ const turns = async () => {
   const stop = new AbortController();
   setTimeout(() => stop.abort("stop"), 30);
   results.push(await wait({ signal: stop.signal }));
+  const timeout = new AbortController();
+  setTimeout(() => timeout.abort(new Error("wait timeout")), 30);
+  results.push(await wait({ signal: timeout.signal }));
+  const plain = new AbortController();
+  plain.abort();
+  results.push(await wait({ signal: plain.signal }));
   results.push(await run("again"));
   await sleep(100);
   await manager.flush();
@@ -1018,6 +1024,68 @@ fn scripted(spec: &Spec, names: &[&str]) {
     }
 }
 
+/// Waits on the held turn whose signal is aborted before the wait, with a
+/// string after it, with an `Error` after it, and with no reason.
+async fn aborted_waits(manager: &AgentManager) -> Vec<JsValue> {
+    let wait = |options: WaitForAgentOptions| {
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .wait_for_agent_event(AGENT_ID, options)
+                    .await
+                    .map(|wait| wait.to_js()),
+            )
+        }
+    };
+    let mut results = Vec::new();
+    let pre = AbortController::default();
+    pre.abort(AbortReason::Value(text("pre")));
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(pre.signal()),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    let stop = AbortController::default();
+    let signal = stop.signal();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        stop.abort(AbortReason::Value(text("stop")));
+    });
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(signal),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    let timeout = AbortController::default();
+    let signal = timeout.signal();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        timeout.abort(AbortReason::Error(AgentError::new("wait timeout")));
+    });
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(signal),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    let plain = AbortController::default();
+    plain.abort(AbortReason::Value(JsValue::Undefined));
+    results.push(
+        wait(WaitForAgentOptions {
+            signal: Some(plain.signal()),
+            ..WaitForAgentOptions::default()
+        })
+        .await,
+    );
+    results
+}
+
 async fn turns_scenario(cwd: &str, home: &Path) -> JsValue {
     let calls = Calls::default();
     let registry = AgentStorage::new(home.join("turns"));
@@ -1069,28 +1137,7 @@ async fn turns_scenario(cwd: &str, home: &Path) -> JsValue {
     ];
     let held = tokio::spawn(run("hold"));
     wait_for_turn_started(&feed, "turn-5").await;
-    let pre = AbortController::default();
-    pre.abort(text("pre"));
-    results.push(
-        wait(WaitForAgentOptions {
-            signal: Some(pre.signal()),
-            ..WaitForAgentOptions::default()
-        })
-        .await,
-    );
-    let stop = AbortController::default();
-    let signal = stop.signal();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(30)).await;
-        stop.abort(text("stop"));
-    });
-    results.push(
-        wait(WaitForAgentOptions {
-            signal: Some(signal),
-            ..WaitForAgentOptions::default()
-        })
-        .await,
-    );
+    results.extend(aborted_waits(&manager).await);
     results.push(run("again").await);
     tokio::time::sleep(Duration::from_millis(100)).await;
     manager.flush().await;
@@ -1500,7 +1547,7 @@ async fn wait_releases_its_subscription() {
     ));
     assert!(poll_once(&mut aborted).await.is_none());
     assert_eq!(manager.subscription_count(), idle + 1);
-    controller.abort(text("stop"));
+    controller.abort(AbortReason::Value(text("stop")));
     let error = aborted.await.expect_err("aborted");
     assert_eq!(
         (error.name.as_str(), error.message.as_str()),

@@ -89,10 +89,18 @@ impl std::error::Error for AgentError {}
 /// The result of a fallible asynchronous member.
 pub type AgentResult<T> = Result<T, AgentError>;
 
+/// `signal.reason`: a value, or an `Error` (anything `instanceof Error`,
+/// as the default `DOMException` is), whose message `abortMessage` reads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AbortReason {
+    Value(JsValue),
+    Error(AgentError),
+}
+
 #[derive(Debug, Default)]
 struct AbortState {
     aborted: AtomicBool,
-    reason: std::sync::OnceLock<JsValue>,
+    reason: std::sync::OnceLock<AbortReason>,
     notify: Notify,
 }
 
@@ -111,8 +119,17 @@ impl AbortController {
         }
     }
 
-    /// `controller.abort(reason)`; later calls keep the first reason.
-    pub fn abort(&self, reason: JsValue) {
+    /// `controller.abort(reason)`; later calls keep the first reason. An
+    /// `undefined` reason becomes the default `DOMException` (`AbortError`,
+    /// "This operation was aborted").
+    pub fn abort(&self, reason: AbortReason) {
+        let reason = match reason {
+            AbortReason::Value(JsValue::Undefined) => AbortReason::Error(AgentError {
+                name: "AbortError".to_owned(),
+                message: "This operation was aborted".to_owned(),
+            }),
+            reason => reason,
+        };
         let _ = self.state.reason.set(reason);
         self.state.aborted.store(true, Ordering::SeqCst);
         self.state.notify.notify_waiters();
@@ -134,7 +151,7 @@ impl AbortSignal {
 
     /// `signal.reason`.
     #[must_use]
-    pub fn reason(&self) -> Option<&JsValue> {
+    pub fn reason(&self) -> Option<&AbortReason> {
         self.state.reason.get()
     }
 
@@ -663,8 +680,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{
-        AbortController, AbortSignal, ActivityGuard, AgentError, ProviderRefreshContext,
-        run_activity, stream_event_turn_id,
+        AbortController, AbortReason, AbortSignal, ActivityGuard, AgentError,
+        ProviderRefreshContext, run_activity, stream_event_turn_id,
     };
     use spocky_store::js_value::{JsValue, parse};
 
@@ -681,11 +698,23 @@ mod tests {
         let signal = controller.signal();
         let waiter = signal.clone();
         let wait = tokio::spawn(async move { waiter.wait().await });
-        controller.abort(JsValue::String("first".to_owned()));
-        controller.abort(JsValue::String("second".to_owned()));
+        controller.abort(AbortReason::Value(JsValue::String("first".to_owned())));
+        controller.abort(AbortReason::Value(JsValue::String("second".to_owned())));
         wait.await.expect("wait resolves");
         assert!(signal.aborted());
-        assert_eq!(signal.reason().and_then(JsValue::as_str), Some("first"));
+        assert_eq!(
+            signal.reason(),
+            Some(&AbortReason::Value(JsValue::String("first".to_owned())))
+        );
+        let default = AbortController::default();
+        default.abort(AbortReason::Value(JsValue::Undefined));
+        assert_eq!(
+            default.signal().reason(),
+            Some(&AbortReason::Error(AgentError {
+                name: "AbortError".to_owned(),
+                message: "This operation was aborted".to_owned(),
+            }))
+        );
         let event =
             parse(r#"{"type":"turn_started","provider":"codex","turnId":"t"}"#).expect("event");
         assert_eq!(stream_event_turn_id(&event), Some("t"));
