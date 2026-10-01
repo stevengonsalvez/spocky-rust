@@ -76,6 +76,94 @@ pub struct ProjectedRow {
     pub provider_message_id_last: bool,
 }
 
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "sequence numbers are JavaScript numbers; seeds stay below 2^53"
+)]
+fn seq_number(value: i64) -> JsValue {
+    JsValue::Number(value as f64)
+}
+
+fn text_value(value: &str) -> JsValue {
+    JsValue::String(value.to_owned())
+}
+
+impl TimelineRow {
+    /// The `AgentTimelineRow` object `append` returns:
+    /// `seq, timestamp, item, turnId?, providerMessageId?`.
+    #[must_use]
+    pub fn to_js(&self) -> JsValue {
+        let mut value = JsObject::new();
+        value.insert("seq", seq_number(self.seq));
+        value.insert("timestamp", text_value(&self.timestamp));
+        value.insert("item", self.item.clone());
+        if let Some(turn_id) = &self.turn_id {
+            value.insert("turnId", text_value(turn_id));
+        }
+        if let Some(id) = &self.provider_message_id {
+            value.insert("providerMessageId", text_value(id));
+        }
+        JsValue::Object(value)
+    }
+}
+
+impl ProjectedRow {
+    /// The row object the store holds (`seq_first == false`), or the one
+    /// `fetch` returns (`Object.assign({ seq }, entry)`, `seq_first == true`).
+    #[must_use]
+    pub fn to_js(&self, seq_first: bool) -> JsValue {
+        let mut row = JsObject::new();
+        if seq_first {
+            row.insert("seq", seq_number(self.seq));
+        }
+        row.insert("item", self.item.clone());
+        row.insert("timestamp", text_value(&self.timestamp));
+        if let Some(turn_id) = &self.turn_id {
+            row.insert("turnId", text_value(turn_id));
+        }
+        let provider_message_id = self.provider_message_id.as_deref().map(text_value);
+        if !self.provider_message_id_last
+            && let Some(id) = &provider_message_id
+        {
+            row.insert("providerMessageId", id.clone());
+        }
+        row.insert("seqStart", seq_number(self.seq_start));
+        row.insert("seqEnd", seq_number(self.seq_end));
+        row.insert(
+            "sourceSeqRanges",
+            JsValue::Array(
+                self.source_seq_ranges
+                    .iter()
+                    .map(|range| {
+                        let mut value = JsObject::new();
+                        value.insert("startSeq", seq_number(range.start_seq));
+                        value.insert("endSeq", seq_number(range.end_seq));
+                        JsValue::Object(value)
+                    })
+                    .collect(),
+            ),
+        );
+        row.insert(
+            "collapsed",
+            JsValue::Array(
+                self.collapsed
+                    .iter()
+                    .map(|kind| text_value(kind.as_str()))
+                    .collect(),
+            ),
+        );
+        if !seq_first {
+            row.insert("seq", seq_number(self.seq));
+        }
+        if self.provider_message_id_last
+            && let Some(id) = provider_message_id
+        {
+            row.insert("providerMessageId", id);
+        }
+        JsValue::Object(row)
+    }
+}
+
 fn item_type(item: &JsValue) -> Option<&str> {
     item.get("type").and_then(JsValue::as_str)
 }
@@ -691,6 +779,46 @@ pub struct TimelineFetch {
     pub start_seq: Option<i64>,
     pub end_seq: Option<i64>,
     pub rows: Vec<ProjectedRow>,
+}
+
+impl FetchDirection {
+    /// The `AgentTimelineFetchDirection` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tail => "tail",
+            Self::Before => "before",
+            Self::After => "after",
+        }
+    }
+}
+
+impl TimelineFetch {
+    /// The `AgentTimelineFetchResult` object `fetch` returns.
+    #[must_use]
+    pub fn to_js(&self) -> JsValue {
+        let optional = |value: Option<i64>| value.map_or(JsValue::Null, seq_number);
+        let mut window = JsObject::new();
+        window.insert("minSeq", seq_number(self.window.min_seq));
+        window.insert("maxSeq", seq_number(self.window.max_seq));
+        window.insert("nextSeq", seq_number(self.window.next_seq));
+        let mut page = JsObject::new();
+        page.insert("epoch", text_value(&self.epoch));
+        page.insert("direction", text_value(self.direction.as_str()));
+        page.insert("reset", JsValue::Bool(self.reset));
+        page.insert("staleCursor", JsValue::Bool(self.stale_cursor));
+        page.insert("gap", JsValue::Bool(self.gap));
+        page.insert("window", JsValue::Object(window));
+        page.insert("hasOlder", JsValue::Bool(self.has_older));
+        page.insert("hasNewer", JsValue::Bool(self.has_newer));
+        page.insert("startSeq", optional(self.start_seq));
+        page.insert("endSeq", optional(self.end_seq));
+        page.insert(
+            "rows",
+            JsValue::Array(self.rows.iter().map(|row| row.to_js(true)).collect()),
+        );
+        JsValue::Object(page)
+    }
 }
 
 #[derive(Debug, Clone)]
