@@ -1,4 +1,4 @@
-//! Emscripten runtime host for the pinned PGlite modules.
+//! Emscripten runtime host for the pinned `PGlite` modules.
 //!
 //! This replaces the JavaScript glue around `pglite.wasm`, `initdb.wasm` and
 //! the side modules they `dlopen`. Each function follows the glue function of
@@ -27,7 +27,7 @@ pub struct Longjmp;
 pub struct ExitStatus(pub i32);
 
 /// Any other JavaScript exception: `abort()`, a `TypeError`, an `Error`
-/// thrown by a PGlite callback. The glue does not catch these.
+/// thrown by a `PGlite` callback. The glue does not catch these.
 #[derive(Debug)]
 pub struct Abort(pub String);
 
@@ -162,6 +162,10 @@ impl Got {
     }
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "mirrors the glue's runtime flags one to one"
+)]
 pub struct EmModule {
     pub label: &'static str,
     pub memory: Memory,
@@ -297,8 +301,13 @@ pub fn to_int32(value: f64) -> i32 {
     let truncated = value.trunc();
     let modulo = truncated.rem_euclid(4_294_967_296.0);
     // Exact: modulo is an integer in [0, 2^32).
-    let unsigned = modulo as u64;
-    (unsigned as u32).cast_signed()
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "modulo is an integer in [0, 2^32)"
+    )]
+    let unsigned = modulo as u32;
+    unsigned.cast_signed()
 }
 
 /// `UTF8ToString(ptr, maxBytes)`.
@@ -417,27 +426,25 @@ pub fn got_global(
         .got
         .get(name)
         .map(|(global, _)| *global);
-    let global = match existing {
-        Some(global) => global,
-        None => {
-            let global = Global::new(
-                store.as_context_mut(),
-                GlobalType::new(ValType::I32, Mutability::Var),
-                Val::I32(0),
-            )?;
-            store.as_context_mut().data_mut().modules[index]
-                .got
-                .insert(name.to_owned(), (global, false));
-            global
-        }
+    let global = if let Some(global) = existing {
+        global
+    } else {
+        let global = Global::new(
+            store.as_context_mut(),
+            GlobalType::new(ValType::I32, Mutability::Var),
+            Val::I32(0),
+        )?;
+        store.as_context_mut().data_mut().modules[index]
+            .got
+            .insert(name.to_owned(), (global, false));
+        global
     };
-    if !weak {
-        if let Some(entry) = store.as_context_mut().data_mut().modules[index]
+    if !weak
+        && let Some(entry) = store.as_context_mut().data_mut().modules[index]
             .got
             .get_mut(name)
-        {
-            entry.1 = true;
-        }
+    {
+        entry.1 = true;
     }
     Ok(global)
 }
@@ -483,7 +490,7 @@ pub fn instantiate_main(
                     let func = host_func(store, index, name, ty)?;
                     store.as_context_mut().data_mut().modules[index]
                         .symbols
-                        .insert(name.to_owned(), Symbol::Func(func.clone()));
+                        .insert(name.to_owned(), Symbol::Func(func));
                     Extern::Func(func)
                 } else {
                     Extern::Func(host_func_registered(store, index, name, ty)?)
@@ -567,9 +574,10 @@ pub fn update_got(
         if is_internal_symbol(name) {
             continue;
         }
-        let global = match store.as_context().data().modules[index].got.get(name) {
-            Some((global, _)) => *global,
-            None => {
+        let global =
+            if let Some((global, _)) = store.as_context().data().modules[index].got.get(name) {
+                *global
+            } else {
                 let global = Global::new(
                     store.as_context_mut(),
                     GlobalType::new(ValType::I32, Mutability::Var),
@@ -579,12 +587,11 @@ pub fn update_got(
                     .got
                     .insert(name.clone(), (global, false));
                 global
-            }
-        };
+            };
         let current = global.get(store.as_context_mut()).i32().unwrap_or(0);
         if replace || current == 0 {
             let value = match symbol {
-                Symbol::Func(func) => add_function(store, index, func.clone())?,
+                Symbol::Func(func) => add_function(store, index, *func)?,
                 Symbol::Data(address) => *address,
             };
             global.set(store.as_context_mut(), Val::I32(value))?;
@@ -672,7 +679,7 @@ pub fn resolve_global_symbol(
         let func = host_func(store, index, name, ty)?;
         store.as_context_mut().data_mut().modules[index]
             .symbols
-            .insert(name.to_owned(), Symbol::Func(func.clone()));
+            .insert(name.to_owned(), Symbol::Func(func));
         return Ok(Some(Symbol::Func(func)));
     }
     Ok(None)
@@ -690,7 +697,7 @@ fn host_symbol(
     let func = host_func(store, index, name, ty)?;
     store.as_context_mut().data_mut().modules[index]
         .symbols
-        .insert(name.to_owned(), Symbol::Func(func.clone()));
+        .insert(name.to_owned(), Symbol::Func(func));
     Ok(Some(Symbol::Func(func)))
 }
 
@@ -745,12 +752,12 @@ pub fn host_func_registered(
     ty: FuncType,
 ) -> HostResult<Func> {
     if let Some(Symbol::Func(func)) = store.as_context().data().modules[index].symbols.get(name) {
-        return Ok(func.clone());
+        return Ok(*func);
     }
     let func = host_func(store, index, name, ty)?;
     store.as_context_mut().data_mut().modules[index]
         .symbols
-        .insert(name.to_owned(), Symbol::Func(func.clone()));
+        .insert(name.to_owned(), Symbol::Func(func));
     Ok(func)
 }
 
@@ -759,12 +766,12 @@ pub fn function_address(
     store: &mut impl AsContextMut<Data = Runtime>,
     index: usize,
     func: &Func,
-) -> HostResult<i32> {
-    let map = table_map(store, index)?;
+) -> i32 {
+    let map = table_map(store, index);
     let key = func.to_raw(store.as_context_mut()) as usize;
     let slot = map.get(&key).copied().unwrap_or(0);
     store.as_context_mut().data_mut().modules[index].table_map = Some(map);
-    Ok(slot.cast_signed())
+    slot.cast_signed()
 }
 
 /// Places a callback in the table (`addFunction` of a JavaScript function).
@@ -804,15 +811,12 @@ pub fn add_callback(
     Ok(slot)
 }
 
-fn table_map(
-    store: &mut impl AsContextMut<Data = Runtime>,
-    index: usize,
-) -> HostResult<HashMap<usize, u32>> {
+fn table_map(store: &mut impl AsContextMut<Data = Runtime>, index: usize) -> HashMap<usize, u32> {
     if let Some(map) = store.as_context_mut().data_mut().modules[index]
         .table_map
         .take()
     {
-        return Ok(map);
+        return map;
     }
     let table = store.as_context_mut().data().modules[index].table;
     let length = table.size(store.as_context_mut());
@@ -825,7 +829,7 @@ fn table_map(
             );
         }
     }
-    Ok(map)
+    map
 }
 
 /// `updateTableMap(offset, count)` after a side module instantiates.
@@ -834,15 +838,15 @@ pub fn update_table_map(
     index: usize,
     offset: u32,
     count: u32,
-) -> HostResult<()> {
+) {
     if store.as_context_mut().data().modules[index]
         .table_map
         .is_none()
     {
         // functionsInTableMap is still lazy; the first lookup scans it all.
-        return Ok(());
+        return;
     }
-    let mut map = table_map(store, index)?;
+    let mut map = table_map(store, index);
     let table = store.as_context_mut().data().modules[index].table;
     for slot in offset..offset + count {
         if let Some(Ref::Func(Some(func))) = table.get(store.as_context_mut(), u64::from(slot)) {
@@ -850,7 +854,6 @@ pub fn update_table_map(
         }
     }
     store.as_context_mut().data_mut().modules[index].table_map = Some(map);
-    Ok(())
 }
 
 /// `addFunction(func)`: reuse the slot of a function already in the table,
@@ -860,22 +863,21 @@ pub fn add_function(
     index: usize,
     func: Func,
 ) -> HostResult<i32> {
-    let mut map = table_map(store, index)?;
+    let mut map = table_map(store, index);
     let key = func.to_raw(store.as_context_mut()) as usize;
     if let Some(slot) = map.get(&key).copied().filter(|slot| *slot != 0) {
         store.as_context_mut().data_mut().modules[index].table_map = Some(map);
         return Ok(slot.cast_signed());
     }
     let table = store.as_context_mut().data().modules[index].table;
-    let slot = match store.as_context_mut().data_mut().modules[index]
+    let slot = if let Some(slot) = store.as_context_mut().data_mut().modules[index]
         .free_slots
         .pop()
     {
-        Some(slot) => slot,
-        None => {
-            let previous = table.grow(store.as_context_mut(), 1, Ref::Func(None))?;
-            u32::try_from(previous).unwrap_or(0)
-        }
+        slot
+    } else {
+        let previous = table.grow(store.as_context_mut(), 1, Ref::Func(None))?;
+        u32::try_from(previous).unwrap_or(0)
     };
     table.set(
         store.as_context_mut(),
@@ -897,7 +899,7 @@ pub fn remove_function(
     let slot_index = u64::from(slot.cast_unsigned());
     if let Some(Ref::Func(Some(func))) = table.get(store.as_context_mut(), slot_index) {
         let key = func.to_raw(store.as_context_mut()) as usize;
-        let mut map = table_map(store, index)?;
+        let mut map = table_map(store, index);
         map.remove(&key);
         store.as_context_mut().data_mut().modules[index].table_map = Some(map);
     }
@@ -915,7 +917,7 @@ pub fn remove_function(
 
 pub fn export_func(runtime: &Runtime, index: usize, name: &str) -> HostResult<Func> {
     match runtime.modules[index].exports.get(name) {
-        Some(Symbol::Func(func)) => Ok(func.clone()),
+        Some(Symbol::Func(func)) => Ok(*func),
         _ => Err(abort_error(format!(
             "{} has no exported function {name}",
             runtime.modules[index].label
@@ -998,7 +1000,7 @@ pub fn call_main(
     args: &[String],
 ) -> HostResult<i32> {
     let main = match store.as_context().data().modules[index].symbols.get("main") {
-        Some(Symbol::Func(func)) => func.clone(),
+        Some(Symbol::Func(func)) => *func,
         _ => return Err(abort_error("main is not defined")),
     };
     let mut argv_strings = vec![
@@ -1007,9 +1009,9 @@ pub fn call_main(
             .clone(),
     ];
     argv_strings.extend(args.iter().cloned());
-    let argc = i32::try_from(argv_strings.len()).unwrap_or(0);
-    let argv = stack_alloc(store, index, (argc + 1) * 4)?;
-    let mut cursor = argv.cast_unsigned();
+    let argument_count = i32::try_from(argv_strings.len()).unwrap_or(0);
+    let argument_vector = stack_alloc(store, index, (argument_count + 1) * 4)?;
+    let mut cursor = argument_vector.cast_unsigned();
     for argument in &argv_strings {
         let pointer = string_on_stack(store, index, argument)?;
         let memory = store.as_context().data().modules[index].memory;
@@ -1022,7 +1024,7 @@ pub fn call_main(
     let outcome = main
         .call(
             store.as_context_mut(),
-            &[Val::I32(argc), Val::I32(argv)],
+            &[Val::I32(argument_count), Val::I32(argument_vector)],
             &mut results,
         )
         .and_then(|()| {
@@ -1114,12 +1116,12 @@ pub fn resize_heap(
     store: &mut impl AsContextMut<Data = Runtime>,
     index: usize,
     requested: u32,
-) -> HostResult<bool> {
+) -> bool {
     let memory = store.as_context_mut().data().modules[index].memory;
     let old_size = memory.data_size(store.as_context_mut()) as u64;
     let requested = u64::from(requested);
     if requested > HEAP_MAX {
-        return Ok(false);
+        return false;
     }
     let mut cut_down = 1_u64;
     while cut_down <= 4 {
@@ -1134,13 +1136,13 @@ pub fn resize_heap(
         let candidate = requested.max(over_grown);
         let new_size = HEAP_MAX.min(candidate.div_ceil(65536) * 65536);
         let current = memory.data_size(store.as_context_mut()) as u64;
-        let pages = (new_size.saturating_sub(current) + 65535) / 65536;
+        let pages = new_size.saturating_sub(current).div_ceil(65536);
         if memory.grow(store.as_context_mut(), pages).is_ok() {
-            return Ok(true);
+            return true;
         }
         cut_down *= 2;
     }
-    Ok(false)
+    false
 }
 
 /// `getMemory(size)` after the runtime started: `_calloc(size, 1)`.
