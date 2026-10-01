@@ -109,9 +109,10 @@ pub fn g1() -> GateSpec {
                 pointer: "/status",
                 expected: "completed",
             },
-            Check::StdoutContains {
+            // A whole-line match: the prompt echo also contains the word.
+            Check::StdoutLine {
                 step: "logs",
-                needle: G1_REPLY,
+                line: G1_REPLY,
             },
             Check::StubExactlyConsumed,
             Check::DaemonExit(0),
@@ -182,6 +183,17 @@ mod tests {
             }
         }
         assert!(by_id("g2").is_none());
+        assert!(G1_PROMPT.contains(G1_REPLY));
+        assert!(gate.checks.contains(&Check::StdoutLine {
+            step: "logs",
+            line: G1_REPLY
+        }));
+        assert!(
+            !gate
+                .checks
+                .iter()
+                .any(|check| matches!(check, Check::StdoutContains { .. }))
+        );
     }
 
     #[test]
