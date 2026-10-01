@@ -34,7 +34,12 @@ use crate::launch::{self, CODEX_PROVIDER, CodexGates, CustomProvider, ProviderRu
 use crate::notification::{ItemSource, ParsedNotification, parse_notification};
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
-use crate::transport::{AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, js_truthy};
+use crate::tools::{
+    ExecNotification, ToolMapping, decode_output_delta_chunk, exec_notification_to_tool_call,
+};
+use crate::transport::{
+    AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, Responder, js_truthy,
+};
 
 const TURN_START_TIMEOUT: Duration = Duration::from_millis(90 * 1000);
 const INTERRUPT_TIMEOUT: Duration = Duration::from_millis(2_000);
@@ -42,10 +47,8 @@ const ASSISTANT_MESSAGE_BOUNDARY_MARKDOWN: &str = "\n\n---\n\n";
 const DEFAULT_CODEX_MODE_ID: &str = "auto";
 const CLOSED_MESSAGE: &str = "Codex app-server session is closed";
 
-/// Approval request methods Paseo registers handlers for.
-const APPROVAL_REQUEST_METHODS: [&str; 5] = [
-    "item/commandExecution/requestApproval",
-    "item/fileChange/requestApproval",
+/// Server request methods Paseo answers through flows not yet ported.
+const UNPORTED_REQUEST_METHODS: [&str; 3] = [
     "item/tool/requestUserInput",
     "mcpServer/elicitation/request",
     "tool/requestUserInput",
@@ -265,6 +268,21 @@ struct PendingStart {
     done: Arc<Slot<()>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PermissionKind {
+    Command,
+    File,
+}
+
+/// A permission request waiting on the user (`pendingPermissions` plus
+/// `pendingPermissionHandlers`).
+struct PendingPermission {
+    id: String,
+    request: Value,
+    kind: PermissionKind,
+    responder: Responder,
+}
+
 struct AsyncQuestionRecord {
     item: AsyncQuestionItem,
     resolution: Option<AsyncQuestionResolution>,
@@ -308,6 +326,11 @@ struct State {
     unpaired_compaction_notification_completions: u64,
     unpaired_compaction_item_completions: u64,
     async_questions: Vec<AsyncQuestionRecord>,
+    pending_permissions: Vec<PendingPermission>,
+    emitted_exec_started_call_ids: HashSet<String>,
+    emitted_exec_completed_call_ids: HashSet<String>,
+    pending_command_output_deltas: HashMap<String, Vec<String>>,
+    pending_file_change_output_deltas: HashMap<String, Vec<String>>,
     connection: ConnectionState,
     connecting: bool,
     connect_error: Option<String>,
@@ -422,6 +445,11 @@ impl CodexSession {
             unpaired_compaction_notification_completions: 0,
             unpaired_compaction_item_completions: 0,
             async_questions: Vec::new(),
+            pending_permissions: Vec::new(),
+            emitted_exec_started_call_ids: HashSet::new(),
+            emitted_exec_completed_call_ids: HashSet::new(),
+            pending_command_output_deltas: HashMap::new(),
+            pending_file_change_output_deltas: HashMap::new(),
             connection: ConnectionState::Disconnected,
             connecting: false,
             connect_error: None,
@@ -507,15 +535,74 @@ impl CodexSession {
         Value::Array(features)
     }
 
-    /// Pending async questions as permission requests.
+    /// `getPendingPermissions()`: tool requests, then pending async questions.
     #[must_use]
     pub fn pending_permissions(&self) -> Vec<Value> {
-        lock(&self.inner.state)
-            .async_questions
+        let state = lock(&self.inner.state);
+        state
+            .pending_permissions
             .iter()
-            .filter(|record| record.resolution.is_none())
-            .map(|record| async_question_permission(&record.item))
+            .map(|pending| pending.request.clone())
+            .chain(
+                state
+                    .async_questions
+                    .iter()
+                    .filter(|record| record.resolution.is_none())
+                    .map(|record| async_question_permission(&record.item)),
+            )
             .collect()
+    }
+
+    /// `respondToPermission(requestId, response)` for command and file
+    /// change approvals. `response` is an `AgentPermissionResponse`.
+    ///
+    /// # Errors
+    /// Returns Paseo's `No pending Codex app-server permission request` error
+    /// for an unknown id; async question answers are not ported.
+    pub fn respond_to_permission(&self, request_id: &str, response: &Value) -> Result<(), String> {
+        let mut events = Vec::new();
+        let pending = {
+            let mut state = lock(&self.inner.state);
+            if state.async_questions.iter().any(|record| {
+                record.resolution.is_none()
+                    && format!("permission-{}", record.item.id) == request_id
+            }) {
+                state.unported.push("async question response".to_owned());
+                return Err("Codex async question responses are not ported".to_owned());
+            }
+            let Some(position) = state
+                .pending_permissions
+                .iter()
+                .position(|pending| pending.id == request_id)
+            else {
+                return Err(format!(
+                    "No pending Codex app-server permission request with id '{request_id}'"
+                ));
+            };
+            let pending = state.pending_permissions.remove(position);
+            let denied = response.get("behavior").and_then(Value::as_str) == Some("deny");
+            if denied && pending.request.get("kind").and_then(Value::as_str) == Some("tool") {
+                let item = denied_tool_call_item(request_id, response, &pending.request);
+                emit(&state, &mut events, timeline_event(item));
+            }
+            emit(
+                &state,
+                &mut events,
+                event(&[
+                    ("type", json!("permission_resolved")),
+                    ("requestId", json!(request_id)),
+                    ("resolution", response.clone()),
+                ]),
+            );
+            pending
+        };
+        self.publish(&events);
+        match pending.kind {
+            PermissionKind::Command | PermissionKind::File => pending
+                .responder
+                .respond(Ok(Some(json!({"decision": permission_decision(response)})))),
+        }
+        Ok(())
     }
 
     /// `describePersistence()`.
@@ -676,7 +763,24 @@ impl CodexSession {
     }
 
     fn register_request_handlers(&self, client: &AppServerClient) {
-        for method in APPROVAL_REQUEST_METHODS {
+        for (method, kind) in [
+            (
+                "item/commandExecution/requestApproval",
+                PermissionKind::Command,
+            ),
+            ("item/fileChange/requestApproval", PermissionKind::File),
+        ] {
+            let weak = Arc::downgrade(&self.inner);
+            client.set_request_handler(
+                method,
+                Arc::new(move |params, _id, responder| {
+                    if let Some(session) = upgrade(&weak) {
+                        session.handle_approval_request(kind, params.as_ref(), responder);
+                    }
+                }),
+            );
+        }
+        for method in UNPORTED_REQUEST_METHODS {
             let weak = Arc::downgrade(&self.inner);
             client.set_request_handler(
                 method,
@@ -690,6 +794,43 @@ impl CodexSession {
                 }),
             );
         }
+    }
+
+    /// `handleCommandApprovalRequest` and `handleFileChangeApprovalRequest`.
+    fn handle_approval_request(
+        &self,
+        kind: PermissionKind,
+        params: Option<&Value>,
+        responder: Responder,
+    ) {
+        let mut events = Vec::new();
+        {
+            let mut state = lock(&self.inner.state);
+            let Some(request) = approval_request(kind, params, &state.config.cwd) else {
+                state
+                    .unported
+                    .push("invalid approval request params".to_owned());
+                drop(state);
+                responder.respond(Err("Invalid Codex approval request params".to_owned()));
+                return;
+            };
+            let id = request["id"].as_str().unwrap_or_default().to_owned();
+            emit(
+                &state,
+                &mut events,
+                event(&[
+                    ("type", json!("permission_requested")),
+                    ("request", request.clone()),
+                ]),
+            );
+            state.pending_permissions.push(PendingPermission {
+                id,
+                request,
+                kind,
+                responder,
+            });
+        }
+        self.publish(&events);
     }
 
     fn record_unported(&self, what: String) {
@@ -1264,6 +1405,7 @@ impl CodexSession {
     /// # Errors
     /// Returns the dispose failure when Codex survives SIGKILL.
     pub fn close(&self) -> Result<(), String> {
+        clear_pending_permissions(&mut lock(&self.inner.state));
         {
             let mut state = lock(&self.inner.state);
             state.closed = true;
@@ -1298,6 +1440,7 @@ impl CodexSession {
         {
             let mut state = lock(&self.inner.state);
             state.connection = ConnectionState::Disconnected;
+            clear_pending_permissions(&mut state);
             let has_active_root_turn =
                 state.active_foreground_turn_id.is_some() || state.current_turn_id.is_some();
             if has_active_root_turn {
@@ -1450,7 +1593,6 @@ fn emit(state: &State, events: &mut Vec<Value>, mut event: Map<String, Value>) {
 }
 
 fn dispatch(state: &mut State, events: &mut Vec<Value>, parsed: ParsedNotification) {
-    let parsed_kind = notification_kind(&parsed);
     match parsed {
         ParsedNotification::AgentMessageDelta { item_id, delta, .. } => {
             handle_agent_message_delta(state, events, &item_id, delta);
@@ -1515,16 +1657,14 @@ fn dispatch(state: &mut State, events: &mut Vec<Value>, parsed: ParsedNotificati
                 );
             }
         }
-        ParsedNotification::ExecCommandStarted { .. }
+        ParsedNotification::ExecCommandOutputDelta { .. }
+        | ParsedNotification::FileChangeOutputDelta { .. }
+        | ParsedNotification::ExecCommandStarted { .. }
         | ParsedNotification::ExecCommandCompleted { .. }
-        | ParsedNotification::ExecCommandOutputDelta { .. }
         | ParsedNotification::TerminalInteraction { .. }
         | ParsedNotification::PatchApplyStarted { .. }
-        | ParsedNotification::PatchApplyCompleted { .. }
-        | ParsedNotification::FileChangeOutputDelta { .. } => {
-            state
-                .unported
-                .push(format!("tool notification {parsed_kind}"));
+        | ParsedNotification::PatchApplyCompleted { .. } => {
+            dispatch_tool_notification(state, events, parsed);
         }
         ParsedNotification::ItemCompleted {
             source,
@@ -1553,17 +1693,317 @@ fn dispatch(state: &mut State, events: &mut Vec<Value>, parsed: ParsedNotificati
     }
 }
 
+/// Legacy `codex/event/*` tool notifications and output deltas.
+fn dispatch_tool_notification(
+    state: &mut State,
+    events: &mut Vec<Value>,
+    parsed: ParsedNotification,
+) {
+    let parsed_kind = notification_kind(&parsed);
+    match parsed {
+        ParsedNotification::ExecCommandOutputDelta { call_id, chunk, .. } => {
+            if let (Some(call_id), Some(chunk)) = (call_id, chunk) {
+                append_output_delta(
+                    &mut state.pending_command_output_deltas,
+                    &call_id,
+                    decode_output_delta_chunk(&chunk),
+                );
+            }
+        }
+        ParsedNotification::FileChangeOutputDelta {
+            item_id,
+            delta: Some(delta),
+            ..
+        } => {
+            append_output_delta(
+                &mut state.pending_file_change_output_deltas,
+                &item_id,
+                delta,
+            );
+        }
+        ParsedNotification::ExecCommandStarted {
+            call_id,
+            command,
+            cwd,
+            ..
+        } => {
+            handle_exec_command_started(
+                state,
+                events,
+                call_id.as_deref(),
+                &command,
+                cwd.as_deref(),
+            );
+        }
+        ParsedNotification::ExecCommandCompleted {
+            call_id,
+            command,
+            cwd,
+            output,
+            exit_code,
+            success,
+            stderr,
+            ..
+        } => handle_exec_command_completed(
+            state,
+            events,
+            &ExecCompletion {
+                call_id: call_id.as_deref(),
+                command: &command,
+                cwd: cwd.as_deref(),
+                output,
+                exit_code: exit_code.as_ref(),
+                success,
+                stderr: stderr.as_deref(),
+            },
+        ),
+        ParsedNotification::TerminalInteraction { .. }
+        | ParsedNotification::PatchApplyStarted { .. }
+        | ParsedNotification::PatchApplyCompleted { .. } => {
+            state
+                .unported
+                .push(format!("tool notification {parsed_kind}"));
+        }
+        _ => {}
+    }
+}
+
 fn notification_kind(parsed: &ParsedNotification) -> &'static str {
     match parsed {
-        ParsedNotification::ExecCommandStarted { .. } => "exec_command_started",
-        ParsedNotification::ExecCommandCompleted { .. } => "exec_command_completed",
-        ParsedNotification::ExecCommandOutputDelta { .. } => "exec_command_output_delta",
         ParsedNotification::TerminalInteraction { .. } => "terminal_interaction",
         ParsedNotification::PatchApplyStarted { .. } => "patch_apply_started",
         ParsedNotification::PatchApplyCompleted { .. } => "patch_apply_completed",
-        ParsedNotification::FileChangeOutputDelta { .. } => "file_change_output_delta",
         _ => "other",
     }
+}
+
+/// `appendOutputDeltaChunk`: empty ids and chunks are dropped.
+fn append_output_delta(store: &mut HashMap<String, Vec<String>>, id: &str, chunk: String) {
+    if id.is_empty() || chunk.is_empty() {
+        return;
+    }
+    store.entry(id.to_owned()).or_default().push(chunk);
+}
+
+fn tool_item_or_record(state: &mut State, mapped: ToolMapping) -> Option<Value> {
+    match mapped {
+        ToolMapping::Item(item) => Some(item),
+        ToolMapping::Skip => None,
+        ToolMapping::Unported(what) => {
+            state.unported.push(what);
+            None
+        }
+    }
+}
+
+/// `handleExecCommandStartedNotification` for the root thread.
+fn handle_exec_command_started(
+    state: &mut State,
+    events: &mut Vec<Value>,
+    call_id: Option<&str>,
+    command: &Value,
+    cwd: Option<&str>,
+) {
+    if let Some(id) = call_id.filter(|id| !id.is_empty()) {
+        state.emitted_exec_started_call_ids.insert(id.to_owned());
+        state.pending_command_output_deltas.remove(id);
+    }
+    let config_cwd = state.config.cwd.clone();
+    let mapped = exec_notification_to_tool_call(&ExecNotification {
+        call_id,
+        command,
+        cwd: cwd.or(Some(config_cwd.as_str())),
+        output: None,
+        exit_code: None,
+        success: None,
+        stderr: None,
+        running: true,
+    });
+    if let Some(item) = tool_item_or_record(state, mapped) {
+        emit(state, events, timeline_event(item));
+    }
+}
+
+/// Fields of a legacy `exec_command_end` notification.
+struct ExecCompletion<'a> {
+    call_id: Option<&'a str>,
+    command: &'a Value,
+    cwd: Option<&'a str>,
+    output: Option<String>,
+    exit_code: Option<&'a Value>,
+    success: Option<bool>,
+    stderr: Option<&'a str>,
+}
+
+/// `handleExecCommandCompletedNotification` for the root thread. Terminal
+/// process tracking only feeds terminal interactions, which are not ported.
+fn handle_exec_command_completed(
+    state: &mut State,
+    events: &mut Vec<Value>,
+    completion: &ExecCompletion<'_>,
+) {
+    let buffered = completion
+        .call_id
+        .filter(|id| !id.is_empty())
+        .and_then(|id| state.pending_command_output_deltas.remove(id))
+        .map(|chunks| chunks.concat())
+        .filter(|text| !text.is_empty());
+    let resolved = completion.output.clone().or(buffered);
+    let config_cwd = state.config.cwd.clone();
+    let mapped = exec_notification_to_tool_call(&ExecNotification {
+        call_id: completion.call_id,
+        command: completion.command,
+        cwd: completion.cwd.or(Some(config_cwd.as_str())),
+        output: resolved.as_deref(),
+        exit_code: completion.exit_code,
+        success: completion.success,
+        stderr: completion.stderr,
+        running: false,
+    });
+    if let Some(item) = tool_item_or_record(state, mapped) {
+        if let Some(id) = item["callId"].as_str() {
+            state.emitted_exec_completed_call_ids.insert(id.to_owned());
+        }
+        emit(state, events, timeline_event(item));
+    }
+}
+
+/// `clearPendingPermissions()`: every open approval answers `cancel`.
+fn clear_pending_permissions(state: &mut State) {
+    for pending in state.pending_permissions.drain(..) {
+        pending
+            .responder
+            .respond(Ok(Some(json!({"decision": "cancel"}))));
+    }
+}
+
+/// `resolvePermissionDecision(response)`.
+fn permission_decision(response: &Value) -> &'static str {
+    if response.get("behavior").and_then(Value::as_str) == Some("allow") {
+        "accept"
+    } else if response.get("interrupt").is_some_and(js_truthy) {
+        "cancel"
+    } else {
+        "decline"
+    }
+}
+
+/// `emitDeniedToolCallTimelineEvent` item.
+fn denied_tool_call_item(request_id: &str, response: &Value, request: &Value) -> Value {
+    let name = match request["name"].as_str() {
+        Some("CodexBash") => "shell".to_owned(),
+        Some("CodexFileChange") => "apply_patch".to_owned(),
+        other => other.unwrap_or_default().to_owned(),
+    };
+    let message = match response.get("message") {
+        None | Some(Value::Null) => json!("Permission denied"),
+        Some(message) => message.clone(),
+    };
+    let detail = match request.get("detail") {
+        None | Some(Value::Null) => json!({
+            "type": "unknown",
+            "input": request.get("input").cloned().unwrap_or(Value::Null),
+            "output": null,
+        }),
+        Some(detail) => detail.clone(),
+    };
+    json!({
+        "type": "tool_call",
+        "callId": request_id,
+        "name": name,
+        "status": "failed",
+        "error": {"message": message},
+        "detail": detail,
+        "metadata": {"permissionRequestId": request_id, "denied": true},
+    })
+}
+
+/// zod `z.string().nullable().optional()` read: `Err` on a wrong type.
+fn nullable_string_field(record: &Map<String, Value>, key: &str) -> Result<Option<String>, ()> {
+    match record.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text.clone())),
+        Some(_) => Err(()),
+    }
+}
+
+/// The `AgentPermissionRequest` Paseo builds for a command or file change
+/// approval; `None` when the params fail Paseo's zod schema.
+fn approval_request(
+    kind: PermissionKind,
+    params: Option<&Value>,
+    config_cwd: &str,
+) -> Option<Value> {
+    let record = params?.as_object()?;
+    let required = |key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
+    let item_id = required("itemId")?;
+    let thread_id = required("threadId")?;
+    let turn_id = required("turnId")?;
+    let reason = nullable_string_field(record, "reason").ok()?;
+    let mut request = Map::new();
+    request.insert("id".to_owned(), json!(format!("permission-{item_id}")));
+    request.insert("provider".to_owned(), json!(CODEX_PROVIDER));
+    match kind {
+        PermissionKind::Command => {
+            let command = nullable_string_field(record, "command").ok()?;
+            let cwd = nullable_string_field(record, "cwd").ok()?;
+            let command_value = command.clone().map_or(Value::Null, Value::String);
+            let preview = exec_notification_to_tool_call(&ExecNotification {
+                call_id: Some(&item_id),
+                command: &command_value,
+                cwd: cwd.as_deref().or(Some(config_cwd)),
+                output: None,
+                exit_code: None,
+                success: None,
+                stderr: None,
+                running: true,
+            });
+            request.insert("name".to_owned(), json!("CodexBash"));
+            request.insert("kind".to_owned(), json!("tool"));
+            let title = match command.as_deref().filter(|command| !command.is_empty()) {
+                Some(command) => format!("Run command: {command}"),
+                None => "Run command".to_owned(),
+            };
+            request.insert("title".to_owned(), json!(title));
+            if let Some(reason) = reason {
+                request.insert("description".to_owned(), json!(reason));
+            }
+            let mut input = Map::new();
+            if let Some(command) = &command {
+                input.insert("command".to_owned(), json!(command));
+            }
+            if let Some(cwd) = &cwd {
+                input.insert("cwd".to_owned(), json!(cwd));
+            }
+            request.insert("input".to_owned(), Value::Object(input));
+            let detail = match preview {
+                ToolMapping::Item(item) => item["detail"].clone(),
+                ToolMapping::Skip | ToolMapping::Unported(_) => json!({
+                    "type": "unknown",
+                    "input": {"command": command, "cwd": cwd},
+                    "output": null,
+                }),
+            };
+            request.insert("detail".to_owned(), detail);
+        }
+        PermissionKind::File => {
+            request.insert("name".to_owned(), json!("CodexFileChange"));
+            request.insert("kind".to_owned(), json!("tool"));
+            request.insert("title".to_owned(), json!("Apply file changes"));
+            if let Some(reason) = &reason {
+                request.insert("description".to_owned(), json!(reason));
+            }
+            request.insert(
+                "detail".to_owned(),
+                json!({"type": "unknown", "input": {"reason": reason}, "output": null}),
+            );
+        }
+    }
+    request.insert(
+        "metadata".to_owned(),
+        json!({"itemId": item_id, "threadId": thread_id, "turnId": turn_id}),
+    );
+    Some(Value::Object(request))
 }
 
 fn handle_agent_message_delta(
@@ -1660,6 +2100,10 @@ fn reset_turn_tracking_state(state: &mut State) {
     state.latest_plan_result = None;
     state.emitted_item_started_ids.clear();
     state.emitted_item_completed_ids.clear();
+    state.emitted_exec_started_call_ids.clear();
+    state.emitted_exec_completed_call_ids.clear();
+    state.pending_command_output_deltas.clear();
+    state.pending_file_change_output_deltas.clear();
     state.pending_agent_messages.clear();
     state.pending_reasoning.clear();
     state.pending_assistant_message_boundary = false;
@@ -1886,10 +2330,12 @@ fn handle_item_completed(
             return;
         }
     };
-    if item_id
-        .as_ref()
-        .is_some_and(|id| state.emitted_item_completed_ids.contains(id))
-    {
+    if should_skip_completed_thread_item(
+        state,
+        &timeline_item,
+        normalized.as_deref(),
+        item_id.as_deref(),
+    ) {
         return;
     }
     if consume_streamed_text_completion(state, events, &timeline_item, item_id.as_deref()) {
@@ -1916,8 +2362,28 @@ fn handle_item_completed(
     }
     if let Some(id) = item_id {
         state.emitted_item_started_ids.remove(&id);
+        state.pending_command_output_deltas.remove(&id);
+        state.pending_file_change_output_deltas.remove(&id);
         state.emitted_item_completed_ids.insert(id);
     }
+}
+
+/// `shouldSkipCompletedThreadItem`: legacy `exec_command_end` is
+/// authoritative for command items.
+fn should_skip_completed_thread_item(
+    state: &State,
+    timeline_item: &Value,
+    normalized_type: Option<&str>,
+    item_id: Option<&str>,
+) -> bool {
+    if timeline_item["type"] == "tool_call" && normalized_type == Some("commandExecution") {
+        let call_id = timeline_item["callId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .or(item_id);
+        return call_id.is_some_and(|id| state.emitted_exec_completed_call_ids.contains(id));
+    }
+    item_id.is_some_and(|id| state.emitted_item_completed_ids.contains(id))
 }
 
 fn item_id(item: &Map<String, Value>) -> Option<&str> {
@@ -2025,6 +2491,15 @@ fn handle_item_started(
         return;
     }
     let id = item_id(item).filter(|id| !id.is_empty()).map(str::to_owned);
+    if normalized == Some("commandExecution") {
+        let call_id = timeline_item["callId"]
+            .as_str()
+            .filter(|call| !call.is_empty())
+            .or(id.as_deref());
+        if call_id.is_some_and(|call| state.emitted_exec_started_call_ids.contains(call)) {
+            return;
+        }
+    }
     if id
         .as_ref()
         .is_some_and(|id| state.emitted_item_started_ids.contains(id))
@@ -2033,6 +2508,8 @@ fn handle_item_started(
     }
     emit(state, events, timeline_event(timeline_item));
     if let Some(id) = id {
+        state.pending_command_output_deltas.remove(&id);
+        state.pending_file_change_output_deltas.remove(&id);
         state.emitted_item_started_ids.insert(id);
     }
 }
