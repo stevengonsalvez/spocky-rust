@@ -94,7 +94,8 @@ pub struct Transform {
     pub owner: String,
     /// Where the untransformed bytes are kept.
     pub raw_retained: String,
-    /// Compared artifacts whose bytes the transform changed, as `<side>:<name>`.
+    /// Compared artifacts whose bytes the transform changed, as
+    /// `left:<name>` or `right:<name>`.
     pub reordered: Vec<String>,
 }
 
@@ -105,10 +106,11 @@ pub const CLIENT_METADATA_TRANSFORM: &str = "codex-client-metadata-key-order";
 #[must_use]
 pub fn client_metadata_transform(left: &SideRun, right: &SideRun) -> Transform {
     let mut reordered = Vec::new();
-    for side in [left, right] {
+    // Label by position: both sides run the same daemon in a self-check.
+    for (position, side) in [("left", left), ("right", right)] {
         for (index, record) in side.stub_records.iter().enumerate() {
             if canonical_client_metadata(record) != *record {
-                reordered.push(format!("{}:stub/{index:03}", side.kind.label()));
+                reordered.push(format!("{position}:stub/{index:03}"));
             }
         }
     }
@@ -524,6 +526,7 @@ mod tests {
             force_killed: Vec::new(),
             survivors: Vec::new(),
             harness_errors: Vec::new(),
+            observed_pids: Vec::new(),
         }
     }
 
@@ -658,7 +661,16 @@ mod tests {
         assert_eq!(outcome.verdict.transforms.len(), 1);
         let transform = &outcome.verdict.transforms[0];
         assert_eq!(transform.id, CLIENT_METADATA_TRANSFORM);
-        assert_eq!(transform.reordered, vec!["original:stub/000".to_owned()]);
+        assert_eq!(transform.reordered, vec!["left:stub/000".to_owned()]);
+        // A self-check runs the same daemon on both sides; labels stay distinct.
+        let (left, mut right) = pair();
+        right.kind = DaemonKind::Original;
+        let left = with_record(left, r#"{"client_metadata":{"b":"2","a":"1"}}"#);
+        let right = with_record(right, r#"{"client_metadata":{"d":"2","c":"1"}}"#);
+        assert_eq!(
+            client_metadata_transform(&left, &right).reordered,
+            vec!["left:stub/000".to_owned(), "right:stub/000".to_owned()]
+        );
         // The same metadata reorder plus a key-order swap elsewhere in the body fails.
         let (left, right) = pair();
         let left = with_record(
