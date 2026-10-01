@@ -706,7 +706,8 @@
       "gateOrder": ["G1 unchanged pinned CLI plus real codex 0.159.0 happy path (workspace create, run, stream) against original and Spocky daemons", "G2 permission and cancel", "G3 restart and resume", "G4 failure, disconnect, retry, and old-state in both directions"],
       "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane",
       "acceptanceCommands": [
-        "cargo test --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain",
+        "SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node cargo test --locked -p spocky-session -p spocky-store -p spocky-domain (env var always set so pinned_node_depth never skips; revised 2026-10-01 at coordinator request)",
+        "cargo test --locked -p spocky-contracts -p spocky-daemon -p spocky-provider-codex -p spocky-slice-harness",
         "cargo clippy --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain --all-targets -- -D warnings",
         "cargo fmt --package spocky-contracts --package spocky-daemon --package spocky-session --package spocky-provider-codex --package spocky-slice-harness --package spocky-store --package spocky-domain -- --check",
         "gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g1",
