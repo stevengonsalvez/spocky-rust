@@ -1,0 +1,15 @@
+# Standalone evaluator for the spocky-terminal emulator decision. It is its
+# own workspace so candidate emulator crates never enter the Spocky lockfile
+# before the lead selects one. Build offline from the local registry cache.
+[package]
+name = "spocky-terminal-emulator-eval"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+spocky-contracts = { path = "../../../crates/spocky-contracts" }
+vt100 = "=0.16.2"
+
+[workspace]
