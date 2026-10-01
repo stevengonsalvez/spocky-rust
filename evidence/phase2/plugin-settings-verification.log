@@ -1,22 +1,22 @@
-   Compiling spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.62s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
      Running tests/settings_lifecycle.rs (crates/spocky-plugin-pilot/.target-settings/debug/deps/settings_lifecycle-694aff90aa418ed9)
 
-running 9 tests
+running 10 tests
+test integer_errors_match_baseline ... ok
 test enum_array_and_required_object_errors_match_baseline ... ok
 test listener_failures_are_reported_without_failing_saved_write ... ok
+test validation_failure_preserves_disk_and_writer_recovers ... ok
 test arbitrary_json_schema_defaults_validation_and_async_refinement_match_baseline ... ok
 test notifications_are_isolated_and_namespaces_and_definition_ids_stay_separate ... ok
-test validation_failure_preserves_disk_and_writer_recovers ... ok
 test defaults_atomic_saves_conflicts_restart_and_file_permissions ... ok
 test differential_capture_matches_pinned_settings_cases ... ok
-test migration_persists_once_and_old_definition_rejects_newer_schema ... ok
 test failed_migration_and_corrupt_data_survive_until_explicit_reset ... ok
+test migration_persists_once_and_old_definition_rejects_newer_schema ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
 
    Compiling spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.87s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
      Running tests/plugin_lifecycle.rs (crates/spocky-plugin-pilot/.target-settings/debug/deps/plugin_lifecycle-351e4466e770fe45)
 
 running 3 tests
@@ -27,7 +27,7 @@ test source_identity_contributions_settings_removal_and_restart ... ok
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
 
    Compiling spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.83s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.92s
      Running tests/protocol_manifest.rs (crates/spocky-plugin-pilot/.target-settings/debug/deps/protocol_manifest-63f161d4cbe240f2)
 
 running 2 tests
@@ -37,7 +37,7 @@ test manifest_matches_pinned_paseo_shape_and_infers_entries ... ok
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
    Compiling spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.10s
      Running tests/process_protocol.rs (crates/spocky-plugin-pilot/.target-settings/debug/deps/process_protocol-a15c97ab59f69eac)
 
 running 2 tests
@@ -47,20 +47,38 @@ test every_pinned_plugin_message_shape_roundtrips_strictly ... ok
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
    Compiling spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.14s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.70s
      Running tests/runtime_acquisition.rs (crates/spocky-plugin-pilot/.target-settings/debug/deps/runtime_acquisition-a0636b7840a162be)
 
 running 9 tests
 test git_acquisition_runs_contribution_process_at_reviewed_revision ... ok
+test git_acquisition_normalizes_host_separators_and_cleans_failed_staging ... ok
+test runtime_rejects_nonzero_exit_after_valid_shutdown_handshake ... ok
 test runtime_exchanges_messages_through_real_node_fork_ipc ... ok
 test runtime_executes_hooks_usage_provider_reconnect_and_session_frames ... ok
-test runtime_rejects_nonzero_exit_after_valid_shutdown_handshake ... ok
 test failed_reviewed_runtime_update_preserves_active_state_after_restart ... ok
-test git_acquisition_normalizes_host_separators_and_cleans_failed_staging ... ok
 test npm_tarball_acquisition_runs_contribution_process_at_package_version ... ok
 test runtime_exposes_all_ready_contributions_and_recovers_after_fatal_message ... ok
 test timed_out_node_fork_ipc_reaps_the_plugin_child ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.38s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.44s
 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+    Checking typenum v1.20.1
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking memchr v2.8.3
+    Checking itoa v1.0.18
+    Checking cfg-if v1.0.5
+    Checking serde_core v1.0.229
+    Checking ryu v1.0.23
+    Checking cpufeatures v0.2.17
+    Checking indexmap v2.14.2
+    Checking generic-array v0.14.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking serde_json v1.0.145
+    Checking serde v1.0.229
+    Checking spocky-plugin-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-settings-schema/crates/spocky-plugin-pilot)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.42s

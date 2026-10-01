@@ -49,7 +49,7 @@ store through pinned Vitest, executes the Rust case through the permitted
 `settings_lifecycle` target, and compares the two emitted JSON strings without
 normalization.
 
-Eight byte-identical cases pass:
+Eleven byte-identical cases pass:
 
 1. Array minimum failure.
 2. Enum option failure.
@@ -58,7 +58,10 @@ Eight byte-identical cases pass:
 5. Number minimum failure.
 6. Asynchronous refinement failure.
 7. Multiple issue ordering and newline joining.
-8. Unknown-key stripping, defaults, fractional number persistence, exact
+8. Integer minimum error text.
+9. Fractional integer error text.
+10. Non-number integer error text.
+11. Unknown-key stripping, defaults, fractional number persistence, exact
    revision, and asynchronous subscriber rejection reporting.
 
 ## Preserved baseline defects
@@ -72,20 +75,20 @@ Eight byte-identical cases pass:
 
 ## Verification
 
-- `cargo test -p spocky-plugin-pilot --test settings_lifecycle`: 9 passed.
+- `cargo test -p spocky-plugin-pilot --test settings_lifecycle`: 10 passed.
 - `cargo test -p spocky-plugin-pilot --test plugin_lifecycle`: 3 passed.
 - `cargo test -p spocky-plugin-pilot --test protocol_manifest`: 2 passed.
 - `cargo test -p spocky-plugin-pilot --test process_protocol`: 2 passed.
 - `cargo test -p spocky-plugin-pilot --test runtime_acquisition`: 9 passed.
 - `cargo fmt --package spocky-plugin-pilot -- --check`: passed.
 - `cargo clippy -p spocky-plugin-pilot --all-targets -- -D warnings`: passed.
-- `scripts/phase2/plugin-settings-capture.sh`: 8 matched, 0 mismatched.
+- `scripts/phase2/plugin-settings-capture.sh`: 11 matched, 0 mismatched.
 
 Raw differential log SHA-256:
-`a61bb77f9b252e4696de7f4add9d49532b9808ffcc301a007786fc4d66acb06f`.
+`fb6e6e42c64d5605f78488e083a24b2887c41bcf4a26dfe63a3e69865514c723`.
 
 Targeted verification log SHA-256:
-`d341df863e2e27fed28a711f3a0a1e856dffc98ff34f446ed1ce6c93359b2a02`.
+`a3b5576186e942e70ac8ad554df74c29a16a9dd32a0cec7bc74c3ea6cc2c41b6`.
 
 ## Remaining gaps
 

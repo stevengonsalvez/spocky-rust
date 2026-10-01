@@ -48,5 +48,5 @@ if [[ -z "$baseline" || -z "$rust" || "$baseline" != "$rust" ]]; then
   exit 1
 fi
 
-printf 'settings differential: 8 matched, 0 mismatched\n'
+printf 'settings differential: 11 matched, 0 mismatched\n'
 shasum -a 256 "$raw_log"

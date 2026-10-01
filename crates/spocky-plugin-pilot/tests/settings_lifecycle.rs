@@ -406,6 +406,34 @@ fn enum_array_and_required_object_errors_match_baseline() {
 }
 
 #[test]
+fn integer_errors_match_baseline() {
+    let root = TestDir::new();
+    let mut store = PluginSettingsStore::open(root.path()).expect("open store");
+    store.register(display(1)).expect("register settings");
+
+    for (values, expected) in [
+        (json!({"count": -1}), "Too small: expected number to be >=1"),
+        (
+            json!({"count": 1.5}),
+            "Invalid input: expected int, received number",
+        ),
+        (
+            json!({"count": "1"}),
+            "Invalid input: expected number, received string",
+        ),
+    ] {
+        assert_eq!(
+            store
+                .write("display", "missing", &values)
+                .expect("integer validation result"),
+            SettingsWriteState::Invalid {
+                error: expected.into(),
+            }
+        );
+    }
+}
+
+#[test]
 fn listener_failures_are_reported_without_failing_saved_write() {
     let root = TestDir::new();
     let reported = Arc::new(Mutex::new(Vec::new()));
@@ -477,6 +505,18 @@ fn differential_capture_matches_pinned_settings_cases() {
         let result = store
             .write("rich", "missing", &values)
             .expect("capture write result");
+        cases.push(json!({"name": name, "result": write_result_json(result)}));
+    }
+    for (name, value) in [
+        ("integer-minimum", json!(-1)),
+        ("integer-fraction", json!(1.5)),
+        ("integer-type", json!("1")),
+    ] {
+        let mut store = PluginSettingsStore::open(root.path().join(name)).expect("open store");
+        store.register(display(1)).expect("register settings");
+        let result = store
+            .write("display", "missing", &json!({"count": value}))
+            .expect("capture integer result");
         cases.push(json!({"name": name, "result": write_result_json(result)}));
     }
 

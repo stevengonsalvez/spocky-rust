@@ -211,10 +211,13 @@ impl SettingsSchema {
                 .map(Value::Bool)
                 .ok_or_else(|| invalid_type("boolean", value)),
             SettingsSchemaKind::Integer { minimum } => {
+                if !value.is_number() {
+                    return Err(invalid_type("number", value));
+                }
                 let parsed = value.as_i64().ok_or_else(|| invalid_type("int", value))?;
                 if minimum.is_some_and(|minimum| parsed < minimum) {
                     return Err(format!(
-                        "Too small: expected int to be >= {}",
+                        "Too small: expected number to be >={}",
                         minimum.unwrap()
                     ));
                 }

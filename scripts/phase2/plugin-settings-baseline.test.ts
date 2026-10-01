@@ -24,6 +24,15 @@ const schema = z
   });
 
 const definition = defineSettings({ id: "rich", scope: "host", version: 1, schema });
+const integerDefinition = defineSettings({
+  id: "display",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    count: z.number().int().min(1).default(5),
+    enabled: z.boolean().default(true),
+  }),
+});
 
 async function setup() {
   const directory = await mkdtemp(path.join(tmpdir(), "plugin-settings-differential-"));
@@ -52,6 +61,19 @@ test("captures pinned settings schema behavior", async () => {
     cases.push({ name, result: await handlers.write.handle({ revision: "missing", values }) });
     restore();
   }
+  for (const [name, count] of [
+    ["integer-minimum", -1],
+    ["integer-fraction", 1.5],
+    ["integer-type", "1"],
+  ] as const) {
+    const directory = await mkdtemp(path.join(tmpdir(), "plugin-settings-differential-"));
+    roots.push(directory);
+    const handlers = new PluginSettingsStore(directory, () => {}).register(integerDefinition);
+    cases.push({
+      name,
+      result: await handlers.write.handle({ revision: "missing", values: { count } }),
+    });
+  }
 
   const callback = await setup();
   callback.handlers.settings.subscribe(async () => {
@@ -66,6 +88,6 @@ test("captures pinned settings schema behavior", async () => {
   cases.push({ name: "saved", reports: callback.reports, result: saved });
   callback.restore();
 
-  expect(cases).toHaveLength(8);
+  expect(cases).toHaveLength(11);
   console.log(`PLUGIN_SETTINGS_BASELINE ${JSON.stringify(cases)}`);
 });
