@@ -20,11 +20,24 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
 mod client_runtime;
+mod daemon_rpc;
 mod protocol;
 mod settings;
 
 pub use client_runtime::{
     ClientContribution, ClientRuntimeSession, CompiledPluginClient, compile_plugin_client,
+};
+
+pub use daemon_rpc::{
+    CatalogPayload, InspectPayload, ListPayload, LogsPayload, PluginDaemonRequest,
+    PluginDaemonResponse, PluginInstallationWire, PluginLegacySource, PluginListItem,
+    PluginLogEntry, PluginLogStream, PluginNotification, PluginNotificationPayload,
+    PluginNpmInstallation, PluginPayload, PluginRpcError, PluginRpcErrorPayload,
+    PluginRuntimeStatus, PluginSourceIdentityWire, PluginSourceStatusItem, PluginSourceUpdateItem,
+    PluginUpdateExpected, PluginUpdatePreview, PluginUpdatePreviewOutcome, PluginUpdateProposal,
+    PluginUpdateResult, PluginUpdateResultOutcome, PluginUpdateSelection, PluginUpdateTarget,
+    RequestPayload, RpcInvokePayload, SourceStatusPayload, SourceUpdatePayload, UpdateApplyPayload,
+    UpdatePreviewPayload,
 };
 
 pub use protocol::{
@@ -189,6 +202,41 @@ pub struct PluginCatalogEntry {
     pub id: PluginId,
     pub client_bundle: String,
     pub paseo_requirement: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for PluginCatalogEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct WireEntry {
+            id: PluginId,
+            client_bundle: String,
+            #[serde(
+                default,
+                deserialize_with = "deserialize_optional_catalog_requirements"
+            )]
+            requirements: Option<PluginRequirements>,
+        }
+
+        fn deserialize_optional_catalog_requirements<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<PluginRequirements>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            PluginRequirements::deserialize(deserializer).map(Some)
+        }
+
+        let wire = WireEntry::deserialize(deserializer)?;
+        Ok(Self {
+            id: wire.id,
+            client_bundle: wire.client_bundle,
+            paseo_requirement: wire.requirements.and_then(|value| value.paseo),
+        })
+    }
 }
 
 impl Serialize for PluginCatalogEntry {

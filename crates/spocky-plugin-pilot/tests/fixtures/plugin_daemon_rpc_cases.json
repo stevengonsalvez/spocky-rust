@@ -1,0 +1,56 @@
+{
+  "requests": [
+    {"type":"plugin.catalog.get.request","requestId":"catalog"},
+    {"type":"plugin.list.request","requestId":"list"},
+    {"type":"plugin.logs.get.request","requestId":"logs","pluginId":"review"},
+    {"type":"plugin.directory.install.request","requestId":"directory-install","path":"/tmp/plugins/review"},
+    {"type":"plugin.directory.inspect.request","requestId":"directory-inspect","path":"/tmp/plugins/review"},
+    {"type":"plugin.source.install.request","requestId":"source-install","source":"owner/repository","id":"review","ref":"main","pluginPath":"plugins/review"},
+    {"type":"plugin.source.status.request","requestId":"source-status"},
+    {"type":"plugin.source.update.preview.request","requestId":"preview","pluginId":"review","target":{"kind":"git","ref":"main"}},
+    {"type":"plugin.source.update.apply.request","requestId":"apply","proposals":[{"id":"review","expected":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"installationRoot":"/tmp/managed/review","revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"target":{"kind":"git","commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]},
+    {"type":"plugin.source.update.request","requestId":"legacy-update","pluginId":"review"},
+    {"type":"plugin.reload.request","requestId":"reload","pluginId":"review"},
+    {"type":"plugin.enable.request","requestId":"enable","pluginId":"review"},
+    {"type":"plugin.disable.request","requestId":"disable","pluginId":"review"},
+    {"type":"plugin.remove.request","requestId":"remove","pluginId":"review"},
+    {"type":"plugin.rpc.invoke.request","requestId":"invoke","pluginId":"review","method":"review.search","input":{"query":"rpc","cursor":null}},
+    {"type":"plugin.rpc.invoke.request","requestId":"settings-read","pluginId":"review","method":"settings.preferences.read","input":{}},
+    {"type":"plugin.rpc.invoke.request","requestId":"settings-write","pluginId":"review","method":"settings.preferences.write","input":{"revision":"missing","values":{"enabled":true}}},
+    {"type":"plugin.rpc.invoke.request","requestId":"settings-reset","pluginId":"review","method":"settings.preferences.reset","input":{"revision":"abc123"}}
+  ],
+  "responses": [
+    {"type":"plugin.catalog.get.response","payload":{"requestId":"catalog","plugins":[{"id":"review","clientBundle":"client.addSurface(\"main\",Surface)","requirements":{"paseo":">=0.8.0"}}]}},
+    {"type":"plugin.list.response","payload":{"requestId":"list","plugins":[{"id":"review","description":"Review changes","path":"/tmp/managed/review/plugins/review","enabled":true,"status":"running","source":"git","installation":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"remote":"https://example.invalid/review.git","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}},
+    {"type":"plugin.logs.get.response","payload":{"requestId":"logs","pluginId":"review","entries":[{"sequence":0,"timestamp":"2026-01-02T03:04:05.000Z","stream":"stdout","message":"ready"}]}},
+    {"type":"plugin.directory.install.response","payload":{"requestId":"directory-install","plugin":{"id":"review","path":"/tmp/plugins/review","enabled":true,"status":"running","installation":{"identity":{"kind":"directory","path":"/tmp/plugins/review"}}}}},
+    {"type":"plugin.directory.inspect.response","payload":{"requestId":"directory-inspect","id":"review"}},
+    {"type":"plugin.source.install.response","payload":{"requestId":"source-install","plugin":{"id":"review","path":"/tmp/managed/review/plugins/review","enabled":true,"status":"running","source":"git","installation":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}},
+    {"type":"plugin.source.status.response","payload":{"requestId":"source-status","plugins":[{"id":"review","source":"git","installation":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"path":"/tmp/managed/review/plugins/review","remote":"https://example.invalid/review.git","currentCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","latestCommit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","commitsBehind":1,"updateAvailable":true}]}},
+    {"type":"plugin.source.update.preview.response","payload":{"requestId":"preview","plugins":[{"id":"review","outcome":"update","current":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"target":{"kind":"git","commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"links":["https://example.invalid/compare"],"proposal":{"id":"review","expected":{"identity":{"kind":"git","remote":"https://example.invalid/review.git","pluginPath":"plugins/review"},"installationRoot":"/tmp/managed/review","revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"target":{"kind":"git","commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}]}},
+    {"type":"plugin.source.update.apply.response","payload":{"requestId":"apply","plugins":[{"id":"review","outcome":"error","error":"candidate failed"}]}},
+    {"type":"plugin.source.update.response","payload":{"requestId":"legacy-update","plugins":[{"id":"review","previousCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentCommit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","commits":1,"updated":true}]}},
+    {"type":"plugin.reload.response","payload":{"requestId":"reload","plugin":{"id":"review","path":"/tmp/plugins/review","enabled":true,"status":"running"}}},
+    {"type":"plugin.enable.response","payload":{"requestId":"enable","plugin":{"id":"review","path":"/tmp/plugins/review","enabled":true,"status":"running"}}},
+    {"type":"plugin.disable.response","payload":{"requestId":"disable","plugin":{"id":"review","path":"/tmp/plugins/review","enabled":false,"status":"disabled"}}},
+    {"type":"plugin.remove.response","payload":{"requestId":"remove"}},
+    {"type":"plugin.rpc.invoke.response","payload":{"requestId":"invoke","output":{"items":[{"id":"issue-1","identifier":"ENG-1","title":"RPC parity","url":"https://example.invalid/issues/1","text":"Complete daemon RPC parity","resourceType":"issue"}],"nextCursor":null}}},
+    {"type":"plugin.rpc.invoke.response","payload":{"requestId":"settings-read","output":{"status":"ready","revision":"missing","values":{"enabled":false}}}},
+    {"type":"plugin.rpc.invoke.response","payload":{"requestId":"settings-write","output":{"status":"saved","revision":"abc123","values":{"enabled":true}}}},
+    {"type":"plugin.rpc.invoke.response","payload":{"requestId":"settings-reset","output":{"status":"conflict","error":"Settings changed on another client. Reload before saving again."}}}
+  ],
+  "errors": [
+    {"type":"rpc_error","payload":{"requestId":"invoke-failed","requestType":"plugin.rpc.invoke.request","error":"Request failed: Unknown plugin RPC method: missing","code":"handler_error"}},
+    {"type":"rpc_error","payload":{"requestId":"remove-denied","requestType":"plugin.remove.request","error":"Session is not authorized for plugin.remove.request","code":"access_denied"}}
+  ],
+  "notifications": [
+    {"type":"status","payload":{"status":"plugin_catalog_changed","pluginId":"review"}},
+    {"type":"status","payload":{"status":"plugin_settings_changed","pluginId":"review","settingsId":"preferences"}}
+  ],
+  "rejectedRequests": [
+    {"type":"plugin.directory.install.request","requestId":"null-id","path":"/tmp/plugins/review","id":null}
+  ],
+  "rejectedResponses": [
+    {"type":"plugin.list.response","payload":{"requestId":"null-description","plugins":[{"id":"review","description":null,"path":"/tmp/plugins/review","enabled":true,"status":"running"}]}}
+  ]
+}
