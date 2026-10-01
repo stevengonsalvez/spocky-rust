@@ -5,8 +5,8 @@
 use spocky_store::js_value::JsValue;
 
 use crate::agent_sdk::AgentPromptInput;
-use crate::js::js_string;
 use crate::text::js_trim;
+use spocky_contracts::js::js_string;
 
 const ENVELOPE_OPEN: &str = "<paseo-system>\n";
 const ENVELOPE_CLOSE: &str = "\n</paseo-system>";
