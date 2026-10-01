@@ -832,3 +832,47 @@ fn a_flood_of_connections_does_not_stop_the_accept_loop() {
     );
     harness.finish();
 }
+
+#[test]
+fn a_peer_that_stops_reading_is_terminated_at_the_high_water_mark() {
+    let harness = start(config());
+    harness.server.set_max_buffered_bytes(256 * 1024);
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("stalled"));
+    next_json(&mut ws);
+    let sink = Arc::clone(&harness.calls.sinks.lock().unwrap()[0]);
+    let message = json!({"type": "big", "data": "x".repeat(1_000_000)});
+    let started = Instant::now();
+    let mut peak = 0;
+    while harness.calls.detached.lock().unwrap().is_empty() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the stalled socket was never dropped"
+        );
+        sink.send_to_connection(&message);
+        peak = peak.max(sink.buffered_amount(None).unwrap_or(0));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(peak <= 256 * 1024 + 2_000_000, "buffered {peak} bytes");
+    harness.finish();
+}
+
+#[test]
+fn a_slow_reader_below_the_mark_still_receives_every_frame_in_order() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("slow"));
+    next_json(&mut ws);
+    let sink = Arc::clone(&harness.calls.sinks.lock().unwrap()[0]);
+    for index in 0..40 {
+        sink.send_to_connection(
+            &json!({"type": "chunk", "index": index, "data": "y".repeat(200_000)}),
+        );
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    for index in 0..40 {
+        let frame = next_json(&mut ws);
+        assert_eq!(frame["message"]["index"], index);
+    }
+    harness.finish();
+}
