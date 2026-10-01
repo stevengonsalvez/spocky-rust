@@ -969,7 +969,7 @@ const PLAN_FEATURE = {
 // Live snapshot from pinned toAgentPayload (agent-projections.ts), then the
 // two assignments of enrichAgentPayload (session.ts:2033-2037) for an agent
 // with no stored title or archive time.
-function liveAgent(pinned, { idle = false } = {}) {
+function liveAgent(pinned, { idle = false, pending = [] } = {}) {
   const payload = pinned.toAgentPayload({
     id: AGENT_ID,
     provider: "codex",
@@ -994,7 +994,7 @@ function liveAgent(pinned, { idle = false } = {}) {
     currentModeId: "full-access",
     availableModes: CODEX_MODES,
     features: [PLAN_FEATURE],
-    pendingPermissions: new Map(),
+    pendingPermissions: new Map(pending.map((request) => [request.id, request])),
     // codex-app-server-agent.ts describePersistence
     persistence: {
       provider: "codex",
@@ -1541,5 +1541,115 @@ CASES.push(
     direction: "inbound",
     source: "CancelAgentRequestMessageSchema requestId optional, not nullable",
     raw: '{"type":"session","message":{"type":"cancel_agent_request","agentId":"a","requestId":null}}',
+  },
+);
+
+// G2 outbound frames. The pending request is the raw object
+// codex-app-server-agent.ts:6895-6944 builds for a shell approval; pinned
+// toAgentPayload runs sanitizePendingPermissions on it.
+function codexShellApproval({ description } = {}) {
+  return {
+    id: "permission-item-1",
+    provider: "codex",
+    name: "CodexBash",
+    kind: "tool",
+    title: "Run command: /bin/zsh -lc 'ls'",
+    description,
+    input: { command: "/bin/zsh -lc 'ls'", cwd: "/tmp/project" },
+    detail: { type: "shell", command: "ls", cwd: "/tmp/project" },
+    metadata: { itemId: "item-1", threadId: THREAD, turnId: "turn-1" },
+  };
+}
+
+CASES.push(
+  {
+    id: "out.g2.fetch_agent.pending_permission",
+    direction: "outbound",
+    source: "session.ts handleFetchAgent; agent-projections.ts sanitizePendingPermissions",
+    build: (pinned) =>
+      session({
+        type: "fetch_agent_response",
+        payload: {
+          requestId: "r",
+          agent: liveAgent(pinned, { pending: [codexShellApproval({ description: "needs approval" })] }),
+          project: placement(pinned),
+          error: null,
+        },
+      }),
+  },
+  {
+    id: "out.g2.wait_for_finish.permission",
+    direction: "outbound",
+    source: "session.ts:8226-8229 with status permission",
+    build: (pinned) =>
+      session({
+        type: "wait_for_finish_response",
+        payload: {
+          requestId: "r",
+          status: "permission",
+          final: liveAgent(pinned, { pending: [codexShellApproval()] }),
+          error: null,
+          lastMessage: null,
+        },
+      }),
+  },
+  {
+    id: "out.g2.cancel_agent.response",
+    direction: "outbound",
+    source: "session.ts:4633-4641",
+    build: (pinned) =>
+      session({
+        type: "cancel_agent_response",
+        payload: { requestId: "r", agentId: AGENT_ID, agent: liveAgent(pinned, { idle: true }), error: null },
+      }),
+  },
+  {
+    id: "out.g2.cancel_agent.error",
+    direction: "outbound",
+    source: "session.ts:4651-4659",
+    build: () =>
+      session({
+        type: "cancel_agent_response",
+        payload: { requestId: "r", agentId: "x", agent: null, error: "Agent x not found" },
+      }),
+  },
+  {
+    id: "out.g2.permission_resolved.reply",
+    direction: "outbound",
+    source: "session.ts:5014-5050 reply with the zod-parsed response",
+    build: () =>
+      session({
+        type: "agent_permission_resolved",
+        payload: { agentId: AGENT_ID, requestId: "permission-item-1", resolution: { behavior: "allow" } },
+      }),
+  },
+  {
+    id: "out.g2.permission_resolved.interrupted",
+    direction: "outbound",
+    source: "agent-manager.ts:4621-4637; owned-subscriptions withSubscriptionId",
+    build: () =>
+      session({
+        type: "agent_permission_resolved",
+        payload: {
+          agentId: AGENT_ID,
+          requestId: "permission-item-1",
+          resolution: { behavior: "deny", message: "Interrupted" },
+          subscriptionId: "sub-1",
+        },
+      }),
+  },
+  {
+    id: "out.g2.permission_request.event",
+    direction: "outbound",
+    source: "session.ts:1976-1983 raw request; owned-subscriptions withSubscriptionId",
+    build: () =>
+      session({
+        type: "agent_permission_request",
+        payload: {
+          agentId: AGENT_ID,
+          request: { ...codexShellApproval(), input: { command: undefined, cwd: undefined } },
+          subscriptionId: "sub-1",
+        },
+      }),
   },
 );

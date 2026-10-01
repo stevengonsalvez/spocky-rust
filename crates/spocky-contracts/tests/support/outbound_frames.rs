@@ -8,10 +8,15 @@ use spocky_contracts::frame::WsOutbound;
 use spocky_contracts::js_value::JsValue;
 use spocky_contracts::json::{JsRecord, JsonValue};
 use spocky_contracts::number::{BoundedInt, Int, JsNumber, NonNegativeInt};
-use spocky_contracts::request::{CreationKind, TimelineDirection, TimelineProjection};
+use spocky_contracts::permission::{PermissionKind, PermissionRequest};
+use spocky_contracts::request::{
+    CreationKind, PermissionAllow, PermissionDeny, PermissionResponse, TimelineDirection,
+    TimelineProjection,
+};
 use spocky_contracts::response::{
-    AgentCreateResponse, AgentDirectoryEntry, FetchAgentResponse, FetchAgentTimelineResponse,
-    FetchAgentsResponse, FetchWorkspacesResponse, PageInfo, SendAgentMessageResponse,
+    AgentCreateResponse, AgentDirectoryEntry, AgentPermissionRequestEvent, AgentPermissionResolved,
+    CancelAgentResponse, FetchAgentResponse, FetchAgentTimelineResponse, FetchAgentsResponse,
+    FetchWorkspacesResponse, PageInfo, SendAgentMessageResponse,
     SetAgentTimelineSubscriptionResponse, WaitForFinishResponse, WaitStatus,
     WorkspaceCreateResponse,
 };
@@ -112,6 +117,10 @@ fn persistence_metadata() -> JsRecord<JsonValue> {
 }
 
 fn live_agent(idle: bool) -> AgentSnapshot {
+    live_agent_with(idle, Vec::new())
+}
+
+fn live_agent_with(idle: bool, pending: Vec<PermissionRequest>) -> AgentSnapshot {
     AgentSnapshot::Live(Box::new(LiveAgentSnapshot {
         id: s(AGENT_ID),
         provider: s("codex"),
@@ -151,7 +160,7 @@ fn live_agent(idle: bool) -> AgentSnapshot {
             icon: Some(s("list-todo")),
             value: false,
         }],
-        pending_permissions: Vec::new(),
+        pending_permissions: pending,
         persistence: Some(PersistenceHandle {
             provider: s("codex"),
             session_id: s(THREAD),
@@ -174,6 +183,53 @@ fn live_agent(idle: bool) -> AgentSnapshot {
         attention_timestamp: idle.then(|| s(T1)),
         archived_at: None,
     }))
+}
+
+fn text_value(value: &str) -> JsonValue {
+    JsonValue(JsValue::String(s(value).into_string()))
+}
+
+fn record(entries: &[(&str, JsonValue)]) -> JsRecord<JsonValue> {
+    entries
+        .iter()
+        .map(|(key, value)| (s(key).into_string(), value.clone()))
+        .collect()
+}
+
+/// The sanitized Codex shell approval (`codex-app-server-agent.ts:6895-6944`).
+fn codex_shell_approval(
+    description: Option<&str>,
+    input: Option<JsRecord<JsonValue>>,
+) -> PermissionRequest {
+    PermissionRequest {
+        id: s("permission-item-1"),
+        provider: s("codex"),
+        name: s("CodexBash"),
+        kind: PermissionKind::Tool,
+        title: Some(s("Run command: /bin/zsh -lc 'ls'")),
+        description: description.map(s),
+        input,
+        detail: Some(ToolCallDetail::Shell(ShellDetail {
+            command: s("ls"),
+            cwd: Some(s("/tmp/project")),
+            output: None,
+            exit_code: None,
+        })),
+        suggestions: None,
+        actions: None,
+        metadata: Some(record(&[
+            ("itemId", text_value("item-1")),
+            ("threadId", text_value(THREAD)),
+            ("turnId", text_value("turn-1")),
+        ])),
+    }
+}
+
+fn approval_input() -> JsRecord<JsonValue> {
+    record(&[
+        ("command", text_value("/bin/zsh -lc 'ls'")),
+        ("cwd", text_value("/tmp/project")),
+    ])
 }
 
 fn stored_agent() -> AgentSnapshot {
@@ -587,6 +643,79 @@ pub fn frame(id: &str) -> Option<WsOutbound> {
                 accepted: true,
                 error: None,
             },
+        },
+        "out.g2.fetch_agent.pending_permission" => SessionOutbound::FetchAgentResponse {
+            payload: Box::new(FetchAgentResponse {
+                request_id: s("r"),
+                agent: Some(live_agent_with(
+                    false,
+                    vec![codex_shell_approval(
+                        Some("needs approval"),
+                        Some(approval_input()),
+                    )],
+                )),
+                project: Some(placement()),
+                error: None,
+            }),
+        },
+        "out.g2.wait_for_finish.permission" => SessionOutbound::WaitForFinishResponse {
+            payload: Box::new(WaitForFinishResponse {
+                request_id: s("r"),
+                status: WaitStatus::Permission,
+                final_agent: Some(live_agent_with(
+                    false,
+                    vec![codex_shell_approval(None, Some(approval_input()))],
+                )),
+                error: None,
+                last_message: None,
+            }),
+        },
+        "out.g2.cancel_agent.response" => SessionOutbound::CancelAgentResponse {
+            payload: Box::new(CancelAgentResponse {
+                request_id: s("r"),
+                agent_id: s(AGENT_ID),
+                agent: Some(live_agent(true)),
+                error: None,
+            }),
+        },
+        "out.g2.cancel_agent.error" => SessionOutbound::CancelAgentResponse {
+            payload: Box::new(CancelAgentResponse {
+                request_id: s("r"),
+                agent_id: s("x"),
+                agent: None,
+                error: Some(s("Agent x not found")),
+            }),
+        },
+        "out.g2.permission_resolved.reply" => SessionOutbound::AgentPermissionResolved {
+            payload: Box::new(AgentPermissionResolved {
+                agent_id: s(AGENT_ID),
+                request_id: s("permission-item-1"),
+                resolution: PermissionResponse::Allow(PermissionAllow {
+                    selected_action_id: None,
+                    updated_input: None,
+                    updated_permissions: None,
+                }),
+                subscription_id: None,
+            }),
+        },
+        "out.g2.permission_resolved.interrupted" => SessionOutbound::AgentPermissionResolved {
+            payload: Box::new(AgentPermissionResolved {
+                agent_id: s(AGENT_ID),
+                request_id: s("permission-item-1"),
+                resolution: PermissionResponse::Deny(PermissionDeny {
+                    selected_action_id: None,
+                    message: Some(s("Interrupted")),
+                    interrupt: None,
+                }),
+                subscription_id: Some(s("sub-1")),
+            }),
+        },
+        "out.g2.permission_request.event" => SessionOutbound::AgentPermissionRequest {
+            payload: Box::new(AgentPermissionRequestEvent {
+                agent_id: s(AGENT_ID),
+                request: codex_shell_approval(None, Some(JsRecord::new())),
+                subscription_id: Some(s("sub-1")),
+            }),
         },
         _ => return None,
     };
