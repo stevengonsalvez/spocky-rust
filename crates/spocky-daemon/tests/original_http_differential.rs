@@ -161,7 +161,7 @@ fn closed_by_server(stream: &mut TcpStream) -> bool {
 }
 
 #[test]
-fn http_exchanges_match_the_captured_express_bytes() {
+fn http_exchanges_match_the_captured_original_daemon_bytes() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-http-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
