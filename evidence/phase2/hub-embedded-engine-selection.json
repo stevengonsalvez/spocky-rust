@@ -1,0 +1,151 @@
+{
+  "baseline": {
+    "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "package": "@electric-sql/pglite",
+    "version": "0.5.4",
+    "integrity": "sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g=="
+  },
+  "probe": {
+    "package": "@electric-sql/pglite",
+    "version": "0.5.4",
+    "packageBytes": 25403132,
+    "packageFileCount": 301,
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        }
+      },
+      "./template": {
+        "import": {
+          "types": "./dist/templating.d.ts",
+          "default": "./dist/templating.js"
+        },
+        "require": {
+          "types": "./dist/templating.d.cts",
+          "default": "./dist/templating.cjs"
+        }
+      },
+      "./live": {
+        "import": {
+          "types": "./dist/live/index.d.ts",
+          "default": "./dist/live/index.js"
+        },
+        "require": {
+          "types": "./dist/live/index.d.cts",
+          "default": "./dist/live/index.cjs"
+        }
+      },
+      "./worker": {
+        "import": {
+          "types": "./dist/worker/index.d.ts",
+          "default": "./dist/worker/index.js"
+        },
+        "require": {
+          "types": "./dist/worker/index.d.cts",
+          "default": "./dist/worker/index.cjs"
+        }
+      },
+      "./nodefs": {
+        "import": {
+          "types": "./dist/fs/nodefs.d.ts",
+          "default": "./dist/fs/nodefs.js"
+        },
+        "require": {
+          "types": "./dist/fs/nodefs.d.cts",
+          "default": "./dist/fs/nodefs.cjs"
+        }
+      },
+      "./opfs-ahp": {
+        "import": {
+          "types": "./dist/fs/opfs-ahp.d.ts",
+          "default": "./dist/fs/opfs-ahp.js"
+        },
+        "require": {
+          "types": "./dist/fs/opfs-ahp.d.cts",
+          "default": "./dist/fs/opfs-ahp.cjs"
+        }
+      },
+      "./basefs": {
+        "import": {
+          "types": "./dist/fs/base.d.ts",
+          "default": "./dist/fs/base.js"
+        },
+        "require": {
+          "types": "./dist/fs/base.d.cts",
+          "default": "./dist/fs/base.cjs"
+        }
+      },
+      "./contrib/*": {
+        "types": "./dist/contrib/*.d.ts",
+        "import": "./dist/contrib/*.js",
+        "require": "./dist/contrib/*.cjs"
+      }
+    },
+    "mainWasm": {
+      "bytes": 10087563,
+      "imports": {
+        "total": 135,
+        "byModule": {
+          "GOT.mem": 1,
+          "env": 121,
+          "wasi_snapshot_preview1": 13
+        }
+      }
+    },
+    "initdbWasm": {
+      "bytes": 395059,
+      "imports": {
+        "total": 50,
+        "byModule": {
+          "GOT.mem": 1,
+          "env": 40,
+          "wasi_snapshot_preview1": 9
+        }
+      }
+    },
+    "glue": {
+      "moduleBytes": 515435,
+      "dataBytes": 6293225
+    },
+    "historicalMigrationCount": 49,
+    "runtimeOperations": {
+      "restart": true,
+      "crossProcessRejection": true,
+      "transactionRollback": true,
+      "sameKeySerialization": [
+        "first:start",
+        "first:end",
+        "second:start",
+        "second:end"
+      ],
+      "staleOwnerRecovery": true
+    }
+  },
+  "decision": {
+    "selection": "blocked",
+    "sqliteExactEngine": false,
+    "requiresRetainedJavaScriptOrRootDependencies": true,
+    "reason": "Pinned PGlite exposes JavaScript entry points and Wasm modules with custom env imports. Current Rust manifests contain SQLite only. Exact hosting therefore retains JavaScript glue or adds root Cargo dependencies and a compatible host implementation."
+  },
+  "compatibilityException": {
+    "status": "required-not-accepted",
+    "capability": "Embedded Hub PostgreSQL-compatible storage",
+    "owner": "Hub storage",
+    "exactRuntimeVersion": "@electric-sql/pglite 0.5.4 with its distributed JavaScript glue; Node.js v26.7.0 is the only qualified host",
+    "boundary": "Rust Hub process to retained JavaScript PGlite host over a new bounded IPC boundary",
+    "exchangedData": "PostgreSQL SQL, bind parameters, result rows, transaction commands, migration commands, errors, and shutdown state",
+    "pilotEvidence": "Pinned baseline replays 49 historical migrations and passes restart, rollback, locking, and stale-owner probes; no Rust-hosted PGlite candidate exists",
+    "securityPackagingRisk": "Adds Node.js and npm artifacts, a 25 MB PGlite package, subprocess IPC, filesystem permissions, code-signing scope, updater scope, and supply-chain review",
+    "performanceSupportRisk": "Adds process startup, IPC serialization, crash supervision, memory duplication, and support for 121 custom main-module env imports plus 40 initdb env imports",
+    "originalVsCandidateTests": "Original PGlite runtime is executable; SQLite remains engine, schema, dialect, migration, constraint, mutation, and crash-process non-parity; retained-host candidate has not been implemented",
+    "platforms": "macOS arm64 baseline probe only; iOS, Android, browser, macOS packaging, Windows, and Linux retained-runtime qualification is absent",
+    "removalCondition": "Remove retained JavaScript after a Rust-hosted PGlite-compatible engine replays all historical migrations, reopens old state, survives process crashes, and matches embedded and PostgreSQL mutation traces on required platforms",
+    "reviewDate": "2026-10-01"
+  }
+}
