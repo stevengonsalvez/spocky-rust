@@ -15,6 +15,7 @@ pub mod creation;
 pub mod field;
 pub mod frame;
 pub mod id;
+pub mod js_value;
 pub mod json;
 pub mod literal;
 pub mod number;
