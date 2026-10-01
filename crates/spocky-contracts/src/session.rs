@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::creation::CreationSnapshot;
 use crate::field::optional;
-use crate::json::{JsRecord, JsonValue, serialize_passthrough};
+use crate::json::{JsRecord, JsonValue, deserialize_tagged, serialize_passthrough};
 use crate::number::Int;
 use crate::request::{
     AgentCreateRequest, CreateAgentRequest, CreationSubscribeRequest, FetchAgentRequest,
@@ -127,7 +127,7 @@ impl Serialize for StatusPayload {
 }
 
 /// Client-to-daemon session messages in the slice.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum SessionInbound {
     #[serde(rename = "ping")]
@@ -159,6 +159,51 @@ pub enum SessionInbound {
     #[serde(rename = "subscription.release.request")]
     SubscriptionRelease(SubscriptionReleaseRequest),
 }
+
+deserialize_tagged!(SessionInbound, "type", {
+    "ping" => |input| SessionPing::deserialize(input).map(SessionInbound::Ping),
+    "workspace.create.request" => |input| {
+        WorkspaceCreateRequest::deserialize(input).map(|r| SessionInbound::WorkspaceCreate(Box::new(r)))
+    },
+    "fetch_workspaces_request" => |input| {
+        FetchWorkspacesRequest::deserialize(input).map(SessionInbound::FetchWorkspaces)
+    },
+    "create_agent_request" => |input| {
+        CreateAgentRequest::deserialize(input).map(|r| SessionInbound::CreateAgent(Box::new(r)))
+    },
+    "agent.create.request" => |input| {
+        AgentCreateRequest::deserialize(input).map(|r| SessionInbound::AgentCreate(Box::new(r)))
+    },
+    "creation.subscribe.request" => |input| {
+        CreationSubscribeRequest::deserialize(input).map(SessionInbound::CreationSubscribe)
+    },
+    "send_agent_message_request" => |input| {
+        SendAgentMessageRequest::deserialize(input).map(SessionInbound::SendAgentMessage)
+    },
+    "wait_for_finish_request" => |input| {
+        WaitForFinishRequest::deserialize(input).map(SessionInbound::WaitForFinish)
+    },
+    "fetch_agents_request" => |input| {
+        FetchAgentsRequest::deserialize(input).map(SessionInbound::FetchAgents)
+    },
+    "fetch_agent_request" => |input| {
+        FetchAgentRequest::deserialize(input).map(SessionInbound::FetchAgent)
+    },
+    "fetch_agent_timeline_request" => |input| {
+        FetchAgentTimelineRequest::deserialize(input).map(SessionInbound::FetchAgentTimeline)
+    },
+    "agent.timeline.set_subscription.request" => |input| {
+        SetAgentTimelineSubscriptionRequest::deserialize(input)
+            .map(SessionInbound::SetAgentTimelineSubscription)
+    },
+    "session.events.set_subscription.request" => |input| {
+        SessionEventsSetSubscriptionRequest::deserialize(input)
+            .map(SessionInbound::SetSessionEventsSubscription)
+    },
+    "subscription.release.request" => |input| {
+        SubscriptionReleaseRequest::deserialize(input).map(SessionInbound::SubscriptionRelease)
+    },
+});
 
 /// Daemon-to-client session messages in the slice.
 #[derive(Debug, Clone, PartialEq, Serialize)]
