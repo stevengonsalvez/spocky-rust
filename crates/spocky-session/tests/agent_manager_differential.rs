@@ -20,6 +20,10 @@
 //! - `subagents`: provider sub-agent events during a turn, the four
 //!   sub-agent queries, and `closeAgent` canceling a running child.
 //!
+//! - `hydration`: `hydrateTimelineFromProvider` from the provider's
+//!   history: already primed (a no-op), forced with and without broadcast,
+//!   and an unknown agent.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves.
@@ -43,8 +47,9 @@ use std::task::Poll;
 use std::time::Duration;
 
 use spocky_session::agent_manager::{
-    AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, ProviderDefinition,
-    SubscribeOptions, TurnEventStream, WaitForAgentOptions,
+    AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
+    HydrateTimelineOptions, ProviderDefinition, SubscribeOptions, TurnEventStream,
+    WaitForAgentOptions,
 };
 use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{
@@ -138,6 +143,14 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","turnId":"turn-10","item":{"type":"assistant_message","text":"Delegated."}},
     {"type":"turn_completed","provider":"fake","turnId":"turn-10"}
   ],
+  "history": [
+    {"type":"timeline","provider":"fake","item":{"type":"user_message","text":"<paseo-system>\ninjected\n</paseo-system>"}},
+    {"type":"timeline","provider":"fake","item":{"type":"user_message","text":"old question","messageId":"m-1"},"timestamp":"2026-07-12T08:00:00.000Z"},
+    {"type":"usage_updated","provider":"fake","usage":{"inputTokens":9}},
+    {"type":"provider_subagent","provider":"fake","event":{"type":"upsert","id":"child-h","title":"From history","status":"completed","timestamp":"2026-07-12T08:00:01.000Z"}},
+    {"type":"timeline","provider":"fake","item":{"type":"assistant_message","text":"old answer"},"timestamp":""},
+    {"type":"timeline","provider":"fake","item":{"type":"tool_call","callId":"h-1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}
+  ],
   "permission": [
     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
     {"type":"__delay","ms":100},
@@ -205,7 +218,7 @@ class FakeSession {
     return { turnId: turnIdOf(events) };
   }
   async run() { throw new Error("unused"); }
-  async *streamHistory() {}
+  async *streamHistory() { for (const event of this.spec.history ?? []) yield event; }
   async getRuntimeInfo() { return JSON.parse(runtimeInfoJson); }
   async getAvailableModes() { return JSON.parse(modesJson); }
   async getCurrentMode() { return "auto"; }
@@ -465,7 +478,35 @@ const subagents = async () => {
   return { run, queries, after: manager.listProviderSubagentActivity(), calls, feed };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents() }));
+const hydration = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/hydration`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { history: scripted.history })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const steps = [];
+  const step = async (options) => {
+    steps.push(await outcome(async () => { await manager.hydrateTimelineFromProvider(agentId, options); return null; }));
+    steps.push(await manager.getTimelineRows(agentId));
+  };
+  await step(undefined);
+  await step({ force: true, broadcast: true });
+  await step({ force: true, broadcast: true, broadcastTimeline: false });
+  await step({ force: true });
+  steps.push(await outcome(async () => { await manager.hydrateTimelineFromProvider(unknownId); return null; }));
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { steps, subagents: manager.listProviderSubagents(agentId), feed };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -495,6 +536,8 @@ struct Spec {
     response: Option<JsValue>,
     /// Emitted 10 ms after `interrupt`.
     interrupt: Option<JsValue>,
+    /// What `streamHistory()` yields.
+    history: Option<JsValue>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -505,6 +548,7 @@ fn spec(provider: &str) -> Spec {
         turns: Arc::new(Mutex::new(VecDeque::new())),
         response: None,
         interrupt: None,
+        history: None,
     }
 }
 
@@ -514,11 +558,13 @@ struct FakeSession {
     calls: Arc<Mutex<Vec<JsValue>>>,
 }
 
-struct EmptyHistory;
+/// `async *streamHistory()` over the scripted history.
+struct History(std::vec::IntoIter<JsValue>);
 
-impl AgentEventStream for EmptyHistory {
+impl AgentEventStream for History {
     fn next(&mut self) -> BoxFuture<'_, Option<AgentResult<AgentStreamEvent>>> {
-        Box::pin(async { None })
+        let next = self.0.next();
+        Box::pin(async move { next.map(Ok) })
     }
 }
 
@@ -637,7 +683,14 @@ impl AgentSession for FakeSession {
         Box::new(|| {})
     }
     fn stream_history(&self) -> Box<dyn AgentEventStream> {
-        Box::new(EmptyHistory)
+        let events = self
+            .spec
+            .history
+            .as_ref()
+            .and_then(JsValue::as_array)
+            .map(<[JsValue]>::to_vec)
+            .unwrap_or_default();
+        Box::new(History(events.into_iter()))
     }
     fn get_runtime_info(&self) -> BoxFuture<'_, AgentResult<JsValue>> {
         Box::pin(async { Ok(json(RUNTIME_INFO)) })
@@ -1434,6 +1487,70 @@ async fn subagents_scenario(cwd: &str, home: &Path) -> JsValue {
     ])
 }
 
+async fn hydration_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("hydration"));
+    let mut fake = spec("fake");
+    fake.history = json(SCENARIO_TURNS).get("history").cloned();
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let mut steps = Vec::new();
+    let options = [
+        HydrateTimelineOptions::default(),
+        HydrateTimelineOptions {
+            force: true,
+            broadcast: Some(HydrateBroadcast::Now(true)),
+            broadcast_timeline: None,
+        },
+        HydrateTimelineOptions {
+            force: true,
+            broadcast: Some(HydrateBroadcast::Now(true)),
+            broadcast_timeline: Some(false),
+        },
+        HydrateTimelineOptions {
+            force: true,
+            ..HydrateTimelineOptions::default()
+        },
+    ];
+    for options in options {
+        steps.push(outcome(
+            manager
+                .hydrate_timeline_from_provider(AGENT_ID, options)
+                .await
+                .map(|()| JsValue::Null),
+        ));
+        steps.push(JsValue::Array(
+            manager.get_timeline_rows(AGENT_ID).expect("rows"),
+        ));
+    }
+    steps.push(outcome(
+        manager
+            .hydrate_timeline_from_provider(UNKNOWN_ID, HydrateTimelineOptions::default())
+            .await
+            .map(|()| JsValue::Null),
+    ));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("steps", JsValue::Array(steps)),
+        (
+            "subagents",
+            JsValue::Array(manager.list_provider_subagents(AGENT_ID).expect("list")),
+        ),
+        ("feed", JsValue::Array(feed)),
+    ])
+}
+
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
 fn normalize(text: &str) -> String {
@@ -1603,6 +1720,7 @@ async fn scenarios_match_pinned_manager() {
         ("permission", permission_scenario(&cwd, &rust_home.0).await),
         ("lifecycle", lifecycle_scenario(&cwd, &rust_home.0).await),
         ("subagents", subagents_scenario(&cwd, &rust_home.0).await),
+        ("hydration", hydration_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
