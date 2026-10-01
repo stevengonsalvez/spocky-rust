@@ -331,8 +331,15 @@
           "effort": "medium",
           "approvalPolicy": "never",
           "sandbox": "disabled/unrestricted",
-          "status": "ready; isolated worktree pending permission preflight",
-          "baseCommit": "e2316a5b635d809a101c8d41604dc2ec0e6e5ffa",
+          "status": "implementing; read-only schema contract inventory in progress",
+          "permissionPreflight": {
+            "reportedBy": "/root/p2_relay_frame_parity",
+            "approvalPolicy": "never",
+            "sandbox": "danger-full-access/unrestricted",
+            "network": "enabled",
+            "result": "pass"
+          },
+          "baseCommit": "f48af3ee95622898734dc4566d19bc3945a9cb06",
           "dependencies": ["p2_hub_legacy_handoff", "p2_hub_mixed_ownership", "p2_hub_simultaneous_ownership"],
           "acceptanceCommands": [
             "targeted directory-lock, retained-host, and embedded-SQL tests only",
