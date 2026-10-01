@@ -22,10 +22,15 @@ target_volume=spocky-renderer-linux-target
 cargo_volume=spocky-renderer-linux-cargo-home
 build_gate=/private/tmp/spocky-targets/build-gate.sh
 container_name="spocky-renderer-linux-$(date +%s)-$$"
+# One source for the limits so the printed plan cannot drift from the docker run.
+limit_cpus=2
+limit_memory_gb=3
+limit_seconds=1200
 
 if [ "${1:-}" = "--print-plan" ]; then
   printf 'rust image digest: %s\n' "$image_digest"
-  printf '%s\n' 'container limits: 2 CPUs, 3 GB memory, 1200 seconds'
+  printf 'container limits: %s CPUs, %s GB memory, %s seconds\n' "$limit_cpus" "$limit_memory_gb" "$limit_seconds"
+  printf 'memory swap: %sg total, no swap beyond memory\n' "$limit_memory_gb"
   printf '%s\n' 'viewport: 1280x800, scale 1, light theme, en-US, DejaVu Sans'
   printf '%s\n' 'visual: complete SHA-256 membership plus unmasked RGBA RMSE'
   printf '%s\n' 'accessibility: complete AT-SPI tree plus observed focus order'
@@ -110,9 +115,16 @@ printf "%s\\n" RENDERER_PLATFORM_LINUX_OK'
 
 gate=
 if [ -x "$build_gate" ]; then gate=$build_gate; fi
+# Remove only this exact container name when the runner is interrupted or exits.
+cleanup() {
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 set +e
-$gate gtimeout --kill-after=30 1200 docker run --name "$container_name" --platform linux/amd64 \
-  --cpus 2 --memory 3g \
+$gate gtimeout --kill-after=30 "$limit_seconds" docker run --name "$container_name" --platform linux/amd64 \
+  --cpus "$limit_cpus" --memory "${limit_memory_gb}g" --memory-swap "${limit_memory_gb}g" \
   --mount "type=bind,src=$repository_root,dst=/workspace,readonly" \
   --mount "type=bind,src=$baseline_a,dst=/baseline/baseline-a.png,readonly" \
   --mount "type=bind,src=$baseline_b,dst=/baseline/baseline-b.png,readonly" \
