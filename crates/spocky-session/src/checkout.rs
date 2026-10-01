@@ -12,9 +12,11 @@
 
 use std::path::Path;
 
+use spocky_store::js_value::{JsObject, JsValue, parse};
+
 use crate::git::{GitError, GitOptions, run_git};
 use crate::paths::{
-    basename, dirname, expand_tilde, realpath, realpath_aware_relative_path, resolve,
+    basename, dirname, expand_tilde, realpath_aware_relative_path, realpath_js, resolve,
 };
 
 /// `ProjectCheckoutLitePayload`.
@@ -54,7 +56,7 @@ pub struct CheckoutContext {
 impl CheckoutContext {
     fn worktrees_base_root(&self) -> String {
         match &self.worktrees_root {
-            Some(root) => {
+            Some(root) if !root.is_empty() => {
                 let expanded = expand_tilde(root, &self.home);
                 if expanded.starts_with('/') {
                     resolve("/", &expanded)
@@ -62,7 +64,7 @@ impl CheckoutContext {
                     resolve(&resolve("/", &self.paseo_home), &expanded)
                 }
             }
-            None => format!("{}/worktrees", resolve("/", &self.paseo_home)),
+            _ => format!("{}/worktrees", resolve("/", &self.paseo_home)),
         }
     }
 }
@@ -99,7 +101,8 @@ async fn rebase_head_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
         let Ok(stdout) = git_stdout(&["rev-parse", "--git-path", name], cwd).await else {
             continue;
         };
-        let Ok(contents) = std::fs::read_to_string(resolve(cwd_text, stdout.trim())) else {
+        let head_name_path = resolve(cwd_text, stdout.trim());
+        let Ok(contents) = blocking(move || std::fs::read_to_string(head_name_path)).await else {
             continue;
         };
         let head = contents.trim();
@@ -218,7 +221,8 @@ async fn main_repo_root(
     common_dir: Option<&str>,
     context: &CheckoutContext,
 ) -> Option<String> {
-    let normalized = realpath(common_dir?)?;
+    let common_dir = common_dir?.to_owned();
+    let normalized = blocking(move || realpath_js(&common_dir)).await?;
     if basename(&normalized) == ".git" {
         return Some(dirname(&normalized));
     }
@@ -282,52 +286,140 @@ fn is_owned_worktree_path(cwd: &str, context: &CheckoutContext) -> bool {
     if !(cwd.contains("/worktrees/") || cwd.contains("\\worktrees\\")) {
         return false;
     }
-    let resolved = realpath(cwd).unwrap_or_else(|| resolve("/", cwd));
+    let resolved = realpath_js(cwd).unwrap_or_else(|| resolve("/", cwd));
     realpath_aware_relative_path(&context.worktrees_base_root(), &resolved)
         .is_some_and(|relative| relative.split('/').filter(|part| !part.is_empty()).count() >= 2)
 }
 
+/// `getGitDirForWorktreeRoot`: `.git` must exist; a `.git` file names the
+/// git dir with `/gitdir:\s*(.+)/`.
+fn git_dir_for_worktree_root(worktree_root: &str) -> Result<String, GitError> {
+    let git_path = format!("{}/.git", worktree_root.trim_end_matches('/'));
+    if std::fs::metadata(&git_path).is_err() {
+        return Err(GitError {
+            message: format!("Not a git repository: {worktree_root}"),
+        });
+    }
+    if let Ok(contents) = std::fs::read_to_string(&git_path)
+        && let Some(start) = contents.find("gitdir:")
+    {
+        let after = contents[start + "gitdir:".len()..].trim_start();
+        let line_end = after
+            .find(['\n', '\r', '\u{2028}', '\u{2029}'])
+            .unwrap_or(after.len());
+        let raw = after[..line_end].trim();
+        if !raw.is_empty() {
+            return Ok(if raw.starts_with('/') {
+                raw.to_owned()
+            } else {
+                resolve(worktree_root, raw)
+            });
+        }
+    }
+    Ok(git_path)
+}
+
+/// `z.string().min(1)`.
+fn non_empty_text(value: Option<&JsValue>) -> bool {
+    value
+        .and_then(JsValue::as_str)
+        .is_some_and(|text| !text.is_empty())
+}
+
+/// An optional field: absent, or present and valid.
+fn optional_field(object: &JsObject, key: &str, valid: impl Fn(&JsValue) -> bool) -> bool {
+    object.get(key).is_none_or(valid)
+}
+
+/// `z.number().int().positive()`.
+fn positive_int(value: &JsValue) -> bool {
+    value.as_f64().is_some_and(|number| {
+        number.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&number)
+    })
+}
+
+/// `PaseoWorktreeMetadataSchema` (`z.union([V1, V2])`): accepts exactly what zod accepts.
+fn valid_worktree_metadata(value: &JsValue) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let version = object.get("version").and_then(JsValue::as_f64);
+    let is_version =
+        |expected: f64| version.is_some_and(|found| (found - expected).abs() < f64::EPSILON);
+    let lookup_target = |target: &JsValue| {
+        target.as_object().is_some_and(|target| {
+            non_empty_text(target.get("headRef"))
+                && optional_field(target, "headRepositoryOwner", |field| {
+                    non_empty_text(Some(field))
+                })
+                && optional_field(target, "changeRequestNumber", positive_int)
+                && optional_field(target, "localBranchName", |field| {
+                    non_empty_text(Some(field))
+                })
+        })
+    };
+    let common = non_empty_text(object.get("baseRefName"))
+        && optional_field(object, "baseRef", |field| non_empty_text(Some(field)))
+        && optional_field(object, "changeRequestLookupTarget", lookup_target);
+    if is_version(1.0) {
+        return common;
+    }
+    if !is_version(2.0) || !common {
+        return false;
+    }
+    let auto_name = |field: &JsValue| {
+        field.as_object().is_some_and(|auto| {
+            let placeholder = non_empty_text(auto.get("placeholderBranchName"));
+            match auto.get("status").and_then(JsValue::as_str) {
+                Some("pending") => placeholder,
+                Some("attempted") => placeholder && non_empty_text(auto.get("attemptedAt")),
+                _ => false,
+            }
+        })
+    };
+    let runtime = |field: &JsValue| {
+        field
+            .as_object()
+            .is_some_and(|runtime| runtime.get("worktreePort").is_some_and(positive_int))
+    };
+    optional_field(object, "firstAgentBranchAutoName", auto_name)
+        && optional_field(object, "runtime", runtime)
+}
+
 /// `storedBaseRefFromMetadata(readPaseoWorktreeMetadata(worktreeRoot))`.
+///
+/// Acceptance matches the zod schema exactly. Divergence (recorded gap): for
+/// a file that is not JSON or fails the schema, the baseline error text is
+/// V8's `SyntaxError` message or zod's issue JSON; this port rejects the same
+/// files with `Invalid Paseo worktree metadata: <path>`.
 fn stored_base_ref(worktree_root: &str) -> Result<Option<String>, GitError> {
-    // ponytail: validates only the fields read here (version, baseRefName,
-    // baseRef); the nested change-request, auto-name, and runtime schemas are
-    // not checked, so a file invalid only there loads instead of throwing.
-    let git_entry = format!("{worktree_root}/.git");
-    let git_dir = match std::fs::read_to_string(&git_entry) {
-        Ok(contents) => contents
-            .lines()
-            .find_map(|line| line.strip_prefix("gitdir:"))
-            .map_or(git_entry.clone(), |dir| resolve(worktree_root, dir.trim())),
-        Err(_) => git_entry,
-    };
-    let metadata_path = format!("{git_dir}/paseo/worktree.json");
-    let Ok(text) = std::fs::read_to_string(&metadata_path) else {
+    let metadata_path = format!(
+        "{}/paseo/worktree.json",
+        git_dir_for_worktree_root(worktree_root)?
+    );
+    if std::fs::metadata(&metadata_path).is_err() {
         return Ok(None);
-    };
+    }
+    let text = std::fs::read_to_string(&metadata_path).map_err(|error| GitError {
+        message: error.to_string(),
+    })?;
     let invalid = || GitError {
         message: format!("Invalid Paseo worktree metadata: {metadata_path}"),
     };
-    let value = spocky_store::js_value::parse(&text).map_err(|_| invalid())?;
-    let version = value
-        .get("version")
-        .and_then(spocky_store::js_value::JsValue::as_f64);
-    if !matches!(version, Some(v) if (v - 1.0).abs() < f64::EPSILON || (v - 2.0).abs() < f64::EPSILON)
-    {
+    let value = parse(&text).map_err(|_| invalid())?;
+    if !valid_worktree_metadata(&value) {
         return Err(invalid());
     }
-    let text_field = |key: &str| {
-        value
-            .get(key)
-            .and_then(|field| field.as_str())
-            .map(str::to_owned)
-    };
-    let base_ref_name = text_field("baseRefName").filter(|name| !name.is_empty());
-    if base_ref_name.is_none() {
-        return Err(invalid());
+    let text_field = |key: &str| value.get(key).and_then(JsValue::as_str).map(str::to_owned);
+    Ok(text_field("baseRef").or_else(|| text_field("baseRefName")))
+}
+
+/// Runs blocking filesystem work off the async executor.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    match tokio::task::spawn_blocking(work).await {
+        Ok(value) => value,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
     }
-    Ok(text_field("baseRef")
-        .filter(|name| !name.is_empty())
-        .or(base_ref_name))
 }
 
 /// `getCheckout(cwd)`.
@@ -368,9 +460,13 @@ pub async fn get_checkout(cwd: &str, context: &CheckoutContext) -> Result<Checko
                 .map(|path| resolve(&cwd_text, &path))
         }
     );
-    let owned = is_owned_worktree_path(&cwd_text, context);
+    let owned = {
+        let (cwd, context) = (cwd_text.clone(), context.clone());
+        blocking(move || is_owned_worktree_path(&cwd, &context)).await
+    };
     let stored = if owned {
-        stored_base_ref(&worktree_root)?
+        let root = worktree_root.clone();
+        blocking(move || stored_base_ref(&root)).await?
     } else {
         None
     };
@@ -431,6 +527,69 @@ mod tests {
         assert_eq!(parse_rev_parse_path("  \n"), None);
         assert_eq!(parse_rev_parse_path("a\nb"), None);
         assert_eq!(parse_rev_parse_path("--show-toplevel"), None);
+    }
+
+    /// Expected acceptance printed by the pinned build's
+    /// `readPaseoWorktreeMetadata` on node 22.20.0 for each text.
+    #[test]
+    fn worktree_metadata_schema_matches_zod() {
+        use spocky_store::js_value::parse;
+        for (text, valid) in [
+            (r#"{"version":1,"baseRefName":"main"}"#, true),
+            (r#"{"version":1,"baseRefName":""}"#, false),
+            (r#"{"version":3,"baseRefName":"main"}"#, false),
+            (r#"{"version":1,"baseRefName":"main","baseRef":""}"#, false),
+            (
+                r#"{"version":1,"baseRefName":"main","baseRef":null}"#,
+                false,
+            ),
+            (
+                r#"{"version":1,"baseRefName":"main","changeRequestLookupTarget":{"headRef":"x","changeRequestNumber":2}}"#,
+                true,
+            ),
+            (
+                r#"{"version":1,"baseRefName":"main","changeRequestLookupTarget":{"headRef":"x","changeRequestNumber":0}}"#,
+                false,
+            ),
+            (
+                r#"{"version":2,"baseRefName":"main","firstAgentBranchAutoName":{"status":"pending","placeholderBranchName":"p"}}"#,
+                true,
+            ),
+            (
+                r#"{"version":2,"baseRefName":"main","firstAgentBranchAutoName":{"status":"attempted","placeholderBranchName":"p"}}"#,
+                false,
+            ),
+            (
+                r#"{"version":2,"baseRefName":"main","runtime":{"worktreePort":3000}}"#,
+                true,
+            ),
+            (
+                r#"{"version":2,"baseRefName":"main","runtime":{"worktreePort":1.5}}"#,
+                false,
+            ),
+            ("[]", false),
+        ] {
+            assert_eq!(
+                super::valid_worktree_metadata(&parse(text).expect("JSON")),
+                valid,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_git_entry_is_not_a_repository() {
+        let root = std::env::temp_dir().join(format!("spocky-no-git-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create dir");
+        let root_text = root.to_string_lossy().into_owned();
+        let error = super::stored_base_ref(&root_text).expect_err("no .git");
+        assert_eq!(error.message, format!("Not a git repository: {root_text}"));
+        std::fs::write(root.join(".git"), "gitdir:\n  ../elsewhere/.git\n").expect("git file");
+        assert_eq!(
+            super::git_dir_for_worktree_root(&root_text).expect("git dir"),
+            super::resolve(&root_text, "../elsewhere/.git")
+        );
+        std::fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[test]
