@@ -502,6 +502,84 @@ fn session_messages_reach_the_backend_and_replies_reach_the_socket() {
     harness.finish();
 }
 
+fn zod_message(issues: &Value) -> String {
+    format!(
+        "Invalid message: {}",
+        serde_json::to_string_pretty(issues).unwrap()
+    )
+}
+
+fn expected_no_discriminator() -> String {
+    zod_message(&json!([{
+        "code": "invalid_union",
+        "errors": [],
+        "note": "No matching discriminator",
+        "discriminator": "type",
+        "options": ["ping", "hello", "recording_state", "session"],
+        "path": ["type"],
+        "message": "Invalid discriminator value. Expected 'ping' | 'hello' | 'recording_state' | 'session'"
+    }]))
+}
+
+fn expected_invalid_type(path: &[&str], received: &str) -> String {
+    zod_message(&json!([{
+        "code": "invalid_type",
+        "expected": "object",
+        "path": path,
+        "message": format!("Invalid input: expected object, received {received}")
+    }]))
+}
+
+/// The text after "Invalid message: " is `error.message` of the zod parse
+/// (`JSON.stringify(issues, null, 2)`); expected strings are the Node 22.20.0
+/// output with the pinned zod 4.4.3 for `WSInboundMessageSchema`.
+#[test]
+fn a_frame_with_no_known_type_reports_the_zod_issue_list() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("zod"));
+    next_json(&mut ws);
+    let cases: Vec<(&str, String)> = vec![
+        ("5", expected_invalid_type(&[], "number")),
+        ("null", expected_invalid_type(&[], "null")),
+        ("[]", expected_invalid_type(&[], "array")),
+        (r#""x""#, expected_invalid_type(&[], "string")),
+        ("true", expected_invalid_type(&[], "boolean")),
+        ("{}", expected_no_discriminator()),
+        (r#"{"type":1}"#, expected_no_discriminator()),
+        (r#"{"type":"__proto__"}"#, expected_no_discriminator()),
+        (r#"{"type":"a\ud800"}"#, expected_no_discriminator()),
+        (
+            r#"{"type":"session"}"#,
+            expected_invalid_type(&["message"], "undefined"),
+        ),
+        (
+            r#"{"type":"session","message":null}"#,
+            expected_invalid_type(&["message"], "null"),
+        ),
+        (
+            r#"{"type":"session","message":[]}"#,
+            expected_invalid_type(&["message"], "array"),
+        ),
+        (
+            r#"{"type":"session","message":"s"}"#,
+            expected_invalid_type(&["message"], "string"),
+        ),
+    ];
+    for (text, _) in &cases {
+        ws.send(Message::text(*text)).unwrap();
+    }
+    wait_for("the failures", || {
+        harness.calls.failures.lock().unwrap().len() == cases.len()
+    });
+    let failures = harness.calls.failures.lock().unwrap().clone();
+    for ((text, expected), (_, failure)) in cases.iter().zip(&failures) {
+        assert_eq!(&failure.error, expected, "{text}");
+        assert_eq!(failure.code, "invalid_message", "{text}");
+    }
+    harness.finish();
+}
+
 #[test]
 fn an_invalid_session_message_becomes_a_protocol_failure() {
     let harness = start(config());
@@ -527,7 +605,8 @@ fn an_invalid_session_message_becomes_a_protocol_failure() {
     );
     assert_eq!(failures[1].1.code, "invalid_message");
     assert_eq!(failures[1].1.request_id.as_deref(), Some("r10"));
-    assert!(failures[1].1.error.starts_with("Invalid message: "));
+    assert_eq!(failures[1].1.error, expected_no_discriminator());
+    assert_eq!(failures[2].1.error, expected_no_discriminator());
     assert_eq!(failures[2].1.request_id, None);
     harness.finish();
 }
