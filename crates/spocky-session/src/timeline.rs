@@ -146,6 +146,13 @@ fn spread(into: &mut JsObject, value: Option<&JsValue>) {
 }
 
 /// `mergeToolCallDetail`.
+///
+/// Known divergence: when either detail is missing or `null`, the baseline
+/// reads `.type` of it and throws `TypeError: Cannot read properties of
+/// undefined (reading 'type')` out of `append`, after `nextSeq` has already
+/// advanced. Here a missing detail counts as not `unknown`, so the incoming
+/// one wins. `tool_call` items always carry a detail (the schema requires
+/// one), so only a malformed provider item reaches this case.
 fn merge_tool_detail(existing: Option<&JsValue>, incoming: Option<&JsValue>) -> JsValue {
     let is_unknown = |detail: Option<&JsValue>| {
         detail
