@@ -170,13 +170,15 @@ impl AgentStore {
         Self { base: base.into() }
     }
 
-    /// Atomically writes one record in the baseline `<cwd-key>/<id>.json` layout.
+    /// Atomically writes one record in the baseline `<cwd-key>/<id>.json`
+    /// layout after a startup scan, and unlinks the file the same id had
+    /// under a different working directory, as `writeRecord` does.
     ///
     /// # Errors
     ///
     /// Returns an error if directory creation, writing, or rename fails.
     pub fn write(&self, record: &StoredAgentRecord) -> Result<PathBuf, StoreError> {
-        agent_record::write_record_file(&self.base, record.as_js_value())
+        agent_record::AgentRecordStore::new(&self.base).write_record(record.as_js_value().clone())
     }
 
     /// Loads an agent by scanning the store as the baseline does at startup.
