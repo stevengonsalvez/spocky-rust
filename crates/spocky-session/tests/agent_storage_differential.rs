@@ -17,12 +17,9 @@
 //! `checkout_differential`; without them the test FAILS unless
 //! `SPOCKY_ALLOW_SKIP=1` (exactly).
 
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::process::Command;
 use std::sync::{Arc, mpsc};
-use std::task::Poll;
 
 use spocky_session::agent_projection::{AgentAttention, ManagedAgentRecordView, SnapshotOverrides};
 use spocky_session::agent_storage::{AgentStorage, StorageError};
@@ -131,17 +128,6 @@ fn record(id: &str, title: &str) -> JsValue {
         r#"{{"id":"{id}","provider":"codex","cwd":"/w","title":"{title}"}}"#
     ))
     .expect("record")
-}
-
-/// Polls `future` once, as a JS call runs up to its first `await`.
-async fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
-    std::future::poll_fn(|context| {
-        Poll::Ready(match Pin::new(&mut *future).poll(context) {
-            Poll::Ready(output) => Some(output),
-            Poll::Pending => None,
-        })
-    })
-    .await
 }
 
 /// A snapshot projection held open until `open` is sent.
@@ -265,14 +251,9 @@ fn object(entries: Vec<(&str, JsValue)>) -> JsValue {
 
 async fn short_circuit(root: &Path) -> JsValue {
     let (_home, storage) = scenario(root, "short-circuit").await;
-    let mut snapshot = Box::pin(storage.apply_snapshot(
-        "a1",
-        || view("a1", FAILING),
-        SnapshotOverrides::default(),
-    ));
-    let mut upsert = Box::pin(storage.upsert(record("a1", "queued")));
-    assert!(poll_once(&mut snapshot).await.is_none());
-    assert!(poll_once(&mut upsert).await.is_none());
+    let snapshot =
+        storage.apply_snapshot("a1", || view("a1", FAILING), SnapshotOverrides::default());
+    let upsert = storage.upsert(record("a1", "queued"));
     storage.flush().await;
     let settled = outcomes(&[snapshot.await, upsert.await]);
     let after_failure = title(&storage, "a1").await;
@@ -289,16 +270,10 @@ async fn short_circuit(root: &Path) -> JsValue {
 
 async fn delete_first(root: &Path) -> JsValue {
     let (_home, storage) = scenario(root, "delete-first").await;
-    let mut snapshot = Box::pin(storage.apply_snapshot(
-        "a1",
-        || view("a1", FAILING),
-        SnapshotOverrides::default(),
-    ));
-    let mut upsert = Box::pin(storage.upsert(record("a1", "queued")));
-    let mut remove = Box::pin(storage.remove("a1"));
-    assert!(poll_once(&mut snapshot).await.is_none());
-    assert!(poll_once(&mut upsert).await.is_none());
-    assert!(poll_once(&mut remove).await.is_none());
+    let snapshot =
+        storage.apply_snapshot("a1", || view("a1", FAILING), SnapshotOverrides::default());
+    let upsert = storage.upsert(record("a1", "queued"));
+    let remove = storage.remove("a1");
     let snapshot = snapshot.await;
     let upsert = upsert.await;
     let remove = remove.await.map(|failures| assert!(failures.is_empty()));
@@ -333,13 +308,10 @@ async fn fs_error_scenario(root: &Path) -> JsValue {
     let directory = only_entry(&home);
     std::fs::create_dir(directory.join("a1.json")).expect("blocking directory");
     let (entered, open, agent) = gated("a1", r#"{"provider":"codex","cwd":"/w"}"#);
-    let mut snapshot = Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
-    let mut upsert = Box::pin(storage.upsert(record("a1", "queued")));
-    assert!(poll_once(&mut snapshot).await.is_none());
-    assert!(poll_once(&mut upsert).await.is_none());
+    let snapshot = storage.apply_snapshot("a1", agent, SnapshotOverrides::default());
+    let upsert = storage.upsert(record("a1", "queued"));
     wait_entered(entered).await;
-    let mut remove = Box::pin(storage.remove("a1"));
-    assert!(poll_once(&mut remove).await.is_none());
+    let remove = storage.remove("a1");
     open.send(()).expect("open");
     let snapshot = snapshot.await;
     let upsert = upsert.await;
