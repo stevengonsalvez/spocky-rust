@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+#[cfg(target_os = "linux")]
+mod linux_audio;
 #[cfg(unix)]
 mod linux_delivery;
 mod local_runtime;
@@ -8,6 +10,11 @@ mod macos_delivery;
 #[cfg(unix)]
 mod sha512;
 
+#[cfg(target_os = "linux")]
+pub use linux_audio::{
+    AudioToolInventory, LINUX_AUDIO_BASELINE, LinuxAudioAdapter, LinuxAudioArtifact,
+    LinuxAudioEvidenceReport, LinuxAudioInventory,
+};
 #[cfg(unix)]
 pub use linux_delivery::{
     BASELINE_AFTER_INSTALL, BASELINE_AFTER_REMOVE, BASELINE_LAUNCHER, DISPOSABLE_ROOT_ENV,

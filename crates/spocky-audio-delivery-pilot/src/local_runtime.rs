@@ -25,6 +25,7 @@ pub struct ProcessResult {
 pub struct ProcessCommand {
     program: OsString,
     args: Vec<OsString>,
+    environment: Vec<(OsString, OsString)>,
     timeout: Duration,
 }
 
@@ -33,6 +34,7 @@ impl ProcessCommand {
         Self {
             program: program.as_ref().to_owned(),
             args: Vec::new(),
+            environment: Vec::new(),
             timeout: Duration::from_secs(30),
         }
     }
@@ -55,6 +57,13 @@ impl ProcessCommand {
     }
 
     #[must_use]
+    pub fn env(mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
+        self.environment
+            .push((key.as_ref().to_owned(), value.as_ref().to_owned()));
+        self
+    }
+
+    #[must_use]
     pub const fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -70,6 +79,7 @@ impl ProcessCommand {
         let mut command = Command::new(&self.program);
         command
             .args(&self.args)
+            .envs(self.environment.iter().cloned())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
