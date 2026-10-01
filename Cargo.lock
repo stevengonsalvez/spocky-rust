@@ -5064,6 +5064,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-contracts"
+version = "0.1.0"
+
+[[package]]
 name = "spocky-crypto"
 version = "0.1.0"
 dependencies = [
@@ -5074,6 +5078,10 @@ dependencies = [
  "serde_json",
  "x25519-dalek",
 ]
+
+[[package]]
+name = "spocky-daemon"
+version = "0.1.0"
 
 [[package]]
 name = "spocky-differential"
@@ -5129,12 +5137,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-provider-codex"
+version = "0.1.0"
+
+[[package]]
 name = "spocky-relay-pilot"
 version = "0.1.0"
 dependencies = [
  "spocky-crypto",
  "tungstenite 0.27.0",
 ]
+
+[[package]]
+name = "spocky-session"
+version = "0.1.0"
+
+[[package]]
+name = "spocky-slice-harness"
+version = "0.1.0"
 
 [[package]]
 name = "spocky-store"
