@@ -944,6 +944,14 @@
         },
         {
           "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "e52e196..c945806c (18 commits): provider subagent events, timeline hydration, resume, removal of the spocky_session::js re-export",
+          "integrationHead": "7099d692",
+          "review": "integration reviewer PASS (verdicts/p3_session-c945806c.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 57 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
           "integrationHead": "0d90e37",
@@ -1112,7 +1120,10 @@
           "status": "OPEN port gap, NOT an accepted exception (coordinator decision 2026-10-02); closes when a cross-agent same-tick differential matches node",
           "reachability": "Unreachable for codex, which runs one app-server pipe per session, so not on G1. Reachable only by a provider that multiplexes sessions on one stream (opencode, plugin providers)",
           "blocks": ["opencode provider gate", "multiplexing plugin provider gates"],
-          "evidence": "repro committed by the p3_session writer; entry to follow from the writer",
+          "id": "SESSION-INTERLEAVE",
+          "detail": "The spocky-session agent manager publishes two agents' same-tick session events in a different cross-agent feed order than pinned Paseo: Paseo's per-agent promise chains interleave at microtask granularity, Rust drains one agent at a time",
+          "closingCondition": "cross-agent same-tick differential matches node: scripts/phase3/session-interleave-gap.sh exits 0",
+          "evidence": "evidence/phase3/session-interleave-gap.md; commits e32fdac, 4244479, 17ecc53 (383d381..17ecc53) land with the session ranges",
           "durableStoreScope": "2026-10-02 coordinator decision: the durable timeline store is OUT OF SCOPE as production-unreachable. Baseline bootstrap.ts never sets durableTimelineStore and no AgentTimelineStore implementation exists outside agent-manager.test.ts, so the baseline daemon also runs without it and its handleStreamEvent path may already be synchronous per event"
         },
         {
@@ -1341,7 +1352,7 @@
       "capabilities": ["shared JS semantics (truthiness, spread, String, JsTypeError, strict_equals, UTF-16 strings, JSON.parse acceptance)"],
       "dependencies": ["p3_contracts resend with crates/spocky-contracts/src/js.rs landed on main"],
       "priority": 3,
-      "state": "in progress: spocky-session and spocky-daemon-app switched (a9406bf, 9576f33); session js re-export deletion pending; p3_provider_codex and p3_e2ee_channel switch later, paused for budget",
+      "state": "in progress: spocky-session and spocky-daemon-app switched (a9406bf, 9576f33); session js re-export deleted (7099d692); p3_provider_codex and p3_e2ee_channel switch later, paused for budget",
       "owner": "tracked sweep across lanes p3_session, p3_provider_codex and p3_e2ee_channel; each lane switches its own crate; lead sends GO",
       "copies": [
         "crates/spocky-session (js.rs and the agent manager local strict_equals)",
