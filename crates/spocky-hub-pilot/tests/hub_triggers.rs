@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use spocky_hub_pilot::triggers::timezone::HostTimeZone;
 use spocky_hub_pilot::triggers::{
     AcceptCall, AcceptFailure, Acceptance, AcceptedRunInput, AuthOutcome, ExecutionRecord,
     ExecutionRequest, ExecutionReservation, ExecutionStatus, GitHubWebhook, GitHubWebhookRequest,
@@ -50,7 +51,7 @@ fn request(step_id: &str, ordinal: usize, started_at_ms: u64) -> ExecutionReques
 }
 
 fn store_with_run() -> (TriggerStore, String) {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     let mut events = Vec::new();
     intake(
@@ -75,7 +76,7 @@ fn created(reservation: Option<ExecutionReservation>) -> ExecutionRecord {
 
 #[test]
 fn manual_delivery_is_idempotent_inside_one_organization() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     store.register_project("org-b", OTHER_PROJECT, "revision-b");
     let mut events = Vec::new();
@@ -102,7 +103,7 @@ fn manual_delivery_is_idempotent_inside_one_organization() {
 
 #[test]
 fn manual_request_rejects_invalid_payloads_with_the_baseline_message() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     let mut reject = |body: &str| {
         let response = store
             .handle_manual_request(None, 0, body.as_bytes())
@@ -122,7 +123,7 @@ fn manual_request_rejects_invalid_payloads_with_the_baseline_message() {
 
 #[test]
 fn manual_request_decodes_like_the_baseline_request_body_reader() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     let mut events = Vec::new();
     let with_boms = |count: usize, delivery: &str| {
@@ -137,7 +138,7 @@ fn manual_request_decodes_like_the_baseline_request_body_reader() {
 
 #[test]
 fn received_at_keeps_its_value_and_local_offset() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     store.set_local_offset_minutes(330);
     let mut events = Vec::new();
@@ -204,7 +205,7 @@ fn lease_is_claimable_exactly_at_its_expiry() {
 
 #[test]
 fn equal_availability_is_claimed_in_creation_order() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     let mut events = Vec::new();
     intake(
@@ -229,7 +230,7 @@ fn equal_availability_is_claimed_in_creation_order() {
 
 #[test]
 fn step_is_selected_by_step_id_and_ordinal() {
-    let mut store = TriggerStore::default();
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
     store.register_project("org-a", PROJECT, "revision-a");
     let mut events = Vec::new();
     intake(
@@ -441,4 +442,261 @@ fn public_manual_run_maps_a_stale_expected_version_to_409() {
         accepted.status, 409,
         "a byte order mark must not make the body invalid JSON"
     );
+}
+
+/// `receivedAt` as the store resolves it for a date-time written without an offset.
+fn local_received_at_ms(zone: &HostTimeZone, received_at: &str) -> i64 {
+    let mut store = TriggerStore::with_time_zone(zone.clone());
+    store.register_project("org-a", PROJECT, "revision-a");
+    let mut events = Vec::new();
+    let body = format!(
+        r#"{{"organizationId":"org-a","projectId":"{PROJECT}","source":"manual.run","deliveryId":"local","receivedAt":"{received_at}","payload":null}}"#
+    );
+    assert_eq!(intake(&mut store, &mut events, body.as_bytes()), 200);
+    events[0].received_at_ms
+}
+
+fn named(zone: &str) -> HostTimeZone {
+    HostTimeZone::named(zone).unwrap_or_else(|| panic!("zoneinfo for {zone}"))
+}
+
+#[test]
+fn local_date_times_follow_the_daylight_saving_rules_of_the_host_zone() {
+    let london = named("Europe/London");
+    // January is GMT (offset 0), August is BST (offset 60).
+    assert_eq!(
+        local_received_at_ms(&london, "2026-01-15T12:00:00"),
+        1_768_478_400_000
+    );
+    assert_eq!(
+        local_received_at_ms(&london, "2026-08-06T12:00:00"),
+        1_786_014_000_000
+    );
+    // Spring forward 2026-03-29 01:00 GMT: 01:30 local does not exist and uses the offset before the
+    // transition; 02:00 local is the first BST instant.
+    assert_eq!(
+        local_received_at_ms(&london, "2026-03-29T00:59:59"),
+        1_774_745_999_000
+    );
+    assert_eq!(
+        local_received_at_ms(&london, "2026-03-29T01:30:00"),
+        1_774_747_800_000
+    );
+    assert_eq!(
+        local_received_at_ms(&london, "2026-03-29T02:00:00"),
+        1_774_746_000_000
+    );
+    // Fall back 2026-10-25 01:00 UTC: 01:30 local happens twice and resolves to the first, BST,
+    // instant; 02:00 local is GMT again.
+    assert_eq!(
+        local_received_at_ms(&london, "2026-10-25T01:30:00"),
+        1_792_888_200_000
+    );
+    assert_eq!(
+        local_received_at_ms(&london, "2026-10-25T02:00:00"),
+        1_792_893_600_000
+    );
+    // An explicit offset or Z never consults the host zone.
+    assert_eq!(
+        local_received_at_ms(&london, "2026-08-06T12:00:00Z"),
+        1_786_017_600_000
+    );
+}
+
+#[test]
+fn host_zones_read_from_zoneinfo_apply_their_own_offsets() {
+    let noon = |zone: &str, received_at: &str| local_received_at_ms(&named(zone), received_at);
+    let utc_noon_january = 1_768_478_400_000_i64;
+    let utc_noon_july = 1_783_425_600_000_i64;
+    assert_eq!(
+        noon("Asia/Kolkata", "2026-01-15T12:00:00"),
+        utc_noon_january - 330 * 60_000
+    );
+    // Southern hemisphere: daylight time spans the new year.
+    assert_eq!(
+        noon("Australia/Sydney", "2026-01-15T12:00:00"),
+        utc_noon_january - 660 * 60_000
+    );
+    assert_eq!(
+        noon("Australia/Sydney", "2026-07-07T12:00:00"),
+        utc_noon_july - 600 * 60_000
+    );
+    assert_eq!(
+        noon("America/New_York", "2026-01-15T12:00:00"),
+        utc_noon_january + 300 * 60_000
+    );
+    assert_eq!(
+        noon("America/New_York", "2026-07-07T12:00:00"),
+        utc_noon_july + 240 * 60_000
+    );
+    assert!(HostTimeZone::named("Not/AZone").is_none());
+    assert!(HostTimeZone::named("../etc/passwd").is_none());
+    assert!(HostTimeZone::named("").is_none());
+}
+
+#[test]
+fn a_default_store_reads_the_host_zone_when_it_is_built() {
+    let default = TriggerStore::default();
+    let host = TriggerStore::with_time_zone(HostTimeZone::from_env());
+    for local_ms in [1_768_435_200_000_i64, 1_785_974_400_000, 1_774_747_800_000] {
+        assert_eq!(
+            default.local_offset_minutes_at(local_ms),
+            host.local_offset_minutes_at(local_ms)
+        );
+    }
+    let mut pinned = TriggerStore::with_time_zone(named("Europe/London"));
+    assert_eq!(pinned.local_offset_minutes_at(1_768_435_200_000), 0);
+    assert_eq!(pinned.local_offset_minutes_at(1_785_974_400_000), 60);
+    pinned.set_local_offset_minutes(330);
+    assert_eq!(pinned.local_offset_minutes_at(1_785_974_400_000), 330);
+}
+
+#[test]
+fn caller_chosen_run_and_step_run_ids_are_kept() {
+    let mut store = TriggerStore::with_time_zone(HostTimeZone::utc());
+    store.register_project("org-a", PROJECT, "revision-a");
+    let mut events = Vec::new();
+    intake(
+        &mut store,
+        &mut events,
+        &manual_body("org-a", PROJECT, "delivery-1"),
+    );
+    let mut input = run_input(&events[0].receipt_id, "deploy", &["first", "second"]);
+    input.run_id = Some("fixed-run".to_owned());
+    input.step_run_ids = Some(vec!["fixed-step-0".to_owned(), "fixed-step-1".to_owned()]);
+    let run = store.create_accepted_run(&input);
+    assert_eq!(run.run_id, "fixed-run");
+    assert_eq!(
+        store.step_run_id("fixed-run", "first", 0),
+        Some("fixed-step-0")
+    );
+    assert_eq!(
+        store.step_run_id("fixed-run", "second", 1),
+        Some("fixed-step-1")
+    );
+    let execution = created(store.reserve_execution("fixed-run", &request("second", 1, 1_000)));
+    assert_eq!(execution.step_run_id, "fixed-step-1");
+}
+
+#[test]
+fn idle_deadline_follows_an_execution_deadline_before_the_run_deadline() {
+    let (mut store, run_id) = store_with_run();
+    let mut earliest = request("deploy-step", 0, 1_000);
+    // execution 5_000 < run 10_000 < idle 20_000
+    earliest.deadline_at_ms = 5_000;
+    earliest.idle_deadline_at_ms = 20_000;
+    let execution = created(store.reserve_execution(&run_id, &earliest));
+    assert_eq!(execution.deadline_at_ms, 5_000);
+    assert_eq!(execution.idle_deadline_at_ms, Some(5_000));
+
+    // run 10_000 < execution 12_000 < idle 20_000: the run deadline wins for both.
+    let (mut other, other_run) = store_with_run();
+    let capped = created(other.reserve_execution(&other_run, &request("deploy-step", 0, 1_000)));
+    assert_eq!(capped.deadline_at_ms, 10_000);
+    assert_eq!(capped.idle_deadline_at_ms, Some(10_000));
+}
+
+/// Expected values come from `new Date(text).getTime()` in Node (v26.7.0) run with `TZ` set to the
+/// zone: gaps use the offset before the transition, overlaps the first instant.
+#[test]
+fn local_date_times_match_node_in_historic_gap_overlap_and_year_wrap_cases() {
+    let cases: [(&str, &str, i64); 17] = [
+        // Lord Howe changes by 30 minutes.
+        (
+            "Australia/Lord_Howe",
+            "2026-10-04T01:59:59",
+            1_791_041_399_000,
+        ),
+        (
+            "Australia/Lord_Howe",
+            "2026-10-04T02:15:00",
+            1_791_042_300_000,
+        ),
+        (
+            "Australia/Lord_Howe",
+            "2026-10-04T02:30:00",
+            1_791_041_400_000,
+        ),
+        (
+            "Australia/Lord_Howe",
+            "2026-04-05T01:45:00",
+            1_775_313_900_000,
+        ),
+        (
+            "Australia/Lord_Howe",
+            "2026-04-05T02:15:00",
+            1_775_317_500_000,
+        ),
+        // Local mean time before standard time, with seconds in the offset (-3:06:28).
+        (
+            "America/Sao_Paulo",
+            "1800-01-01T00:00:00",
+            -5_364_651_212_000,
+        ),
+        (
+            "America/Sao_Paulo",
+            "1900-01-01T00:00:00",
+            -2_208_977_612_000,
+        ),
+        (
+            "America/Sao_Paulo",
+            "2018-11-04T00:30:00",
+            1_541_302_200_000,
+        ),
+        (
+            "America/Sao_Paulo",
+            "2018-02-17T23:30:00",
+            1_518_917_400_000,
+        ),
+        // Southern hemisphere: daylight time wraps the new year.
+        ("Australia/Sydney", "2026-01-01T00:00:00", 1_767_186_000_000),
+        ("Australia/Sydney", "2026-12-31T23:59:59", 1_798_721_999_000),
+        ("Australia/Sydney", "2026-04-05T02:30:00", 1_775_316_600_000),
+        ("Australia/Sydney", "2026-10-04T02:30:00", 1_791_045_000_000),
+        ("Europe/London", "1800-01-01T00:00:00", -5_364_662_325_000),
+        ("America/New_York", "2026-03-08T02:30:00", 1_772_955_000_000),
+        ("America/New_York", "2026-11-01T01:30:00", 1_793_511_000_000),
+        ("Pacific/Apia", "2011-12-30T12:00:00", 1_325_282_400_000),
+    ];
+    for (zone, text, expected) in cases {
+        assert_eq!(
+            local_received_at_ms(&named(zone), text),
+            expected,
+            "{zone} {text}"
+        );
+    }
+}
+
+#[test]
+fn tz_values_follow_the_node_rules() {
+    // `TZ=":Europe/London"` reads the same zone as `TZ=Europe/London`.
+    let colon = HostTimeZone::from_tz_value(":Europe/London").expect("colon form");
+    assert_eq!(colon, named("Europe/London"));
+    assert_eq!(
+        local_received_at_ms(&colon, "2026-08-06T12:00:00"),
+        1_786_014_000_000
+    );
+    assert!(HostTimeZone::from_tz_value("Nope/Zone").is_none());
+    assert!(HostTimeZone::from_tz_value(":").is_none());
+}
+
+#[test]
+fn tzif_files_without_64_bit_data_are_not_read() {
+    // TZif version 1: a header, one local time type and one abbreviation character.
+    let mut version_one = b"TZif\0".to_vec();
+    version_one.extend([0_u8; 15]);
+    for count in [0_u32, 0, 0, 0, 1, 1] {
+        version_one.extend(count.to_be_bytes());
+    }
+    version_one.extend([0, 0, 0, 0, 0, 0, 0]);
+    assert!(HostTimeZone::from_tzif(&version_one).is_none());
+    assert!(HostTimeZone::from_tzif(b"TZif2").is_none());
+    assert!(HostTimeZone::from_tzif(b"").is_none());
+    assert!(HostTimeZone::from_tzif(&real_london_truncated()).is_none());
+}
+
+fn real_london_truncated() -> Vec<u8> {
+    let mut bytes = std::fs::read("/usr/share/zoneinfo/Europe/London").expect("London zoneinfo");
+    bytes.truncate(100);
+    bytes
 }
