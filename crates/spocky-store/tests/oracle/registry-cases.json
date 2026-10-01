@@ -1,0 +1,67 @@
+[
+  {
+    "name": "workspace-minimal",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null}]"
+  },
+  {
+    "name": "workspace-reorder-strip-defaults",
+    "kind": "workspace",
+    "input": "[{\"pinnedAt\":\"2026-10-01T11:00:00.000Z\",\"extra\":1,\"archivedAt\":null,\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"displayName\":\"project\",\"kind\":\"directory\",\"cwd\":\"/tmp/project\",\"projectId\":\"prj_0123456789abcdef\",\"workspaceId\":\"wks_0123456789abcdef\",\"labels\":[\"a\"],\"untrustedSource\":{\"headRepository\":\"o/r\",\"number\":7.0,\"forge\":\"github\",\"kind\":\"change_request\",\"junk\":true}}]"
+  },
+  {
+    "name": "workspace-lone-surrogate-title",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"title\":\"split \\ud83d\",\"displayName\":\"\\ude00 tail\"}]"
+  },
+  {
+    "name": "workspace-huge-number-unknown-key",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"futureField\":1e400,\"other\":12345678901234567890}]"
+  },
+  {
+    "name": "workspace-deep-unknown-key",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"futureNested\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}]"
+  },
+  {
+    "name": "workspace-missing-archived-at",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_a\",\"projectId\":\"p\",\"cwd\":\"/a\",\"kind\":\"directory\",\"displayName\":\"a\",\"createdAt\":\"t\",\"updatedAt\":\"t\"}]"
+  },
+  {
+    "name": "workspace-bad-number",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"untrustedSource\":{\"kind\":\"change_request\",\"forge\":\"github\",\"number\":1.5,\"headRepository\":\"o/r\"}}]"
+  },
+  {
+    "name": "workspace-duplicate-id",
+    "kind": "workspace",
+    "input": "[{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"title\":\"first\"},{\"workspaceId\":\"wks_0123456789abcdef\",\"projectId\":\"prj_0123456789abcdef\",\"cwd\":\"/tmp/project\",\"kind\":\"directory\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"title\":\"second\"}]"
+  },
+  {
+    "name": "workspace-bom",
+    "kind": "workspace",
+    "input": "﻿[]"
+  },
+  {
+    "name": "workspace-not-array",
+    "kind": "workspace",
+    "input": "{}"
+  },
+  {
+    "name": "project-minimal",
+    "kind": "project",
+    "input": "[{\"projectId\":\"prj_a\",\"rootPath\":\"/tmp/project\",\"kind\":\"git\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null}]"
+  },
+  {
+    "name": "project-escaped-text",
+    "kind": "project",
+    "input": "[{\"projectId\":\"prj_a\",\"rootPath\":\"/tmp/project\",\"kind\":\"git\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"displayName\":\"tab\\tquote\\\"nul\\u0000\\u2028\",\"customName\":\"\\udbff\\udfff\"}]"
+  },
+  {
+    "name": "project-bad-kind",
+    "kind": "project",
+    "input": "[{\"projectId\":\"prj_a\",\"rootPath\":\"/tmp/project\",\"kind\":\"git\",\"displayName\":\"project\",\"createdAt\":\"2026-10-01T10:00:00.000Z\",\"updatedAt\":\"2026-10-01T10:00:00.000Z\",\"archivedAt\":null,\"kind\":\"svn\"}]"
+  }
+]
