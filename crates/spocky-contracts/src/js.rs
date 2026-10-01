@@ -18,6 +18,27 @@ impl Display for JsTypeError {
 
 impl std::error::Error for JsTypeError {}
 
+/// JavaScript strict equality (`===`). A missing value is `undefined`.
+/// Numbers compare as doubles, so `NaN !== NaN` and `0 === -0`; strings
+/// compare by UTF-16 code units, which the `js_value` text encoding keeps
+/// canonical. Objects and arrays have identity: each equals only itself,
+/// so two separately built objects with the same contents differ.
+#[must_use]
+pub fn strict_equals(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
+    fn defined(value: Option<&JsValue>) -> Option<&JsValue> {
+        value.filter(|value| !matches!(value, JsValue::Undefined))
+    }
+    match (defined(left), defined(right)) {
+        (None, None) | (Some(JsValue::Null), Some(JsValue::Null)) => true,
+        (Some(JsValue::Bool(a)), Some(JsValue::Bool(b))) => a == b,
+        #[allow(clippy::float_cmp, reason = "JavaScript === on numbers")]
+        (Some(JsValue::Number(a)), Some(JsValue::Number(b))) => a == b,
+        (Some(JsValue::String(a)), Some(JsValue::String(b))) => a == b,
+        (Some(a @ (JsValue::Array(_) | JsValue::Object(_))), Some(b)) => std::ptr::eq(a, b),
+        _ => false,
+    }
+}
+
 /// JavaScript truthiness; a missing value is `undefined`.
 #[must_use]
 pub fn truthy(value: Option<&JsValue>) -> bool {
@@ -102,8 +123,68 @@ pub fn js_string(value: Option<&JsValue>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{JsTypeError, js_string, spread, truthy};
+    use super::{JsTypeError, js_string, spread, strict_equals, truthy};
     use crate::js_value::{JsValue, parse, stringify};
+
+    // Expected values printed by node v22.20.0, for example `NaN === NaN`.
+    #[test]
+    fn strict_equals_follows_javascript() {
+        let parsed = parse(r#"[null, 1.5, "a", "\ud800", true, {}, [], 0]"#).unwrap();
+        let items = parsed.as_array().unwrap();
+        let (null, number, text, lone, flag, object, array, zero) = (
+            &items[0], &items[1], &items[2], &items[3], &items[4], &items[5], &items[6], &items[7],
+        );
+        let nan = JsValue::Number(f64::NAN);
+        let negative_zero = JsValue::Number(-0.0);
+        let infinity = JsValue::Number(f64::INFINITY);
+        let undefined = JsValue::Undefined;
+
+        assert!(!strict_equals(Some(&nan), Some(&nan)), "NaN === NaN");
+        assert!(strict_equals(Some(zero), Some(&negative_zero)), "0 === -0");
+        assert!(strict_equals(
+            Some(&infinity),
+            Some(&JsValue::Number(f64::INFINITY))
+        ));
+        assert!(
+            !strict_equals(Some(null), Some(&undefined)),
+            "null === undefined"
+        );
+        assert!(!strict_equals(Some(null), None), "null === missing");
+        assert!(
+            strict_equals(Some(&undefined), None),
+            "undefined === missing"
+        );
+        assert!(strict_equals(None, None));
+        assert!(strict_equals(Some(null), Some(null)));
+        assert!(strict_equals(Some(number), Some(&JsValue::Number(1.5))));
+        assert!(strict_equals(
+            Some(text),
+            Some(&JsValue::String("a".to_owned()))
+        ));
+        assert!(strict_equals(Some(lone), Some(lone)), "lone surrogate text");
+        assert!(
+            !strict_equals(Some(flag), Some(&JsValue::Number(1.0))),
+            "true === 1"
+        );
+        assert!(
+            !strict_equals(Some(text), Some(&JsValue::Number(1.0))),
+            "\"a\" === 1"
+        );
+        assert!(strict_equals(Some(object), Some(object)), "o === o");
+        assert!(strict_equals(Some(array), Some(array)), "a === a");
+        let other_object = parse("{}").unwrap();
+        let other_array = parse("[]").unwrap();
+        assert!(
+            !strict_equals(Some(object), Some(&other_object)),
+            "{{}} === {{}}"
+        );
+        assert!(!strict_equals(Some(array), Some(&other_array)), "[] === []");
+        let copy = object.clone();
+        assert!(
+            !strict_equals(Some(object), Some(&copy)),
+            "a clone is a new object"
+        );
+    }
 
     #[test]
     fn type_error_displays_its_v8_message() {
