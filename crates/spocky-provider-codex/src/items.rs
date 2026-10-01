@@ -6,11 +6,10 @@
 //! that order reaches the wire unchanged.
 //!
 //! Slice scope: `userMessage`, `agentMessage` (including async questions),
-//! `reasoning`, `plan`, and `contextCompaction` map here. Tool item types
-//! (`commandExecution`, `fileChange`, `mcpToolCall`, `webSearch`,
-//! `collabAgentToolCall`, `subAgentActivity`) and image items
-//! (`imageView`, `imageGeneration`) report `ThreadItemMapping::Unported` so a
-//! caller can never mistake them for items Paseo drops.
+//! `reasoning`, `plan`, and `contextCompaction` map here, and tool items go
+//! through [`crate::tools`]. Tool types that module has not ported and image
+//! items (`imageView`, `imageGeneration`) report `ThreadItemMapping::Unported`
+//! so a caller can never mistake them for items Paseo drops.
 
 use serde_json::{Map, Value, json};
 
@@ -90,12 +89,18 @@ pub fn thread_item_to_timeline(item: &Value, include_user_message: bool) -> Thre
     let Some(normalized_type) = item_type(record) else {
         return ThreadItemMapping::Skip;
     };
-    if normalized_type == "imageView"
-        || normalized_type == "imageGeneration"
-        || CODEX_TOOL_THREAD_ITEM_TYPES.contains(&normalized_type)
-    {
+    if normalized_type == "imageView" || normalized_type == "imageGeneration" {
         return ThreadItemMapping::Unported {
             item_type: normalized_type.to_owned(),
+        };
+    }
+    if CODEX_TOOL_THREAD_ITEM_TYPES.contains(&normalized_type) {
+        return match crate::tools::tool_call_from_thread_item(record, normalized_type) {
+            crate::tools::ToolMapping::Item(item) => ThreadItemMapping::Item(item),
+            crate::tools::ToolMapping::Skip => ThreadItemMapping::Skip,
+            crate::tools::ToolMapping::Unported(_) => ThreadItemMapping::Unported {
+                item_type: normalized_type.to_owned(),
+            },
         };
     }
     let mapped = match normalized_type {
@@ -734,10 +739,14 @@ mod tests {
             json!({"type": "compaction", "status": "completed"})
         );
         assert_eq!(
-            thread_item_to_timeline(&json!({"type": "CommandExecution"}), true),
+            thread_item_to_timeline(&json!({"type": "FileChange", "id": "f"}), true),
             ThreadItemMapping::Unported {
-                item_type: "commandExecution".to_owned()
+                item_type: "fileChange".to_owned()
             }
+        );
+        assert_eq!(
+            thread_item_to_timeline(&json!({"type": "CommandExecution"}), true),
+            ThreadItemMapping::Skip
         );
         assert_eq!(
             thread_item_to_timeline(&json!({"type": "hookPrompt"}), true),
