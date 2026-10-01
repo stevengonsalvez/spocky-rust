@@ -44,7 +44,7 @@
       {
         "date": "2026-10-01",
         "authority": "Stevie authorized maximum parallelism; recorded by the Claude coordinator session term_d3e130a0, which holds decision authority while Stevie is away",
-        "laterRevision": "2026-10-01: cap raised to 9 writers while load average stays under 24 (coordinator)",
+        "laterRevision": "2026-10-01: cap raised to 9 writers while load average stays under 24; later to 10 writers while the 5-minute load average stays under 24 (coordinator)",
         "change": "Slot cap revised from one lead plus three children to up to eight concurrent writers, bounded by machine load: back off above load average 24, and each writer sets CARGO_BUILD_JOBS=3.",
         "supersedes": "the plan rule of at most three children and four active slots"
       },
@@ -65,6 +65,7 @@
         "change": "Temporary js_value single-owner exception. p3_session commit 5eda6df (exact V8 node 22.20.0 JSON.parse error messages, 83 oracle cases in tests/fixtures/v8-json-errors.json) and later changes edited crates/spocky-store/src/js_value.rs after p3_contracts copied it byte-identical into crates/spocky-contracts/src/js_value.rs, so the copies diverged.",
         "exception": "After batch v2 lands on main, the p3_session lane alone may edit crates/spocky-contracts/src/js_value.rs and its test file, outside its normal paths, one file per signed commit: (a) apply its js_value changes to the contracts copy; (b) switch spocky-store to spocky_contracts::js_value, adding the dependency in crates/spocky-store/Cargo.toml with the lock in a separate commit; (c) delete crates/spocky-store/src/js_value.rs. During the exception p3_contracts must not edit js_value.rs or its tests.",
         "endCondition": "The store copy is deleted on main, the 83 V8 cases and the zod fixtures pass against the contracts copy, and the lead integrates that range. Ownership of js_value.rs then returns to p3_contracts.",
+        "closed": "2026-10-01: CLOSED. p3_session range 386c989..f7ad868 integrated on main (through 99743c8); crates/spocky-store/src/js_value.rs deleted, spocky-store re-exports spocky_contracts::js_value, the 83 V8 cases and zod fixtures pass against the contracts copy. Ownership of crates/spocky-contracts/src/js_value.rs and json.rs returns to p3_contracts.",
         "extension": "2026-10-01, coordinator: the exception also covers crates/spocky-contracts/src/json.rs for the JsValue::Undefined change only. That change is one commit touching js_value.rs and json.rs, an explicit exception to the one-file rule because a split would leave a non-compiling commit. p3_contracts is held off both files until the store copy is deleted. p3_contracts commits 268420f and 88ec28a edited json.rs before the hold; p3_session rebases onto main after they integrate, before making the Undefined commit."
       }
     ],
@@ -796,6 +797,21 @@
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
         },
         {
+          "batch": "v3",
+          "date": "2026-10-01",
+          "integrationRange": "aa4fc93..99743c8, 91 signed commits",
+          "lanes": {
+            "p2_pglite_rust_host": "code through cbbf4fe (44 picks, clippy clean); evidence docs e175bba, 18ae620, e7f59b7, 8078f2e HELD for byte-level overclaim and uncommitted control JSON",
+            "p3_contracts": "4cd62f2..c270240, JS UTF-16 length, __proto__ drop, StatusPayload, JsText",
+            "p2_hub_triggers_followups": "157d1c4..3beb232, host time zone wiring (parser tests pending; lane open)",
+            "p3_session": "386c989..f7ad868, js_value moved to contracts, store copy deleted, agent identity and title ports"
+          },
+          "leadVerification": "gated on lead slot with pinned env and SPOCKY_REAL_CODEX=1, --include-ignored: contracts, session, store, domain, provider_codex all green; PGlite host_runtime 2/2 with SPOCKY_PGLITE_PACKAGE and SPOCKY_HUB_MIGRATIONS from a disposable git archive of Hub 28f6c78 plus npm ci; hub targeted tests 35 green; clippy -D warnings and fmt clean; cargo metadata --locked on main",
+          "acceptanceNote": "spocky-pglite-host tests/host_runtime.rs requires SPOCKY_PGLITE_PACKAGE and SPOCKY_HUB_MIGRATIONS and fails closed without them",
+          "findings": "/private/tmp/claude-501/-Users-stevengonsalvez-orca-workspaces-paseo-paseo-rust/1b07299c-9eb9-4bb1-a98b-4db77f240f59/scratchpad/findings/",
+          "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "checkpoint": 7,
@@ -934,8 +950,8 @@
         "DPRO-002 (spocky-contracts on main)"
       ],
       "priority": 3,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches",
+      "state": "implementing",
+      "owner": "claude-opus-5-5 high, terminal term_02629a5b, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-message-receipts, launched 2026-10-01",
       "permittedPaths": [
         "crates/spocky-message-receipts/",
         "scripts/phase3/receipts-*",
