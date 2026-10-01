@@ -12,6 +12,11 @@ proxy. It is excluded from shipped runtime ownership and is not a compatibility
 runtime exception. Replace it with Rust only if test-harness ownership becomes
 part of the release artifact.
 
+`scripts/phase2/pglite-rust-host-import-trace.mjs` runs the pinned PGlite
+JavaScript glue under Node only to trace which Wasm imports a workload calls.
+It is evidence tooling for lane `p2_pglite_rust_host`, excluded from shipped
+runtime ownership, and not a compatibility runtime exception.
+
 ## Accepted interim
 
 ### Hub retained JavaScript PGlite host
