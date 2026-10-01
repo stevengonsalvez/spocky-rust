@@ -132,9 +132,13 @@ match one of two pinned complete baseline images. The two baseline images differ
 by 19 Plus-icon pixels with no distinguishing readiness signal. No mask,
 normalization, threshold, or runtime exception is used. The shared
 offline-reload failure remains pinned behavior.
-Hub installed tables match 50/50 and migration truth is append-only, but engine,
-dialect, constraints, historical PostgreSQL replay, and relational mutation
-parity remain incomplete. The selected plugin wrapper passes settings migration
+Hub retained-PGlite evidence matches 50 table names, 537 constraint and index
+names, 49 journal rows, and five narrow scenarios. The retained JavaScript host
+is a defensible candidate, but its exception remains unaccepted while lock,
+request-delivery timeout, graceful close, typed JSON, failure evidence,
+reproducibility, platform delivery, and performance repairs remain. Full schema
+definitions and relational mutation parity remain incomplete. The selected
+plugin wrapper passes settings migration
 success and failure plus binary IPC. The selected relay runtime passes control,
 pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
 protocol residuals and production qualification remain. Full renderer
