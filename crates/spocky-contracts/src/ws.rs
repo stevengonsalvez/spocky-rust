@@ -7,12 +7,13 @@
 //! websocket-server.ts` (`buildServerInfoStatusPayload`, `rejectHello`).
 
 use serde::de::{self, Deserializer};
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::Value;
 
 use crate::field::optional;
+use crate::json::{JsRecord, JsonValue, serialize_passthrough};
 use crate::number::Int;
-use crate::text::NonEmptyString;
+use crate::text::{NonEmptyString, TrimmedString};
 
 /// `WS_PROTOCOL_VERSION` in `websocket-server.ts`.
 pub const WS_PROTOCOL_VERSION: i64 = 1;
@@ -67,14 +68,29 @@ pub const BROWSER_AUTOMATION_COMMAND_NAMES: [&str; 22] = [
 /// `BrowserAutomationHostCapabilitySchema`: a passthrough object whose
 /// `supportedCommands` keeps known names once each, in first-seen order, and
 /// must keep at least one; `hostKind` defaults to `"browser host"`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BrowserHostCapability {
-    #[serde(rename = "supportedCommands")]
     pub supported_commands: Vec<String>,
-    #[serde(rename = "hostKind")]
     pub host_kind: NonEmptyString,
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    /// Keys outside the shape, kept as zod's `.passthrough()` keeps them.
+    pub extra: JsRecord<JsonValue>,
+}
+
+impl Serialize for BrowserHostCapability {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Known<'a> {
+            #[serde(rename = "supportedCommands")]
+            supported_commands: &'a [String],
+            #[serde(rename = "hostKind")]
+            host_kind: &'a NonEmptyString,
+        }
+        let known = Known {
+            supported_commands: &self.supported_commands,
+            host_kind: &self.host_kind,
+        };
+        serialize_passthrough(&known, &self.extra, serializer)
+    }
 }
 
 impl<'de> Deserialize<'de> for BrowserHostCapability {
@@ -86,7 +102,7 @@ impl<'de> Deserialize<'de> for BrowserHostCapability {
             #[serde(rename = "hostKind", default = "default_host_kind")]
             host_kind: NonEmptyString,
             #[serde(flatten)]
-            extra: Map<String, Value>,
+            extra: JsRecord<JsonValue>,
         }
 
         fn default_host_kind() -> NonEmptyString {
@@ -116,10 +132,28 @@ impl<'de> Deserialize<'de> for BrowserHostCapability {
     }
 }
 
-/// `WSHelloMessageSchema.capabilities`: known flags in shape order, then
-/// unknown keys in input order (`.passthrough()`).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// `WSHelloMessageSchema.capabilities`, a `.passthrough()` object.
+///
+/// zod output order: array-index extra keys ascending, then the shape flags,
+/// then the other extra keys in input order.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct HelloCapabilities {
+    #[serde(flatten)]
+    pub flags: HelloCapabilityFlags,
+    /// Keys outside the shape, such as `owned_subscriptions`.
+    #[serde(flatten)]
+    pub extra: JsRecord<JsonValue>,
+}
+
+impl Serialize for HelloCapabilities {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_passthrough(&self.flags, &self.extra, serializer)
+    }
+}
+
+/// The shape keys of [`HelloCapabilities`] in schema order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HelloCapabilityFlags {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub voice: Option<bool>,
     #[serde(
@@ -162,32 +196,35 @@ pub struct HelloCapabilities {
     pub timeline_notifications: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub browser_host: Option<BrowserHostCapability>,
-    /// Keys outside the shape, such as `owned_subscriptions`, kept as sent.
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
 }
 
 impl HelloCapabilities {
     /// Reads a capability flag the way the daemon does: `capabilities[key] === true`.
     #[must_use]
     pub fn is_enabled(&self, key: &str) -> bool {
+        let flags = &self.flags;
         let known = match key {
-            "voice" => self.voice,
-            "hello_rejection" => self.hello_rejection,
-            "pushNotifications" => self.push_notifications,
-            "explicit_event_subscriptions" => self.explicit_event_subscriptions,
-            "all_providers" => self.all_providers,
-            "reasoning_merge_enum" => self.reasoning_merge_enum,
-            "selective_agent_timeline" => self.selective_agent_timeline,
-            "custom_mode_icons" => self.custom_mode_icons,
-            "terminal_reflowable_snapshot" => self.terminal_reflowable_snapshot,
-            "provider_subagents" => self.provider_subagents,
-            "project_updates" => self.project_updates,
-            "compact_provider_snapshots" => self.compact_provider_snapshots,
-            "provider_snapshot_references" => self.provider_snapshot_references,
-            "timeline_replacement_invalidation" => self.timeline_replacement_invalidation,
-            "timeline_notifications" => self.timeline_notifications,
-            _ => return self.extra.get(key) == Some(&Value::Bool(true)),
+            "voice" => flags.voice,
+            "hello_rejection" => flags.hello_rejection,
+            "pushNotifications" => flags.push_notifications,
+            "explicit_event_subscriptions" => flags.explicit_event_subscriptions,
+            "all_providers" => flags.all_providers,
+            "reasoning_merge_enum" => flags.reasoning_merge_enum,
+            "selective_agent_timeline" => flags.selective_agent_timeline,
+            "custom_mode_icons" => flags.custom_mode_icons,
+            "terminal_reflowable_snapshot" => flags.terminal_reflowable_snapshot,
+            "provider_subagents" => flags.provider_subagents,
+            "project_updates" => flags.project_updates,
+            "compact_provider_snapshots" => flags.compact_provider_snapshots,
+            "provider_snapshot_references" => flags.provider_snapshot_references,
+            "timeline_replacement_invalidation" => flags.timeline_replacement_invalidation,
+            "timeline_notifications" => flags.timeline_notifications,
+            _ => {
+                return self
+                    .extra
+                    .get(key)
+                    .is_some_and(|value| *value.as_value() == Value::Bool(true));
+            }
         };
         known == Some(true)
     }
@@ -216,7 +253,7 @@ pub struct Hello {
 }
 
 /// `WSHelloRejectedMessageSchema.reason`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HelloRejectedReason {
     PasswordRequired,
@@ -225,14 +262,14 @@ pub enum HelloRejectedReason {
 }
 
 /// `WSHelloRejectedMessageSchema.accepts` items: only `"password"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HelloAcceptedAuth {
     Password,
 }
 
 /// `{ type: "hello.rejected", reason, accepts: ["password"] }` from `rejectHello`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HelloRejected {
     pub reason: HelloRejectedReason,
     pub accepts: Vec<HelloAcceptedAuth>,
@@ -250,7 +287,7 @@ impl HelloRejected {
 }
 
 /// `DAEMON_PERMISSIONS`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum DaemonPermission {
     #[serde(rename = "daemon.read")]
     DaemonRead,
@@ -288,21 +325,21 @@ impl DaemonPermission {
 }
 
 /// `ServerCapabilityStateSchema`, built as `{ enabled, reason }`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerCapabilityState {
     pub enabled: bool,
     pub reason: String,
 }
 
 /// `ServerVoiceCapabilitiesSchema`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerVoiceCapabilities {
     pub dictation: ServerCapabilityState,
     pub voice: ServerCapabilityState,
 }
 
 /// `serverCapabilities` as the daemon builds it: `{ voice }`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerCapabilities {
     pub voice: ServerVoiceCapabilities,
 }
@@ -311,7 +348,7 @@ macro_rules! server_features {
     ($($(#[$attr:meta])* $field:ident: $ty:ty => $key:literal,)*) => {
         /// `server_info.features` in `buildServerInfoStatusPayload` construction
         /// order. `Option` fields are spread in only when their gate is on.
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
         pub struct ServerFeatures {
             $($(#[$attr])* #[serde(rename = $key)] pub $field: $ty,)*
         }
@@ -504,14 +541,18 @@ impl ServerFeatures {
     }
 }
 
+/// `getOrCreateServerId` trims the id; `ServerInfoStatusPayloadSchema`
+/// requires `trim().min(1)`.
+pub type ServerId = TrimmedString<1, { usize::MAX }>;
+
 /// The `server_info` status payload without its `status` tag, in
 /// `buildServerInfoStatusPayload` construction order.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ServerInfo {
     #[serde(rename = "protocolVersion")]
     pub protocol_version: Int,
     #[serde(rename = "serverId")]
-    pub server_id: String,
+    pub server_id: ServerId,
     /// `os.hostname()`.
     pub hostname: String,
     pub version: String,
@@ -541,7 +582,7 @@ pub enum WsControlInbound {
 }
 
 /// Frames the daemon sends outside the session envelope.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type")]
 pub enum WsControlOutbound {
     /// `{ "type": "pong" }`, the reply to an application ping.
@@ -579,13 +620,46 @@ mod tests {
             relay_config: false,
             desktop_managed: true,
         });
-        let text = serde_json::to_string(&all_off).unwrap();
-        assert!(!text.contains("workspaceLabels"));
-        assert!(!text.contains("daemonStatusRpc"));
-        assert!(!text.contains("relayConfig"));
-        assert!(text.contains(r#""daemonSelfUpdate":false"#));
-        assert!(text.starts_with(r#"{"usageSources":true,"ownedSubscriptions":true"#));
-        assert!(text.ends_with(r#""agentProfiles":true,"agentConfigApply":true}"#));
+        // Expected text: the daemon object with the three gates off and
+        // desktopManaged true (scripts/phase3/contracts-cases.mjs).
+        let expected = concat!(
+            r#"{"usageSources":true,"ownedSubscriptions":true,"#,
+            r#""agentRequestReceipts":true,"workspaceRequestReceipts":true,"#,
+            r#""creationLifecycle":true,"hubAgentRpc":true,"directorySync":true,"#,
+            r#""workspaceSetupRun":true,"providersSnapshot":true,"#,
+            r#""providersSnapshotCwd":true,"checkoutForgeSetAutoMerge":true,"#,
+            r#""checkoutGithubSetAutoMerge":true,"githubCheckDetails":true,"#,
+            r#""forgeCheckDetails":true,"forgeSearch":true,"daemonConfigReload":true,"#,
+            r#""pushTokenRevocation":true,"plugins":true,"pluginManagement":true,"#,
+            r#""pluginGitManagement":true,"pluginSourceInstallation":true,"#,
+            r#""pluginSourceUpdates":true,"pluginLogs":true,"pluginThemes":true,"#,
+            r#""pluginSettings":true,"pluginTimelineItems":true,"#,
+            r#""skillManagement":true,"terminal-restore-modes":true,"#,
+            r#""terminal-input-mode-replay":true,"terminal-size-ownership":true,"#,
+            r#""workspaceTerminals":true,"rewind":true,"#,
+            r#""agentTimelinePromptIndex":true,"agentHistorySearch":true,"#,
+            r#""checkoutRefresh":true,"workspaceMultiplicity":true,"#,
+            r#""projectRemove":true,"projectAdd":true,"projectList":true,"#,
+            r#""worktreeRestore":true,"workspaceRecovery":true,"#,
+            r#""workspaceFileEditing":true,"providerUsageList":true,"#,
+            r#""agentDetach":true,"agentThinkingUpdate":true,"#,
+            r#""daemonDiagnostics":true,"daemonSelfUpdate":false,"#,
+            r#""agentForkContext":true,"agentForkContextCursor":true,"#,
+            r#""providerSubagents":true,"projectedSubagentTimeline":true,"#,
+            r#""providerSubagentNesting":true,"workspacePinning":true,"#,
+            r#""workspaceMarkUnread":true,"hubRelationship":true,"#,
+            r#""projectGithubClone":true,"workspaceGithubRepositorySearch":true,"#,
+            r#""projectCreateDirectory":true,"commitsList":true,"#,
+            r#""commitBaseClassification":true,"providerRemoval":true,"#,
+            r#""importSessionWorkspaceTarget":true,"importSessionSearch":true,"#,
+            r#""forgeProviders":true,"selectiveAgentTimeline":true,"#,
+            r#""explicitEventSubscriptions":true,"canonicalSubmittedPrompts":true,"#,
+            r#""stableProjectIdentity":true,"workspaceScriptManagement":true,"#,
+            r#""projectCustomIcon":true,"fsEntryOps":true,"fsEntryDuplicate":true,"#,
+            r#""checkoutDiscardChanges":true,"agentProfiles":true,"#,
+            r#""agentConfigApply":true}"#,
+        );
+        assert_eq!(serde_json::to_string(&all_off).unwrap(), expected);
     }
 
     #[test]
