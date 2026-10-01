@@ -4,6 +4,7 @@
 
 pub mod agent_identity;
 pub mod agent_labels;
+pub mod agent_manager;
 pub mod agent_projection;
 pub mod agent_prompt;
 pub mod agent_sdk;
