@@ -9,7 +9,9 @@
 //! zod-aot validator passes the daemon's object through unchanged.
 
 pub mod field;
+pub mod frame;
 pub mod json;
 pub mod number;
+pub mod session;
 pub mod text;
 pub mod ws;
