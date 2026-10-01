@@ -163,7 +163,9 @@ fn run_node(node: &std::ffi::OsStr, script: &str, args: &[&std::ffi::OsStr]) -> 
 /// callback runs its filesystem `ops`, then rejects with `fail` if present.
 /// `count: 2` issues two identical sends at once on one instance; `racer`
 /// names a second instance on the same directory that sends at the same
-/// time.
+/// time. Racing sends wait in `prepare` until both have arrived, so both
+/// receipt reads finish before either `pending` write on both sides, the
+/// interleaving node's single event-loop turn produces.
 const STEPS: &str = r#"[
   {"label":"first delivery","op":"send","instance":"a","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","b":{"y":1,"x":[{"d":1,"c":2}]},"10":1,"2":2,"B":true,"_k":null,"a b":"é"},"prepare":{"ops":[]},"send":{"ops":[]}},
   {"label":"concurrent duplicates","op":"send","instance":"a","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","b":{"y":1,"x":[{"d":1,"c":2}]},"10":1,"2":2,"B":true,"_k":null,"a b":"é"},"send":{"ops":[]},"count":2},
@@ -242,8 +244,9 @@ async function apply(op) {
 }
 let deliveries = 0;
 let prepares = 0;
-const callback = (spec, count) => async () => {
+const callback = (spec, count, barrier) => async () => {
   count();
+  if (barrier) await barrier();
   for (const op of spec.ops) await apply(op);
   if (spec.fail !== undefined) throw new Error(spec.fail);
 };
@@ -275,7 +278,14 @@ for (const step of steps) {
     const receipts = instances.get(step.instance);
     const senders = step.racer ? [receipts, instances.get(step.racer)] : Array.from({ length: step.count ?? 1 }, () => receipts);
     const input = { agentId: step.agentId, messageId: step.messageId, request: step.request, send: callback(step.send, () => deliveries++) };
-    if (step.prepare) input.prepare = callback(step.prepare, () => prepares++);
+    let barrier;
+    if (step.racer) {
+      let arrived = 0;
+      let release;
+      const all = new Promise((resolve) => { release = resolve; });
+      barrier = async () => { if (++arrived === senders.length) release(); await all; };
+    }
+    if (step.prepare) input.prepare = callback(step.prepare, () => prepares++, barrier);
     const settled = await Promise.allSettled(senders.map((sender) => sender.send(input)));
     results = settled.map((outcome) => outcome.status === "fulfilled"
       ? { ok: true }
@@ -375,6 +385,8 @@ struct Scripted {
     send: JsValue,
     prepares: Arc<AtomicUsize>,
     deliveries: Arc<AtomicUsize>,
+    /// Shared by racing sends: `prepare` waits until every racer arrives.
+    barrier: Option<Arc<tokio::sync::Barrier>>,
 }
 
 fn run_callback(root: &str, spec: &JsValue) -> Result<(), Thrown> {
@@ -394,6 +406,9 @@ impl Delivery for Scripted {
             return Ok(());
         };
         self.prepares.fetch_add(1, Ordering::SeqCst);
+        if let Some(barrier) = &self.barrier {
+            barrier.wait().await;
+        }
         run_callback(&self.root, spec)
     }
 
@@ -508,6 +523,10 @@ async fn run_rust(root: &str, steps: &JsValue) -> String {
                 send: field(step, "send").clone(),
                 prepares: Arc::clone(&prepares),
                 deliveries: Arc::clone(&deliveries),
+                barrier: racer.map(|_| {
+                    assert!(step.get("prepare").is_some(), "racing sends need a prepare");
+                    Arc::new(tokio::sync::Barrier::new(2))
+                }),
             };
             let (agent, message) = (text_field(step, "agentId"), text_field(step, "messageId"));
             let request = field(step, "request");
