@@ -86,6 +86,9 @@ fn decode_uri_component(value: &str) -> Option<String> {
     while index < bytes.len() {
         if bytes[index] == b'%' {
             let hex = bytes.get(index + 1..index + 3)?;
+            if !hex.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
             let text = std::str::from_utf8(hex).ok()?;
             decoded.push(u8::from_str_radix(text, 16).ok()?);
             index += 3;
@@ -197,6 +200,9 @@ mod tests {
             Some((None, "a b".into()))
         );
         assert_eq!(summary("https://h.example/%E0%A4%A"), None);
+        // `u8::from_str_radix` alone would accept the sign in "%+f".
+        assert_eq!(super::decode_uri_component("a%+fb"), None);
+        assert_eq!(super::decode_uri_component("a%2Fb").as_deref(), Some("a/b"));
         assert_eq!(summary("file:///tmp/repo"), None);
         assert_eq!(summary("git://host/repo"), None);
         assert_eq!(summary("   "), None);
