@@ -142,8 +142,8 @@ pub fn parse_hostnames_env(raw: Option<&str>) -> Option<Hostnames> {
 mod tests {
     use super::*;
 
-    fn patterns(list: &[&str]) -> Option<Hostnames> {
-        Some(Hostnames::Patterns(list.iter().map(|s| (*s).to_owned()).collect()))
+    fn patterns(list: &[&str]) -> Hostnames {
+        Hostnames::Patterns(list.iter().map(|s| (*s).to_owned()).collect())
     }
 
     #[test]
@@ -163,7 +163,16 @@ mod tests {
 
     #[test]
     fn rejects_other_names_missing_and_malformed_headers() {
-        for host in ["evil.example", "127.1", "256.1.1.1", "[::1", "", " ", "[]:1", "::1"] {
+        for host in [
+            "evil.example",
+            "127.1",
+            "256.1.1.1",
+            "[::1",
+            "",
+            " ",
+            "[]:1",
+            "::1",
+        ] {
             assert!(!is_hostname_allowed(Some(host), None), "{host}");
         }
         assert!(!is_hostname_allowed(None, None));
@@ -172,13 +181,16 @@ mod tests {
 
     #[test]
     fn any_allows_every_parsable_host() {
-        assert!(is_hostname_allowed(Some("evil.example"), Some(&Hostnames::Any)));
+        assert!(is_hostname_allowed(
+            Some("evil.example"),
+            Some(&Hostnames::Any)
+        ));
     }
 
     #[test]
     fn patterns_match_exact_names_and_dot_suffixes() {
         let list = patterns(&[".example.com", "Myhost"]);
-        let allowed = |host| is_hostname_allowed(Some(host), list.as_ref());
+        let allowed = |host| is_hostname_allowed(Some(host), Some(&list));
         assert!(allowed("example.com"));
         assert!(allowed("a.b.example.com:80"));
         assert!(allowed("MYHOST"));
@@ -190,12 +202,16 @@ mod tests {
     #[test]
     fn merge_dedupes_in_order_and_true_wins() {
         assert_eq!(
-            merge_hostnames(&[patterns(&[" a ", "b"]), None, patterns(&["a", "", "c"])]),
+            merge_hostnames(&[
+                Some(patterns(&[" a ", "b"])),
+                None,
+                Some(patterns(&["a", "", "c"]))
+            ]),
             Hostnames::Patterns(vec!["a".into(), "b".into(), "c".into()])
         );
         assert_eq!(merge_hostnames(&[None]), Hostnames::Patterns(vec![]));
         assert_eq!(
-            merge_hostnames(&[patterns(&["a"]), Some(Hostnames::Any)]),
+            merge_hostnames(&[Some(patterns(&["a"])), Some(Hostnames::Any)]),
             Hostnames::Any
         );
     }
@@ -205,7 +221,10 @@ mod tests {
         assert_eq!(parse_hostnames_env(None), None);
         assert_eq!(parse_hostnames_env(Some("  ")), None);
         assert_eq!(parse_hostnames_env(Some(" TRUE ")), Some(Hostnames::Any));
-        assert_eq!(parse_hostnames_env(Some("a, b,,c ")), patterns(&["a", "b", "c"]));
-        assert_eq!(parse_hostnames_env(Some(",")), patterns(&[]));
+        assert_eq!(
+            parse_hostnames_env(Some("a, b,,c ")),
+            Some(patterns(&["a", "b", "c"]))
+        );
+        assert_eq!(parse_hostnames_env(Some(",")), Some(patterns(&[])));
     }
 }
