@@ -599,7 +599,9 @@ pub fn select_page(
         }
         FetchDirection::After => {
             let cursor = cursor_seq.unwrap_or(bounds.min_seq - 1);
-            let start_seq = bounds.min_seq.max(cursor + 1);
+            // A client cursor may be any integer; JavaScript numbers do not
+            // overflow, so the arithmetic saturates.
+            let start_seq = bounds.min_seq.max(cursor.saturating_add(1));
             let (entries, end_seq) = select_after(&all, start_seq, bounds.max_seq, limit);
             PageSelection {
                 entries,
@@ -611,7 +613,7 @@ pub fn select_page(
         }
         FetchDirection::Before => {
             let cursor = cursor_seq.unwrap_or(bounds.max_seq + 1);
-            let end_seq = bounds.max_seq.min(cursor - 1);
+            let end_seq = bounds.max_seq.min(cursor.saturating_sub(1));
             if end_seq < bounds.min_seq {
                 return empty(false, end_seq < bounds.max_seq);
             }
@@ -981,5 +983,39 @@ impl TimelineStore {
         Ok(state
             .projection
             .enrich_submitted_user_message(client_message_id, provider_message_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FetchDirection, TimelineCursor, TimelineStore};
+    use spocky_store::js_value::parse;
+
+    #[test]
+    fn extreme_cursors_select_nothing_without_overflow() {
+        let mut store = TimelineStore::default();
+        let item = parse(r#"{"type":"assistant_message","text":"a"}"#).expect("item");
+        store.initialize(
+            "a",
+            vec![item],
+            Some("E".to_owned()),
+            None,
+            Some("T".to_owned()),
+        );
+        let fetch = |direction, seq| {
+            let cursor = TimelineCursor {
+                epoch: "E".to_owned(),
+                seq,
+            };
+            store
+                .fetch("a", direction, Some(&cursor), None)
+                .expect("timeline")
+        };
+        // node: fetch("a", { direction: "after", cursor: { epoch: "E", seq: 2 ** 63 } })
+        let after = fetch(FetchDirection::After, i64::MAX);
+        assert!(after.rows.is_empty() && after.has_older && !after.has_newer);
+        assert_eq!((after.start_seq, after.end_seq), (None, None));
+        let before = fetch(FetchDirection::Before, i64::MIN);
+        assert!(before.rows.is_empty() && !before.has_older && before.has_newer);
     }
 }
