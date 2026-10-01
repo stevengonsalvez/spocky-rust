@@ -42,7 +42,8 @@ const VALID_BODIES = {
 
 const text = (value) => ({ text: value });
 const json = (value) => ({ text: JSON.stringify(value) });
-const repeat = (prefix, fill, count, suffix) => ({ repeat: { prefix, fill, count, suffix } });
+// prefix + fill x count + suffix + closeFill x count (closeFill is optional)
+const repeat = (prefix, fill, count, suffix, closeFill = "") => ({ repeat: { prefix, fill, count, suffix, closeFill } });
 const base64 = (bytes) => ({ base64: Buffer.from(bytes).toString("base64") });
 
 function request(operation, overrides = {}) {
@@ -344,6 +345,16 @@ for (const operation of ["validateTrigger", "dispatchManualRun"]) {
       operation: { result: operation === "validateTrigger" ? RESULTS.validateTrigger.valid : RESULTS.dispatchManualRun.running },
     });
   }
+}
+// About 1 MB of nesting must neither crash nor change the answer.
+for (const [name, body] of [
+  ["deep-array-1mb", repeat("", "[", 500000, "", "]")],
+  ["deep-object-1mb", repeat("", '{"a":', 200000, "1", "}")],
+  ["deep-unterminated-1mb", repeat("", "[", 1000000, "")],
+]) {
+  add(`body/validateTrigger/${name}`, "handle", request("validateTrigger", { body }), {
+    operation: { result: RESULTS.validateTrigger.valid },
+  });
 }
 // Garbage bodies on operations without a request schema are ignored.
 for (const operation of ["listTriggers", "listProjects", "issueEnrollmentToken"]) {

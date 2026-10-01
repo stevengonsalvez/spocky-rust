@@ -1269,7 +1269,7 @@ fn manifest_trace() -> Json {
 }
 
 /// Fixture counts are part of the evidence: a shrunken case list or an empty baseline fails.
-const CASE_COUNT: usize = 459;
+const CASE_COUNT: usize = 462;
 const SCENARIO_COUNT: usize = 62;
 
 fn build_trace(openapi: &str) -> String {

@@ -5279,6 +5279,42 @@
       ],
       "operationCalls": []
     },
+    "body/validateTrigger/deep-array-1mb": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-request\",\"title\":\"Invalid request\",\"status\":400,\"detail\":\"The request body contains invalid fields.\",\"code\":\"invalid_request\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"issues\":[{\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-object-1mb": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-request\",\"title\":\"Invalid request\",\"status\":400,\"detail\":\"The request body contains invalid fields.\",\"code\":\"invalid_request\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"issues\":[{\"path\":[\"yaml\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"path\":[],\"message\":\"Unrecognized key: \\\"a\\\"\"}]}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
+    "body/validateTrigger/deep-unterminated-1mb": {
+      "status": 400,
+      "headers": {
+        "content-type": "application/problem+json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"00000000-0000-4000-8000-000000000001\"}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": []
+    },
     "body/listTriggers/ignored-garbage": {
       "status": 200,
       "headers": {
