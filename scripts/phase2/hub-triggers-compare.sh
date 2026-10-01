@@ -6,7 +6,7 @@ raw_dir="$repository_root/evidence/raw/phase2"
 original="$raw_dir/hub-triggers-original.json"
 rust="$raw_dir/hub-triggers-rust.json"
 comparison="$raw_dir/hub-triggers-comparison.json"
-target_dir=${CARGO_TARGET_DIR:-"$repository_root/.target-hub-triggers"}
+target_dir=${CARGO_TARGET_DIR:-/private/tmp/spocky-targets/hub-triggers}
 
 if [ "${1:-}" = "--print-plan" ]; then
   printf '%s\n' 'comparison: byte-identical, normalization: none'
@@ -29,12 +29,22 @@ if ! command -v gtimeout >/dev/null 2>&1; then
 fi
 
 mkdir -p "$raw_dir"
+rm -f "$rust"
+# The capture pins TZ=UTC, so the Rust side runs with a zero local offset. The test also asserts
+# equality with the baseline trace itself; a failure is reported after the byte diff below.
+test_failed=0
+SPOCKY_HUB_TRIGGERS_BASELINE="$original" \
+SPOCKY_HUB_TRIGGERS_LOCAL_OFFSET_MINUTES=0 \
 SPOCKY_HUB_TRIGGERS_OUTPUT="$rust" \
 CARGO_TARGET_DIR="$target_dir" \
-gtimeout 120 cargo test --quiet \
+gtimeout 900 cargo test --quiet \
   --manifest-path "$repository_root/Cargo.toml" \
   -p spocky-hub-pilot \
-  --test hub_triggers_evidence
+  --test hub_triggers_evidence || test_failed=1
+if [ ! -f "$rust" ]; then
+  printf 'Rust trace was not written: %s\n' "$rust" >&2
+  exit 1
+fi
 
 # Byte comparison on purpose: object key order is observable in Hub response bodies and traces,
 # so no key sorting or other normalization is applied.
@@ -58,7 +68,7 @@ jq -n \
     rustRawSha256: $rustSha256
   }' >"$comparison"
 
-if [ "$matched" != true ]; then
+if [ "$matched" != true ] || [ "$test_failed" != 0 ]; then
   diff -u "$original" "$rust" >&2 || true
   printf 'Hub trigger differential failed: %s\n' "$comparison" >&2
   exit 1
