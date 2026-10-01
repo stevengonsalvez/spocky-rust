@@ -43,16 +43,47 @@ pub fn real_codex() -> String {
             Some(PINNED_CODEX_SHA256),
             "pinned codex digest mismatch at {PINNED_CODEX_PATH}"
         );
-        let version = std::process::Command::new(PINNED_CODEX_PATH)
-            .arg("--version")
-            .output()
-            .expect("pinned codex --version");
-        assert_eq!(
-            String::from_utf8_lossy(&version.stdout).trim(),
-            PINNED_CODEX_VERSION
-        );
+        assert_eq!(sandboxed_version().trim(), PINNED_CODEX_VERSION);
     });
     PINNED_CODEX_PATH.to_owned()
+}
+
+/// Bound on `codex --version`.
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// `codex --version` under the loopback-only seatbelt with a scrubbed env,
+/// killed by its own pid when it overruns `VERSION_PROBE_TIMEOUT`.
+fn sandboxed_version() -> String {
+    let mut child = std::process::Command::new("/usr/bin/sandbox-exec")
+        .args(["-p", LOOPBACK_ONLY_PROFILE, PINNED_CODEX_PATH, "--version"])
+        .env_clear()
+        .env("HOME", std::env::temp_dir())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn pinned codex --version");
+    let deadline = Instant::now() + VERSION_PROBE_TIMEOUT;
+    while child
+        .try_wait()
+        .expect("wait for codex --version")
+        .is_none()
+    {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("pinned codex --version exceeded {VERSION_PROBE_TIMEOUT:?}");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let mut stdout = String::new();
+    child
+        .stdout
+        .take()
+        .expect("version stdout")
+        .read_to_string(&mut stdout)
+        .expect("read codex --version");
+    stdout
 }
 
 /// Seatbelt profile for Codex in tests: every outbound connection except
@@ -322,10 +353,52 @@ fn sse(event: &str, mut data: Value) -> String {
     format!("event: {event}\ndata: {data}\n\n")
 }
 
+/// Whole-test bound for real-Codex tests. Each event wait has its own
+/// timeout, but session calls carry Paseo's request timeouts (up to 14 days),
+/// so a wedged Codex would otherwise hang the run.
+pub const REAL_CODEX_TEST_DEADLINE: Duration = Duration::from_secs(300);
+
+/// Aborts the test process if it is still alive at the deadline. A blocked
+/// test thread cannot be stopped any other way. Dropping it disarms it.
+pub struct Watchdog {
+    done: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Watchdog {
+    pub fn arm(label: &str, limit: Duration) -> Self {
+        let done = Arc::new((Mutex::new(false), Condvar::new()));
+        let shared = Arc::clone(&done);
+        let label = label.to_owned();
+        thread::spawn(move || {
+            let (flag, changed) = &*shared;
+            let (finished, _) = changed
+                .wait_timeout_while(flag.lock().unwrap(), limit, |finished| !*finished)
+                .unwrap();
+            if !*finished {
+                eprintln!("real-codex test '{label}' exceeded its {limit:?} deadline; aborting");
+                std::process::abort();
+            }
+        });
+        Self { done }
+    }
+}
+
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        let (flag, changed) = &*self.done;
+        *flag
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        changed.notify_all();
+    }
+}
+
 /// A disposable root with `home/`, `codex/` (`CODEX_HOME`), and `project/`.
-/// Dropping it deletes exactly this directory.
+/// Dropping it deletes exactly this directory. Every real-Codex test owns
+/// one, so it also arms the test's `REAL_CODEX_TEST_DEADLINE` watchdog.
 pub struct DisposableRoot {
     pub path: PathBuf,
+    _watchdog: Watchdog,
 }
 
 impl DisposableRoot {
@@ -342,7 +415,10 @@ impl DisposableRoot {
             std::fs::create_dir_all(path.join(child)).expect("create disposable root");
         }
         let path = path.canonicalize().expect("canonical disposable root");
-        Self { path }
+        Self {
+            path,
+            _watchdog: Watchdog::arm(label, REAL_CODEX_TEST_DEADLINE),
+        }
     }
 
     pub fn join(&self, child: &str) -> PathBuf {
@@ -475,6 +551,9 @@ pub fn full_access_config(root: &DisposableRoot) -> SessionConfig {
     }
 }
 
+/// Bound on the catalog fetch that resolves the manager's default model.
+pub const CATALOG_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// The config Paseo's agent manager builds for `run --mode full-access`
 /// without `--model`: `normalizeConfig` fills `model` from the provider
 /// catalog (`resolveDefaultModelId`) before the session is created.
@@ -482,7 +561,9 @@ pub fn manager_full_access_config(
     root: &DisposableRoot,
     provider: &CodexProvider,
 ) -> SessionConfig {
-    let catalog = provider.fetch_catalog(None).expect("codex catalog");
+    let catalog = provider
+        .fetch_catalog(Some(Instant::now() + CATALOG_TIMEOUT))
+        .expect("codex catalog");
     let model = spocky_provider_codex::catalog::default_model_id(&catalog).expect("default model");
     SessionConfig {
         model: Some(model),
