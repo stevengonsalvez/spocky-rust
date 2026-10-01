@@ -16,7 +16,8 @@ pub mod node_fs;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::future::Future;
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use sha2::{Digest, Sha256};
 use spocky_contracts::js_value::{
@@ -24,6 +25,7 @@ use spocky_contracts::js_value::{
 };
 use spocky_contracts::zod::{Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::collate::locale_compare;
+use tokio::sync::oneshot;
 
 use crate::node_fs::FsError;
 
@@ -76,7 +78,15 @@ impl<E: Debug + Display> std::error::Error for ReceiptError<E> {}
 /// Owns message delivery receipts; creation is owned by `CreationService`.
 pub struct MessageReceipts {
     directory: String,
-    pending: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// `pending`: the last send queued for each key.
+    pending: Mutex<HashMap<String, Tail>>,
+    calls: AtomicU64,
+}
+
+/// The last send queued for a key, and a signal that closes when it settles.
+struct Tail {
+    call: u64,
+    settled: oneshot::Receiver<()>,
 }
 
 impl MessageReceipts {
@@ -86,50 +96,57 @@ impl MessageReceipts {
         Self {
             directory: directory.into(),
             pending: Mutex::new(HashMap::new()),
+            calls: AtomicU64::new(0),
         }
     }
 
     /// `send(input)`: sends of one `(agent_id, message_id)` on this instance
-    /// run one at a time, whatever the previous outcome.
+    /// run one at a time in call order, whatever the previous outcome.
     ///
-    /// The baseline queues a send when `send` is called; this future joins
-    /// the queue when it is first polled, so call order equals queue order
-    /// only for futures polled in call order (as `tokio::join!` does).
+    /// As in the baseline, the call itself joins the key's queue: a send
+    /// called earlier runs first even when its future is polled later.
     /// Queues are per instance: two instances on one directory can both
     /// deliver the same message, as in the baseline.
     ///
     /// # Errors
     ///
     /// Rejects as the baseline does; see [`ReceiptError`].
-    pub async fn send<D: Delivery>(
-        &self,
-        agent_id: &str,
-        message_id: &str,
-        request: &JsValue,
+    pub fn send<'a, D: Delivery + 'a>(
+        &'a self,
+        agent_id: &'a str,
+        message_id: &'a str,
+        request: &'a JsValue,
         delivery: D,
-    ) -> Result<(), ReceiptError<D::Error>> {
+    ) -> impl Future<Output = Result<(), ReceiptError<D::Error>>> + 'a {
         // Preserve the existing on-disk identity and shape across daemon upgrades.
         let key = digest(&JsValue::Array(vec![
             JsValue::String("send".to_owned()),
             JsValue::String(agent_id.to_owned()),
             JsValue::String(message_id.to_owned()),
         ]));
-        let turn = Arc::clone(self.pending_map().entry(key.clone()).or_default());
-        let result = {
-            let _turn = turn.lock().await;
-            self.send_once(&key, agent_id, request, delivery).await
-        };
-        let mut pending = self.pending_map();
-        // Only the map and this call hold the turn: nobody is queued behind it.
-        if Arc::strong_count(&turn) == 2 {
-            pending.remove(&key);
+        let call = self.calls.fetch_add(1, Ordering::Relaxed);
+        let (settle, settled) = oneshot::channel::<()>();
+        let previous = self
+            .pending_map()
+            .insert(key.clone(), Tail { call, settled });
+        async move {
+            // `previous.catch(() => undefined)`: wait until it settles, whatever
+            // the outcome (a dropped sender also counts as settled).
+            if let Some(previous) = previous {
+                let _ = previous.settled.await;
+            }
+            let result = self.send_once(&key, agent_id, request, delivery).await;
+            let mut pending = self.pending_map();
+            if pending.get(&key).is_some_and(|tail| tail.call == call) {
+                pending.remove(&key);
+            }
+            drop(pending);
+            drop(settle);
+            result
         }
-        result
     }
 
-    fn pending_map(
-        &self,
-    ) -> std::sync::MutexGuard<'_, HashMap<String, Arc<tokio::sync::Mutex<()>>>> {
+    fn pending_map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Tail>> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
