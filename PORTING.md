@@ -96,6 +96,7 @@ Tracked evidence manifests live under `evidence/`. Large raw captures live under
 - Do not mutate production Hub, relay, provider, billing, deployment, release, or store state.
 - Run long-lived services in named tmux sessions and stop exact identities only.
 - Every harness and test uses a dedicated tmux socket (`tmux -L <lane-or-gate-name>`), never the default socket. Never start, stop, or kill a tmux server that the harness did not create on its own socket.
+- Every real-provider test (a real external program such as `codex`) runs under the egress-deny sandbox launcher, routes the provider to a loopback stub, asserts that no egress happened, is marked `#[ignore]` so it runs only under `--include-ignored` with its env gate, and bounds every wait.
 - Kill only recorded PIDs and process groups the harness started. Never select processes to kill by matching argv, environment, command name, or path. A harness that sweeps strays must prove with a test that the sweep cannot reach a tmux server or an unrelated process.
 - Run targeted local tests. Full matrices belong in CI.
 - Preserve all four baseline checkouts without edits.
