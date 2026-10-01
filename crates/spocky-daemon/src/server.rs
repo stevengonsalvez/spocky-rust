@@ -1169,11 +1169,12 @@ impl SocketTask {
                         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                     ) => {}
                 Err(WsError::Capacity(CapacityError::MessageTooLong { .. })) => {
-                    self.close(WS_CLOSE_MAX_PAYLOAD, "Max payload size exceeded");
+                    // ws 8.20.0 `receiverOnError` closes with the status code only.
+                    self.close(WS_CLOSE_MAX_PAYLOAD, "");
                     self.phase = Phase::Done;
                 }
                 Err(WsError::Utf8(_)) => {
-                    self.close(1007, "Invalid UTF-8 sequence");
+                    self.close(1007, "");
                     self.phase = Phase::Done;
                 }
                 // ConnectionClosed, AlreadyClosed and every other error end the connection.
