@@ -1,6 +1,6 @@
 //! Differential check of the timeline store and projection against the
-//! pinned build's `InMemoryAgentTimelineStore`: the same appends and fetches
-//! must produce byte-identical pages.
+//! pinned build's `InMemoryAgentTimelineStore`: the same seeds, appends,
+//! enrichments and fetches must produce byte-identical raw rows and pages.
 //!
 //! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` like
 //! `checkout_differential`; without them the test FAILS unless
@@ -9,88 +9,116 @@
 use std::process::Command;
 
 use spocky_session::timeline::{
-    FetchDirection, ProjectedRow, TimelineCursor, TimelineFetch, TimelineStore,
+    FetchDirection, ProjectedRow, SeedRow, TimelineCursor, TimelineFetch, TimelineRow,
+    TimelineSeed, TimelineStore,
 };
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
-/// `(turnId or "", item JSON)`: every merge rule, including tool-call detail
-/// and metadata merges, failed and canceled errors, turn boundaries, plugin
-/// identity, message ids, and a metadata slot that is undefined first.
-const APPENDS: &[(&str, &str)] = &[
+/// `(turnId or "", item JSON, providerMessageId or "")`: every merge rule,
+/// including tool-call detail and metadata merges, failed and canceled
+/// errors, turn boundaries, plugin identity, message ids, a metadata slot
+/// that is undefined first, and a submitted message that already has a
+/// provider message id when it is enriched.
+const APPENDS: &[(&str, &str, &str)] = &[
     (
         "t1",
         r#"{"type":"user_message","text":"hi","clientMessageId":"c1"}"#,
+        "",
     ),
-    ("t1", r#"{"type":"assistant_message","text":"Hel"}"#),
-    ("t1", r#"{"type":"assistant_message","text":"lo"}"#),
+    (
+        "t1",
+        r#"{"type":"user_message","text":"again","clientMessageId":"c2"}"#,
+        "pm-0",
+    ),
+    ("t1", r#"{"type":"assistant_message","text":"Hel"}"#, ""),
+    ("t1", r#"{"type":"assistant_message","text":"lo"}"#, ""),
     (
         "t1",
         r#"{"type":"assistant_message","text":" there","messageId":"m2"}"#,
+        "",
     ),
     (
         "t1",
         r#"{"type":"assistant_message","text":"!","messageId":"m2"}"#,
+        "",
     ),
-    ("t1", r#"{"type":"reasoning","text":"think "}"#),
-    ("t1", r#"{"type":"reasoning","text":"more"}"#),
+    ("t1", r#"{"type":"reasoning","text":"think "}"#, ""),
+    ("t1", r#"{"type":"reasoning","text":"more"}"#, ""),
     (
         "t1",
         r#"{"type":"tool_call","callId":"call1","name":"shell","status":"running","detail":{"type":"unknown","input":{}},"error":null}"#,
+        "",
     ),
-    ("t1", r#"{"type":"assistant_message","text":"mid"}"#),
+    ("t1", r#"{"type":"assistant_message","text":"mid"}"#, ""),
     (
         "t1",
         r#"{"type":"tool_call","callId":"call1","name":"shell","status":"completed","detail":{"type":"shell","command":"ls","output":"a"},"metadata":{"exit":0}}"#,
+        "",
     ),
     (
         "t1",
         r#"{"type":"tool_call","callId":"call2","name":"shell","status":"running","detail":{"type":"shell","command":"x"},"metadata":{"a":1}}"#,
+        "",
     ),
     (
         "t1",
         r#"{"type":"tool_call","callId":"call2","name":"shell","status":"failed","detail":{"type":"unknown"}}"#,
+        "",
     ),
     (
         "t2",
         r#"{"type":"tool_call","callId":"call1","name":"shell","status":"completed","detail":{"type":"shell"}}"#,
+        "",
     ),
     (
         "t2",
         r#"{"type":"plugin","pluginId":"p","id":"x","data":1}"#,
+        "",
     ),
-    ("", r#"{"type":"plugin","pluginId":"p","id":"x","data":2}"#),
-    ("t2", r#"{"type":"assistant_message","text":"a"}"#),
-    ("t3", r#"{"type":"assistant_message","text":"b"}"#),
-    ("t3", r#"{"type":"error","message":"boom"}"#),
+    (
+        "",
+        r#"{"type":"plugin","pluginId":"p","id":"x","data":2}"#,
+        "",
+    ),
+    ("t2", r#"{"type":"assistant_message","text":"a"}"#, ""),
+    ("t3", r#"{"type":"assistant_message","text":"b"}"#, ""),
+    ("t3", r#"{"type":"error","message":"boom"}"#, ""),
     (
         "t3",
         r#"{"type":"tool_call","callId":"call3","name":"read","status":"running","detail":{"type":"unknown"}}"#,
+        "",
     ),
     (
         "t3",
         r#"{"type":"tool_call","callId":"call3","name":"read","status":"canceled","detail":{"type":"unknown"},"error":"x"}"#,
+        "",
     ),
-    ("t3", r#"{"type":"reasoning","text":"r1"}"#),
-    ("t3", r#"{"type":"assistant_message","text":"after"}"#),
+    ("t3", r#"{"type":"reasoning","text":"r1"}"#, ""),
+    ("t3", r#"{"type":"assistant_message","text":"after"}"#, ""),
     (
         "t3",
         r#"{"type":"tool_call","callId":"call5","name":"edit","status":"running","detail":{"type":"unknown"}}"#,
+        "",
     ),
     (
         "t3",
         r#"{"type":"tool_call","callId":"call5","name":"edit","status":"running","detail":{"type":"edit","path":"f"}}"#,
+        "",
     ),
     (
         "t3",
         r#"{"type":"tool_call","callId":"call5","name":"edit","status":"completed","detail":{"type":"edit","path":"f"},"metadata":{"z":1}}"#,
+        "",
     ),
     (
         "t3",
         r#"{"type":"todo","items":[{"text":"x","completed":false}]}"#,
+        "",
     ),
     (
         "t3",
         r#"{"type":"assistant_message","text":"end","messageId":"m9"}"#,
+        "",
     ),
 ];
 
@@ -111,38 +139,76 @@ const FETCHES: &[(&str, &str, i64, i64)] = &[
     ("after", "E", -5, 2),
 ];
 
+/// Stored source rows for seeding: a gap before seq 5, turn and provider
+/// message ids, assistant chunks that merge, and a tool call lifecycle.
+const SEED_ROWS: &str = r#"[
+  {"seq":5,"timestamp":"S5","item":{"type":"user_message","text":"q","clientMessageId":"c9"},"turnId":"t1","providerMessageId":"pm9"},
+  {"seq":6,"timestamp":"S6","item":{"type":"assistant_message","text":"x"},"turnId":"t1"},
+  {"seq":7,"timestamp":"S7","item":{"type":"assistant_message","text":"y"},"turnId":"t1"},
+  {"seq":8,"timestamp":"S8","item":{"type":"tool_call","callId":"k","name":"shell","status":"running","detail":{"type":"unknown"}},"turnId":"t1"},
+  {"seq":9,"timestamp":"S9","item":{"type":"tool_call","callId":"k","name":"shell","status":"completed","detail":{"type":"shell","command":"ls"}},"turnId":"t1"}
+]"#;
+
+/// Items for the items seed path.
+const SEED_ITEMS: &str = r#"[
+  {"type":"assistant_message","text":"i1"},
+  {"type":"assistant_message","text":"i2"},
+  {"type":"reasoning","text":"r"}
+]"#;
+
+/// One more item appended to every seeded store.
+const LATE_ITEM: &str = r#"{"type":"assistant_message","text":"late"}"#;
+
+/// The pinned store, driven through the same calls. Every result is written
+/// as the raw object the store returns, so `seq`, key order and the enriched
+/// `providerMessageId` are compared byte for byte. Epochs and timestamps are
+/// fixed inputs, so nothing is normalized.
 const NODE_SCRIPT: &str = r#"
-const [dist, appendsJson, fetchesJson] = process.argv.slice(1);
+const [dist, appendsJson, fetchesJson, seedRowsJson, seedItemsJson, lateItemJson] = process.argv.slice(1);
 const { InMemoryAgentTimelineStore } = await import(`${dist}/server/agent/agent-timeline-store.js`);
 const store = new InMemoryAgentTimelineStore();
+const fetchAll = (agentId) => JSON.parse(fetchesJson).map(([direction, epoch, seq, limit]) =>
+  store.fetch(agentId, { direction, ...(epoch ? { cursor: { epoch, seq } } : {}), ...(limit >= 0 ? { limit } : {}) }));
+const report = (agentId, late) => ({
+  late: late ? store.append(agentId, JSON.parse(lateItemJson), { timestamp: "TL", turnId: "t1" }) : null,
+  rows: store.getRows(agentId),
+  fetches: fetchAll(agentId),
+});
+store.initialize("empty", { epoch: "E", timestamp: "T0" });
+const empty = report("empty", false);
 store.initialize("a", { epoch: "E", timestamp: "T0" });
-JSON.parse(appendsJson).forEach(([turnId, item], index) => {
-  store.append("a", JSON.parse(item), { timestamp: `T${index + 1}`, ...(turnId ? { turnId } : {}) });
-});
-const row = (entry) => ({
-  item: entry.item, turnId: entry.turnId, providerMessageId: entry.providerMessageId,
-  timestamp: entry.timestamp, seqStart: entry.seqStart, seqEnd: entry.seqEnd,
-  sourceSeqRanges: entry.sourceSeqRanges, collapsed: entry.collapsed,
-});
-const fetches = JSON.parse(fetchesJson).map(([direction, epoch, seq, limit]) => {
-  const page = store.fetch("a", { direction, ...(epoch ? { cursor: { epoch, seq } } : {}), ...(limit >= 0 ? { limit } : {}) });
-  return { ...page, rows: page.rows.map(row) };
-});
-store.enrichSubmittedUserMessage("a", "c1", "provider-1");
+const appended = JSON.parse(appendsJson).map(([turnId, item, providerMessageId], index) =>
+  store.append("a", JSON.parse(item), {
+    timestamp: `T${index + 1}`,
+    ...(turnId ? { turnId } : {}),
+    ...(providerMessageId ? { providerMessageId } : {}),
+  }));
+const main = report("a", false);
+const enriched = [
+  store.enrichSubmittedUserMessage("a", "c1", "provider-1"),
+  store.enrichSubmittedUserMessage("a", "c2", "provider-2"),
+  store.enrichSubmittedUserMessage("a", "missing", "provider-3"),
+];
+const afterEnrich = report("a", false);
+store.initialize("rows", { epoch: "E", nextSeq: 3, timestamp: "TS", rows: JSON.parse(seedRowsJson), items: JSON.parse(seedItemsJson) });
+store.initialize("gap", { epoch: "E", nextSeq: 20, rows: JSON.parse(seedRowsJson) });
+store.initialize("items", { epoch: "E", nextSeq: 4, timestamp: "TI", items: JSON.parse(seedItemsJson) });
+store.initialize("projected", { epoch: "E", rows: store.getRows("a") });
 process.stdout.write(JSON.stringify({
-  fetches,
+  empty,
+  appended,
+  main,
+  enriched,
+  afterEnrich,
+  seeded: ["rows", "gap", "items", "projected"].map((agentId) => report(agentId, true)),
   lastItem: store.getLastItem("a"),
   lastAssistant: store.getLastAssistantMessage("a"),
-  submitted: row(store.getSubmittedUserMessage("a", "c1")),
+  submitted: store.getSubmittedUserMessage("a", "c1"),
 }));
 "#;
 
 fn text(value: &str) -> JsValue {
     JsValue::String(value.to_owned())
-}
-
-fn optional_text(value: Option<&String>) -> JsValue {
-    value.map_or(JsValue::Undefined, |value| text(value))
 }
 
 #[allow(
@@ -153,15 +219,51 @@ fn number(value: i64) -> JsValue {
     JsValue::Number(value as f64)
 }
 
-fn row_value(entry: &ProjectedRow) -> JsValue {
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "fixture sequence numbers are small integers"
+)]
+fn integer(value: &JsValue) -> i64 {
+    value.as_f64().expect("number") as i64
+}
+
+fn optional_string(value: Option<&JsValue>) -> Option<String> {
+    value.and_then(JsValue::as_str).map(str::to_owned)
+}
+
+/// `AgentTimelineRow` as `append` returns it.
+fn source_row_value(row: &TimelineRow) -> JsValue {
+    let mut value = JsObject::new();
+    value.insert("seq", number(row.seq));
+    value.insert("timestamp", text(&row.timestamp));
+    value.insert("item", row.item.clone());
+    if let Some(turn_id) = &row.turn_id {
+        value.insert("turnId", text(turn_id));
+    }
+    if let Some(id) = &row.provider_message_id {
+        value.insert("providerMessageId", text(id));
+    }
+    JsValue::Object(value)
+}
+
+/// A stored projected row, or with `seq_first` a fetched one
+/// (`Object.assign({ seq }, entry)`).
+fn row_value(entry: &ProjectedRow, seq_first: bool) -> JsValue {
     let mut row = JsObject::new();
+    if seq_first {
+        row.insert("seq", number(entry.seq));
+    }
     row.insert("item", entry.item.clone());
-    row.insert("turnId", optional_text(entry.turn_id.as_ref()));
-    row.insert(
-        "providerMessageId",
-        optional_text(entry.provider_message_id.as_ref()),
-    );
     row.insert("timestamp", text(&entry.timestamp));
+    if let Some(turn_id) = &entry.turn_id {
+        row.insert("turnId", text(turn_id));
+    }
+    let provider_message_id = entry.provider_message_id.as_ref().map(|id| text(id));
+    if !entry.provider_message_id_last
+        && let Some(id) = &provider_message_id
+    {
+        row.insert("providerMessageId", id.clone());
+    }
     row.insert("seqStart", number(entry.seq_start));
     row.insert("seqEnd", number(entry.seq_end));
     row.insert(
@@ -189,6 +291,14 @@ fn row_value(entry: &ProjectedRow) -> JsValue {
                 .collect(),
         ),
     );
+    if !seq_first {
+        row.insert("seq", number(entry.seq));
+    }
+    if entry.provider_message_id_last
+        && let Some(id) = provider_message_id
+    {
+        row.insert("providerMessageId", id);
+    }
     JsValue::Object(row)
 }
 
@@ -216,31 +326,32 @@ fn fetch_value(fetch: &TimelineFetch) -> JsValue {
     page.insert("endSeq", optional_number(fetch.end_seq));
     page.insert(
         "rows",
-        JsValue::Array(fetch.rows.iter().map(row_value).collect()),
+        JsValue::Array(fetch.rows.iter().map(|row| row_value(row, true)).collect()),
     );
     JsValue::Object(page)
 }
 
-fn rust_output() -> String {
-    let mut store = TimelineStore::default();
-    store.initialize(
-        "a",
-        Vec::new(),
-        Some("E".to_owned()),
-        None,
-        Some("T0".to_owned()),
-    );
-    for (index, (turn, item)) in APPENDS.iter().enumerate() {
-        store
+fn report(store: &mut TimelineStore, agent_id: &str, late: bool) -> JsValue {
+    let late = if late {
+        let row = store
             .append(
-                "a",
-                parse(item).expect("item JSON"),
-                Some(format!("T{}", index + 1)),
-                (!turn.is_empty()).then(|| (*turn).to_owned()),
+                agent_id,
+                parse(LATE_ITEM).expect("late item"),
+                Some("TL".to_owned()),
+                Some("t1".to_owned()),
                 None,
             )
             .expect("agent timeline exists");
-    }
+        source_row_value(&row)
+    } else {
+        JsValue::Null
+    };
+    let rows = store
+        .rows(agent_id)
+        .expect("timeline")
+        .iter()
+        .map(|row| row_value(row, false))
+        .collect();
     let fetches = FETCHES
         .iter()
         .map(|(direction, epoch, seq, limit)| {
@@ -256,16 +367,117 @@ fn rust_output() -> String {
             let limit = usize::try_from(*limit).ok();
             fetch_value(
                 &store
-                    .fetch("a", direction, cursor.as_ref(), limit)
+                    .fetch(agent_id, direction, cursor.as_ref(), limit)
                     .expect("agent timeline exists"),
             )
         })
         .collect();
-    store
-        .enrich_submitted_user_message("a", "c1", "provider-1")
-        .expect("agent timeline exists");
     let mut output = JsObject::new();
+    output.insert("late", late);
+    output.insert("rows", JsValue::Array(rows));
     output.insert("fetches", JsValue::Array(fetches));
+    JsValue::Object(output)
+}
+
+fn seed_rows() -> Vec<SeedRow> {
+    parse(SEED_ROWS)
+        .expect("seed rows")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|row| {
+            SeedRow::Source(TimelineRow {
+                seq: integer(row.get("seq").expect("seq")),
+                timestamp: optional_string(row.get("timestamp")).expect("timestamp"),
+                item: row.get("item").expect("item").clone(),
+                turn_id: optional_string(row.get("turnId")),
+                provider_message_id: optional_string(row.get("providerMessageId")),
+            })
+        })
+        .collect()
+}
+
+fn seed_items() -> Vec<JsValue> {
+    parse(SEED_ITEMS)
+        .expect("seed items")
+        .as_array()
+        .expect("array")
+        .to_vec()
+}
+
+fn seed(
+    rows: Vec<SeedRow>,
+    items: Vec<JsValue>,
+    next_seq: Option<i64>,
+    timestamp: Option<&str>,
+) -> TimelineSeed {
+    TimelineSeed {
+        items,
+        rows,
+        epoch: Some("E".to_owned()),
+        next_seq,
+        timestamp: timestamp.map(str::to_owned),
+    }
+}
+
+fn rust_output() -> String {
+    let mut store = TimelineStore::default();
+    store.initialize_with("empty", seed(Vec::new(), Vec::new(), None, Some("T0")));
+    let empty = report(&mut store, "empty", false);
+    store.initialize_with("a", seed(Vec::new(), Vec::new(), None, Some("T0")));
+    let appended = APPENDS
+        .iter()
+        .enumerate()
+        .map(|(index, (turn, item, provider_message_id))| {
+            let row = store
+                .append(
+                    "a",
+                    parse(item).expect("item JSON"),
+                    Some(format!("T{}", index + 1)),
+                    (!turn.is_empty()).then(|| (*turn).to_owned()),
+                    (!provider_message_id.is_empty()).then(|| (*provider_message_id).to_owned()),
+                )
+                .expect("agent timeline exists");
+            source_row_value(&row)
+        })
+        .collect();
+    let main = report(&mut store, "a", false);
+    let enriched = [
+        ("c1", "provider-1"),
+        ("c2", "provider-2"),
+        ("missing", "provider-3"),
+    ]
+    .iter()
+    .map(|(client, provider)| {
+        store
+            .enrich_submitted_user_message("a", client, provider)
+            .expect("timeline")
+            .map_or(JsValue::Null, |row| row_value(&row, false))
+    })
+    .collect();
+    let after_enrich = report(&mut store, "a", false);
+    store.initialize_with("rows", seed(seed_rows(), seed_items(), Some(3), Some("TS")));
+    store.initialize_with("gap", seed(seed_rows(), Vec::new(), Some(20), None));
+    store.initialize_with("items", seed(Vec::new(), seed_items(), Some(4), Some("TI")));
+    let projected = store
+        .rows("a")
+        .expect("timeline")
+        .iter()
+        .cloned()
+        .map(SeedRow::Projected)
+        .collect();
+    store.initialize_with("projected", seed(projected, Vec::new(), None, None));
+    let seeded = ["rows", "gap", "items", "projected"]
+        .iter()
+        .map(|agent_id| report(&mut store, agent_id, true))
+        .collect();
+    let mut output = JsObject::new();
+    output.insert("empty", empty);
+    output.insert("appended", JsValue::Array(appended));
+    output.insert("main", main);
+    output.insert("enriched", JsValue::Array(enriched));
+    output.insert("afterEnrich", after_enrich);
+    output.insert("seeded", JsValue::Array(seeded));
     output.insert(
         "lastItem",
         store
@@ -285,7 +497,7 @@ fn rust_output() -> String {
         store
             .submitted_user_message("a", "c1")
             .expect("timeline")
-            .map_or(JsValue::Null, |row| row_value(&row)),
+            .map_or(JsValue::Null, |row| row_value(&row, false)),
     );
     stringify(&JsValue::Object(output))
 }
@@ -307,8 +519,8 @@ fn timeline_pages_match_pinned_store() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
-    let appends = json_list(APPENDS, |(turn, item)| {
-        JsValue::Array(vec![text(turn), text(item)])
+    let appends = json_list(APPENDS, |(turn, item, provider_message_id)| {
+        JsValue::Array(vec![text(turn), text(item), text(provider_message_id)])
     });
     let fetches = json_list(FETCHES, |(direction, epoch, seq, limit)| {
         JsValue::Array(vec![
@@ -330,6 +542,7 @@ fn timeline_pages_match_pinned_store() {
         .arg(&dist)
         .arg(&appends)
         .arg(&fetches)
+        .args([SEED_ROWS, SEED_ITEMS, LATE_ITEM])
         .output()
         .expect("run pinned node");
     assert!(
