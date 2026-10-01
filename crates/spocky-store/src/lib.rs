@@ -7,12 +7,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
+mod atomic;
+pub mod path_compare;
+pub mod registry;
+pub mod time;
+
+pub use registry::RecordError;
+
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 pub enum StoreError {
     InvalidJson(serde_json::Error),
     MissingString(&'static str),
+    InvalidRecord(RecordError),
     Io {
         operation: &'static str,
         source: io::Error,
@@ -26,6 +34,7 @@ impl Display for StoreError {
             Self::MissingString(field) => {
                 write!(formatter, "missing required string field '{field}'")
             }
+            Self::InvalidRecord(error) => write!(formatter, "invalid registry record: {error}"),
             Self::Io { operation, source } => write!(formatter, "{operation}: {source}"),
         }
     }
@@ -35,6 +44,7 @@ impl Error for StoreError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidJson(error) => Some(error),
+            Self::InvalidRecord(error) => Some(error),
             Self::Io { source, .. } => Some(source),
             Self::MissingString(_) => None,
         }
