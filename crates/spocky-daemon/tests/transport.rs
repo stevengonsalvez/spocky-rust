@@ -41,12 +41,25 @@ struct Calls {
     failures: Mutex<Vec<(SocketId, ProtocolFailure)>>,
     detached: Mutex<Vec<SocketId>>,
     cleanups: AtomicUsize,
+    /// Calls that reached a session after it was cleaned up.
+    use_after_cleanup: AtomicUsize,
     sinks: Mutex<Vec<Arc<dyn SessionSink>>>,
 }
 
 struct Backend(Arc<Calls>);
 
-struct Handle(Arc<Calls>);
+struct Handle {
+    calls: Arc<Calls>,
+    cleaned: std::sync::atomic::AtomicBool,
+}
+
+impl Handle {
+    fn used(&self) {
+        if self.cleaned.load(Ordering::SeqCst) {
+            self.calls.use_after_cleanup.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
 
 impl SessionHandle for Handle {
     fn session_id(&self) -> String {
@@ -56,20 +69,23 @@ impl SessionHandle for Handle {
         DaemonPermission::ALL.to_vec()
     }
     fn update_client_capabilities(&self, _: Option<&Value>, _: SocketId, _: Option<&str>) {
-        self.0.capability_updates.fetch_add(1, Ordering::SeqCst);
+        self.used();
+        self.calls.capability_updates.fetch_add(1, Ordering::SeqCst);
     }
     fn update_app_version(&self, _: &str) {}
     fn handle_message(&self, message: Value, source: SocketId) {
-        self.0.messages.lock().unwrap().push((source, message));
+        self.used();
+        self.calls.messages.lock().unwrap().push((source, message));
     }
     fn protocol_failure(&self, source: SocketId, failure: ProtocolFailure) {
-        self.0.failures.lock().unwrap().push((source, failure));
+        self.calls.failures.lock().unwrap().push((source, failure));
     }
     fn socket_detached(&self, source: SocketId) {
-        self.0.detached.lock().unwrap().push(source);
+        self.calls.detached.lock().unwrap().push(source);
     }
     fn cleanup(&self) {
-        self.0.cleanups.fetch_add(1, Ordering::SeqCst);
+        self.cleaned.store(true, Ordering::SeqCst);
+        self.calls.cleanups.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -81,7 +97,10 @@ impl SessionBackend for Backend {
             .unwrap()
             .push((open.client_id, open.client_capabilities));
         self.0.sinks.lock().unwrap().push(open.sink);
-        Arc::new(Handle(Arc::clone(&self.0)))
+        Arc::new(Handle {
+            calls: Arc::clone(&self.0),
+            cleaned: std::sync::atomic::AtomicBool::new(false),
+        })
     }
     fn validate_inbound(&self, message: &Value) -> Result<(), String> {
         match message.get("type").and_then(Value::as_str) {
@@ -875,4 +894,58 @@ fn a_slow_reader_below_the_mark_still_receives_every_frame_in_order() {
         assert_eq!(frame["message"]["index"], index);
     }
     harness.finish();
+}
+
+#[test]
+fn concurrent_hellos_for_one_client_share_a_single_session() {
+    for round in 0..5 {
+        let mut cfg = config();
+        cfg.timeouts.reconnect_grace = Duration::from_secs(5);
+        let harness = start(cfg);
+        let barrier = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    let mut ws = harness.connect(&[]);
+                    barrier.wait();
+                    send(&mut ws, &hello("racer"));
+                    assert_eq!(
+                        next_json(&mut ws)["message"]["payload"]["status"],
+                        "server_info"
+                    );
+                });
+            }
+        });
+        assert_eq!(
+            harness.calls.opens.lock().unwrap().len(),
+            1,
+            "round {round}: more than one session for one client"
+        );
+        harness.finish();
+    }
+}
+
+#[test]
+fn a_hello_never_lands_on_a_session_that_is_being_cleaned_up() {
+    let mut cfg = config();
+    cfg.timeouts.reconnect_grace = Duration::from_millis(3);
+    let harness = start(cfg);
+    for round in 0..80_u64 {
+        let mut ws = harness.connect(&[]);
+        send(&mut ws, &hello("edge"));
+        next_json(&mut ws);
+        send(
+            &mut ws,
+            &json!({"type": "session", "message": {"type": "known_request", "round": round}}),
+        );
+        drop(ws);
+        std::thread::sleep(Duration::from_millis(round % 7));
+    }
+    let calls = Arc::clone(&harness.calls);
+    harness.finish();
+    assert_eq!(
+        calls.use_after_cleanup.load(Ordering::SeqCst),
+        0,
+        "a session was used after cleanup"
+    );
 }
