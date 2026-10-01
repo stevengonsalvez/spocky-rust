@@ -19,13 +19,15 @@
   },
   "dataPreservation": {
     "status": "preserved",
-    "baselineMarker": true,
-    "candidateMarker": true
+    "baselineMarkerPayload": "baseline-data-preserved",
+    "candidateMarkerPayload": "candidate-data-preserved"
   },
   "reverseRollback": {
     "status": "supported",
     "baselineOpenedCandidateDirectory": true,
     "baselineSawCandidateMarker": true,
+    "baselineSawBaselineMarker": true,
+    "journalPreserved": true,
     "observation": {
       "operation": "baseline-reverse-observe",
       "opened": true,

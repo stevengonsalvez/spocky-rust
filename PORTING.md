@@ -139,9 +139,10 @@ Its 17 retained-host and 13 embedded-SQL tests pass, but the exception remains
 unaccepted. Read-only review accepts narrow darwin/x64 cooperating-host
 ownership and retains packaging, platform, IPC performance, delivery,
 callback-transaction, keyed-lock, full-schema, and mixed-legacy gaps.
-Real pinned-baseline forward handoff and same-schema baseline reopen now pass
-with both data markers preserved and no journal change; read-only review remains
-in progress.
+Real pinned-baseline forward handoff and same-schema baseline reopen pass with
+exact marker payloads and no journal change. The hardened harness enforces those
+values before publication and bounds long commands with forced-kill fallbacks.
+Frozen-commit re-review remains open.
 The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC

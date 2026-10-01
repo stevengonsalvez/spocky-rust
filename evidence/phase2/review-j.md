@@ -6,7 +6,7 @@ Model: `gpt-6-astra`, xhigh
 
 Mode: read-only
 
-Latest frozen commit: `b06d34f`
+Latest frozen commit: `70f0eb1`
 
 ## Verdict
 
@@ -15,10 +15,15 @@ hosts. No remaining P1 concurrent-owner schedule was found. Keep the retained
 PGlite exception `required-not-accepted`. It does not complete Hub storage
 parity or Phase 2.
 
-The reviewer independently verified all eight committed artifact hashes and
+The reviewer independently verified all eight retained-host artifact hashes and
 byte sizes, the refreshed 17-case test log, all 98 migration-file hashes, the
 Node executable digest, 50 compared table names, 537 deduplicated constraint
 and index names, and 49 migration journal rows.
+
+The reviewer also accepted the captured same-schema legacy handoff as closing
+the baseline-directory provenance gap. Follow-up repairs enforce exact marker
+payloads, reverse journal invariants, and forced-kill command deadlines. These
+repairs require a frozen-commit re-review.
 
 ## Closed findings
 
@@ -36,9 +41,9 @@ and index names, and 49 migration journal rows.
 
 - Simultaneous pinned legacy pathname-only ownership and new OS-guard ownership
   is unqualified.
-- Candidate-generated historical-schema resume and synthetic legacy metadata
-  handling pass. Baseline-produced directory handoff and reverse rollback do
-  not have evidence.
+- Candidate-generated historical-schema resume, synthetic legacy metadata,
+  baseline-produced same-schema directory handoff, and same-schema reverse
+  reopen pass. Schema downgrade and mixed-owner handoff remain unqualified.
 - Node packaging and platform availability, framed IPC performance, retained
   JavaScript delivery and support, callback transactions, keyed application
   locks, and full schema-definition provenance remain unqualified.
