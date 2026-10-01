@@ -1,0 +1,75 @@
+{
+  "baseline": "28f6c78833065fd282f9064f92a9aa61875dd359",
+  "candidate": "spocky-pglite-host-child behind the unchanged retained adapter",
+  "catalogParity": true,
+  "counts": {
+    "schemaTables": [
+      50,
+      50
+    ],
+    "schemaConstraints": [
+      537,
+      537
+    ],
+    "migrationJournal": [
+      49,
+      49
+    ]
+  },
+  "journalParity": true,
+  "scenarioParity": {
+    "restart": true,
+    "crossProcessRejection": true,
+    "transactionRollback": true,
+    "staleOwnerRecovery": true,
+    "historicalResume": true
+  },
+  "candidateRecoveryEvidence": {
+    "committedWriteCrashRecovery": true,
+    "injectedPostCloseFailureRecovery": true,
+    "partialMigrationRollback": {
+      "journalRows": 0,
+      "migrationError": {
+        "code": "42601",
+        "message": "syntax error at or near \"definitely\""
+      },
+      "partialProbeRows": 0,
+      "publicTableRows": 0,
+      "rolledBackProbeRows": 0
+    },
+    "historicalUserRow": true
+  },
+  "runtime": {
+    "adapterDependencies": [
+      "spocky-pglite-host"
+    ],
+    "arch": "x64",
+    "nodeExecutable": "/private/tmp/spocky-targets/pglite-rust-host/release/spocky-pglite-host-child",
+    "nodeExecutableSha256": "5443e5675382e7f9a04837482eb82ca777951b6f3a7f7f6fc43a0418e4cccbd4",
+    "nodeVersion": "spocky-pglite-host 0.1.0 (wasmtime 47.0.4)",
+    "os": "darwin",
+    "package": "@electric-sql/pglite",
+    "packageDependencies": {},
+    "packageVersion": "0.5.4"
+  },
+  "failures": {
+    "close": "Remote { code: \"CLOSE_FAILED\", message: \"injected close failure after durable close\", details: Object {\"column\": Null, \"constraint\": Null, \"detail\": Null, \"hint\": Null, \"name\": String(\"Error\"), \"position\": Null, \"schema\": Null, \"severity\": Null, \"table\": Null} }",
+    "lostReply": "ReplyLost { request_id: 6, write_may_have_committed: true, cause: \"failed to fill whole buffer\" }",
+    "rollback": {
+      "code": "23505",
+      "details": {
+        "column": null,
+        "constraint": "differential_probe_value_key",
+        "detail": "Key (value)=(kept) already exists.",
+        "hint": null,
+        "name": "error",
+        "position": null,
+        "schema": "public",
+        "severity": "ERROR",
+        "table": "differential_probe"
+      },
+      "message": "duplicate key value violates unique constraint \"differential_probe_value_key\""
+    },
+    "secondOwner": "DIRECTORY_IN_USE"
+  }
+}
