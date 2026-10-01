@@ -535,8 +535,90 @@ fn tool_items_are_reported_unported_instead_of_dropped() {
     notify(
         &session,
         "item/started",
-        &json!({"threadId": "test-thread", "item": {"type": "commandExecution", "id": "cmd"}}),
+        &json!({"threadId": "test-thread", "item": {"type": "fileChange", "id": "patch"}}),
     );
     assert!(events.lock().unwrap().is_empty());
-    assert_eq!(session.unported(), ["item/started commandExecution"]);
+    assert_eq!(session.unported(), ["item/started fileChange"]);
+}
+
+fn silent_command_item() -> Value {
+    timeline(
+        &json!({
+            "type": "tool_call", "callId": "silent-merge", "name": "shell", "status": "completed",
+            "error": null,
+            "detail": {"type": "shell", "command": "gh pr merge 2030 --squash", "cwd": "/workspace/project", "exitCode": 0}
+        }),
+        "test-turn",
+    )
+}
+
+// Paseo: "shows a successful shell command that produces no output".
+#[test]
+fn silent_completed_command_item_is_shown() {
+    let (session, events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "item/completed",
+        &json!({"threadId": "test-thread", "item": {
+            "type": "commandExecution", "id": "silent-merge", "status": "completed",
+            "command": "gh pr merge 2030 --squash", "cwd": "/workspace/project",
+            "aggregatedOutput": null, "exitCode": 0
+        }}),
+    );
+    assert_events(&events, &[silent_command_item()]);
+    assert!(session.unported().is_empty());
+}
+
+// Paseo: "shows a silent shell command from legacy live notifications".
+#[test]
+fn silent_legacy_exec_command_end_is_shown() {
+    let (session, events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "codex/event/exec_command_end",
+        &json!({"threadId": "test-thread", "msg": {
+            "type": "exec_command_end", "call_id": "silent-merge",
+            "command": "gh pr merge 2030 --squash", "cwd": "/workspace/project",
+            "aggregatedOutput": null, "exit_code": 0, "success": true
+        }}),
+    );
+    assert_events(&events, &[silent_command_item()]);
+}
+
+#[test]
+fn legacy_exec_end_is_authoritative_over_the_command_item() {
+    let (session, events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "codex/event/exec_command_begin",
+        &json!({"msg": {"type": "exec_command_begin", "call_id": "c1", "command": ["/bin/zsh", "-lc", "ls"], "cwd": "/w"}}),
+    );
+    notify(
+        &session,
+        "codex/event/exec_command_output_delta",
+        &json!({"msg": {"type": "exec_command_output_delta", "call_id": "c1", "chunk": "YQo="}}),
+    );
+    notify(
+        &session,
+        "codex/event/exec_command_end",
+        &json!({"msg": {"type": "exec_command_end", "call_id": "c1", "command": ["/bin/zsh", "-lc", "ls"], "cwd": "/w", "exit_code": 0}}),
+    );
+    let item = json!({"type": "commandExecution", "id": "c1", "command": "/bin/zsh -lc ls", "cwd": "/w", "status": "completed", "aggregatedOutput": "a\n", "exitCode": 0});
+    notify(&session, "item/started", &json!({"item": item}));
+    notify(&session, "item/completed", &json!({"item": item}));
+    assert_events(
+        &events,
+        &[
+            timeline(
+                &json!({"type": "tool_call", "callId": "c1", "name": "shell", "status": "running", "error": null,
+                    "detail": {"type": "shell", "command": "ls", "cwd": "/w"}}),
+                "test-turn",
+            ),
+            timeline(
+                &json!({"type": "tool_call", "callId": "c1", "name": "shell", "status": "completed", "error": null,
+                    "detail": {"type": "shell", "command": "ls", "cwd": "/w", "output": "a\n", "exitCode": 0}}),
+                "test-turn",
+            ),
+        ],
+    );
 }
