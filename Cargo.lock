@@ -5144,6 +5144,10 @@ dependencies = [
 [[package]]
 name = "spocky-provider-codex"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spocky-contracts",
+]
 
 [[package]]
 name = "spocky-relay-pilot"
