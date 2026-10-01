@@ -589,6 +589,34 @@ fn json_list<T>(rows: &[T], encode: impl Fn(&T) -> JsValue) -> String {
     stringify(&JsValue::Array(rows.iter().map(encode).collect()))
 }
 
+/// The pinned dist modules this test runs, relative to `SPOCKY_PASEO_DIST`,
+/// with their SHA-256: a different build fails instead of silently passing.
+const PINNED_MODULES: &[(&str, &str)] = &[
+    (
+        "server/agent/agent-timeline-store.js",
+        "5473e829162d3256ab76b9b39d965158efbf5b4a29bb01e444626ac3a4bf52e3",
+    ),
+    (
+        "server/agent/timeline-projection.js",
+        "2e8dc2a93535f4971250c837fb864694750acc8834b5e3a368f3e533ddb9d800",
+    ),
+];
+
+fn assert_pinned_modules(dist: &std::ffi::OsStr) {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    for (path, expected) in PINNED_MODULES {
+        let bytes = std::fs::read(std::path::Path::new(dist).join(path)).expect("pinned module");
+        let actual = Sha256::digest(&bytes)
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            });
+        assert_eq!(&actual, expected, "{path} is not the pinned build");
+    }
+}
+
 #[test]
 fn timeline_pages_match_pinned_store() {
     let (node, dist) = match (
@@ -602,6 +630,7 @@ fn timeline_pages_match_pinned_store() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    assert_pinned_modules(&dist);
     let appends = json_list(APPENDS, |(turn, item, provider_message_id)| {
         JsValue::Array(vec![text(turn), text(item), text(provider_message_id)])
     });
