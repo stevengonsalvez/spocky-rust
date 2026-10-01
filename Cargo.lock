@@ -5067,6 +5067,7 @@ dependencies = [
 name = "spocky-contracts"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "ryu-js",
  "serde",
  "serde_json",
@@ -5121,6 +5122,7 @@ dependencies = [
  "subtle",
  "time",
  "tungstenite 0.27.0",
+ "unicode-normalization",
  "uuid",
 ]
 
@@ -5147,6 +5149,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "spocky-contracts",
+ "spocky-provider-codex",
 ]
 
 [[package]]
