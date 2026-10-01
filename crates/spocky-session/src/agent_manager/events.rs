@@ -20,11 +20,11 @@ use crate::agent_projection::{AgentAttention, SnapshotOverrides};
 use crate::agent_prompt::is_system_injected_envelope;
 use crate::agent_sdk::AgentError;
 use crate::external_state::command_may_have_changed_external_state;
-use crate::js::{js_string, spread, truthy};
 use crate::stream_coalescer::CoalescerFlush;
 use crate::text::js_trim;
 use crate::timeline::{TimelineError, TimelineRow};
 use crate::timeline_content::limit_agent_timeline_item_content;
+use spocky_contracts::js::{js_string, spread, truthy};
 
 /// `SYSTEM_ERROR_PREFIX`.
 const SYSTEM_ERROR_PREFIX: &str = "[System Error]";
@@ -1242,7 +1242,7 @@ impl AgentManager {
         if let Some(agent) = state.agent_mut(agent_id) {
             if let Some(usage) = event.get("usage").filter(|usage| truthy(Some(usage))) {
                 let mut merged = spread(agent.snapshot.last_usage.as_ref());
-                crate::js::spread_into(&mut merged, Some(usage));
+                spocky_contracts::js::spread_into(&mut merged, Some(usage));
                 agent.snapshot.last_usage = Some(JsValue::Object(merged));
             }
             agent.snapshot.last_error = None;
