@@ -13,8 +13,11 @@
 
 use std::cmp::Ordering;
 
-// ponytail: non-ASCII characters compare by code point after all ASCII
-// primaries; port ICU root weights if non-ASCII ids or names need ordering.
+// ASCII-only port. Non-ASCII characters sort by code point after every ASCII
+// primary, which inverts ICU for many pairs ("é" sorts before "f" in ICU and
+// after it here). The only caller orders `prj_` + hex project ids, which are
+// ASCII. Port ICU root weights (or use an ICU collator) before ordering
+// non-ASCII text.
 
 const PRIMARY_ORDER: &[u8] =
     b"\t\n\x0b\x0c\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789abcdefghijklmnopqrstuvwxyz";
@@ -74,6 +77,13 @@ mod tests {
                 "prj_B", "prj-a", "prjA"
             ]
         );
+    }
+
+    #[test]
+    fn non_ascii_is_a_documented_divergence() {
+        // node: "é".localeCompare("f") === -1. This port is ASCII-only.
+        assert_eq!(locale_compare("é", "f"), Ordering::Greater);
+        assert_eq!(locale_compare("é", "é"), Ordering::Equal);
     }
 
     #[test]
