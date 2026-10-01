@@ -8,10 +8,16 @@
 //! object construction order in the pinned daemon, because the client's
 //! zod-aot validator passes the daemon's object through unchanged.
 
+pub mod agent;
+pub mod agent_config;
+pub mod attachment;
 pub mod field;
 pub mod frame;
+pub mod id;
 pub mod json;
+pub mod literal;
 pub mod number;
+pub mod request;
 pub mod session;
 pub mod text;
 pub mod ws;
