@@ -11,7 +11,8 @@ public API, CLI device authorization and the OpenAPI document, and says which pa
 offline. Every statement below was read from the cited baseline source or observed by running the
 pinned source with its in-memory database and stubbed operations, in a disposable copy of the
 pinned commit (`git archive`, dependencies installed from the local npm cache, no network, no
-database server). It makes no claim about any Rust code.
+database server). The sections before "Rust coverage and differential result" make no claim about Rust
+code.
 
 ## Operations
 
@@ -179,6 +180,72 @@ component schemas, a `bearerAuth` security scheme, a `servers` entry for `/`, an
 `x-required-scopes`; every documented manifest response lists `X-Request-ID`, the 401 response also
 lists `WWW-Authenticate`, and error responses use `application/problem+json` with the `Problem`
 schema. The two CLI routes document their responses without headers.
+
+## Rust coverage and differential result
+
+Every item below is exercised by `scripts/phase2/hub-api-original.integration.test.ts` (the real
+pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.0, zod 4.4.3,
+`@asteasolutions/zod-to-openapi` 9.1.0) and by `crates/spocky-hub-pilot/tests/hub_api_evidence.rs`
+(Rust). Both run one case list, `scripts/phase2/hub-api-cases.json`, which
+`scripts/phase2/hub-api-cases.mjs` generates; the capture script refuses to run when the two differ.
+
+- `scripts/phase2/hub-api-capture.sh` archives the pinned commit, installs from the local npm cache and
+  writes the raw trace and the OpenAPI document to `evidence/raw/phase2/`.
+- `scripts/phase2/hub-api-compare.sh` runs the Rust test against those raw files and compares the trace
+  and the OpenAPI document with `cmp`. Object key order, whitespace and every response body byte are part
+  of the comparison; there is no key sorting and no normalization.
+- `hub_api_evidence` asserts on every run that the Rust trace equals the committed trace
+  `evidence/phase2/hub-api-original.json` and that the Rust OpenAPI document equals the committed
+  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (459 HTTP cases, 60
+  scenarios, 10 manifest operations), so an empty or shrunken baseline fails.
+- Generated values are injected, never rewritten afterwards: identifiers `00000000-0000-4000-8000-<n>`
+  (a counter reset for each case or scenario), random bytes taken from SHA-256 of
+  `spocky-hub-api-random:<n>`, and a fixed clock starting at `2026-08-06T12:00:00.000Z`. A test checks
+  the committed baseline values against those sequences. The baseline draws two random byte strings
+  and one identifier per API key it creates; the Rust scenario skips the same draws.
+
+| Area | Cases compared |
+| --- | --- |
+| Manifest | the ten operations with method, path, scope, success status, result mapping, tag, summary, description, whether a request schema exists, and every documented response |
+| Responses by result | every result variant of every operation (including results that break the response schema and must become 500), full response bodies and headers |
+| Authentication outcomes | unauthorized, forbidden, unavailable and thrown errors for each operation, the scope asked of the authenticator, and database and generic failures thrown by operations |
+| Routing | unknown paths, trailing slash, case, percent-encoding, dot segments, backslashes, tabs, query and fragment, hosts and ports, CLI and OpenAPI paths on the splat router, 405 with `Allow` for every other method, `handleOperation` without routing, unavailable composition |
+| Request identity | absent, blank, padded, duplicate, non-ASCII and no-break-space `x-request-id` values on success and problem responses |
+| Body decoding | content type variants, byte order marks, invalid UTF-8, duplicate keys, integer-like and `__proto__` keys, escapes, trailing data, whitespace sets, nesting |
+| Request schemas | strict object checks with every wrong type, boundary lengths in UTF-16 units, trimming sets, UUID forms, array limits, nested element issues, unknown key wording, and the length checks that run on wrong-typed values including `ToNumber` conversion of an object `length` |
+| Operation inputs | the exact JSON each operation receives (key order, trimmed values, number text) |
+| OpenAPI | the whole document, byte for byte, and its headers, size and SHA-256 |
+| CLI device authorization | start, poll, inspect and decide bodies and states, polling throttle, expiry at the exact second, per-client and global limits, verification URIs for configured and request URLs, user code normalization including compatibility characters, every access failure kind |
+| Credential rules | Bearer parsing, prefix routing, API key scopes and revocation, CLI credential issue, disclosure and revocation, forbidden and unauthorized outcomes over 43 distinct authorization header shapes and five scopes (59 checks) |
+
+Result of the last run of `hub-api-compare.sh`: `matched: true`, `comparison: byte-identical`,
+`normalization: none`. The traces have SHA-256
+`059e42c27ea4239f1535cfbde5d4d84cf05a73a30847e704947c1cf1ef5e8649` and the OpenAPI documents have
+SHA-256 `7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69` (see
+`hub-api-sha256.txt`). Behavioral tests of the same flows are in `crates/spocky-hub-pilot/tests/hub_api.rs`.
+
+API keys are authorized through the existing `HubPilot::authorize_api_key`; CLI credentials are
+checked against the in-memory credential store that device authorization fills. Both are compared on
+outcome, credential kind, organization and scopes.
+
+## Remaining gaps (not covered, not claimed)
+
+- Everything listed above under "Not observable offline": PostgreSQL behavior, the operation semantics
+  in `src/public-operations`, browser surfaces and framework routing.
+- The API key store is the Rust file-backed key boundary, not the PostgreSQL `OrganizationApiKeys`;
+  credential ids and last-use times are not compared. CLI credentials live in memory, not in
+  `organization_cli_credentials`.
+- Operation results that Rust types cannot represent: non-integer versions, workflow statuses outside
+  the four known values and structurally invalid results rejected by the baseline's `is*Result`
+  guards. Integer versions at or below zero and non-UUID identifiers are covered.
+- JSON strings with lone surrogate escapes: V8 keeps them, Rust replaces them with U+FFFD. Nesting is
+  covered to depth 1,000; deeper values risk the thread stack when dropped or printed.
+- Header values outside Latin-1 and request URLs with credentials cannot occur in fetch and are not
+  modelled.
+- Database failures inside the CLI authorization handlers propagate out of the baseline handlers; Rust
+  reports only access failures and an unusable verification URL that way.
+- Failure logging (`reportFailure`) and the framework's response to an exception are not compared.
+- Concurrent decisions, polls and starts. The in-memory state machine is single threaded.
 
 ## What is testable offline and what is not
 
