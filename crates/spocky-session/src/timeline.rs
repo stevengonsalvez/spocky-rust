@@ -195,17 +195,9 @@ fn item_identity(item: &JsValue) -> Option<String> {
     }
 }
 
-/// A JavaScript `TypeError` the baseline throws, with V8's message.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsTypeError(pub String);
-
-impl std::fmt::Display for JsTypeError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for JsTypeError {}
+/// A JavaScript `TypeError` the baseline throws, with V8's message; owned
+/// by [`spocky_contracts::js`].
+pub use spocky_contracts::js::JsTypeError;
 
 /// `detail.type`: reading a property of `undefined` or `null` throws.
 fn detail_type(detail: Option<&JsValue>) -> Result<Option<&str>, JsTypeError> {
