@@ -214,7 +214,7 @@
       "model": "claude-sonnet-5-5",
       "effort": "high",
       "priorities": ["wire host time zone offset at construction and add a committed non-UTC capture", "differential case with execution deadline < run deadline < idle", "compare raw original against committed baseline evidence", "npm ci offline or stated as online", "deterministic runId, revisionId, and stepRunIds instead of echoing baseline values", "line-count diff helper"],
-      "state": "running, launched 2026-10-01"
+      "state": "retired 2026-10-01 after full integration through e81f08d; worktree removed, branch kept"
     }
   ],
     "retiredWorkers": [
@@ -1049,8 +1049,8 @@
         "DPRO-004 (spocky-wire binary frames on main)"
       ],
       "priority": 4,
-      "state": "ready",
-      "owner": "unassigned; coordinator launches",
+      "state": "implementing",
+      "owner": "claude-opus-5-5 high, terminal term_9bd878de, worktree /Users/stevengonsalvez/orca/workspaces/paseo-rust/p4-terminal, launched 2026-10-01 into the slot of retired p2_hub_triggers_followups; step 1 is evidence/phase4/terminal-emulator-decision.md (@xterm/headless snapshot corpus versus candidate Rust emulators) ending DECISION NEEDED: emulator, decided by the lead (faithful xterm buffer port or interim Node host exception); PTY, coalescer, backpressure, and size ownership proceed in parallel",
       "permittedPaths": [
         "crates/spocky-terminal/",
         "scripts/phase4/terminal-*",
