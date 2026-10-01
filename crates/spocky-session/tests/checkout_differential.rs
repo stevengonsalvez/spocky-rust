@@ -6,8 +6,18 @@
 //!
 //! Needs `SPOCKY_PINNED_NODE` (node 22.20.0) and `SPOCKY_PASEO_DIST` (the
 //! pinned build's `packages/server/dist/server`). The lane acceptance command
-//! sets both. Without them the tests FAIL; set `SPOCKY_ALLOW_SKIP=1` to skip
-//! them explicitly outside the gate.
+//! sets both. Without them the tests FAIL; `SPOCKY_ALLOW_SKIP=1` (exactly)
+//! skips them explicitly outside the gate.
+//!
+//! To rebuild the pinned dist, run `scripts/phase3/build-original.sh` from the
+//! repository root (lane `p3_slice_harness`). It `git archive`s
+//! `.baselines/paseo-runtime` at `5de45e2`, runs `npm ci` and the server build
+//! with node 22.20.0 under the build gate, and prints the build root; the dist
+//! is `<root>/packages/server/dist/server`, by default
+//! `/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server`.
+//!
+//! Fixture git runs with `GIT_CONFIG_GLOBAL=/dev/null` and
+//! `GIT_CONFIG_NOSYSTEM=1`, so host configuration cannot shape the fixtures.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -39,6 +49,8 @@ fn git(cwd: &Path, args: &[&str]) {
         .arg("user.email=spocky@example.invalid")
         .args(args)
         .current_dir(cwd)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_AUTHOR_DATE", "2026-10-01T10:00:00Z")
         .env("GIT_COMMITTER_DATE", "2026-10-01T10:00:00Z")
         .status()
@@ -52,6 +64,41 @@ fn commit(cwd: &Path, name: &str) {
     git(cwd, &["commit", "-q", "-m", name]);
 }
 
+/// A committed repository whose `origin` is `url`.
+fn remote_fixture(root: &Path, name: &str, url: &str) -> PathBuf {
+    let path = root.join(name);
+    fs::create_dir_all(&path).expect("remote fixture dir");
+    git(&path, &["init", "-q"]);
+    commit(&path, "a.txt");
+    git(&path, &["remote", "add", "origin", url]);
+    path
+}
+
+/// A Paseo-owned worktree, `<paseo-home>/worktrees/<hash>/<slug>`, with a
+/// valid `paseo/worktree.json` in its git dir.
+fn owned_worktree_fixture(root: &Path, repo: &Path) -> PathBuf {
+    let owned = root.join("paseo-home/worktrees/0123abcd/owned");
+    git(
+        repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "owned",
+            owned.to_str().expect("utf8 path"),
+        ],
+    );
+    let metadata = repo.join(".git/worktrees/owned/paseo");
+    fs::create_dir_all(&metadata).expect("owned metadata dir");
+    fs::write(
+        metadata.join("worktree.json"),
+        r#"{"version":2,"baseRefName":"main","baseRef":"refs/heads/main"}"#,
+    )
+    .expect("owned metadata");
+    owned
+}
+
 /// Builds the checkouts and returns `(label, cwd)` pairs.
 fn fixtures(root: &Path) -> Vec<(&'static str, PathBuf)> {
     let plain = root.join("plain");
@@ -62,19 +109,7 @@ fn fixtures(root: &Path) -> Vec<(&'static str, PathBuf)> {
     git(&repo, &["init", "-q"]);
     commit(&repo, "a.txt");
 
-    let remote = root.join("remote");
-    fs::create_dir_all(&remote).expect("remote dir");
-    git(&remote, &["init", "-q"]);
-    commit(&remote, "a.txt");
-    git(
-        &remote,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/Owner/Repo.git",
-        ],
-    );
+    let remote = remote_fixture(root, "remote", "https://github.com/Owner/Repo.git");
 
     let detached = root.join("detached");
     fs::create_dir_all(&detached).expect("detached dir");
@@ -94,42 +129,13 @@ fn fixtures(root: &Path) -> Vec<(&'static str, PathBuf)> {
     git(&feature, &["checkout", "-q", "-b", "dev"]);
     commit(&feature, "b.txt");
 
-    let credentials = root.join("credentials");
-    fs::create_dir_all(&credentials).expect("credentials dir");
-    git(&credentials, &["init", "-q"]);
-    commit(&credentials, "a.txt");
-    git(
-        &credentials,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://user:s3cret@git.example.com:8443/Team/App.git",
-        ],
+    let credentials = remote_fixture(
+        root,
+        "credentials",
+        "https://user:s3cret@git.example.com:8443/Team/App.git",
     );
-
-    let scp = root.join("scp");
-    fs::create_dir_all(&scp).expect("scp dir");
-    git(&scp, &["init", "-q"]);
-    commit(&scp, "a.txt");
-    git(
-        &scp,
-        &["remote", "add", "origin", "git@GitHub.com:Owner/Repo.git"],
-    );
-
-    let ssh = root.join("ssh");
-    fs::create_dir_all(&ssh).expect("ssh dir");
-    git(&ssh, &["init", "-q"]);
-    commit(&ssh, "a.txt");
-    git(
-        &ssh,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "ssh://git@Host.Example:2222/team/app.git",
-        ],
-    );
+    let scp = remote_fixture(root, "scp", "git@GitHub.com:Owner/Repo.git");
+    let ssh = remote_fixture(root, "ssh", "ssh://git@Host.Example:2222/team/app.git");
 
     let linked = root.join("linked");
     git(
@@ -144,7 +150,10 @@ fn fixtures(root: &Path) -> Vec<(&'static str, PathBuf)> {
         ],
     );
 
+    let owned = owned_worktree_fixture(root, &repo);
+
     vec![
+        ("paseo-owned-worktree", owned),
         ("plain", plain),
         ("repo", repo.clone()),
         ("subdirectory", repo.join("sub/dir")),
@@ -190,7 +199,7 @@ fn pinned_inputs() -> Option<(std::ffi::OsString, std::ffi::OsString)> {
         std::env::var_os("SPOCKY_PASEO_DIST"),
     ) {
         (Some(node), Some(dist)) => Some((node, dist)),
-        _ if std::env::var_os("SPOCKY_ALLOW_SKIP").is_some() => {
+        _ if std::env::var("SPOCKY_ALLOW_SKIP").as_deref() == Ok("1") => {
             eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: pinned differential not run");
             None
         }
@@ -355,7 +364,7 @@ fn normalization_only_touches_generated_ids_and_timestamps() {
 }
 
 const PROVISION_SCRIPT: &str = r#"
-const [dist, paseoHome, ...cases] = process.argv.slice(1);
+const [dist, paseoHome, registryHome, ...cases] = process.argv.slice(1);
 const { getCheckoutStatus } = await import(`${dist}/utils/checkout-git.js`);
 const { checkoutLiteFromGitSnapshot } = await import(`${dist}/server/workspace-registry-model.js`);
 const { FileBackedProjectRegistry, FileBackedWorkspaceRegistry } = await import(`${dist}/server/workspace-registry.js`);
@@ -370,8 +379,8 @@ const getCheckout = async (cwd) => {
     ? checkoutLiteFromGitSnapshot(normalizedCwd, { isGit: true, currentBranch: status.currentBranch, remoteUrl: status.remoteUrl, repoRoot: status.repoRoot, isPaseoOwnedWorktree: status.isPaseoOwnedWorktree, mainRepoRoot: status.mainRepoRoot })
     : checkoutLiteFromGitSnapshot(normalizedCwd, { isGit: false, currentBranch: null, remoteUrl: null, repoRoot: null, isPaseoOwnedWorktree: false, mainRepoRoot: null });
 };
-const projectRegistry = new FileBackedProjectRegistry(join(paseoHome, "projects", "projects.json"), logger);
-const workspaceRegistry = new FileBackedWorkspaceRegistry(join(paseoHome, "projects", "workspaces.json"), logger);
+const projectRegistry = new FileBackedProjectRegistry(join(registryHome, "projects", "projects.json"), logger);
+const workspaceRegistry = new FileBackedWorkspaceRegistry(join(registryHome, "projects", "workspaces.json"), logger);
 const service = createWorkspaceProvisioningService({
   serverId: "srv",
   workspaceRegistry,
@@ -389,6 +398,7 @@ for (let i = 0; i < cases.length; i += 2) {
 fn run_original_provisioning(
     node: &std::ffi::OsStr,
     dist: &std::ffi::OsStr,
+    paseo_home: &Path,
     home: &Path,
     sequence: &[(&str, String)],
 ) {
@@ -398,6 +408,7 @@ fn run_original_provisioning(
         .arg(node)
         .args(["--input-type=module", "-e", PROVISION_SCRIPT])
         .arg(dist)
+        .arg(paseo_home)
         .arg(home);
     for (title, cwd) in sequence {
         command.arg(title).arg(cwd);
@@ -450,10 +461,14 @@ async fn directory_provisioning_matches_pinned_build() {
         ("-", path_of("credentials-remote")),
         ("-", path_of("scp-remote")),
         ("-", path_of("ssh-remote")),
+        ("-", path_of("paseo-owned-worktree")),
     ];
 
     let original_home = root.join("original-home");
-    run_original_provisioning(&node, &dist, &original_home, &sequence);
+    // Both sides probe checkouts with the fixture `paseo-home` (so the owned
+    // worktree is recognized) and keep registries in their own directory.
+    let paseo_home = root.join("paseo-home");
+    run_original_provisioning(&node, &dist, &paseo_home, &original_home, &sequence);
 
     let spocky_home = root.join("spocky-home");
     let created = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -472,7 +487,7 @@ async fn directory_provisioning_matches_pinned_build() {
             }
         })),
         checkout: CheckoutContext {
-            paseo_home: spocky_home.to_string_lossy().into_owned(),
+            paseo_home: paseo_home.to_string_lossy().into_owned(),
             worktrees_root: None,
             home: std::env::var("HOME").unwrap_or_default(),
         },
@@ -503,4 +518,161 @@ async fn directory_provisioning_matches_pinned_build() {
         );
     }
     drop(guard);
+}
+
+/// `worktree.json` bodies for Paseo-owned worktrees: malformed JSON (V8
+/// `SyntaxError` text), schema failures (zod issue JSON), and valid files.
+const WORKTREE_METADATA_CASES: &[&str] = &[
+    "{bad",
+    "{\"version\":1,\"baseRefName\":\"main\"",
+    "",
+    "{\"version\":1,\"baseRefName\":\"main\",\"baseRef\":\"refs/remotes/origin/main\" broken}",
+    "[1,]",
+    "{\"version\":1,\"baseRefName\":\"main\"}x",
+    "{\"baseRefName\":\"main\"}",
+    "{\"version\":\"1\",\"baseRefName\":\"main\"}",
+    "{\"version\":1,\"baseRefName\":5}",
+    "{\"version\":1}",
+    "{\"version\":1,\"baseRefName\":\"main\",\"baseRef\":\"\"}",
+    "{\"version\":1,\"baseRefName\":\"main\",\"baseRef\":null}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":[]}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":null}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"\"}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":1.5}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":-1.5}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":0}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":\"3\"}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":1e400}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{\"headRef\":\"x\",\"changeRequestNumber\":9007199254740993}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{\"status\":\"other\"}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{\"status\":\"pending\"}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{\"status\":\"attempted\",\"placeholderBranchName\":\"p\"}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":\"x\"}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":0}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":1.5}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":\"x\"}",
+    "null",
+    "\"str\"",
+    "5",
+    "true",
+    "{\"version\":2,\"baseRefName\":\"\",\"runtime\":{\"worktreePort\":-2}}",
+    "{\"version\":1,\"baseRefName\":\"\",\"baseRef\":\"\",\"changeRequestLookupTarget\":{\"headRef\":\"\",\"headRepositoryOwner\":\"\",\"localBranchName\":\"\"}}",
+    "{\"version\":2,\"baseRefName\":null}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":-9007199254740993}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":-5}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":1e400}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":{\"worktreePort\":-1e400}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"runtime\":null}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":null}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{\"status\":\"pending\",\"placeholderBranchName\":\"\"}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":{\"status\":5}}",
+    "{\"version\":2,\"baseRefName\":\"m\",\"firstAgentBranchAutoName\":[]}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"changeRequestLookupTarget\":{}}",
+    "{\"version\":1,\"baseRefName\":\"m\",\"x\":1,\"changeRequestLookupTarget\":{\"headRef\":\"h\",\"headRepositoryOwner\":5}}",
+    "[1]",
+    "{\"version\":1.0,\"baseRefName\":\"m\",\"runtime\":\"ignored-in-v1\"}",
+    "{\"version\":1,\"baseRefName\":\"main\"}",
+    "{\"version\":1,\"baseRefName\":\"main\",\"baseRef\":\"refs/heads/main\"}",
+    "{\"version\":2,\"baseRefName\":\"main\",\"runtime\":{\"worktreePort\":4100}}",
+];
+
+const METADATA_SCRIPT: &str = r#"
+const [dist, paseoHome, ...paths] = process.argv.slice(1);
+const { getCheckoutStatus } = await import(`${dist}/utils/checkout-git.js`);
+const { checkoutLiteFromGitSnapshot } = await import(`${dist}/server/workspace-registry-model.js`);
+const { resolve } = await import("node:path");
+const rows = [];
+for (const raw of paths) {
+  const cwd = resolve(raw);
+  try {
+    const status = await getCheckoutStatus(cwd, { paseoHome });
+    rows.push({ checkout: checkoutLiteFromGitSnapshot(cwd, { isGit: true, currentBranch: status.currentBranch, remoteUrl: status.remoteUrl, repoRoot: status.repoRoot, isPaseoOwnedWorktree: status.isPaseoOwnedWorktree, mainRepoRoot: status.mainRepoRoot }) });
+  } catch (error) {
+    rows.push({ error: error.message });
+  }
+}
+process.stdout.write(JSON.stringify(rows));
+"#;
+
+#[tokio::test]
+async fn owned_worktree_metadata_errors_match_pinned_build() {
+    let Some((node, dist)) = pinned_inputs() else {
+        return;
+    };
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "spocky-session-metadata-{}-{nonce}",
+        std::process::id()
+    ));
+    let repo = root.join("repo");
+    fs::create_dir_all(&repo).expect("create repo");
+    let guard = Disposable(root.clone());
+    git(&repo, &["init", "-q"]);
+    commit(&repo, "a.txt");
+    let paseo_home = root.join("paseo-home");
+    let mut worktrees = Vec::new();
+    for (index, body) in WORKTREE_METADATA_CASES.iter().enumerate() {
+        let slug = format!("case-{index}");
+        let path = paseo_home.join("worktrees").join("0123abcd").join(&slug);
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                &slug,
+                path.to_str().expect("utf8 path"),
+            ],
+        );
+        let metadata = repo.join(".git/worktrees").join(&slug).join("paseo");
+        fs::create_dir_all(&metadata).expect("metadata dir");
+        fs::write(metadata.join("worktree.json"), body).expect("write metadata");
+        worktrees.push(path.to_string_lossy().into_owned());
+    }
+
+    let context = CheckoutContext {
+        paseo_home: paseo_home.to_string_lossy().into_owned(),
+        worktrees_root: None,
+        home: std::env::var("HOME").unwrap_or_default(),
+    };
+    let mut rust_rows = Vec::new();
+    for path in &worktrees {
+        let mut row = JsObject::new();
+        match get_checkout(path, &context).await {
+            Ok(checkout) => {
+                let full = rust_row("", &checkout, String::new());
+                row.insert(
+                    "checkout",
+                    full.get("checkout").cloned().unwrap_or(JsValue::Null),
+                );
+            }
+            Err(error) => row.insert("error", JsValue::String(error.message)),
+        }
+        rust_rows.push(JsValue::Object(row));
+    }
+
+    let output = Command::new(timeout_program())
+        .args(["--kill-after=5", "300"])
+        .arg(&node)
+        .args(["--input-type=module", "-e", METADATA_SCRIPT])
+        .arg(&dist)
+        .arg(&paseo_home)
+        .args(&worktrees)
+        .output()
+        .expect("run pinned node");
+    assert!(
+        output.status.success(),
+        "node failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected = String::from_utf8_lossy(&output.stdout).into_owned();
+    let actual = stringify(&JsValue::Array(rust_rows));
+    drop(guard);
+    assert_eq!(actual, expected);
 }
