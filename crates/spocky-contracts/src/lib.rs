@@ -11,6 +11,7 @@
 pub mod agent;
 pub mod agent_config;
 pub mod attachment;
+pub mod creation;
 pub mod field;
 pub mod frame;
 pub mod id;
@@ -18,6 +19,10 @@ pub mod json;
 pub mod literal;
 pub mod number;
 pub mod request;
+pub mod response;
 pub mod session;
+pub mod snapshot;
 pub mod text;
+pub mod timeline;
+pub mod workspace;
 pub mod ws;
