@@ -114,6 +114,87 @@ cleanup() {
   esac
 }
 trap cleanup EXIT HUP INT TERM
+
+publish_fixture="$fixture_dir/publish"
+canonical_json="$publish_fixture/canonical.json"
+canonical_screenshots="$publish_fixture/canonical-screenshots"
+staged_json="$publish_fixture/staged.json"
+staged_screenshots="$publish_fixture/staged-screenshots"
+publish_backup="$publish_fixture/backup"
+mkdir -p "$canonical_screenshots"
+printf '%s\n' '{"generation":"old"}' >"$canonical_json"
+printf '%s\n' 'old desktop' >"$canonical_screenshots/desktop.png"
+printf '%s\n' 'old mobile' >"$canonical_screenshots/mobile.png"
+old_json_sha=$(shasum -a 256 "$canonical_json" | awk '{print $1}')
+old_desktop_sha=$(shasum -a 256 "$canonical_screenshots/desktop.png" | awk '{print $1}')
+old_mobile_sha=$(shasum -a 256 "$canonical_screenshots/mobile.png" | awk '{print $1}')
+
+stage_new_generation() {
+  rm -rf "$staged_screenshots" "$publish_backup"
+  mkdir -p "$staged_screenshots"
+  printf '%s\n' '{"generation":"new"}' >"$staged_json"
+  printf '%s\n' 'new desktop' >"$staged_screenshots/desktop.png"
+  printf '%s\n' 'new mobile' >"$staged_screenshots/mobile.png"
+}
+
+assert_old_generation() {
+  test "$(shasum -a 256 "$canonical_json" | awk '{print $1}')" = "$old_json_sha"
+  test "$(shasum -a 256 "$canonical_screenshots/desktop.png" | awk '{print $1}')" = \
+    "$old_desktop_sha"
+  test "$(shasum -a 256 "$canonical_screenshots/mobile.png" | awk '{print $1}')" = \
+    "$old_mobile_sha"
+}
+
+stage_new_generation
+set +e
+SPOCKY_PUBLISH_FAIL_AT=after-displace "$capture" --publish-canonical \
+  "$staged_json" "$staged_screenshots" "$canonical_json" \
+  "$canonical_screenshots" "$publish_backup" >/dev/null 2>&1
+publish_displace_status=$?
+set -e
+if [ "$publish_displace_status" -eq 0 ]; then
+  printf 'injected post-displacement publication failure unexpectedly passed\n' >&2
+  exit 1
+fi
+assert_old_generation
+
+stage_new_generation
+set +e
+SPOCKY_PUBLISH_FAIL_AT=after-screenshots "$capture" --publish-canonical \
+  "$staged_json" "$staged_screenshots" "$canonical_json" \
+  "$canonical_screenshots" "$publish_backup" >/dev/null 2>&1
+publish_failure_status=$?
+set -e
+if [ "$publish_failure_status" -eq 0 ]; then
+  printf 'injected canonical publication failure unexpectedly passed\n' >&2
+  exit 1
+fi
+assert_old_generation
+
+stage_new_generation
+set +e
+SPOCKY_PUBLISH_FAIL_AT=signal-after-json "$capture" --publish-canonical \
+  "$staged_json" "$staged_screenshots" "$canonical_json" \
+  "$canonical_screenshots" "$publish_backup" >/dev/null 2>&1
+publish_signal_status=$?
+set -e
+if [ "$publish_signal_status" -eq 0 ]; then
+  printf 'injected canonical publication signal unexpectedly passed\n' >&2
+  exit 1
+fi
+assert_old_generation
+
+stage_new_generation
+"$capture" --publish-canonical \
+  "$staged_json" "$staged_screenshots" "$canonical_json" \
+  "$canonical_screenshots" "$publish_backup"
+grep -F '"generation":"new"' "$canonical_json" >/dev/null
+grep -F 'new desktop' "$canonical_screenshots/desktop.png" >/dev/null
+grep -F 'new mobile' "$canonical_screenshots/mobile.png" >/dev/null
+grep -F '"generation":"old"' "$publish_backup/previous-published-comparison.json" >/dev/null
+grep -F 'old desktop' "$publish_backup/previous-published-comparison/desktop.png" >/dev/null
+grep -F 'old mobile' "$publish_backup/previous-published-comparison/mobile.png" >/dev/null
+
 font_fixture="$fixture_dir/font-contract.json"
 printf '%s\n' '{
   "captures": [

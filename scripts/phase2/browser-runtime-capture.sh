@@ -89,6 +89,118 @@ validate_font_contract() {
   ' "$1" >/dev/null
 }
 
+publish_canonical_generation() (
+  set -eu
+  staged_json=$1
+  staged_screenshots=$2
+  canonical_json=$3
+  canonical_screenshots=$4
+  backup_root=$5
+  for publish_path in \
+    "$staged_json" "$staged_screenshots" "$canonical_json" \
+    "$canonical_screenshots" "$backup_root"; do
+    case "$publish_path" in
+      /*) ;;
+      *) printf 'canonical publication requires absolute paths: %s\n' "$publish_path" >&2; exit 2 ;;
+    esac
+  done
+  if [ ! -f "$staged_json" ] || [ ! -d "$staged_screenshots" ]; then
+    printf 'canonical publication staging is incomplete\n' >&2
+    exit 2
+  fi
+  if ! jq -e . "$staged_json" >/dev/null; then
+    printf 'canonical publication JSON is invalid: %s\n' "$staged_json" >&2
+    exit 2
+  fi
+  if ! find "$staged_screenshots" -type f -name '*.png' -print -quit | grep -q .; then
+    printf 'canonical publication has no staged PNG files: %s\n' "$staged_screenshots" >&2
+    exit 2
+  fi
+  if { [ -f "$canonical_json" ] && [ ! -d "$canonical_screenshots" ]; } || \
+    { [ ! -f "$canonical_json" ] && [ -d "$canonical_screenshots" ]; }; then
+    printf 'refusing to replace an incomplete canonical generation\n' >&2
+    exit 2
+  fi
+  previous_json="$backup_root/previous-published-comparison.json"
+  previous_screenshots="$backup_root/previous-published-comparison"
+  if [ -e "$previous_json" ] || [ -e "$previous_screenshots" ]; then
+    printf 'canonical publication backup already exists: %s\n' "$backup_root" >&2
+    exit 2
+  fi
+  mkdir -p "$backup_root"
+  transaction_dir=$(mktemp -d "${canonical_json%/*}/.canonical-publish.XXXXXX")
+  displaced_json="$transaction_dir/previous.json"
+  displaced_screenshots="$transaction_dir/previous-screenshots"
+  had_previous=0
+  publish_started=0
+  publish_complete=0
+  publisher_pid=$(python3 -c 'import os; print(os.getppid())')
+
+  # Invoked by the EXIT trap through finish_publication.
+  # shellcheck disable=SC2329
+  rollback_publication() {
+    set +e
+    if [ "$publish_started" -eq 1 ]; then
+      rm -rf "$canonical_screenshots"
+      if [ "$had_previous" -eq 1 ] && [ -d "$displaced_screenshots" ]; then
+        mv "$displaced_screenshots" "$canonical_screenshots"
+      fi
+      if [ "$had_previous" -eq 1 ] && [ -f "$displaced_json" ]; then
+        restore_json="$transaction_dir/restore.json"
+        cp "$displaced_json" "$restore_json" && mv "$restore_json" "$canonical_json"
+      else
+        rm -f "$canonical_json"
+      fi
+    fi
+    rm -rf "$previous_json" "$previous_screenshots"
+  }
+
+  # Invoked by the EXIT trap.
+  # shellcheck disable=SC2329
+  finish_publication() {
+    publish_exit_status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$publish_complete" -ne 1 ]; then
+      rollback_publication
+    fi
+    rm -rf "$transaction_dir"
+    exit "$publish_exit_status"
+  }
+
+  inject_publish_failure() {
+    if [ "${SPOCKY_PUBLISH_FAIL_AT:-}" = "$1" ]; then
+      return 86
+    fi
+    if [ "${SPOCKY_PUBLISH_FAIL_AT:-}" = "signal-$1" ]; then
+      kill -TERM "$publisher_pid"
+      return 143
+    fi
+    return 0
+  }
+
+  trap finish_publication EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  if [ -f "$canonical_json" ]; then
+    had_previous=1
+    cp "$canonical_json" "$displaced_json"
+    cp "$canonical_json" "$previous_json"
+    cp -R "$canonical_screenshots" "$previous_screenshots"
+  fi
+  publish_started=1
+  if [ "$had_previous" -eq 1 ]; then
+    mv "$canonical_screenshots" "$displaced_screenshots"
+  fi
+  inject_publish_failure after-displace
+  mv "$staged_screenshots" "$canonical_screenshots"
+  inject_publish_failure after-screenshots
+  mv "$staged_json" "$canonical_json"
+  inject_publish_failure after-json
+  publish_complete=1
+)
+
 if [ "${1:-}" = "--parse-different-pixels" ]; then
   if [ "$#" -ne 2 ]; then
     printf 'usage: %s --parse-different-pixels IMAGE_MAGICK_METRIC\n' "$0" >&2
@@ -113,6 +225,15 @@ if [ "${1:-}" = "--validate-font-contract" ]; then
     exit 2
   fi
   validate_font_contract "$2"
+  exit $?
+fi
+
+if [ "${1:-}" = "--publish-canonical" ]; then
+  if [ "$#" -ne 6 ]; then
+    printf 'usage: %s --publish-canonical STAGED_JSON STAGED_SCREENSHOTS CANONICAL_JSON CANONICAL_SCREENSHOTS BACKUP_ROOT\n' "$0" >&2
+    exit 2
+  fi
+  publish_canonical_generation "$2" "$3" "$4" "$5" "$6"
   exit $?
 fi
 
@@ -174,7 +295,7 @@ if [ "${1:-}" = "--print-plan" ]; then
   exit 0
 fi
 if [ "$#" -ne 0 ]; then
-  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--validate-chromium-version VERSION_OUTPUT|--validate-font-contract RESULT_JSON|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
+  printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--validate-chromium-version VERSION_OUTPUT|--validate-font-contract RESULT_JSON|--publish-canonical STAGED_JSON STAGED_SCREENSHOTS CANONICAL_JSON CANONICAL_SCREENSHOTS BACKUP_ROOT|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
 if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=no)" ]; then
@@ -520,14 +641,9 @@ fi
 
 cp -R "$attempt_screenshot_dir" "$publish_screenshot_temp"
 cp "$attempt_result_file" "$publish_result_temp"
-if [ -d "$screenshot_dir" ]; then
-  mv "$screenshot_dir" "$attempt_dir/previous-published-comparison"
-fi
-if [ -f "$result_file" ]; then
-  cp "$result_file" "$attempt_dir/previous-published-comparison.json"
-fi
-mv "$publish_screenshot_temp" "$screenshot_dir"
-mv "$publish_result_temp" "$result_file"
+publish_canonical_generation \
+  "$publish_result_temp" "$publish_screenshot_temp" \
+  "$result_file" "$screenshot_dir" "$attempt_dir"
 attempt_status=accepted
 printf 'Browser runtime comparison captured: %s\n' "$result_file"
 shasum -a 256 "$result_file" "$screenshot_dir"/*.png

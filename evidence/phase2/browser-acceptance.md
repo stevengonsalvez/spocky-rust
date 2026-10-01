@@ -1,9 +1,10 @@
 # Browser acceptance enforcement
 
 The browser runtime capture exits nonzero unless desktop and mobile pass exact
-full-PNG hash, keyboard activation, dialog-outcome, accessibility, and
-candidate-stability gates. It does not normalize, mask, compare by RMSE, retry
-until a preferred image appears, or accept a pixel-count threshold.
+full-PNG hash, keyboard activation, dialog-outcome, recorded accessibility, and
+candidate-stability gates. Screenshot comparison does not normalize or mask
+pixels, compare by RMSE, retry until a preferred image appears, or accept a
+pixel-count threshold.
 
 Original and candidate captures activate the Add a project control. Accepted
 attempt `20261001T010653Z-80481` ran at candidate and harness commit
@@ -14,8 +15,9 @@ semantic project action. The candidate now opens the same pinned Add Project
 method dialog contract instead of replacing the outcome with live-status text.
 The comparison records the dialog label, visible text, and semantic controls.
 Focused renderer contracts pin the candidate to the latest observed original
-DOM semantics. Attempt `20261001T001233Z-50366` verifies the exact dialog
-outcome in both viewports and the exact mobile accessibility cycle.
+DOM semantics. The accepted attempt verifies the exact dialog outcome,
+reduced-motion observation, and complete recorded keyboard focus cycle in both
+viewports. This gate does not claim general accessibility conformance.
 
 The contract test injects and rejects these regressions:
 
@@ -32,6 +34,9 @@ The contract test injects and rejects these regressions:
 - consecutive same-page candidate instability
 - fresh-browser-context candidate instability
 - a nonzero pixel count mislabeled as passing
+- canonical publication failure after displacing prior screenshots
+- canonical publication failure after installing new screenshots
+- canonical publication signal after installing new JSON
 
 The validation result retains `shared-pinned-failure` when both runtimes fail
 offline reload. That pinned behavior does not become a candidate regression.
@@ -40,8 +45,9 @@ Default and branded evidence stems remain separate.
 Each full run writes into a timestamped `<stem>-attempts` directory. Failed
 attempts retain their logs, partial captures, and `attempt.json` failure status.
 Canonical comparison JSON and PNGs update only after every acceptance gate
-passes. An accepted attempt retains the previously published artifacts beside
-its attempt evidence.
+passes. Publication stages a complete JSON and PNG generation. Failure or a
+caught signal during replacement restores the previous generation; success
+retains the previous artifacts beside the accepted attempt evidence.
 
 Each capture also records non-compared instrumentation with monotonic offsets.
 Checkpoints cover navigation, meaningful text, font readiness, two animation
@@ -79,15 +85,16 @@ requires an explicit code and evidence change.
 
 ## Desktop baseline evidence
 
-Attempt `20261001T002951Z-91995` verifies exact interaction and complete
-accessibility in both viewports, zero mobile pixel difference, and zero
-candidate same-page and fresh-context instability. Its original and candidate
-desktop focus payloads are byte-for-byte equal. Both include the pinned
+Attempt `20261001T002951Z-91995` verifies exact interaction and the complete
+recorded accessibility gate in both viewports, zero mobile pixel difference,
+and zero candidate same-page and fresh-context instability. Its original and
+candidate desktop focus payloads are byte-for-byte equal. Both include the pinned
 source's unnamed focusable `div`. The structural completeness gate accepts that
 entry, rejects missing captured fields, and retains exact whole-payload
 equality.
 
-The same attempt has 19 desktop pixel differences at `x=20..28`, `y=46..57`.
+The same attempt has 19 desktop pixel differences at `x=20..28`, `y=46..57`,
+inside the History icon row.
 Its candidate desktop image is exact upstream mode B, `59709577...f4dc7d`.
 Original desktop is exact upstream mode A, `fad844b5...480f`. Candidate desktop
 same-page and fresh-context frames are exact mode B. Every mobile image is
@@ -103,19 +110,20 @@ The same attempt rejected candidate interaction and accessibility. Its candidate
 dialog used a label, a different GitHub subtitle and key hint, and `div`
 controls. Its focus cycle used different footer labels, menu controls, card
 roles, and community link elements. Focused contracts now pin the candidate to
-the recorded original values. This remains unverified by a later full capture.
+the recorded original values. The accepted attempt verifies those values in
+both viewports.
 
 Two rejected branded attempts show two original desktop pixel modes. Attempt
 `20260930T225932Z-86610` captured `fad844b5` first and `59709577` on repeat.
 Attempt `20260930T231716Z-32848` captured `fad844b5` for both original passes.
 The candidate captured `59709577` in both attempts. The modes differ by a
-normalized RMSE of `0.0000847864`, localized to the New workspace plus icon.
+normalized RMSE of `0.0000847864`, localized to the History icon row.
 
 In the instrumented attempt, both original desktop screenshot probes reported
 328 text characters, 11 loaded stylesheets, loaded fonts, two observed animation
-frames, no images, and no pending requests. Interaction and accessibility passed
-for both desktop runtimes. Original, repeated original, and candidate mobile
-screenshots were identical.
+frames, no images, and no pending requests. Interaction and the recorded
+accessibility checks passed for both desktop runtimes. Original, repeated
+original, and candidate mobile screenshots were identical.
 
 No recorded readiness probe distinguishes the two original desktop pixel modes.
 The narrow full-image contract accepts either complete upstream mode while
@@ -133,8 +141,9 @@ cargo test -p spocky-ui-renderer-pilot --test shell -- --test-threads=1
 ```
 
 The focused renderer tests and script contracts pass. The accepted full capture
-passes exact full-image membership, interaction, accessibility, candidate
-same-page stability, and candidate fresh-context stability in both viewports.
+passes exact full-image membership, interaction, recorded accessibility,
+candidate same-page stability, and candidate fresh-context stability in both
+viewports.
 The browser contract is complete only for the pinned empty-project Chromium
 environment. macOS desktop, Linux desktop, Windows desktop, iOS, and Android
 environment evidence remains open.
