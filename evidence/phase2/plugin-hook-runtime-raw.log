@@ -1,0 +1,37 @@
+
+ RUN  v4.1.7 /Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-plugin-hook-runtime
+
+stdout | scripts/phase2/plugin-hook-baseline.test.ts > captures pinned hook usage and provider worker behavior
+PLUGIN_HOOK_BASELINE {"ready":{"type":"ready","methods":["event.order"],"hooks":{"events":["workspace.created"],"before":["workspace.create","agent.session_open"]},"providers":[{"id":"direct","label":"Direct","hasCatalogCacheKey":true}],"usageSources":[{"id":"credits","label":"Credits","discover":true}]},"beforeSuccess":{"type":"result","requestId":"before-success","output":{"title":"first:second","source":{"kind":"directory","path":"/project"}}},"eventFailure":{"type":"result","requestId":"event-failure","output":null},"eventOrder":["failed","continued"],"hookCanceled":{"type":"error","requestId":"hook-timeout","error":"hook canceled"},"usageIdentify":{"type":"result","requestId":"usage-identify","output":{"key":"work","label":"Work"}},"usageFetch":{"type":"result","requestId":"usage-fetch","output":{"status":"available","windows":[{"id":"daily","label":"work","usedPct":25}]}},"usageDiscover":{"type":"result","requestId":"usage-discover","output":[{"account":"discovered"}]},"usageMalformed":{"type":"error","requestId":"usage-malformed","error":"invalid account payload"},"catalogKey":{"type":"result","requestId":"catalog-key","output":"global:shared"},"connected":{"type":"provider.connected","connectionId":"connection","version":1,"capabilities":["session.list"]},"providerEvent":{"type":"provider.event","connectionId":"connection","event":{"type":"request.completed","requestId":"sessions"}},"accepted":{"type":"provider.accepted","connectionId":"connection","acceptanceId":"accepted"},"rejected":{"type":"provider.rejected","connectionId":"connection","acceptanceId":"rejected","error":"send rejected"},"closed":{"type":"provider.closed","connectionId":"connection"},"connectFailed":{"type":"provider.connect_failed","connectionId":"connection-failed","error":"connect failed"}}
+
+stdout | scripts/phase2/plugin-hook-baseline.test.ts > surfaces process death while an original hook runs
+PLUGIN_HOOK_BASELINE_FAILURES {"timeout":"terminated","processDeath":"rejected"}
+
+ ✓ scripts/phase2/plugin-hook-baseline.test.ts (2 tests) 3061ms
+   ✓ captures pinned hook usage and provider worker behavior  1913ms
+   ✓ surfaces process death while an original hook runs  1145ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  13:29:36
+   Duration  3.46s (transform 719ms, setup 0ms, import 112ms, tests 3.06s, environment 0ms)
+
+
+ RUN  v4.1.7 /Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust/.baselines/paseo-runtime
+
+ ✓ packages/server/src/server/plugins/lifecycle/handlers.test.ts (4 tests | 3 skipped) 13ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 3 skipped (4)
+   Start at  13:29:40
+   Duration  11.00s (transform 9.20s, setup 0ms, import 10.70s, tests 13ms, environment 0ms)
+
+
+running 2 tests
+test differential_capture_matches_pinned_hook_usage_and_provider_cases ... PLUGIN_HOOK_RUST {"ready":{"type":"ready","methods":["event.order"],"hooks":{"events":["workspace.created"],"before":["workspace.create","agent.session_open"]},"providers":[{"id":"direct","label":"Direct","hasCatalogCacheKey":true}],"usageSources":[{"id":"credits","label":"Credits","discover":true}]},"beforeSuccess":{"type":"result","requestId":"before-success","output":{"title":"first:second","source":{"kind":"directory","path":"/project"}}},"eventFailure":{"type":"result","requestId":"event-failure","output":null},"eventOrder":["failed","continued"],"hookCanceled":{"type":"error","requestId":"hook-timeout","error":"hook canceled"},"usageIdentify":{"type":"result","requestId":"usage-identify","output":{"key":"work","label":"Work"}},"usageFetch":{"type":"result","requestId":"usage-fetch","output":{"status":"available","windows":[{"id":"daily","label":"work","usedPct":25}]}},"usageDiscover":{"type":"result","requestId":"usage-discover","output":[{"account":"discovered"}]},"usageMalformed":{"type":"error","requestId":"usage-malformed","error":"invalid account payload"},"catalogKey":{"type":"result","requestId":"catalog-key","output":"global:shared"},"connected":{"type":"provider.connected","connectionId":"connection","version":1,"capabilities":["session.list"]},"providerEvent":{"type":"provider.event","connectionId":"connection","event":{"type":"request.completed","requestId":"sessions"}},"accepted":{"type":"provider.accepted","connectionId":"connection","acceptanceId":"accepted"},"rejected":{"type":"provider.rejected","connectionId":"connection","acceptanceId":"rejected","error":"send rejected"},"closed":{"type":"provider.closed","connectionId":"connection"},"connectFailed":{"type":"provider.connect_failed","connectionId":"connection-failed","error":"connect failed"}}
+ok
+test selected_worker_bounds_hung_hooks_and_surfaces_process_death ... PLUGIN_HOOK_RUST_FAILURES {"timeout":"terminated","processDeath":"rejected"}
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+

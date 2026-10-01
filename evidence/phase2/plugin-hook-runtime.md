@@ -1,7 +1,7 @@
 # Plugin hook and usage runtime parity
 
-Status: baseline contribution inventory frozen before implementation. Differential
-implementation and results follow in this task.
+Status: selected headless compiled-worker hook invocation, usage execution, and
+provider connection plumbing implemented and differentially proven on macOS.
 
 ## Provenance
 
@@ -98,7 +98,65 @@ connections, and waits for in-flight close work.
 - Hook cancellation is cooperative. Aborting a signal does not settle a
   handler that ignores it.
 
+## Differential result
+
+`scripts/phase2/plugin-hook-runtime-capture.sh` runs the pinned original
+TypeScript worker through Vitest, runs the Rust-selected compiled worker, and
+compares emitted JSON strings without normalization.
+
+Eighteen byte-identical cases pass:
+
+1. Ready metadata for hook, usage, provider, and provider catalog-key support.
+2. Two ordered before-hook transformations.
+3. Event-hook failure isolation.
+4. Continued event execution after failure.
+5. Hook cancellation.
+6. Usage identity.
+7. Usage fetch.
+8. Usage discovery.
+9. Malformed usage input.
+10. Provider catalog cache key.
+11. Provider connection.
+12. Provider event.
+13. Provider input acceptance.
+14. Provider input rejection.
+15. Provider close.
+16. Provider connection failure.
+17. Hung-hook timeout and exact child termination.
+18. Process death rejection.
+
+The selected wrapper now accepts baseline `hooks.changed` messages before its
+ready frame, distinguishes a dead worker from a live timeout, validates the
+supported hook names and transformation boundaries, preserves event failure
+isolation, and emits provider metadata in baseline order.
+
+## Verification
+
+- `scripts/phase2/plugin-hook-runtime-capture.sh`: 18 matched, 0 mismatched;
+  pinned Vitest 3 passed, Rust 2 passed.
+- `cargo test -p spocky-plugin-pilot --test settings_lifecycle`: 10 passed.
+- `cargo test -p spocky-plugin-pilot --test plugin_lifecycle`: 3 passed.
+- `cargo test -p spocky-plugin-pilot --test protocol_manifest`: 2 passed.
+- `cargo test -p spocky-plugin-pilot --test process_protocol`: 2 passed.
+- `cargo test -p spocky-plugin-pilot --test runtime_acquisition`: 9 passed.
+- `cargo test -p spocky-plugin-pilot --test selected_server_runtime`: 7 passed.
+- `cargo test -p spocky-plugin-pilot --test hook_usage_runtime`: 2 passed.
+- `cargo fmt --package spocky-plugin-pilot -- --check`: passed.
+- `cargo clippy -p spocky-plugin-pilot --all-targets -- -D warnings`: passed.
+
+Raw differential log SHA-256:
+`fd8b48f372188f4b9aeaf0548c070f53535697385dc36a3f619cfc690a10ffbd`.
+
+Targeted verification log SHA-256:
+`898a980712d033f3753cc804cfcfeebc22767869a3a5e5b623a84bba99657a2c`.
+
 ## Remaining scope
 
 - Daemon RPC integration remains outside this task.
 - Native Windows runtime qualification remains outside this task.
+- Existing `scripts/phase2/plugin-runtime-capture.sh` cannot locate the pinned
+  checkouts from this worktree because it hardcodes worktree-local
+  `.baselines/paseo-runtime` and `.baselines/import`. Exact failure:
+  `fatal: cannot change to '<worktree>/.baselines/paseo-runtime': No such file or directory`.
+  The hook-specific capture resolves the main checkout's pinned baseline through
+  the shared Git directory without copying or modifying it.
