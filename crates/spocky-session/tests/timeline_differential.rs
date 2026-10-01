@@ -9,8 +9,8 @@
 use std::process::Command;
 
 use spocky_session::timeline::{
-    FetchDirection, ProjectedRow, SeedRow, TimelineCursor, TimelineError, TimelineFetch,
-    TimelineRow, TimelineSeed, TimelineStore,
+    FetchDirection, SeedRow, TimelineCursor, TimelineError, TimelineRow, TimelineSeed,
+    TimelineStore,
 };
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
@@ -120,6 +120,26 @@ const APPENDS: &[(&str, &str, &str)] = &[
         r#"{"type":"assistant_message","text":"end","messageId":"m9"}"#,
         "",
     ),
+    (
+        "t3",
+        r#"{"type":"tool_call","callId":"call7","name":"shell","status":"running","detail":{"type":"shell","command":"a"},"metadata":{"a":1}}"#,
+        "",
+    ),
+    (
+        "t3",
+        r#"{"type":"tool_call","callId":"call7","name":"shell","status":"completed","detail":{"type":"shell","command":"a"},"metadata":"ab"}"#,
+        "",
+    ),
+    (
+        "t3",
+        r#"{"type":"tool_call","callId":"call8","name":"shell","status":"running","detail":{"type":"shell","command":"b"},"metadata":[1]}"#,
+        "",
+    ),
+    (
+        "t3",
+        r#"{"type":"tool_call","callId":"call8","name":"shell","status":"completed","detail":{"type":"shell","command":"b"},"metadata":{"b":2}}"#,
+        "",
+    ),
 ];
 
 /// `(direction, cursor epoch or "", cursor seq, limit)`; `-1` limit means none.
@@ -161,7 +181,8 @@ const LATE_ITEM: &str = r#"{"type":"assistant_message","text":"late"}"#;
 
 /// Tool calls whose lifecycle merge reads a missing or null detail, which
 /// throws a `TypeError` in the baseline: incoming missing, existing missing,
-/// existing null, then a valid merge and an unrelated item afterwards.
+/// existing null, both missing (the existing detail is read first), then a
+/// valid merge and an unrelated item afterwards.
 const BROKEN_ITEMS: &str = r#"[
   {"type":"tool_call","callId":"d","name":"shell","status":"running","detail":{"type":"unknown"}},
   {"type":"tool_call","callId":"d","name":"shell","status":"completed"},
@@ -169,6 +190,8 @@ const BROKEN_ITEMS: &str = r#"[
   {"type":"tool_call","callId":"e","name":"shell","status":"completed","detail":{"type":"shell"}},
   {"type":"tool_call","callId":"f","name":"shell","status":"running","detail":null},
   {"type":"tool_call","callId":"f","name":"shell","status":"completed","detail":{"type":"shell"}},
+  {"type":"tool_call","callId":"h","name":"shell","status":"running"},
+  {"type":"tool_call","callId":"h","name":"shell","status":"completed","detail":null},
   {"type":"tool_call","callId":"d","name":"shell","status":"completed","detail":{"type":"shell"}},
   {"type":"assistant_message","text":"after"}
 ]"#;
@@ -226,6 +249,9 @@ const brokenAppends = JSON.parse(brokenJson).map((item, index) =>
   attempt(() => store.append("broken", item, { timestamp: `B${index}`, turnId: "t1" })));
 const broken = { appends: brokenAppends, ...report("broken", false) };
 const seedFailure = attempt(() => store.initialize("seedbroken", { epoch: "E", rows: JSON.parse(brokenSeedJson) }));
+store.initialize("keep", { epoch: "K", timestamp: "TK", items: JSON.parse(seedItemsJson) });
+const keepFailure = attempt(() => store.initialize("keep", { epoch: "K2", rows: JSON.parse(brokenSeedJson) }));
+const keep = { failure: keepFailure, epoch: store.getEpoch("keep"), ...report("keep", false) };
 process.stdout.write(JSON.stringify({
   empty,
   appended,
@@ -239,6 +265,7 @@ process.stdout.write(JSON.stringify({
   broken,
   seedFailure,
   seedFailureStored: store.has("seedbroken"),
+  keep,
 }));
 "#;
 
@@ -266,106 +293,6 @@ fn optional_string(value: Option<&JsValue>) -> Option<String> {
     value.and_then(JsValue::as_str).map(str::to_owned)
 }
 
-/// `AgentTimelineRow` as `append` returns it.
-fn source_row_value(row: &TimelineRow) -> JsValue {
-    let mut value = JsObject::new();
-    value.insert("seq", number(row.seq));
-    value.insert("timestamp", text(&row.timestamp));
-    value.insert("item", row.item.clone());
-    if let Some(turn_id) = &row.turn_id {
-        value.insert("turnId", text(turn_id));
-    }
-    if let Some(id) = &row.provider_message_id {
-        value.insert("providerMessageId", text(id));
-    }
-    JsValue::Object(value)
-}
-
-/// A stored projected row, or with `seq_first` a fetched one
-/// (`Object.assign({ seq }, entry)`).
-fn row_value(entry: &ProjectedRow, seq_first: bool) -> JsValue {
-    let mut row = JsObject::new();
-    if seq_first {
-        row.insert("seq", number(entry.seq));
-    }
-    row.insert("item", entry.item.clone());
-    row.insert("timestamp", text(&entry.timestamp));
-    if let Some(turn_id) = &entry.turn_id {
-        row.insert("turnId", text(turn_id));
-    }
-    let provider_message_id = entry.provider_message_id.as_ref().map(|id| text(id));
-    if !entry.provider_message_id_last
-        && let Some(id) = &provider_message_id
-    {
-        row.insert("providerMessageId", id.clone());
-    }
-    row.insert("seqStart", number(entry.seq_start));
-    row.insert("seqEnd", number(entry.seq_end));
-    row.insert(
-        "sourceSeqRanges",
-        JsValue::Array(
-            entry
-                .source_seq_ranges
-                .iter()
-                .map(|range| {
-                    let mut value = JsObject::new();
-                    value.insert("startSeq", number(range.start_seq));
-                    value.insert("endSeq", number(range.end_seq));
-                    JsValue::Object(value)
-                })
-                .collect(),
-        ),
-    );
-    row.insert(
-        "collapsed",
-        JsValue::Array(
-            entry
-                .collapsed
-                .iter()
-                .map(|kind| text(kind.as_str()))
-                .collect(),
-        ),
-    );
-    if !seq_first {
-        row.insert("seq", number(entry.seq));
-    }
-    if entry.provider_message_id_last
-        && let Some(id) = provider_message_id
-    {
-        row.insert("providerMessageId", id);
-    }
-    JsValue::Object(row)
-}
-
-fn fetch_value(fetch: &TimelineFetch) -> JsValue {
-    let direction = match fetch.direction {
-        FetchDirection::Tail => "tail",
-        FetchDirection::Before => "before",
-        FetchDirection::After => "after",
-    };
-    let optional_number = |value: Option<i64>| value.map_or(JsValue::Null, number);
-    let mut window = JsObject::new();
-    window.insert("minSeq", number(fetch.window.min_seq));
-    window.insert("maxSeq", number(fetch.window.max_seq));
-    window.insert("nextSeq", number(fetch.window.next_seq));
-    let mut page = JsObject::new();
-    page.insert("epoch", text(&fetch.epoch));
-    page.insert("direction", text(direction));
-    page.insert("reset", JsValue::Bool(fetch.reset));
-    page.insert("staleCursor", JsValue::Bool(fetch.stale_cursor));
-    page.insert("gap", JsValue::Bool(fetch.gap));
-    page.insert("window", JsValue::Object(window));
-    page.insert("hasOlder", JsValue::Bool(fetch.has_older));
-    page.insert("hasNewer", JsValue::Bool(fetch.has_newer));
-    page.insert("startSeq", optional_number(fetch.start_seq));
-    page.insert("endSeq", optional_number(fetch.end_seq));
-    page.insert(
-        "rows",
-        JsValue::Array(fetch.rows.iter().map(|row| row_value(row, true)).collect()),
-    );
-    JsValue::Object(page)
-}
-
 fn report(store: &mut TimelineStore, agent_id: &str, late: bool) -> JsValue {
     let late = if late {
         let row = store
@@ -377,7 +304,7 @@ fn report(store: &mut TimelineStore, agent_id: &str, late: bool) -> JsValue {
                 None,
             )
             .expect("agent timeline exists");
-        source_row_value(&row)
+        row.to_js()
     } else {
         JsValue::Null
     };
@@ -385,7 +312,7 @@ fn report(store: &mut TimelineStore, agent_id: &str, late: bool) -> JsValue {
         .rows(agent_id)
         .expect("timeline")
         .iter()
-        .map(|row| row_value(row, false))
+        .map(|row| row.to_js(false))
         .collect();
     let fetches = FETCHES
         .iter()
@@ -400,11 +327,10 @@ fn report(store: &mut TimelineStore, agent_id: &str, late: bool) -> JsValue {
                 seq: *seq,
             });
             let limit = usize::try_from(*limit).ok();
-            fetch_value(
-                &store
-                    .fetch(agent_id, direction, cursor.as_ref(), limit)
-                    .expect("agent timeline exists"),
-            )
+            store
+                .fetch(agent_id, direction, cursor.as_ref(), limit)
+                .expect("agent timeline exists")
+                .to_js()
         })
         .collect();
     let mut output = JsObject::new();
@@ -491,7 +417,7 @@ fn broken_output(store: &mut TimelineStore) -> (JsValue, JsValue) {
                         Some("t1".to_owned()),
                         None,
                     )
-                    .map(|row| Some(source_row_value(&row))),
+                    .map(|row| Some(row.to_js())),
             )
         })
         .collect();
@@ -504,7 +430,20 @@ fn broken_output(store: &mut TimelineStore) -> (JsValue, JsValue) {
     for (key, value) in report.iter() {
         broken.insert(key, value.clone());
     }
-    let rows = parse(BROKEN_SEED_ROWS)
+    let seed_failure = attempt_value(
+        store
+            .initialize_with(
+                "seedbroken",
+                seed(broken_seed_rows(), Vec::new(), None, None),
+            )
+            .map(|()| None)
+            .map_err(TimelineError::Type),
+    );
+    (JsValue::Object(broken), seed_failure)
+}
+
+fn broken_seed_rows() -> Vec<SeedRow> {
+    parse(BROKEN_SEED_ROWS)
         .expect("broken seed")
         .as_array()
         .expect("array")
@@ -518,14 +457,33 @@ fn broken_output(store: &mut TimelineStore) -> (JsValue, JsValue) {
                 provider_message_id: None,
             })
         })
-        .collect();
-    let seed_failure = attempt_value(
+        .collect()
+}
+
+/// A failed reseed of an agent that has a timeline keeps its epoch and rows.
+fn keep_output(store: &mut TimelineStore) -> JsValue {
+    let mut first = seed(Vec::new(), seed_items(), None, Some("TK"));
+    first.epoch = Some("K".to_owned());
+    store.initialize_with("keep", first).expect("seed");
+    let mut reseed = seed(broken_seed_rows(), Vec::new(), None, None);
+    reseed.epoch = Some("K2".to_owned());
+    let failure = attempt_value(
         store
-            .initialize_with("seedbroken", seed(rows, Vec::new(), None, None))
+            .initialize_with("keep", reseed)
             .map(|()| None)
             .map_err(TimelineError::Type),
     );
-    (JsValue::Object(broken), seed_failure)
+    let report = report(store, "keep", false);
+    let JsValue::Object(report) = &report else {
+        unreachable!("report is an object")
+    };
+    let mut keep = JsObject::new();
+    keep.insert("failure", failure);
+    keep.insert("epoch", text(store.epoch("keep").expect("timeline")));
+    for (key, value) in report.iter() {
+        keep.insert(key, value.clone());
+    }
+    JsValue::Object(keep)
 }
 
 fn rust_output() -> String {
@@ -550,7 +508,7 @@ fn rust_output() -> String {
                     (!provider_message_id.is_empty()).then(|| (*provider_message_id).to_owned()),
                 )
                 .expect("agent timeline exists");
-            source_row_value(&row)
+            row.to_js()
         })
         .collect();
     let main = report(&mut store, "a", false);
@@ -564,7 +522,7 @@ fn rust_output() -> String {
         store
             .enrich_submitted_user_message("a", client, provider)
             .expect("timeline")
-            .map_or(JsValue::Null, |row| row_value(&row, false))
+            .map_or(JsValue::Null, |row| row.to_js(false))
     })
     .collect();
     let after_enrich = report(&mut store, "a", false);
@@ -618,11 +576,12 @@ fn rust_output() -> String {
         store
             .submitted_user_message("a", "c1")
             .expect("timeline")
-            .map_or(JsValue::Null, |row| row_value(&row, false)),
+            .map_or(JsValue::Null, |row| row.to_js(false)),
     );
     output.insert("broken", broken);
     output.insert("seedFailure", seed_failure);
     output.insert("seedFailureStored", JsValue::Bool(store.has("seedbroken")));
+    output.insert("keep", keep_output(&mut store));
     stringify(&JsValue::Object(output))
 }
 
