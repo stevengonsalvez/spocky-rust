@@ -1,0 +1,40 @@
+Darwin Stevens-MacBook-Pro-5.local 24.6.0 Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:23 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_X86_64 x86_64
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+cargo 1.94.0 (85eff7c80 2026-01-15)
+   Compiling spocky-audio-delivery-pilot v0.1.0 (/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-audio-delivery-qualification/crates/spocky-audio-delivery-pilot)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running tests/audio_contract.rs (target/debug/deps/audio_contract-b2d95c34372e67bc)
+
+running 2 tests
+test audio_absent_capabilities_are_explicitly_unsupported ... ok
+test audio_permission_capture_playback_and_interruption_are_stateful ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_runtime.rs (target/debug/deps/local_runtime-76c2836a5a2fbd04)
+
+running 5 tests
+test pcm_runtime_writes_a_real_wav_that_the_host_audio_tool_parses ... ok
+test process_adapter_captures_real_stdout_stderr_and_exit_status ... ok
+test process_adapter_drains_large_stdout_and_stderr_without_deadlock ... ok
+test process_adapter_times_out_and_reaps_the_spawned_process_group ... ok
+test unsigned_packages_update_and_rollback_on_the_real_filesystem ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/macos_audio_runtime.rs (target/debug/deps/macos_audio_runtime-a4f4d1f4b814ef73)
+
+running 2 tests
+test system_tts_produces_parsed_audio_and_playback_engine_consumes_it ... ok
+test system_tts_rejects_empty_text_before_process_launch ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.62s
+
+     Running tests/runtime_report.rs (target/debug/deps/runtime_report-c8d8614622d3cd59)
+
+running 1 test
+test local_runtime_binary_emits_machine_readable_unsigned_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.86s
+
+AUDIO_PLATFORM_MACOS_OK

@@ -1,0 +1,12 @@
+baseline: paseo@5de45e208690b0efc51c59a585ae9729325a9204
+package: unsigned macOS Paseo.app bundle
+lifecycle: install, launch, reject corrupt update, upgrade, rollback, uninstall
+safety: disposable root only; /Applications excluded
+safety: signing, notarization, publish, deploy excluded
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running `target/debug/spocky-macos-delivery-runtime /tmp/spocky-delivery-runtime-test.eCYq5W`
+delivery runtime report: /tmp/spocky-delivery-runtime-test.eCYq5W/delivery-runtime-report.json
+artifacts:
+5fcf4ae8403c00e658bdcd0c2298796303c511228ae03c5a840cb0937b29233d  /tmp/spocky-delivery-runtime-test.eCYq5W/delivery-runtime-report.json
+a4d95ed727e46dc225938c0362451fefda9effe4447bfac38955d32d7c1d9cf1  /tmp/spocky-delivery-runtime-test.eCYq5W/delivery-runtime.log
+DELIVERY_PLATFORM_MACOS_OK
