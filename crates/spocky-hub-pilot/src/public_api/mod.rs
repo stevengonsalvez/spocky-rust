@@ -43,5 +43,5 @@ pub use operations::{
     WorkflowStatus, scope_name,
 };
 pub use spocky_contracts::js_value::{JsObject, JsValue, parse as parse_json, stringify_pretty};
-pub use validation::{Issue, PathPart};
+pub use validation::{Issue, ParseFailure, PathPart};
 pub use value::{JsValueExt, Json, decode_request_json};

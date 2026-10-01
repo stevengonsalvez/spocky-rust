@@ -11,8 +11,8 @@ use super::operations::{
     TriggerFormat,
 };
 use super::validation::{
-    Issue, PathPart, StringRule, array_field, array_length, index, invalid_type, is_uuid, key,
-    object_fields, string_field, unrecognized_keys, utf16_len,
+    Issue, Issues, ParseFailure, PathPart, StringRule, array_field, array_length, index,
+    invalid_type, is_uuid, key, object_fields, string_field, unrecognized_keys, utf16_len,
 };
 use super::value::{JsValueExt as _, Json};
 
@@ -107,20 +107,20 @@ const NAME_200: StringRule = StringRule {
     uuid: false,
 };
 
-fn finish<T>(issues: Vec<Issue>, value: Option<T>) -> Result<T, Vec<Issue>> {
+fn finish<T>(issues: Issues, value: Option<T>) -> Result<T, ParseFailure> {
     match value {
         Some(value) if issues.is_empty() => Ok(value),
-        _ => Err(issues),
+        _ => Err(issues.into_failure()),
     }
 }
 
 /// # Errors
 ///
 /// Returns the schema issues in zod order.
-pub fn parse_trigger_yaml(root: &Json) -> Result<TriggerYamlInput, Vec<Issue>> {
-    let mut issues = Vec::new();
+pub fn parse_trigger_yaml(root: &Json) -> Result<TriggerYamlInput, ParseFailure> {
+    let mut issues = Issues::default();
     let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
-        return Err(issues);
+        return Err(issues.into_failure());
     };
     let yaml = string_field(
         field(fields, "yaml"),
@@ -138,7 +138,7 @@ pub fn parse_trigger_yaml(root: &Json) -> Result<TriggerYamlInput, Vec<Issue>> {
     finish(issues, yaml.map(|yaml| TriggerYamlInput { yaml }))
 }
 
-fn parse_file(value: &Json, path: &[PathPart], issues: &mut Vec<Issue>) -> Option<BundleFile> {
+fn parse_file(value: &Json, path: &[PathPart], issues: &mut Issues) -> Option<BundleFile> {
     let fields = object_fields(Some(value), path, issues)?;
     let file_path = string_field(
         field(fields, "path"),
@@ -174,10 +174,10 @@ fn parse_file(value: &Json, path: &[PathPart], issues: &mut Vec<Issue>) -> Optio
 /// # Errors
 ///
 /// Returns the schema issues in zod order.
-pub fn parse_install_configuration(root: &Json) -> Result<InstallConfigurationInput, Vec<Issue>> {
-    let mut issues = Vec::new();
+pub fn parse_install_configuration(root: &Json) -> Result<InstallConfigurationInput, ParseFailure> {
+    let mut issues = Issues::default();
     let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
-        return Err(issues);
+        return Err(issues.into_failure());
     };
     let project_slug = string_field(
         field(fields, "projectSlug"),
@@ -210,10 +210,10 @@ pub fn parse_install_configuration(root: &Json) -> Result<InstallConfigurationIn
 /// # Errors
 ///
 /// Returns the schema issues in zod order.
-pub fn parse_dispatch_manual_run(root: &Json) -> Result<DispatchManualRunInput, Vec<Issue>> {
-    let mut issues = Vec::new();
+pub fn parse_dispatch_manual_run(root: &Json) -> Result<DispatchManualRunInput, ParseFailure> {
+    let mut issues = Issues::default();
     let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
-        return Err(issues);
+        return Err(issues.into_failure());
     };
     let project_slug = string_field(
         field(fields, "projectSlug"),
@@ -298,7 +298,7 @@ pub fn parse_dispatch_manual_run(root: &Json) -> Result<DispatchManualRunInput, 
 /// `z.object({}).strict()`: an object with no keys other than `__proto__`.
 #[must_use]
 pub fn is_empty_object(root: &Json) -> bool {
-    let mut issues = Vec::new();
+    let mut issues = Issues::default();
     let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
         return false;
     };
@@ -309,7 +309,7 @@ pub fn is_empty_object(root: &Json) -> bool {
 /// `{ deviceCode: string(32..=200) }`, strict.
 #[must_use]
 pub fn parse_device_code(root: &Json) -> Option<String> {
-    let mut issues = Vec::new();
+    let mut issues = Issues::default();
     let fields = object_fields(Some(root), &[], &mut issues)?;
     let code = string_field(
         field(fields, "deviceCode"),
@@ -339,7 +339,7 @@ fn user_code_rule() -> StringRule {
 /// `{ userCode: string(1..=40) }`, strict.
 #[must_use]
 pub fn parse_user_code(root: &Json) -> Option<String> {
-    let mut issues = Vec::new();
+    let mut issues = Issues::default();
     let fields = object_fields(Some(root), &[], &mut issues)?;
     let code = string_field(
         field(fields, "userCode"),
@@ -362,7 +362,7 @@ pub struct DecisionBody {
 /// `{ userCode, decision: "approve" | "deny", organizationId: string(1..) }`, strict.
 #[must_use]
 pub fn parse_decision(root: &Json) -> Option<DecisionBody> {
-    let mut issues = Vec::new();
+    let mut issues = Issues::default();
     let fields = object_fields(Some(root), &[], &mut issues)?;
     let user_code = string_field(
         field(fields, "userCode"),

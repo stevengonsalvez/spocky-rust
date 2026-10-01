@@ -50,6 +50,59 @@ impl Issue {
     }
 }
 
+/// Schema issues in zod order, plus whether validation threw instead (a `RangeError` from a
+/// value too deeply nested to coerce), which the baseline reports as an internal error.
+#[derive(Debug, Default)]
+pub struct Issues {
+    list: Vec<Issue>,
+    thrown: bool,
+}
+
+impl Issues {
+    pub fn push(&mut self, issue: Issue) {
+        self.list.push(issue);
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
+    fn throw(&mut self) {
+        self.thrown = true;
+    }
+
+    /// The failure these issues amount to.
+    #[must_use]
+    pub fn into_failure(self) -> ParseFailure {
+        if self.thrown {
+            ParseFailure::Thrown
+        } else {
+            ParseFailure::Invalid(self.list)
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn thrown(&self) -> bool {
+        self.thrown
+    }
+}
+
+/// Why a request body did not parse into a typed input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ParseFailure {
+    /// The schema rejected the body; the baseline answers 400 `invalid_request`.
+    Invalid(Vec<Issue>),
+    /// Validation threw (stack overflow while coercing a `length`); the baseline answers 500.
+    Thrown,
+}
+
 pub(super) fn key(path: &[PathPart], name: &str) -> Vec<PathPart> {
     let mut next = path.to_vec();
     next.push(PathPart::Key(name.to_owned()));
@@ -119,7 +172,7 @@ pub(super) fn invalid_type(
     path: &[PathPart],
     expected: &str,
     value: Option<&Json>,
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) {
     issues.push(Issue::new(
         path,
@@ -130,38 +183,65 @@ pub(super) fn invalid_type(
     ));
 }
 
+/// Nesting depth at which V8's recursive `Array.prototype.join` overflows its stack in the pinned
+/// Hub: a `length` array nested 4,400 deep is joined, 4,600 deep throws a `RangeError`.
+const MAX_JOIN_DEPTH: usize = 4_500;
+
 /// The `ToNumber` conversion the baseline applies to a `length` property of any JSON type.
-fn to_number(value: &Json) -> f64 {
-    match value {
+/// `None` is the `RangeError` the baseline throws when an array is nested too deeply to join.
+fn to_number(value: &Json) -> Option<f64> {
+    Some(match value {
         Json::Null => 0.0,
         Json::Bool(flag) => f64::from(u8::from(*flag)),
         Json::Number(number) => *number,
         Json::String(text) => string_to_number(text),
-        Json::Array(items) => string_to_number(&array_to_string(items)),
+        Json::Array(items) => string_to_number(&array_to_string(items)?),
         Json::Undefined | Json::Object(_) => f64::NAN,
+    })
+}
+
+fn join_scalar(item: &Json) -> String {
+    match item {
+        Json::Null | Json::Undefined => String::new(),
+        Json::Bool(flag) => flag.to_string(),
+        Json::Number(number) if number.is_infinite() => if *number > 0.0 {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_owned(),
+        Json::Number(number) => js_number(*number),
+        Json::String(text) => text.clone(),
+        Json::Object(_) => "[object Object]".to_owned(),
+        Json::Array(_) => unreachable!("nested arrays are walked, not printed"),
     }
 }
 
-/// `Array.prototype.join` as `ToPrimitive` applies it to an array value.
-fn array_to_string(items: &[Json]) -> String {
-    items
-        .iter()
-        .map(|item| match item {
-            Json::Null | Json::Undefined => String::new(),
-            Json::Bool(flag) => flag.to_string(),
-            Json::Number(number) if number.is_infinite() => if *number > 0.0 {
-                "Infinity"
-            } else {
-                "-Infinity"
+/// `Array.prototype.join` as `ToPrimitive` applies it to an array value, with an explicit stack.
+/// `None` when the nesting is deeper than [`MAX_JOIN_DEPTH`].
+fn array_to_string(items: &[Json]) -> Option<String> {
+    let mut out = String::new();
+    let mut stack: Vec<(&[Json], usize)> = vec![(items, 0)];
+    while let Some((slice, next)) = stack.last_mut() {
+        let Some(item) = slice.get(*next) else {
+            stack.pop();
+            continue;
+        };
+        if *next > 0 {
+            out.push(',');
+        }
+        *next += 1;
+        match item {
+            Json::Array(nested) => {
+                if stack.len() >= MAX_JOIN_DEPTH {
+                    return None;
+                }
+                stack.push((nested, 0));
             }
-            .to_owned(),
-            Json::Number(number) => js_number(*number),
-            Json::String(text) => text.clone(),
-            Json::Array(nested) => array_to_string(nested),
-            Json::Object(_) => "[object Object]".to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join(",")
+            scalar => out.push_str(&join_scalar(scalar)),
+        }
+    }
+    Some(out)
 }
 
 /// `StringToNumber`: trimmed decimal literals, `Infinity` and the `0x`, `0o` and `0b` forms.
@@ -231,7 +311,7 @@ fn length_issues(
     min: Option<usize>,
     max: Option<usize>,
     path: &[PathPart],
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) {
     let (name, tail) = match origin {
         Origin::String => ("string", Some("characters")),
@@ -273,7 +353,7 @@ fn length_after_type_failure(
     min: Option<usize>,
     max: Option<usize>,
     path: &[PathPart],
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) {
     match value {
         Json::Array(items) => {
@@ -291,7 +371,10 @@ fn length_after_type_failure(
         }
         Json::Object(_) => {
             if let Some(length) = value.get("length") {
-                length_issues(Origin::Unknown, to_number(length), min, max, path, issues);
+                match to_number(length) {
+                    Some(length) => length_issues(Origin::Unknown, length, min, max, path, issues),
+                    None => issues.throw(),
+                }
             }
         }
         _ => {}
@@ -304,7 +387,7 @@ pub fn string_field(
     optional: bool,
     path: &[PathPart],
     rule: StringRule,
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) -> Option<String> {
     let before = issues.len();
     match value {
@@ -342,7 +425,7 @@ pub fn array_field<'a>(
     path: &[PathPart],
     min: usize,
     max: usize,
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) -> Option<&'a [Json]> {
     if let Some(Json::Array(items)) = value {
         return Some(items);
@@ -355,13 +438,7 @@ pub fn array_field<'a>(
 }
 
 /// The length checks of an array that had the right type.
-pub fn array_length(
-    length: usize,
-    path: &[PathPart],
-    min: usize,
-    max: usize,
-    issues: &mut Vec<Issue>,
-) {
+pub fn array_length(length: usize, path: &[PathPart], min: usize, max: usize, issues: &mut Issues) {
     #[allow(clippy::cast_precision_loss)]
     length_issues(
         Origin::Array,
@@ -378,7 +455,7 @@ pub fn array_length(
 pub fn object_fields<'a>(
     value: Option<&'a Json>,
     path: &[PathPart],
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) -> Option<&'a JsObject> {
     if let Some(Json::Object(fields)) = value {
         return Some(fields);
@@ -392,7 +469,7 @@ pub fn unrecognized_keys(
     fields: &JsObject,
     known: &[&str],
     path: &[PathPart],
-    issues: &mut Vec<Issue>,
+    issues: &mut Issues,
 ) {
     let unknown: Vec<String> = fields
         .iter()
@@ -415,8 +492,8 @@ pub fn unrecognized_keys(
 
 #[cfg(test)]
 mod tests {
-    use super::{Issue, PathPart, StringRule, js_trim, string_field};
-    use crate::public_api::value::Json;
+    use super::{Issue, Issues, ParseFailure, PathPart, StringRule, js_trim, string_field};
+    use crate::public_api::value::{JsValueExt as _, Json};
 
     #[test]
     fn trims_like_javascript() {
@@ -424,24 +501,27 @@ mod tests {
         assert_eq!(js_trim("\u{85}a\u{85}"), "\u{85}a\u{85}");
     }
 
-    #[test]
-    fn wrong_typed_arrays_get_both_issues() {
-        let mut issues = Vec::new();
-        let rule = StringRule {
+    fn slug_rule() -> StringRule {
+        StringRule {
             min: Some(1),
             max: Some(100),
             trim: true,
             uuid: false,
-        };
+        }
+    }
+
+    #[test]
+    fn wrong_typed_arrays_get_both_issues() {
+        let mut issues = Issues::default();
         let path = [PathPart::Key("projectSlug".to_owned())];
         let value = Json::Array(Vec::new());
         assert_eq!(
-            string_field(Some(&value), false, &path, rule, &mut issues),
+            string_field(Some(&value), false, &path, slug_rule(), &mut issues),
             None
         );
         assert_eq!(
-            issues,
-            vec![
+            issues.into_failure(),
+            ParseFailure::Invalid(vec![
                 Issue::new(
                     &path,
                     "Invalid input: expected string, received array".to_owned()
@@ -450,7 +530,37 @@ mod tests {
                     &path,
                     "Too small: expected array to have >=1 items".to_owned()
                 ),
-            ]
+            ])
         );
+    }
+
+    /// `{"length": [[[...]]]}` with `depth` nested arrays, built without recursion.
+    fn deep_length_object(depth: usize) -> Json {
+        let mut nested = Json::Array(Vec::new());
+        for _ in 1..depth {
+            nested = Json::Array(vec![nested]);
+        }
+        Json::object([("length", nested)])
+    }
+
+    #[test]
+    fn a_deep_length_array_is_joined_up_to_the_baseline_depth_and_throws_beyond() {
+        let path = [PathPart::Key("projectSlug".to_owned())];
+        for (depth, thrown) in [
+            (1_000, false),
+            (4_500, false),
+            (4_501, true),
+            (500_000, true),
+        ] {
+            let mut issues = Issues::default();
+            let value = deep_length_object(depth);
+            assert_eq!(
+                string_field(Some(&value), false, &path, slug_rule(), &mut issues),
+                None
+            );
+            assert_eq!(issues.thrown(), thrown, "depth {depth}");
+            // A joined empty array is "", which is 0 and fails the minimum length.
+            assert_eq!(issues.len(), if thrown { 1 } else { 2 }, "depth {depth}");
+        }
     }
 }

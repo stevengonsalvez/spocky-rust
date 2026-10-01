@@ -19,7 +19,7 @@ use super::operations::{
     OperationError, PublicAuthorization, PublicOperations, ValidateConfigurationResult,
     ValidateTriggerResult, scope_name,
 };
-use super::validation::{Issue, js_trim};
+use super::validation::{Issue, ParseFailure, js_trim};
 use super::value::{JsValueExt as _, Json, decode_request_json};
 
 /// `PublicApiComposition`.
@@ -288,7 +288,7 @@ fn invoke(
             debug_assert_eq!(schema, RequestSchema::TriggerYaml);
             let input = match parse_trigger_yaml(&value) {
                 Ok(input) => input,
-                Err(issues) => return Ok(validation_problem(request_id, &issues)),
+                Err(failure) => return parse_failure(request_id, failure),
             };
             if route.id == OperationId::ValidateTrigger {
                 let result = operations.validate_trigger(access, &input)?;
@@ -304,7 +304,7 @@ fn invoke(
             };
             let input = match parse_install_configuration(&value) {
                 Ok(input) => input,
-                Err(issues) => return Ok(validation_problem(request_id, &issues)),
+                Err(failure) => return parse_failure(request_id, failure),
             };
             if route.id == OperationId::ValidateConfiguration {
                 let result = operations.validate_configuration(access, &input)?;
@@ -320,11 +320,22 @@ fn invoke(
             };
             let input = match parse_dispatch_manual_run(&value) {
                 Ok(input) => input,
-                Err(issues) => return Ok(validation_problem(request_id, &issues)),
+                Err(failure) => return parse_failure(request_id, failure),
             };
             let result = operations.dispatch_manual_run(access, &input)?;
             manual_run_response(request_id, result)
         }
+    }
+}
+
+/// A rejected body is a 400; a validation that threw is the unexpected failure the baseline turns
+/// into a 500.
+fn parse_failure(request_id: &str, failure: ParseFailure) -> Result<ApiResponse, OperationError> {
+    match failure {
+        ParseFailure::Invalid(issues) => Ok(validation_problem(request_id, &issues)),
+        ParseFailure::Thrown => Err(OperationError::Failed(
+            "Maximum call stack size exceeded".to_owned(),
+        )),
     }
 }
 
