@@ -5531,6 +5531,21 @@ dependencies = [
 [[package]]
 name = "spocky-daemon"
 version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "gethostname",
+ "getrandom 0.3.4",
+ "rustix",
+ "serde",
+ "serde_json",
+ "signal-hook",
+ "spocky-contracts",
+ "subtle",
+ "tempfile",
+ "tungstenite 0.27.0",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "spocky-daemon-app"
