@@ -15,13 +15,16 @@
 //! | `sha256-of-<preimage>` | generated id | a digest verified to equal `sha256` of an exact preimage the gate sent (creation fingerprints) |
 //! | `sha256-<kind>-of-<id class>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of a paired generated id |
 //! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
-//! | `short7-of-<id class>` | generated id | a standalone 7-character prefix of a paired UUID (`agent.id.slice(0, 7)`) |
-//! | `wall-clock-<format>` | wall clock | instants of one format inside the side's run window |
+//! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
+//! | `wall-clock-<format>-<n>` | wall clock | the n-th distinct instant of one format inside the side's run window, paired by first appearance |
+//!
+//! A class whose left and right values are identical emits no rule: the value
+//! is not generated per run and must match exactly.
 //!
 //! Discovery fails, which fails the gate, when the sides differ in generated
 //! id count, in the shape at any pairing position, in which derived digests
-//! or short prefixes exist, in which wall-clock formats occur, or in which
-//! extracted secrets exist. Any other 64-hex value (for example a content
+//! or short prefixes exist, in the count of wall-clock instants per format, or
+//! in which extracted secrets exist. Any other 64-hex value (for example a content
 //! hash) is never normalized and must match exactly. Wall-clock values outside
 //! the run window (for example fixed fixture dates) also stay literal.
 
@@ -73,7 +76,8 @@ impl Alphabet {
 /// A generated id shape. The name is part of every token minted for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdShape {
-    /// A fixed prefix (possibly empty) followed by a lowercase hyphenated UUID.
+    /// A fixed prefix (possibly empty) followed by a lowercase hyphenated
+    /// version 4, 5, or 7 UUID with the RFC 9562 variant.
     Uuid {
         name: &'static str,
         prefix: &'static str,
@@ -158,7 +162,8 @@ fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
             if !text[at..].starts_with(prefix.as_bytes()) {
                 return None;
             }
-            let mut index = at + prefix.len();
+            let start = at + prefix.len();
+            let mut index = start;
             for (group, length) in [8, 4, 4, 4, 12].into_iter().enumerate() {
                 if group > 0 {
                     if text.get(index) != Some(&b'-') {
@@ -171,6 +176,13 @@ fn id_at(text: &[u8], at: usize, shape: IdShape) -> Option<usize> {
                     return None;
                 }
                 index += length;
+            }
+            // Generated UUIDs only: version 4, 5, or 7 with the RFC 9562
+            // variant. Constants such as the nil and max UUID never match.
+            if !matches!(text[start + 14], b'4' | b'5' | b'7')
+                || !matches!(text[start + 19], b'8' | b'9' | b'a' | b'b')
+            {
+                return None;
             }
             index
         }
@@ -506,15 +518,11 @@ fn preimage_classes(
     Ok(classes)
 }
 
-/// Whether `prefix` occurs in `text` as a standalone token, not glued to id
-/// characters (so not inside the full UUID it came from).
-fn has_standalone(text: &str, prefix: &str) -> bool {
-    let bytes = text.as_bytes();
-    text.match_indices(prefix).any(|(start, _)| {
-        let end = start + prefix.len();
-        (start == 0 || !is_id_byte(bytes[start - 1]))
-            && bytes.get(end).is_none_or(|byte| !is_id_byte(*byte))
-    })
+/// The JSON string form of a UUID's 7-character prefix, `"xxxxxxx"`. Only
+/// this quoted form is normalized, so the replacement is bounded by quotes and
+/// never reaches into other text.
+fn quoted_short(uuid: &str) -> String {
+    format!("\"{}\"", &uuid[..7])
 }
 
 /// One value class with the exact literals to replace on each side.
@@ -661,17 +669,16 @@ fn derived_classes(
         }
     }
     if left.1.shape == "uuid" {
-        let (left_short, right_short) = (&left.1.value[..7], &right.1.value[..7]);
-        let present = |side: &SideInput<'_>, short: &str| {
-            side.texts.iter().any(|text| has_standalone(text, short))
-        };
-        match (present(left.0, left_short), present(right.0, right_short)) {
+        let (left_short, right_short) = (quoted_short(&left.1.value), quoted_short(&right.1.value));
+        let present =
+            |side: &SideInput<'_>, short: &str| side.texts.iter().any(|text| text.contains(short));
+        match (present(left.0, &left_short), present(right.0, &right_short)) {
             (true, true) => shorts.push(pair(
                 &format!("short7-of-{class}"),
                 NormalizationCategory::GeneratedId,
-                "standalone 7-character prefix of a paired UUID",
-                left_short.to_owned(),
-                right_short.to_owned(),
+                "quoted 7-character prefix of a paired UUID",
+                left_short,
+                right_short,
             )),
             (false, false) => {}
             _ => return Err(format!("short prefix of {class} exists on one side only")),
@@ -776,18 +783,24 @@ pub fn value_classes(
                 .collect()
         };
         let (left_values, right_values) = (of(&left_clock), of(&right_clock));
-        if left_values.is_empty() || right_values.is_empty() {
+        if left_values.len() != right_values.len() {
             return Err(format!(
-                "wall-clock format {format} occurs on one side only"
+                "wall-clock format {format} count differs: left {} right {}",
+                left_values.len(),
+                right_values.len()
             ));
         }
-        classes.push(ValueClass {
-            id: format!("wall-clock-{format}"),
-            category: NormalizationCategory::WallClock,
-            reason: "wall-clock instant of one format inside the run window".into(),
-            left: left_values,
-            right: right_values,
-        });
+        for (index, (left_value, right_value)) in
+            left_values.into_iter().zip(right_values).enumerate()
+        {
+            classes.push(pair(
+                &format!("wall-clock-{format}-{}", index + 1),
+                NormalizationCategory::WallClock,
+                "wall-clock instant of one format inside the run window, paired by first appearance",
+                left_value,
+                right_value,
+            ));
+        }
     }
     Ok(classes)
 }
@@ -875,6 +888,11 @@ pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<N
 
     let mut rules = Vec::new();
     for class in classes {
+        // A value both sides hold identically is not generated per run; it
+        // stays literal and must match byte for byte.
+        if class.left == class.right {
+            continue;
+        }
         let mut values: Vec<String> = Vec::new();
         for value in class.left.iter().chain(&class.right) {
             if !values.contains(value) {
@@ -1120,13 +1138,13 @@ mod tests {
         let left = one(format!(
             "{UUID_A} {WKS_A} /private/tmp/spocky-p3-g1-0000000000a/project /tmp/spocky-p3-g1-0000000000a/x \
              private-tmp-spocky-p3-g1-0000000000a-project 127.0.0.1:41001 127.0.0.1:42001 \
-             2026-10-01T13:51:43.463Z {UUID_C} {UUID_A} short={}",
+             2026-10-01T13:51:43.463Z {UUID_C} {UUID_A} short=\"{}\"",
             &UUID_A[..7]
         ));
         let right = one(format!(
             "{UUID_B} {WKS_B} /private/tmp/spocky-p3-g1-0000000000b/project /tmp/spocky-p3-g1-0000000000b/x \
              private-tmp-spocky-p3-g1-0000000000b-project 127.0.0.1:41002 127.0.0.1:42002 \
-             2026-10-01T13:51:44.001Z {UUID_D} {UUID_B} short={}",
+             2026-10-01T13:51:44.001Z {UUID_D} {UUID_B} short=\"{}\"",
             &UUID_B[..7]
         ));
         assert_eq!(equivalent(&left, &right), Ok(true));
@@ -1161,7 +1179,7 @@ mod tests {
         let left = one("at 2026-10-01T13:51:43.463Z".into());
         let right = one("at 2026-10-01T13:51:43.463123Z".into());
         let error = equivalent(&left, &right).unwrap_err();
-        assert!(error.contains("iso-frac3"), "{error}");
+        assert!(error.contains("iso-frac"), "{error}");
         let left = one("at 1790862703463".into());
         let right = one("at 1790862703".into());
         assert!(equivalent(&left, &right).is_err());
@@ -1277,15 +1295,76 @@ mod tests {
 
     #[test]
     fn short_prefix_is_derived_and_checked() {
-        let left = one(format!("{UUID_A} short {}", &UUID_A[..7]));
-        let right = one(format!("{UUID_B} short {}", &UUID_B[..7]));
+        let left = one(format!("{UUID_A} short \"{}\"", &UUID_A[..7]));
+        let right = one(format!("{UUID_B} short \"{}\"", &UUID_B[..7]));
         assert_eq!(equivalent(&left, &right), Ok(true));
         // A short id that is not the prefix of the paired UUID stays literal.
-        let wrong = one(format!("{UUID_B} short {}", &UUID_D[..7]));
+        let wrong = one(format!("{UUID_B} short \"{}\"", &UUID_D[..7]));
         assert!(equivalent(&left, &wrong).is_err());
         // An eight-character prefix is a different format and is not derived.
-        let long = one(format!("{UUID_B} short {}", &UUID_B[..8]));
+        let long = one(format!("{UUID_B} short \"{}\"", &UUID_B[..8]));
         assert!(equivalent(&left, &long).is_err());
+        // Unquoted prefixes are never normalized, so the replace stays bounded.
+        let left = one(format!("{UUID_A} short {}", &UUID_A[..7]));
+        let right = one(format!("{UUID_B} short {}", &UUID_B[..7]));
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn constant_uuids_are_never_normalized() {
+        let nil = "00000000-0000-0000-0000-000000000000";
+        let max = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        let v1 = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+        assert!(distinct_ids(&[nil, max, v1], &SLICE_SHAPES).is_empty());
+        // A differing constant UUID must fail the gate.
+        let left = one(format!("{UUID_A} parent {nil}"));
+        let right = one(format!("{UUID_B} parent {max}"));
+        assert_eq!(equivalent(&left, &right), Ok(false));
+        let wrong_variant = "0199a3c4-1b2c-7d3e-cf40-123456789abc";
+        assert!(distinct_ids(&[wrong_variant], &SLICE_SHAPES).is_empty());
+    }
+
+    #[test]
+    fn identical_values_on_both_sides_emit_no_rule() {
+        let shared = UUID_C;
+        let left = one(format!("{UUID_A} {shared}"));
+        let right = one(format!("{UUID_B} {shared}"));
+        let left_facts = facts("/private/tmp/a", 1, 2);
+        let right_facts = facts("/private/tmp/b", 3, 4);
+        let classes = value_classes(
+            &input(&left_facts, &left, Vec::new()),
+            &input(&right_facts, &right, Vec::new()),
+            &SLICE_SHAPES,
+        )
+        .unwrap();
+        let rules = rules_for(&classes, &left, &right);
+        assert!(
+            rules
+                .iter()
+                .all(|rule| !rule.exact_values.contains(&shared.to_owned()))
+        );
+        assert_eq!(equivalent(&left, &right), Ok(true));
+    }
+
+    #[test]
+    fn wall_clock_instants_pair_by_first_appearance_per_format() {
+        let early = "2026-10-01T13:51:43.463Z";
+        let late = "2026-10-01T13:51:44.001Z";
+        // Same structure: created then updated later on both sides.
+        let left = one(format!("c={early} u={late}"));
+        let right = one("c=2026-10-01T13:51:45.100Z u=2026-10-01T13:51:46.200Z".into());
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // Left reuses one instant where right has two: count differs.
+        let reused = one(format!("c={early} u={early}"));
+        assert!(equivalent(&reused, &right).is_err());
+        // Two distinct instants in either order are isomorphic.
+        let swapped = one(format!("c={late} u={early}"));
+        let ordered = one(format!("c={early} u={late}"));
+        assert_eq!(equivalent(&ordered, &swapped), Ok(true));
+        // Reusing the first instant versus the second is a mismatch.
+        let mixed = one(format!("c={early} u={late} again={early}"));
+        let other = one(format!("c={early} u={late} again={late}"));
+        assert_eq!(equivalent(&mixed, &other), Ok(false));
     }
 
     #[test]
