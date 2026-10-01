@@ -3,6 +3,12 @@ import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
+if (process.argv[2] === "--self-test-cleanup") {
+  await selfTestCleanup();
+  process.stdout.write('{"processGroupCleanup":"passed"}\n');
+  process.exit(0);
+}
+
 const [
   tsx,
   baselineDriver,
@@ -30,6 +36,7 @@ try {
     ...process.env,
   });
   const baselineReady = await nextJson(baseline, 90_000);
+  baseline.ownedPids.push(baselineReady.ownerPid);
   events.push(baselineReady);
 
   const directoryInode = statSync(database).ino;
@@ -44,6 +51,15 @@ try {
   events.push(candidateExcluded);
 
   const baselineExit = await closeOwner(baseline, 30_000);
+  if (
+    baselineExit.code !== 0 ||
+    baselineExit.signal !== null ||
+    !baselineExit.processGroupGone
+  ) {
+    throw new Error(
+      `baseline owner did not close cleanly: ${JSON.stringify(baselineExit)}`,
+    );
+  }
   const unchangedDirectory = statSync(database).ino === directoryInode;
 
   const candidate = start(
@@ -53,6 +69,7 @@ try {
     candidateEnvironment,
   );
   const candidateReady = await nextJson(candidate, 90_000);
+  candidate.ownedPids.push(candidateReady.retainedProcessId);
   events.push(candidateReady);
 
   const baselineProbe = await run(
@@ -65,11 +82,27 @@ try {
   const baselineExcluded = parseSingleJson(baselineProbe.stdout);
   events.push(baselineExcluded);
   const candidateExit = await closeOwner(candidate, 30_000);
+  if (
+    candidateExit.code !== 0 ||
+    candidateExit.signal !== null ||
+    !candidateExit.processGroupGone
+  ) {
+    throw new Error(
+      `candidate owner did not close cleanly: ${JSON.stringify(candidateExit)}`,
+    );
+  }
 
   const reverseGuaranteed = baselineExcluded.opened === false &&
     baselineExcluded.error.includes("already in use");
   const report = {
     scope: "ordered-live-starts-only",
+    platform: {
+      os: process.platform,
+      arch: process.arch,
+      processGroupCleanup: process.platform === "win32"
+        ? "direct-child-only"
+        : "dedicated-process-group",
+    },
     limitations: [
       "simultaneous_pre_owner_record_race_unqualified",
       "schema_downgrade_unqualified",
@@ -80,7 +113,7 @@ try {
       candidateError: candidateExcluded.error,
     },
     handoff: {
-      baselineExit: baselineExit.code === 0 ? "bounded-clean" : "failed",
+      baselineExit: "bounded-clean",
       directoryRecreated: !unchangedDirectory,
       candidateOpenedUnchangedDirectory: candidateReady.event === "ready" &&
         unchangedDirectory,
@@ -90,6 +123,16 @@ try {
       candidateReady: candidateReady.event === "ready",
       baselineExcluded: reverseGuaranteed,
       baselineErrorContains: reverseGuaranteed ? "already in use" : "",
+    },
+    storageObservation: {
+      baselineJournalRows: baselineReady.journalRows,
+      candidateJournalRows: candidateReady.journalRows,
+      candidateMigrationsApplied: candidateReady.migrationsApplied,
+    },
+    shutdown: {
+      candidateExitCode: candidateExit.code,
+      candidateExitSignal: candidateExit.signal,
+      candidateProcessGroupGone: candidateExit.processGroupGone,
     },
     compatibilityMechanism: reverseGuaranteed
       ? {
@@ -117,11 +160,16 @@ try {
 function start(name, command, args, env) {
   const stderrPath = `${processesPath}.${name}.stderr`;
   const stderr = createWriteStream(stderrPath, { flags: "w" });
-  const child = spawn(command, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(command, args, {
+    env,
+    detached: process.platform !== "win32",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   child.name = name;
   child.stderr.pipe(stderr);
   child.stderrPath = stderrPath;
   child.startedAt = new Date().toISOString();
+  child.ownedPids = [child.pid];
   child.lines = createInterface({ input: child.stdout });
   active.push(child);
   return child;
@@ -150,24 +198,34 @@ async function nextJson(child, timeoutMs) {
 async function closeOwner(child, timeoutMs) {
   child.stdin.end("close\n");
   const outcome = await waitForExit(child, timeoutMs);
+  const processGroupGone = await waitForOwnedGroupGone(child, 2_000);
+  if (!processGroupGone) {
+    await forceStop(child);
+  }
   active = active.filter((entry) => entry !== child);
-  return outcome;
+  return { ...outcome, processGroupGone };
 }
 
 async function run(name, command, args, env, timeoutMs) {
   const child = spawn(command, args, {
     env,
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
   let stderr = "";
+  child.ownedPids = [child.pid];
   child.stdout.on("data", (chunk) => (stdout += chunk));
   child.stderr.on("data", (chunk) => (stderr += chunk));
   active.push(child);
-  const process = await waitForExit(child, timeoutMs);
+  const outcome = await waitForExit(child, timeoutMs);
+  if (!(await waitForOwnedGroupGone(child, 2_000))) {
+    await forceStop(child);
+    throw new Error(`${name} left its owned process group alive`);
+  }
   active = active.filter((entry) => entry !== child);
-  if (process.code !== 0) throw new Error(`${name} failed: ${stderr}`);
-  return { stdout, process: { ...process, name, stderr } };
+  if (outcome.code !== 0) throw new Error(`${name} failed: ${stderr}`);
+  return { stdout, process: { ...outcome, name, stderr } };
 }
 
 async function waitForExit(child, timeoutMs) {
@@ -193,17 +251,69 @@ async function waitForExit(child, timeoutMs) {
 }
 
 async function forceStop(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([waitWithoutTimeout(child), delay(2_000)]);
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await Promise.race([waitWithoutTimeout(child), delay(2_000)]);
+  if (!(await ownedProcessAlive(child))) return;
+  signalOwnedProcess(child, "SIGTERM");
+  if (await waitForOwnedGroupGone(child, 2_000)) return;
+  signalOwnedProcess(child, "SIGKILL");
+  if (!(await waitForOwnedGroupGone(child, 2_000))) {
+    throw new Error(`owned process group ${child.pid} survived SIGKILL`);
   }
 }
 
-function waitWithoutTimeout(child) {
-  return new Promise((resolve) => child.once("exit", resolve));
+async function ownedProcessAlive(child) {
+  const exactProcessAlive = child.ownedPids.some((pid) => processExists(pid));
+  if (process.platform === "win32") {
+    return exactProcessAlive;
+  }
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH" || error?.code === "EPERM") {
+      return exactProcessAlive;
+    }
+    throw error;
+  }
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    if (error?.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+function signalOwnedProcess(child, signal) {
+  try {
+    if (process.platform === "win32") {
+      child.kill(signal);
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch (error) {
+    if (error?.code === "ESRCH") return;
+    if (error?.code !== "EPERM") throw error;
+    for (const pid of child.ownedPids) {
+      try {
+        process.kill(pid, signal);
+      } catch (pidError) {
+        if (pidError?.code !== "ESRCH") throw pidError;
+      }
+    }
+  }
+}
+
+async function waitForOwnedGroupGone(child, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (await ownedProcessAlive(child)) {
+    if (Date.now() >= deadline) return false;
+    await delay(20);
+  }
+  return true;
 }
 
 function withTimeout(promise, timeoutMs, label) {
@@ -227,4 +337,35 @@ function parseSingleJson(stdout) {
     throw new Error(`expected one JSON line, got ${lines.length}`);
   }
   return JSON.parse(lines[0]);
+}
+
+async function selfTestCleanup() {
+  if (process.platform === "win32") return;
+  const program = `
+    const { spawn } = require("node:child_process");
+    const child = spawn("/bin/sh", ["-c", "trap '' TERM; while :; do sleep 1; done"], {
+      stdio: "ignore"
+    });
+    process.stdout.write(String(child.pid) + "\\n");
+    setInterval(() => {}, 1000);
+  `;
+  const owner = spawn(process.execPath, ["-e", program], {
+    detached: true,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const descendantPid = Number(
+    await withTimeout(
+      new Promise((resolve) =>
+        owner.stdout.once("data", (chunk) => resolve(chunk.toString().trim()))
+      ),
+      2_000,
+      "cleanup self-test descendant readiness",
+    ),
+  );
+  owner.ownedPids = [owner.pid, descendantPid];
+  process.kill(descendantPid, "SIGSTOP");
+  await forceStop(owner);
+  if (await ownedProcessAlive(owner)) {
+    throw new Error("cleanup self-test process group remains alive");
+  }
 }

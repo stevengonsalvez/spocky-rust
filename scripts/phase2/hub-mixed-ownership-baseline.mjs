@@ -34,6 +34,7 @@ if (operation === "hold") {
   writeJson({
     operation: "baseline-hold",
     event: "ready",
+    ownerPid: process.pid,
     journalRows,
     marker,
   });

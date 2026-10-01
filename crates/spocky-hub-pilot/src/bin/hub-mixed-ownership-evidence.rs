@@ -35,12 +35,15 @@ fn try_open(data_directory: PathBuf) {
 
 fn hold(data_directory: PathBuf) {
     let host = RetainedPgliteHost::open(&config(data_directory)).expect("open candidate owner");
+    let retained_process_id = host.process_id().expect("retained owner pid");
     let migration = host.migrate().expect("migrate candidate owner");
     let baseline_marker_payload = marker_payload(&host, "pinned-baseline");
     print_json(&json!({
         "operation": "candidate-hold",
         "event": "ready",
         "journalRows": migration.journal_rows,
+        "migrationsApplied": migration.applied,
+        "retainedProcessId": retained_process_id,
         "baselineMarkerPayload": baseline_marker_payload
     }));
 

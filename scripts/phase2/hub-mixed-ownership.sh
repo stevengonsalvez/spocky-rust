@@ -80,11 +80,22 @@ gtimeout 30 jq -n \
     baseline: { commit: $baseline, sourceTreeMutated: $sourceTreeMutated },
     scope: $qualification[0].scope,
     limitations: $qualification[0].limitations,
-    storage: { disposableCopy: true, sameSchemaJournalRows: 49 },
+    platform: $qualification[0].platform,
+    storage: {
+      disposableCopy: true,
+      baselineJournalRows: $qualification[0].storageObservation.baselineJournalRows,
+      candidateJournalRows: $qualification[0].storageObservation.candidateJournalRows,
+      candidateMigrationsApplied: $qualification[0].storageObservation.candidateMigrationsApplied,
+      journalRowsEqual: (
+        $qualification[0].storageObservation.baselineJournalRows
+        == $qualification[0].storageObservation.candidateJournalRows
+      )
+    },
     forwardExclusion: $qualification[0].forwardExclusion,
     handoff: $qualification[0].handoff,
     reverseExclusion: $qualification[0].reverseExclusion,
     compatibilityMechanism: $qualification[0].compatibilityMechanism,
+    shutdown: $qualification[0].shutdown,
     rawEvidence: [
       "hub-mixed-ownership-events.json",
       "hub-mixed-ownership-processes.json"
@@ -98,7 +109,12 @@ gtimeout 30 jq -e '
     "simultaneous_pre_owner_record_race_unqualified",
     "schema_downgrade_unqualified"
   ]
-  and .storage.sameSchemaJournalRows == 49
+  and .platform.os == "darwin"
+  and .platform.processGroupCleanup == "dedicated-process-group"
+  and .storage.baselineJournalRows == 49
+  and .storage.candidateJournalRows == 49
+  and .storage.candidateMigrationsApplied == 0
+  and .storage.journalRowsEqual == true
   and .forwardExclusion.baselineReady == true
   and .forwardExclusion.candidateExcluded == true
   and .handoff.baselineExit == "bounded-clean"
@@ -107,6 +123,9 @@ gtimeout 30 jq -e '
   and .handoff.baselineMarkerPayload == "pinned-baseline-live-owner"
   and .reverseExclusion.candidateReady == true
   and .reverseExclusion.baselineExcluded == true
+  and .shutdown.candidateExitCode == 0
+  and .shutdown.candidateExitSignal == null
+  and .shutdown.candidateProcessGroupGone == true
   and .compatibilityMechanism.status == "not-required-for-ordered-starts"
 ' "$fixture_root/report.json" >/dev/null
 
@@ -127,6 +146,10 @@ gtimeout 30 jq -jnr \
   "Observed sequence: pinned baseline owns the disposable 49-row same-schema directory; " +
   "candidate is excluded; baseline exits cleanly; candidate opens the unchanged directory; " +
   "new pinned baseline is excluded.\n\n" +
+  "Observed storage: baseline 49 journal rows; candidate 49 journal rows; " +
+  "candidate applied zero migrations.\n\n" +
+  "Shutdown: both owners exited cleanly and their dedicated process groups were gone.\n\n" +
+  "Platform: macOS x64.\n\n" +
   "Scope: ordered live starts only.\n\n" +
   "Limitations:\n\n" +
   "- Simultaneous pre-owner-record race is unqualified.\n" +

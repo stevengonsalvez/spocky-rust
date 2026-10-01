@@ -16,13 +16,22 @@ printf '%s\n' "$plan" | grep -F 'forward: live pinned baseline excludes retained
 printf '%s\n' "$plan" | grep -F 'handoff: candidate opens unchanged directory after bounded baseline exit'
 printf '%s\n' "$plan" | grep -F 'reverse: live retained candidate excludes newly started pinned baseline'
 
+gtimeout --kill-after=2 10 node \
+  "$repository_root/scripts/phase2/hub-mixed-ownership-orchestrator.mjs" \
+  --self-test-cleanup >/dev/null
+
 gtimeout --kill-after=30 1200 "$runner" >"$output"
 
 jq -e '
   .baseline.commit == "28f6c78833065fd282f9064f92a9aa61875dd359"
   and .baseline.sourceTreeMutated == false
   and .storage.disposableCopy == true
-  and .storage.sameSchemaJournalRows == 49
+  and .storage.baselineJournalRows == 49
+  and .storage.candidateJournalRows == 49
+  and .storage.candidateMigrationsApplied == 0
+  and .storage.journalRowsEqual == true
+  and .platform.os == "darwin"
+  and .platform.processGroupCleanup == "dedicated-process-group"
   and .forwardExclusion.baselineReady == true
   and .forwardExclusion.candidateExcluded == true
   and .forwardExclusion.candidateError == "directory-in-use"
@@ -33,6 +42,9 @@ jq -e '
   and .reverseExclusion.candidateReady == true
   and .reverseExclusion.baselineExcluded == true
   and .reverseExclusion.baselineErrorContains == "already in use"
+  and .shutdown.candidateExitCode == 0
+  and .shutdown.candidateExitSignal == null
+  and .shutdown.candidateProcessGroupGone == true
   and .scope == "ordered-live-starts-only"
   and .limitations == [
     "simultaneous_pre_owner_record_race_unqualified",
