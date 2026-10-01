@@ -1495,15 +1495,21 @@ impl SocketTask {
             .app_version
             .as_ref()
             .map(|version| version.as_str().to_owned());
-        {
+        // Decide under the state lock, call the backend after releasing it: a
+        // backend may send through the sink, which takes the same lock.
+        let changed_version = {
             let mut state = lock(&existing.state);
             state.cleanup_at = None;
-            if let Some(version) = &new_app_version
-                && state.app_version.as_ref() != Some(version)
-            {
-                state.app_version = Some(version.clone());
-                existing.session.update_app_version(version);
+            match &new_app_version {
+                Some(version) if state.app_version.as_ref() != Some(version) => {
+                    state.app_version = Some(version.clone());
+                    Some(version.clone())
+                }
+                _ => None,
             }
+        };
+        if let Some(version) = changed_version {
+            existing.session.update_app_version(&version);
         }
         existing.session.update_client_capabilities(
             capabilities,
