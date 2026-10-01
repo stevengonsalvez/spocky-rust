@@ -22,6 +22,17 @@ Hub baseline trigger modules to capture the original-side differential trace.
 It runs only in a disposable copy of the baseline, is excluded from shipped
 runtime ownership, and is not a compatibility runtime exception.
 
+## Approved divergences
+
+The approved divergence table lives in `porting/inventory-summary.md`. The
+V8 stack-depth family is listed here because it affects observable boundaries:
+
+- DIV-001: JSON stringify and zod recursion depth in `spocky-store`.
+- DIV-003: Hub public API `MAX_JOIN_DEPTH` 4,500 in
+  `crates/spocky-hub-pilot/src/public_api/validation.rs`. The baseline joins
+  4,400 levels and throws `RangeError` at 4,600; depths in between are not
+  compared.
+
 ## Accepted interim
 
 ### Hub retained JavaScript PGlite host
