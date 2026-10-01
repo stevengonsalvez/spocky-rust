@@ -515,7 +515,7 @@ mod tests {
             script_len: 0,
             state: vec![CapturedFile {
                 path: format!("paseo-home/agents/{agent}.json"),
-                bytes: format!("{{\"id\":\"{agent}\",\"createdAt\":\"2026-10-01T13:51:43.463Z\"}}")
+                bytes: format!("{{\"id\":\"{agent}\",\"createdAt\":\"2020-01-02T03:04:05.000Z\"}}")
                     .into_bytes(),
             }],
             uncompared: Vec::new(),
@@ -676,17 +676,57 @@ mod tests {
     fn comparison_alone_fails_missing_state_file() {
         let (left, mut right) = pair();
         right.state.clear();
-        assert!(!compared_only(&left, &right).pass);
+        let verdict = compared_only(&left, &right);
+        assert!(!verdict.pass);
+        // The state difference itself fails, not rule discovery.
+        assert_eq!(verdict.discovery_error, None);
+        assert_eq!(verdict.comparison_error, None);
+        assert!(
+            verdict
+                .differences
+                .iter()
+                .any(|difference| difference.path == "state")
+        );
+    }
+
+    fn differs_at(verdict: &Verdict, path: &str) -> bool {
+        !verdict.pass
+            && verdict.discovery_error.is_none()
+            && verdict.comparison_error.is_none()
+            && verdict
+                .differences
+                .iter()
+                .any(|difference| difference.path == path)
+    }
+
+    #[test]
+    fn comparison_alone_fails_stdout_key_order_swap() {
+        let (left, mut right) = pair();
+        right.steps[0].stdout = format!(
+            "{{\"cwd\":\"{}/project\",\"agentId\":\"{AGENT_RIGHT}\"}}\n",
+            right.root
+        )
+        .into_bytes();
+        assert!(differs_at(&compared_only(&left, &right), "artifacts"));
+    }
+
+    #[test]
+    fn comparison_alone_fails_state_key_order_swap() {
+        let (left, mut right) = pair();
+        right.state[0].bytes =
+            format!("{{\"createdAt\":\"2020-01-02T03:04:05.000Z\",\"id\":\"{AGENT_RIGHT}\"}}")
+                .into_bytes();
+        assert!(differs_at(&compared_only(&left, &right), "state"));
     }
 
     #[test]
     fn comparison_alone_fails_state_content_difference() {
         let (left, mut right) = pair();
         right.state[0].bytes = format!(
-            "{{\"id\":\"{AGENT_RIGHT}\",\"createdAt\":\"2026-10-01T13:51:43.463Z\",\"x\":1}}"
+            "{{\"id\":\"{AGENT_RIGHT}\",\"createdAt\":\"2020-01-02T03:04:05.000Z\",\"x\":1}}"
         )
         .into_bytes();
-        assert!(!compared_only(&left, &right).pass);
+        assert!(differs_at(&compared_only(&left, &right), "state"));
     }
 
     #[test]
