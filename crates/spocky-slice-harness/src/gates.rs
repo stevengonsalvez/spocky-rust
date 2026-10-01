@@ -1,6 +1,8 @@
 //! Gate definitions. Only gates whose scenario is fully specified here exist;
 //! the gate runner rejects any other id.
 
+use std::collections::BTreeMap;
+
 use serde_json::json;
 
 use crate::side::{Arg, Check, GateSpec, StepSpec};
@@ -114,7 +116,36 @@ pub fn g1() -> GateSpec {
             Check::StubExactlyConsumed,
             Check::DaemonExit(0),
         ],
+        preimages: g1_preimages,
     }
+}
+
+/// Creation request fingerprint preimages for G1, exactly as
+/// `creation/index.ts` digests them: the request minus `requestId`, `type`,
+/// `subscribe`, and `idempotencyKey`, keys sorted at every level.
+#[must_use]
+pub fn g1_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    let mut preimages = Vec::new();
+    let Some(project) = captured.get("project") else {
+        return preimages;
+    };
+    preimages.push((
+        "workspace-create-request",
+        json!({"source": {"kind": "directory", "path": project}}).to_string(),
+    ));
+    if let Some(workspace) = captured.get("workspace") {
+        preimages.push((
+            "agent-create-request",
+            json!({
+                "config": {"cwd": project, "modeId": "full-access", "provider": "codex"},
+                "initialPrompt": G1_PROMPT,
+                "labels": {},
+                "workspaceId": workspace
+            })
+            .to_string(),
+        ));
+    }
+    preimages
 }
 
 /// Looks up a gate by id.
@@ -151,5 +182,27 @@ mod tests {
             }
         }
         assert!(by_id("g2").is_none());
+    }
+
+    #[test]
+    fn g1_preimages_match_paseo_sorted_stringify() {
+        let captured = BTreeMap::from([
+            ("project", "/p".to_owned()),
+            ("workspace", "wks_0123456789abcdef".to_owned()),
+        ]);
+        assert_eq!(
+            g1_preimages(&captured),
+            vec![
+                (
+                    "workspace-create-request",
+                    r#"{"source":{"kind":"directory","path":"/p"}}"#.to_owned()
+                ),
+                (
+                    "agent-create-request",
+                    r#"{"config":{"cwd":"/p","modeId":"full-access","provider":"codex"},"initialPrompt":"Reply with the single word READY.","labels":{},"workspaceId":"wks_0123456789abcdef"}"#
+                        .to_owned()
+                ),
+            ]
+        );
     }
 }
