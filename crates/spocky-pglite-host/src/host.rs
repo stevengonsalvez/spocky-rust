@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
@@ -146,16 +146,29 @@ pub struct PgliteHost {
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// Package root plus every engine option, so hosts that ask for different
+/// engine settings never share a compiled engine.
+type CompiledKey = (PathBuf, usize, Option<PathBuf>);
+
+fn compiled_key(package_root: &Path, options: &EngineOptions) -> CompiledKey {
+    (
+        package_root.to_path_buf(),
+        options.max_wasm_stack,
+        options.cache_directory.clone(),
+    )
+}
+
 fn compiled_for(
-    package_root: &PathBuf,
+    package_root: &Path,
     options: &EngineOptions,
 ) -> Result<Arc<Compiled>, PgliteHostError> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<Compiled>>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<CompiledKey, Arc<Compiled>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache
         .lock()
         .map_err(|_| PgliteHostError::Startup("compile cache poisoned".into()))?;
-    if let Some(compiled) = cache.get(package_root) {
+    let key = compiled_key(package_root, options);
+    if let Some(compiled) = cache.get(&key) {
         return Ok(Arc::clone(compiled));
     }
     let package = PinnedPackage::load(package_root)
@@ -164,7 +177,7 @@ fn compiled_for(
         Compiled::new(Arc::new(package), options)
             .map_err(|error| PgliteHostError::Startup(format!("{error:?}")))?,
     );
-    cache.insert(package_root.clone(), Arc::clone(&compiled));
+    cache.insert(key, Arc::clone(&compiled));
     Ok(compiled)
 }
 
@@ -501,6 +514,29 @@ fn migrate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compiled_engines_are_keyed_by_engine_options() {
+        let root = Path::new("/package");
+        let defaults = EngineOptions::default();
+        let cached = EngineOptions {
+            cache_directory: Some(PathBuf::from("/cache")),
+            ..EngineOptions::default()
+        };
+        let smaller_stack = EngineOptions {
+            max_wasm_stack: 1024 * 1024,
+            ..EngineOptions::default()
+        };
+        assert_eq!(
+            compiled_key(root, &defaults),
+            compiled_key(root, &EngineOptions::default())
+        );
+        assert_ne!(compiled_key(root, &defaults), compiled_key(root, &cached));
+        assert_ne!(
+            compiled_key(root, &defaults),
+            compiled_key(root, &smaller_stack)
+        );
+    }
 
     #[test]
     fn store_work_runs_on_the_library_thread() {
