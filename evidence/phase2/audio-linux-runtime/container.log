@@ -149,7 +149,7 @@ Setting up libpipewire-0.3-modules:amd64 (0.3.65-3+deb12u1) ...
 Setting up pulseaudio-utils (16.1+dfsg1-2+b1) ...
 Setting up pipewire-bin (0.3.65-3+deb12u1) ...
 Processing triggers for libc-bin (2.36-9+deb12u13) ...
-Linux 741dcdbcf2fd 6.8.0-64-generic #67-Ubuntu SMP PREEMPT_DYNAMIC Sun Jun 15 20:23:31 UTC 2025 x86_64 GNU/Linux
+Linux daa833b60ef5 6.8.0-64-generic #67-Ubuntu SMP PREEMPT_DYNAMIC Sun Jun 15 20:23:31 UTC 2025 x86_64 GNU/Linux
 info: syncing channel updates for 1.94.0-x86_64-unknown-linux-gnu
 info: latest update on 2026-03-05 for version 1.94.0 (4a4ef493e 2026-03-02)
 info: downloading 5 components
@@ -163,51 +163,52 @@ pulseaudio-utils 16.1+dfsg1-2+b1
     Updating crates.io index
  Downloading crates ...
   Downloaded itoa v1.0.18
-  Downloaded proc-macro2 v1.0.107
-  Downloaded unicode-ident v1.0.26
   Downloaded ryu v1.0.23
-  Downloaded quote v1.0.47
   Downloaded serde_derive v1.0.229
+  Downloaded quote v1.0.47
   Downloaded serde_core v1.0.229
-  Downloaded serde_json v1.0.145
+  Downloaded unicode-ident v1.0.26
+  Downloaded proc-macro2 v1.0.107
   Downloaded serde v1.0.229
   Downloaded memchr v2.8.3
+  Downloaded serde_json v1.0.145
   Downloaded syn v3.0.6
    Compiling proc-macro2 v1.0.107
-   Compiling quote v1.0.47
    Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
    Compiling serde_core v1.0.229
    Compiling serde_json v1.0.145
    Compiling serde v1.0.229
+   Compiling itoa v1.0.18
    Compiling ryu v1.0.23
    Compiling memchr v2.8.3
-   Compiling itoa v1.0.18
    Compiling syn v3.0.6
    Compiling serde_derive v1.0.229
    Compiling spocky-audio-delivery-pilot v0.1.0 (/workspace/crates/spocky-audio-delivery-pilot)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.64s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.03s
      Running tests/linux_audio_runtime.rs (/tmp/spocky-audio-target/debug/deps/linux_audio_runtime-1f4ac20ddf91a6fc)
 
-running 3 tests
+running 4 tests
 test alsa_null_runtime_plays_and_captures_generated_pcm ... ok
+test exited_parent_reaps_linux_audio_adapter_descendant ... ok
 test process_adapter_passes_explicit_audio_environment ... ok
 test timeout_reaps_linux_audio_adapter_process_group ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
 
 + cargo run --locked -p spocky-audio-delivery-pilot --bin spocky-linux-audio-runtime -- /output/run
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
      Running `/tmp/spocky-audio-target/debug/spocky-linux-audio-runtime /output/run`
 Linux audio report: /output/run/linux-audio-report.json
 + cargo clippy --locked -p spocky-audio-delivery-pilot --all-targets -- -D warnings
     Checking serde_core v1.0.229
-    Checking memchr v2.8.3
     Checking itoa v1.0.18
     Checking ryu v1.0.23
+    Checking memchr v2.8.3
     Checking serde_json v1.0.145
     Checking serde v1.0.229
     Checking spocky-audio-delivery-pilot v0.1.0 (/workspace/crates/spocky-audio-delivery-pilot)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.88s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.60s
 + set +x
 71ccbb283c54d3e7e0b49f0e7480d95d2570e18a86589b09d7c38aac4ddb51ec  run/alsa-null-capture.conf
 b482549b96a59ff2554045003bc037af447e5b541d4d85ed26285b5f21b5e1ad  run/generated-capture-input.raw

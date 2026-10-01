@@ -155,7 +155,9 @@ platforms, cross-platform plugin clients, and native audio cases remain
 incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
 compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
 deb lifecycle pass. Linux ALSA null playback and deterministic null capture pass
-in a pinned container; physical audio, PulseAudio and PipeWire server graphs,
+in a pinned container. Its runner constrains output, bounds and verifies exact
+container cleanup, and reaps descendants that retain process pipes. Physical
+audio, PulseAudio and PipeWire server graphs,
 STT, and TTS remain open. Signed delivery and native Windows, iOS, Android, and
 browser delivery remain open. Phase 3 remains blocked. No runtime parity
 milestone is complete. No runtime compatibility exception is accepted.
