@@ -198,6 +198,11 @@ enum JsonWork<'a> {
 
 /// `z.json()`: rejects non-finite numbers and drops `__proto__` keys at every
 /// object level. Walks with an explicit stack.
+///
+/// Divergence (DIV-001 family): zod parses `z.json()` recursively and throws
+/// a `RangeError` near 10,000 nesting levels (3,000 passes on node 22.20.0), so
+/// the baseline skips such a record at load. This walk has no depth limit
+/// and loads it.
 fn json_value(root: &JsValue) -> Option<JsValue> {
     let mut work = vec![JsonWork::Visit(root)];
     let mut built: Vec<JsValue> = Vec::new();
@@ -293,7 +298,12 @@ fn parse_tool_policy(value: &JsValue) -> Result<JsValue, RecordError> {
     }
     let error = fail("config.toolPolicy", "strict tool policy");
     let input = value.as_object().ok_or(error.clone())?;
-    if input.iter().any(|(key, _)| key != "preapproved") {
+    // `.strict()` checks unknown keys with `in`-style enumeration that never
+    // sees an own `__proto__` key, so that key is ignored, not rejected.
+    if input
+        .iter()
+        .any(|(key, _)| key != "preapproved" && key != PROTO_KEY)
+    {
         return Err(error);
     }
     let entries = input
@@ -303,7 +313,8 @@ fn parse_tool_policy(value: &JsValue) -> Result<JsValue, RecordError> {
     let mut parsed = Vec::with_capacity(entries.len());
     for entry in entries {
         let object = entry.as_object().ok_or(error.clone())?;
-        let valid = object.len() == 3
+        let own_keys = object.iter().filter(|(key, _)| *key != PROTO_KEY).count();
+        let valid = own_keys == 3
             && object.get("kind").and_then(JsValue::as_str) == Some("mcp")
             && object.get("server").is_some_and(JsValue::is_string)
             && object.get("tool").is_some_and(JsValue::is_string);
@@ -576,13 +587,7 @@ impl AgentRecordStore {
         if self.deleting.contains(&id) {
             return Ok(None);
         }
-        let cwd = record
-            .get("cwd")
-            .and_then(JsValue::as_str)
-            .ok_or(StoreError::MissingString("cwd"))?;
-        let next = self.base.join(cwd_key(cwd)).join(format!("{id}.json"));
-        let rendered = stringify_pretty(&record);
-        write_json_atomic(&next, &rendered)?;
+        let next = write_record_file(&self.base, &record)?;
         let previous = self.records.get(&id).map(|loaded| loaded.path.clone());
         self.index(&id, record, next.clone());
         if let Some(previous) = previous.filter(|previous| *previous != next) {
@@ -604,6 +609,7 @@ impl AgentRecordStore {
     /// and drops it from the cache. Unlink failures other than not-found do
     /// not fail the call; they are returned for the caller to log, as the
     /// baseline logs `"Failed to remove agent record file"`.
+    #[must_use = "unlink failures are returned for the caller to log"]
     pub fn remove(&mut self, id: &str) -> Vec<(PathBuf, io::Error)> {
         self.initialize();
         self.begin_delete(id);
@@ -619,6 +625,26 @@ impl AgentRecordStore {
         self.order.retain(|existing| existing != id);
         failures
     }
+}
+
+/// Writes one record at `<base>/<cwd-key>/<id>.json` as
+/// `JSON.stringify(record, null, 2)`, atomically.
+///
+/// # Errors
+///
+/// Returns an error when the record lacks `id` or `cwd` strings, or the write fails.
+pub fn write_record_file(base: &Path, record: &JsValue) -> Result<PathBuf, StoreError> {
+    let id = record
+        .get("id")
+        .and_then(JsValue::as_str)
+        .ok_or(StoreError::MissingString("id"))?;
+    let cwd = record
+        .get("cwd")
+        .and_then(JsValue::as_str)
+        .ok_or(StoreError::MissingString("cwd"))?;
+    let path = base.join(cwd_key(cwd)).join(format!("{id}.json"));
+    write_json_atomic(&path, &stringify_pretty(record))?;
+    Ok(path)
 }
 
 fn sorted_entries(directory: &Path) -> Vec<(PathBuf, fs::FileType)> {
