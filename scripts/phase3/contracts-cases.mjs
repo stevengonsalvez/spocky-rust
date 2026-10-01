@@ -782,3 +782,95 @@ CASES.push(
     input: session({ type: "subscription.release.request", subscriptionId: "s", requestId: "r" }),
   },
 );
+
+// Review 1 edge cases: JavaScript number text, property order, and
+// JSON.parse duplicate keys.
+const HARD_FLOATS = [
+  "4.658607306269797003e-22",
+  "1.840086450705316562e-174",
+  "8.3112634102003129e-134",
+  "7.41273583631350841e262",
+  "1.3936445979811658496e245",
+  "7.5593921016370845944e95",
+];
+
+CASES.push(
+  {
+    id: "ws.hello.extras_number_text",
+    direction: "inbound",
+    source: "WSHelloMessageSchema capabilities passthrough keeps extra values; JSON.stringify number text",
+    raw: `{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{"x":1e21,"neg":-0,"one":1.0,"tiny":1e-7,"big":123456789012345678901234567890,${HARD_FLOATS.map((f, i) => `"f${i}":${f}`).join(",")}}}`,
+  },
+  {
+    id: "ws.hello.extras_integer_like_keys",
+    direction: "inbound",
+    source: "JS engines enumerate array-index keys first, ascending",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1,"capabilities":{"z":1,"10":0,"voice":true,"5":0,"01":2,"4294967295":3,"4294967294":4,"hello_rejection":false,"a":{"2":1,"1":2}}}',
+  },
+  {
+    id: "ws.hello.browser_host_extras_integer_like_keys",
+    direction: "inbound",
+    source: "BrowserAutomationHostCapabilitySchema passthrough key order",
+    raw: '{"type":"hello","clientId":"c","clientType":"browser","protocolVersion":1,"capabilities":{"browser_host":{"z":1,"7":-0,"supportedCommands":["click"]}}}',
+  },
+  {
+    id: "ws.hello.duplicate_keys_last_value_first_position",
+    direction: "inbound",
+    source: "JSON.parse keeps the first position and the last value",
+    raw: '{"type":"hello","clientId":"a","clientType":"cli","protocolVersion":1,"capabilities":{"q":1,"voice":false,"q":2,"voice":true},"clientId":"b"}',
+  },
+  {
+    id: "ws.duplicate_type_last_wins",
+    direction: "inbound",
+    source: "JSON.parse duplicate discriminator",
+    raw: '{"type":"hello","type":"ping"}',
+  },
+  {
+    id: "ws.hello.duplicate_key_rejected_value_then_valid",
+    direction: "inbound",
+    source: "JSON.parse discards the first value before zod sees it",
+    raw: '{"type":"hello","clientId":"","clientType":"cli","protocolVersion":1,"clientId":"ok"}',
+  },
+  {
+    id: "ws.hello.protocol_version_1_0",
+    direction: "inbound",
+    source: "z.number().int() on 1.0",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1.0}',
+  },
+  {
+    id: "ws.hello.protocol_version_negative_zero",
+    direction: "inbound",
+    source: "z.number().int() on -0; JSON.stringify(-0) is 0",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":-0}',
+  },
+  {
+    id: "ws.hello.protocol_version_max_safe",
+    direction: "inbound",
+    source: "z.number().int() accepts Number.MAX_SAFE_INTEGER",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":9007199254740991}',
+  },
+  {
+    id: "ws.hello.reject_protocol_version_2_pow_53",
+    direction: "inbound",
+    source: "z.number().int() rejects 2^53",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":9007199254740992}',
+  },
+  {
+    id: "ws.hello.reject_protocol_version_exponent_overflow",
+    direction: "inbound",
+    source: "z.number().int() rejects 1e16",
+    raw: '{"type":"hello","clientId":"c","clientType":"cli","protocolVersion":1e16}',
+  },
+  {
+    id: "session.agent_create.provider_options_hard_floats",
+    direction: "inbound",
+    source: "z.json() provider options keep JSON.parse doubles",
+    raw: `{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","providerOptions":{"floats":[${HARD_FLOATS.join(",")},-0,5e-324,1.7976931348623157e308]}}}}`,
+  },
+  {
+    id: "session.fetch_agents.duplicate_nested_keys",
+    direction: "inbound",
+    source: "JSON.parse duplicate keys inside a record and an object",
+    raw: '{"type":"session","message":{"type":"fetch_agents_request","requestId":"r","filter":{"labels":{"b":"1","a":"2","b":"3"},"includeArchived":false,"includeArchived":true}}}',
+  },
+);
