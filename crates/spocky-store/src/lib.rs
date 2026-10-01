@@ -154,7 +154,11 @@ impl StoredAgentRecord {
     }
 }
 
-/// The P2 agent store, a thin wrapper over [`agent_record::AgentRecordStore`].
+/// The P2 agent store, a stateless wrapper over [`agent_record`]. Each
+/// [`Self::load`] rescans the whole store (the session uses one long-lived
+/// [`agent_record::AgentRecordStore`] instead), and a record file the schema
+/// rejects is skipped as at baseline startup, so `load` returns `Ok(None)`
+/// for it rather than an error.
 #[derive(Debug, Clone)]
 pub struct AgentStore {
     base: PathBuf,
@@ -172,16 +176,14 @@ impl AgentStore {
     ///
     /// Returns an error if directory creation, writing, or rename fails.
     pub fn write(&self, record: &StoredAgentRecord) -> Result<PathBuf, StoreError> {
-        agent_record::AgentRecordStore::new(&self.base)
-            .write(record.as_js_value().clone())?
-            .ok_or(StoreError::MissingString("id"))
+        agent_record::write_record_file(&self.base, record.as_js_value())
     }
 
     /// Loads an agent by scanning the store as the baseline does at startup.
     ///
     /// # Errors
     ///
-    /// Returns an error if the matching record cannot be re-read.
+    /// Returns an error if a loaded record lacks a required string field.
     pub fn load(&self, id: &str) -> Result<Option<StoredAgentRecord>, StoreError> {
         agent_record::AgentRecordStore::new(&self.base)
             .get(id)
