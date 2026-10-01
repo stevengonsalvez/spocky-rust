@@ -74,10 +74,11 @@ gtimeout 900 scripts/phase2/hub-embedded-retained-evidence.sh
 
 The Rust adapter launches pinned PGlite `0.5.4` through length-prefixed JSON
 IPC. A dedicated writer bounds request delivery when the child stops reading.
-It also bounds response waits, owns the database directory exclusively, kills
-the child after timeout or lost reply, and never retries a write. Normal close
-is acknowledged only after PGlite closes and releases the owner record. Typed
-values keep SQL null, binary, timestamp, numeric, boolean, string, JSON and
+It also bounds response waits, owns the database directory through an OS file
+lock, kills the child after timeout or lost reply, and never retries a write.
+Normal close is acknowledged only after PGlite closes, then releases the OS
+lock. The compatibility lock path remains on disk and keeps owner metadata.
+Typed values keep SQL null, binary, timestamp, numeric, boolean, string, JSON and
 JSONB values, column order, and structured PostgreSQL errors. JSON null,
 boolean, number, string, object, and array values keep the JSON tag. SQL NULL
 in JSON and JSONB columns stays SQL null rather than becoming JSON literal null.
@@ -86,8 +87,8 @@ Seventeen targeted tests pass. They cover all 49 migrations, no-op restart, a re
 one-migration historical database reopening into the remaining 48 migrations,
 preserved historical user data, future and partial journal outcomes, rollback
 after an earlier migration step executes, transaction rollback, concurrent
-callers, partial live-owner grace, concurrent stale-owner reclamation, a forced
-check/delete schedule that preserves a replacement owner,
+callers, partial legacy live-owner grace, concurrent stale-owner recovery, a
+forced eight-contender check that preserves the live lock inode and owner bytes,
 exclusive ownership, data-bearing child crash, committed-write lost reply,
 parent death, graceful close, injected failure after durable close, bounded frames, bounded delivery,
 response timeout, and lost-reply ambiguity.
