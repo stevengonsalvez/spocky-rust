@@ -217,7 +217,8 @@
       "model": "claude-opus-5-5",
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-g1-wiring",
-      "paths": ["crates/spocky-daemon-app/"],
+      "paths": ["crates/spocky-daemon-app/", "evidence/phase3/g1-wiring.md", "Cargo.lock (entries from this crate only)"],
+      "pathsWidened": "2026-10-01 coordinator decision after reviewer P3 (verdicts/p3_g1_wiring-e6d1ba3.txt)",
       "delegation": "forbidden",
       "state": "running; prerequisites routed: p3_session agent-manager with rows seed, p3_daemon_transport removes its spocky-daemon bin, codex-to-stub config.toml routing"
     },
@@ -872,6 +873,24 @@
           "leadVerification": "gated with pinned node 22.20.0 and dist: spocky-terminal 10/10, clippy -D warnings, fmt check; cargo check --workspace --all-targets (on top of the pglite range)",
           "evidenceLimitation": "commit 1e9180b adds tests/support/mod.rs, compiled only after 9c2f35b adds mod support; that intermediate is green only vacuously",
           "followUps": ["P3 output_coalescer test emits clear entries from the harness model; have flush/dispose report cleared timers", "P3 handle(&str) cannot represent a JS lone surrogate; note in module doc", "P3 assert node v22.20.0 in tests/support", "P3 author-model provenance kept per routing.revisions convention (5e51bd4)"]
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-01",
+          "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
+          "integrationHead": "0d90e37",
+          "review": "integration reviewer PASS (verdicts/p3_session-2401743.txt); supersedes the aeb550d BLOCK hold below",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session plus spocky-store 84 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "followUps": ["P2 pending-permission differential scenario", "P2 node EISDIR rename text (decision A, in checkpoint 2401743..0749432)", "P3 call-time join of the per-agent write chain: port, as the receipts decision", "P3 Error abort reason message: seam B AbortReason", "P3 Arc plus ptr_eq for first-error identity"]
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-01",
+          "sourceRange": "7193135..e6d1ba3 (20 commits, landed as 19): adapter-only codex provider, outbound permission table, hermetic sandboxed real-codex test, resume handle pass-through, handler panic safety net, normalizeCodexOutputSchema port and differential",
+          "integrationHead": "6d87893",
+          "review": "integration reviewer BLOCK on one P1 only (verdicts/p3_g1_wiring-e6d1ba3.txt); coordinator decision: no resend, lead folds d72b459 and 0bb6ba6 into atomic 51323e3 (Cargo.toml plus Cargo.lock) at cherry-pick",
+          "leadVerification": "rebased on session 0d90e37; gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-daemon-app 24 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "followUps": ["P3 output_schema_differential.rs:96 assert node v22.20.0", "P3 codex_agent.rs:106 truthy non-string sessionId note (optional)"]
         },
         {
           "lane": "p3_session",
