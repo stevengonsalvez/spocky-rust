@@ -1,6 +1,7 @@
 # Compatibility Runtime Exceptions
 
-No compatibility runtime exception is accepted.
+One compatibility runtime exception is accepted as time-boxed interim: the Hub
+retained JavaScript PGlite host. No exception is accepted as permanent.
 
 An exception requires capability, owner, exact runtime and version, boundary, exchanged data, pilot evidence, security and packaging risk, performance and support risk, original-versus-candidate tests, platforms, removal condition, and review date.
 
@@ -11,14 +12,16 @@ proxy. It is excluded from shipped runtime ownership and is not a compatibility
 runtime exception. Replace it with Rust only if test-harness ownership becomes
 part of the release artifact.
 
-## Candidates
-
-No candidate below is accepted for release or parity.
+## Accepted interim
 
 ### Hub retained JavaScript PGlite host
 
-- Status: `required-not-accepted`; acceptance, rejection, or a Rust-engine
-  path is a decision for Stevie
+- Status: `accepted-interim`, decided by Stevie on 2026-10-01 and relayed by
+  the coordinator session. Time-boxed: it stands only until the removal
+  condition below is met. It does not close the open gaps listed here.
+- Replacement lane: `p2_pglite_rust_host` is open to build a Rust Wasm host in
+  new crate `crates/spocky-pglite-host` (worktree
+  `/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-pglite-rust-host`)
 - Capability and owner: `CLOUD-HUB-DATA-015` embedded Hub PostgreSQL-compatible
   storage, Hub storage
 - Runtime: `@electric-sql/pglite` `0.5.4` with its distributed JavaScript glue,
@@ -71,6 +74,10 @@ No candidate below is accepted for release or parity.
   historical migrations, reopens old state, survives process crashes, and
   matches embedded and PostgreSQL mutation traces on required platforms
 - Review date: 2026-10-01
+
+## Candidates
+
+No candidate below is accepted for release or parity.
 
 ### Hub paused incomplete legacy owner
 
