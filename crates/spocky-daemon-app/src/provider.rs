@@ -1,15 +1,14 @@
 //! The built-in `codex` provider client the daemon creates at bootstrap:
 //! `extractProviderOverrides` and `extractAgentProviderSettings`
 //! (`config.ts`), then `mergeRuntimeSettings` with `toRuntimeSettings`
-//! (`agent/provider-registry.ts`), handed to `CodexAppServerAgentClient`.
+//! (`agent/provider-registry.ts`), handed to
+//! [`crate::codex_agent::CodexAgentClient::new`].
 //!
 //! Only `command` and `env` reach the Codex client; `disallowedTools` is
 //! carried by the baseline but never read by the Codex provider.
 
-use std::ffi::OsString;
-
 use serde_json::{Map, Value};
-use spocky_provider_codex::{CodexProvider, ProviderCommand, ProviderRuntimeSettings};
+use spocky_provider_codex::{ProviderCommand, ProviderRuntimeSettings};
 
 const CODEX: &str = "codex";
 
@@ -138,13 +137,6 @@ fn string_record(entries: &Map<String, Value>) -> std::collections::BTreeMap<Str
         .iter()
         .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
         .collect()
-}
-
-/// `PROVIDER_CLIENT_FACTORIES.codex(logger, mergedRuntimeSettings)` for the
-/// built-in id, with `process.env` as the launch base.
-#[must_use]
-pub fn codex_provider(persisted: &Value, base_env: Vec<(OsString, OsString)>) -> CodexProvider {
-    CodexProvider::new(codex_runtime_settings(persisted), None, base_env)
 }
 
 #[cfg(test)]
