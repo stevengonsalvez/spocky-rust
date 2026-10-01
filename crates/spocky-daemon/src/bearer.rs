@@ -23,7 +23,9 @@ pub fn extract_http_bearer_token(value: Option<&str>) -> Option<&str> {
 /// the prefix and at least a third segment.
 fn bearer_segments(protocol: &str) -> Option<Vec<&str>> {
     let segments: Vec<&str> = protocol.split('.').collect();
-    (segments.first() == Some(&"paseo") && segments.get(1) == Some(&"bearer") && segments.len() >= 3)
+    (segments.first() == Some(&"paseo")
+        && segments.get(1) == Some(&"bearer")
+        && segments.len() >= 3)
         .then_some(segments)
 }
 
@@ -69,7 +71,10 @@ mod tests {
     #[test]
     fn http_bearer_needs_exactly_scheme_and_token() {
         assert_eq!(extract_http_bearer_token(Some("Bearer abc")), Some("abc"));
-        assert_eq!(extract_http_bearer_token(Some("  Bearer \t abc  ")), Some("abc"));
+        assert_eq!(
+            extract_http_bearer_token(Some("  Bearer \t abc  ")),
+            Some("abc")
+        );
         assert_eq!(extract_http_bearer_token(Some("bearer abc")), None);
         assert_eq!(extract_http_bearer_token(Some("Bearer")), None);
         assert_eq!(extract_http_bearer_token(Some("Bearer a b")), None);
@@ -93,8 +98,14 @@ mod tests {
 
     #[test]
     fn ws_bearer_token_rejoins_the_remaining_segments() {
-        assert_eq!(extract_ws_bearer_token(Some("paseo.bearer.a.b")), Some("a.b".to_owned()));
-        assert_eq!(extract_ws_bearer_token(Some("paseo.bearer.")), Some(String::new()));
+        assert_eq!(
+            extract_ws_bearer_token(Some("paseo.bearer.a.b")),
+            Some("a.b".to_owned())
+        );
+        assert_eq!(
+            extract_ws_bearer_token(Some("paseo.bearer.")),
+            Some(String::new())
+        );
         assert_eq!(extract_ws_bearer_token(Some("paseo.bearer")), None);
         assert_eq!(extract_ws_bearer_token(Some("x.bearer.t")), None);
         assert_eq!(extract_ws_bearer_token(None), None);
