@@ -17,6 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
+use spocky_contracts::text::js_trim;
 
 /// Paseo `DEFAULT_TIMEOUT_MS`: 14 days.
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_millis(14 * 24 * 60 * 60 * 1000);
@@ -418,7 +419,7 @@ fn rpc_error(error: &Value) -> ClientError {
 }
 
 /// JavaScript truthiness for a parsed JSON value.
-fn js_truthy(value: &Value) -> bool {
+pub(crate) fn js_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(flag) => *flag,
@@ -426,12 +427,6 @@ fn js_truthy(value: &Value) -> bool {
         Value::String(text) => !text.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
-}
-
-/// `String.prototype.trim`: Unicode white space, line terminators, and BOM.
-#[must_use]
-pub fn js_trim(text: &str) -> &str {
-    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
 }
 
 fn spawn_stdout_reader(shared: Arc<Shared>, stdout: ChildStdout) {
