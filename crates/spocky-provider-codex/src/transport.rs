@@ -79,19 +79,30 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
-/// Completes one server-initiated request. Dropping it without answering leaves
-/// the request unanswered, as an unresolved Paseo handler promise would.
+/// Completes one server-initiated request. A responder dropped without an
+/// answer replies with [`DROPPED_REQUEST_MESSAGE`] so Codex never waits on a
+/// request no one can answer any more.
 pub struct Responder {
     shared: Arc<Shared>,
-    id: Value,
+    id: Option<Value>,
 }
+
+/// Error reply for a server request whose responder was dropped unanswered.
+pub const DROPPED_REQUEST_MESSAGE: &str = "Codex app-server request was not answered";
 
 impl Responder {
     /// `Ok(None)` mirrors a handler resolving `undefined`: the response carries
     /// only the id because `JSON.stringify` drops the `result` key.
-    pub fn respond(self, outcome: Result<Option<Value>, String>) {
+    pub fn respond(mut self, outcome: Result<Option<Value>, String>) {
+        self.reply(outcome);
+    }
+
+    fn reply(&mut self, outcome: Result<Option<Value>, String>) {
+        let Some(id) = self.id.take() else {
+            return;
+        };
         let mut response = Map::new();
-        response.insert("id".to_owned(), self.id);
+        response.insert("id".to_owned(), id);
         match outcome {
             Ok(Some(result)) => {
                 response.insert("result".to_owned(), result);
@@ -104,6 +115,12 @@ impl Responder {
             }
         }
         self.shared.write_response(&Value::Object(response));
+    }
+}
+
+impl Drop for Responder {
+    fn drop(&mut self) {
+        self.reply(Err(DROPPED_REQUEST_MESSAGE.to_owned()));
     }
 }
 
@@ -380,7 +397,7 @@ impl Shared {
                 let handler = lock(&self.request_handlers).get(method).cloned();
                 let responder = Responder {
                     shared: Arc::clone(self),
-                    id: id.clone(),
+                    id: Some(id.clone()),
                 };
                 match handler {
                     Some(handler) => {
@@ -693,6 +710,20 @@ mod tests {
             client.request("late", None, Duration::from_secs(1)),
             Err(ClientError::plain(CLIENT_CLOSED_MESSAGE))
         );
+    }
+
+    #[test]
+    fn a_dropped_responder_replies_with_an_error() {
+        // `cat` echoes the request as a server request; its handler drops the
+        // responder, whose error reply `cat` echoes back as the response.
+        let client = spawn("exec cat");
+        client.set_request_handler("ping", Arc::new(|_, _, responder| drop(responder)));
+        let outcome = client.request("ping", None, Duration::from_secs(10));
+        assert_eq!(
+            outcome.map_err(|error| error.message),
+            Err(DROPPED_REQUEST_MESSAGE.to_owned())
+        );
+        client.dispose().expect("dispose");
     }
 
     #[test]
