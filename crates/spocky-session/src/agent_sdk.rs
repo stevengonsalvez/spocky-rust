@@ -232,17 +232,52 @@ pub enum FetchCatalogOptions {
     Workspace { cwd: String, force: bool },
 }
 
+/// Marks an upstream operation as pending until dropped; see
+/// [`ProviderRefreshContext::begin_activity`].
+pub struct ActivityGuard {
+    end: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl ActivityGuard {
+    /// A guard that runs `end` when the activity finishes.
+    #[must_use]
+    pub fn new(end: impl FnOnce() + Send + 'static) -> Self {
+        Self {
+            end: Some(Box::new(end)),
+        }
+    }
+}
+
+impl Drop for ActivityGuard {
+    fn drop(&mut self) {
+        if let Some(end) = self.end.take() {
+            end();
+        }
+    }
+}
+
 /// `ProviderRefreshContext`.
 pub trait ProviderRefreshContext: Send + Sync {
     /// `signal`.
     fn signal(&self) -> &AbortSignal;
-    /// `runActivity(name, operation)`: tracks an upstream operation so a
-    /// timeout names the work still pending.
-    fn run_activity<'a>(
-        &'a self,
-        name: &'a str,
-        operation: BoxFuture<'a, AgentResult<JsValue>>,
-    ) -> BoxFuture<'a, AgentResult<JsValue>>;
+    /// Starts tracking the activity `name`; it stays pending until the guard
+    /// drops. [`run_activity`] is the generic `runActivity<T>` over this.
+    fn begin_activity(&self, name: &str) -> ActivityGuard;
+}
+
+/// `context.runActivity(name, operation)`: tracks an upstream operation so a
+/// timeout names the work still pending.
+///
+/// # Errors
+///
+/// The operation's error.
+pub async fn run_activity<T>(
+    context: &dyn ProviderRefreshContext,
+    name: &str,
+    operation: impl Future<Output = AgentResult<T>>,
+) -> AgentResult<T> {
+    let _activity = context.begin_activity(name);
+    operation.await
 }
 
 /// `ResolveAgentDefaultModeInput`.
@@ -500,11 +535,11 @@ pub trait AgentClient: Send + Sync {
     }
     /// `fetchCatalog(options, context)`, resolving a `ProviderCatalog`
     /// (`{ models, modes, defaultModeId? }`).
-    fn fetch_catalog<'a>(
-        &'a self,
+    fn fetch_catalog(
+        &self,
         options: FetchCatalogOptions,
-        context: Option<&'a dyn ProviderRefreshContext>,
-    ) -> BoxFuture<'a, AgentResult<JsValue>>;
+        context: Option<Arc<dyn ProviderRefreshContext>>,
+    ) -> BoxFuture<'_, AgentResult<JsValue>>;
     /// `resolveConfiguredModel?(model)`.
     fn resolve_configured_model(&self, _model: &JsValue) -> Option<JsValue> {
         None
@@ -585,7 +620,12 @@ pub fn stream_event_turn_id(event: &AgentStreamEvent) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AbortSignal, AgentError, stream_event_turn_id};
+    use std::sync::{Arc, Mutex};
+
+    use super::{
+        AbortSignal, ActivityGuard, AgentError, ProviderRefreshContext, run_activity,
+        stream_event_turn_id,
+    };
     use spocky_store::js_value::{JsValue, parse};
 
     #[tokio::test]
@@ -610,5 +650,43 @@ mod tests {
         assert_eq!(stream_event_turn_id(&event), Some("t"));
         let event = parse(r#"{"type":"thread_started","provider":"codex"}"#).expect("event");
         assert_eq!(stream_event_turn_id(&event), None);
+    }
+
+    struct Tracker {
+        signal: AbortSignal,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ProviderRefreshContext for Tracker {
+        fn signal(&self) -> &AbortSignal {
+            &self.signal
+        }
+
+        fn begin_activity(&self, name: &str) -> ActivityGuard {
+            self.log.lock().expect("log").push(format!("begin {name}"));
+            let log = Arc::clone(&self.log);
+            let name = name.to_owned();
+            ActivityGuard::new(move || log.lock().expect("log").push(format!("end {name}")))
+        }
+    }
+
+    #[tokio::test]
+    async fn activities_end_when_their_operation_settles() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let tracker = Tracker {
+            signal: AbortSignal::default(),
+            log: Arc::clone(&log),
+        };
+        let count: usize = run_activity(&tracker, "models", async { Ok(3) })
+            .await
+            .expect("value");
+        let failed: Result<(), AgentError> =
+            run_activity(&tracker, "modes", async { Err(AgentError::new("x")) }).await;
+        assert_eq!(count, 3);
+        assert!(failed.is_err());
+        assert_eq!(
+            *log.lock().expect("log"),
+            ["begin models", "end models", "begin modes", "end modes"]
+        );
     }
 }

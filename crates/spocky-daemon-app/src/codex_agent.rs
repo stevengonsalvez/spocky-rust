@@ -313,11 +313,11 @@ impl AgentClient for CodexAgentClient {
         })
     }
 
-    fn fetch_catalog<'a>(
-        &'a self,
+    fn fetch_catalog(
+        &self,
         _options: FetchCatalogOptions,
-        _context: Option<&'a dyn ProviderRefreshContext>,
-    ) -> BoxFuture<'a, AgentResult<JsValue>> {
+        _context: Option<Arc<dyn ProviderRefreshContext>>,
+    ) -> BoxFuture<'_, AgentResult<JsValue>> {
         let provider = Arc::clone(&self.provider);
         // ponytail: the refresh signal does not reach the app-server; the
         // provider takes a deadline instead. Map signal to deadline if the
