@@ -33,6 +33,12 @@
         "date": "2026-10-01",
         "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
         "change": "Hub retained JavaScript PGlite host accepted as a time-boxed interim compatibility exception (accepted-interim). Removal condition unchanged. Lane p2_pglite_rust_host opened to replace it with a Rust Wasm host."
+      },
+      {
+        "date": "2026-10-01",
+        "authority": "Stevie authorized maximum parallelism; recorded by the Claude coordinator session term_d3e130a0, which holds decision authority while Stevie is away",
+        "change": "Slot cap revised from one lead plus three children to up to eight concurrent writers, bounded by machine load: back off above load average 24, and each writer sets CARGO_BUILD_JOBS=3.",
+        "supersedes": "the plan rule of at most three children and four active slots"
       }
     ],
   "externalCodexLaunchPolicy": "Every external Codex launch must select gpt-5.6-sol at medium effort and pass --dangerously-bypass-approvals-and-sandbox. Global defaults must not change.",
@@ -52,9 +58,9 @@
     },
     {
       "id": "p2_hub_triggers",
-      "terminal": "term_55ec76a2",
-      "model": "gpt-5.6-sol",
-      "effort": "medium",
+      "terminal": "term_fbb7b2ab (Claude Sonnet writer since 2026-10-01; earlier Sol terminal term_55ec76a2)",
+      "model": "claude-sonnet-5-5 from 2026-10-01; gpt-5.6-sol before",
+      "effort": "not reported by the coordinator; medium before",
       "approvalPolicy": "never",
       "sandbox": "danger-full-access/unrestricted",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-triggers",
@@ -74,6 +80,39 @@
       "sharedFileReview": "root Cargo.toml and Cargo.lock changes are reviewed by the lead at integration",
       "delegation": "forbidden",
       "state": "launched; Rust Wasm host to replace the accepted-interim retained JavaScript PGlite host"
+    },
+    {
+      "id": "p3_contracts",
+      "terminal": "term_7941f5d1",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-contracts",
+      "paths": ["crates/spocky-contracts/", "scripts/phase3/contracts-*"],
+      "delegation": "forbidden",
+      "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
+    },
+    {
+      "id": "p3_slice_harness",
+      "terminal": "term_2006c99d",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-slice-harness",
+      "paths": ["crates/spocky-slice-harness/", "scripts/phase3/", "evidence/phase3/gate*"],
+      "delegation": "forbidden",
+      "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
+    },
+    {
+      "id": "p3_provider_codex",
+      "terminal": "term_2fb2a525",
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-provider-codex",
+      "paths": ["crates/spocky-provider-codex/"],
+      "delegation": "forbidden",
+      "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
     }
   ],
     "retiredWorkers": [
