@@ -85,7 +85,8 @@ pub enum StatusPayload {
     ServerInfo(Box<ServerInfo>),
     /// `status: "error"`, a protocol failure without a `requestId`.
     Error { message: String },
-    /// Any other status with its remaining keys.
+    /// Any other status with its remaining keys; a `status` entry in
+    /// `fields` is ignored.
     Other {
         status: String,
         fields: JsRecord<JsonValue>,
@@ -120,7 +121,14 @@ impl Serialize for StatusPayload {
             }
             .serialize(serializer),
             Self::Other { status, fields } => {
-                serialize_passthrough(&StatusKey { status }, fields, serializer)
+                // `status` is written once, from the tag; a `status` entry in
+                // `fields` would duplicate the key.
+                let rest: JsRecord<JsonValue> = fields
+                    .iter()
+                    .filter(|(key, _)| key.as_str() != "status")
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
+                serialize_passthrough(&StatusKey { status }, &rest, serializer)
             }
         }
     }
@@ -260,6 +268,23 @@ pub enum SessionOutbound {
 #[cfg(test)]
 mod tests {
     use super::{RpcError, SessionOutbound, StatusPayload};
+    use crate::json::{JsRecord, JsonValue};
+
+    #[test]
+    fn other_status_writes_status_once() {
+        let fields: JsRecord<JsonValue> =
+            serde_json::from_str(r#"{"status":"x","b":1,"2":true}"#).unwrap();
+        let status = SessionOutbound::Status {
+            payload: StatusPayload::Other {
+                status: "agent_refreshed".to_owned(),
+                fields,
+            },
+        };
+        assert_eq!(
+            serde_json::to_string(&status).unwrap(),
+            r#"{"type":"status","payload":{"2":true,"status":"agent_refreshed","b":1}}"#
+        );
+    }
 
     #[test]
     fn rpc_error_and_status_error_keep_construction_order() {
