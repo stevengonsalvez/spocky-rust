@@ -756,8 +756,10 @@
           "lane": "p3_provider_codex",
           "date": "2026-10-01",
           "writer": "Claude Opus 5.5 high, term_2fb2a525",
-          "sourceRange": "65d3af2..ffb602f, 19 commits; uncommitted tools.rs excluded",
-          "state": "review passed, integration pending",
+          "sourceRange": "65d3af2..ffb602f, 19 commits; uncommitted tools.rs excluded; writer Cargo.lock commit 69a336e replaced by lead regeneration",
+          "state": "integrated",
+          "integrationRange": "247a070..bf47a0a",
+          "leadVerification": "gated: unit 47/47, paseo_notification_fixtures 18/18, real_codex 5/5 against codex-cli 0.159.0 and the local stub, clippy, fmt; cargo metadata --locked passes on main",
           "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS; initialize clientInfo, ids, timeouts, readline framing, launch resolution, env overlay, and 14 fixture titles match baseline" },
           "blockersBeforeDaemonWiring": ["P1 approval handlers drop the responder so non-full-access modes hang", "P1 subscribers run on the reader thread and can deadlock or kill it"],
           "routedFindings": ["P2 disposed check and pending insert race", "P2 unported ledger unbounded", "P2 fetch_catalog has no deadline", "P2 real_codex tests hard-fail without codex", "P3 responder writes on reader thread, unbounded joins in launch, doc overclaims, test hooks public"]
