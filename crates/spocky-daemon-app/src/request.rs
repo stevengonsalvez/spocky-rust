@@ -88,12 +88,21 @@ fn rpc_error(request_id: JsText, request_type: &str, error: JsText, code: &str) 
 /// `rpc_error` with `Request failed: <message>` and `handler_error`, then an
 /// `activity_log` error entry, in that order. The error is JavaScript text,
 /// since handler messages often quote request fields.
+///
+/// Every frame, including those `dispatch` emits, passes the session's
+/// `allowsOutbound` check first, as `SessionDelivery`'s send does.
 pub fn handle_request(
     authorization: &SessionAuthorization,
     message: SessionInbound,
-    emit: &mut dyn FnMut(Value),
+    sink: &mut dyn FnMut(Value),
     dispatch: impl FnOnce(SessionInbound, &mut dyn FnMut(Value)) -> Result<(), JsText>,
 ) {
+    let mut allowed = |frame: Value| {
+        if authorization.allows_outbound(&frame) {
+            sink(frame);
+        }
+    };
+    let emit: &mut dyn FnMut(Value) = &mut allowed;
     let id = request_id(&message).clone();
     let kind = request_type(&message);
     if !authorization.allows_inbound(&message) {
@@ -248,6 +257,28 @@ mod tests {
         assert!(spocky_contracts::id::is_zod_uuid(
             log["payload"]["id"].as_str().unwrap()
         ));
+    }
+
+    #[test]
+    fn frames_the_session_may_not_receive_are_filtered() {
+        // A hub-only session: `rpc_error` needs nothing, `activity_log`
+        // needs workspace.read, so the failure reaches it without the log.
+        let mut emitted = Vec::new();
+        handle_request(
+            &SessionAuthorization::new(&[DaemonPermission::HubExecute]),
+            inbound(&json!({"type": "fetch_agent_request", "requestId": "f2", "agentId": "a"})),
+            &mut |value| emitted.push(value),
+            |_, emit| {
+                emit(json!({"type": "pong", "payload": {}}));
+                emit(json!({"type": "fetch_agent_response", "payload": {}}));
+                Err(JsText::new("boom"))
+            },
+        );
+        let kinds: Vec<&str> = emitted
+            .iter()
+            .map(|frame| frame["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["fetch_agent_response", "rpc_error"]);
     }
 
     #[test]
