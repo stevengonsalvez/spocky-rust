@@ -293,6 +293,13 @@ fn a_ping_or_session_message_before_hello_closes_with_4002() {
             "{frame}"
         );
     }
+    // A session frame that fails the schema (no requestId) is an invalid hello.
+    let mut ws = harness.connect(&[]);
+    send(
+        &mut ws,
+        &json!({"type": "session", "message": {"type": "fetch_agents_request"}}),
+    );
+    assert_eq!(next_close(&mut ws), (4002, "Invalid hello".to_owned()));
     harness.finish();
 }
 
