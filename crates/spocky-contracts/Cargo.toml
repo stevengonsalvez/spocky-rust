@@ -7,7 +7,7 @@ rust-version = "1.94"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.145", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "1.0.145", features = ["float_roundtrip", "preserve_order", "raw_value"] }
 ryu-js = "1.0.3"
 
 [lints.rust]
