@@ -95,6 +95,21 @@ async fn blocking<T: Send + 'static>(
         .map_err(AgentError::new)
 }
 
+/// The `handle` `resumeSession` passes through unchanged. A missing, `null`,
+/// or empty `sessionId` becomes `""`, which the session constructor reads as
+/// falsy (`if (this.resumeHandle?.sessionId)`) and so starts threadless.
+fn resume_handle(handle: &JsValue) -> AgentResult<ResumeHandle> {
+    let handle = to_object(handle, "handle")?;
+    Ok(ResumeHandle {
+        session_id: handle
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        metadata: handle.get("metadata").and_then(Value::as_object).cloned(),
+    })
+}
+
 /// `CodexAppServerAgentSession`.
 pub struct CodexAgentSession {
     session: BlockingDrop,
@@ -323,17 +338,7 @@ impl AgentClient for CodexAgentClient {
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>> {
         let provider = Arc::clone(&self.provider);
         Box::pin(async move {
-            let handle = to_object(&handle, "handle")?;
-            // `handle: { sessionId: string; metadata? }`: a handle without its
-            // thread id cannot resume, so it is refused rather than read as "".
-            let handle = ResumeHandle {
-                session_id: handle
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| AgentError::new("Codex resume handle has no sessionId"))?
-                    .to_owned(),
-                metadata: handle.get("metadata").and_then(Value::as_object).cloned(),
-            };
+            let handle = resume_handle(&handle)?;
             let overrides = match overrides {
                 Some(overrides) => to_object(&overrides, "overrides")?,
                 None => Map::new(),
@@ -404,12 +409,11 @@ mod tests {
         AgentClient, AgentLaunchContext, AgentPromptInput, AgentRunOptions, AgentSession,
     };
 
-    use super::{CodexAgentClient, CodexAgentSession, launch_env};
+    use super::{CodexAgentClient, CodexAgentSession, launch_env, resume_handle};
 
-    /// A session primed as the provider's notification fixtures prime it:
-    /// connected on `test-thread`, never spawning an app-server.
-    fn primed_session(mode: &str) -> CodexSession {
-        let session = CodexSession::new(SessionOptions {
+    /// Session options whose spawn always fails, so no app-server starts.
+    fn test_options(mode: &str) -> SessionOptions {
+        SessionOptions {
             config: SessionConfig {
                 cwd: "/tmp/p".to_owned(),
                 mode_id: Some(mode.to_owned()),
@@ -423,8 +427,13 @@ mod tests {
                 goals_enabled: false,
                 auto_review_enabled: false,
             },
-        })
-        .expect("session");
+        }
+    }
+
+    /// A session primed as the provider's notification fixtures prime it:
+    /// connected on `test-thread`, never spawning an app-server.
+    fn primed_session(mode: &str) -> CodexSession {
+        let session = CodexSession::new(test_options(mode)).expect("session");
         session.prime_for_notification_test("test-thread", Some("test-turn"));
         session
     }
@@ -571,19 +580,23 @@ mod tests {
         assert_eq!(error.message, "config is not an object");
     }
 
-    #[tokio::test]
-    async fn resume_without_a_session_id_is_refused() {
-        let client = missing_binary_client();
-        for handle in [
-            r#"{"provider":"codex","metadata":{"cwd":"/tmp/p"}}"#,
-            r#"{"provider":"codex","sessionId":null}"#,
+    #[test]
+    fn resume_handle_without_a_session_id_starts_threadless() {
+        // Baseline constructor: `if (this.resumeHandle?.sessionId)` takes the
+        // thread only for a truthy id; missing, null, and "" start threadless.
+        for (handle, thread) in [
+            (r#"{"provider":"codex","metadata":{"cwd":"/tmp/p"}}"#, None),
+            (r#"{"provider":"codex","sessionId":null}"#, None),
+            (r#"{"provider":"codex","sessionId":""}"#, None),
+            (
+                r#"{"provider":"codex","sessionId":"thread-1"}"#,
+                Some("thread-1"),
+            ),
         ] {
-            let error = client
-                .resume_session(js_value::parse(handle).unwrap(), None, None, None)
-                .await
-                .err()
-                .expect(handle);
-            assert_eq!(error.message, "Codex resume handle has no sessionId");
+            let handle = resume_handle(&js_value::parse(handle).unwrap()).expect(handle);
+            let session = CodexSession::resumed(test_options("full-access"), &handle, false)
+                .expect("resumed session");
+            assert_eq!(session.id().as_deref(), thread, "{handle:?}");
         }
     }
 
