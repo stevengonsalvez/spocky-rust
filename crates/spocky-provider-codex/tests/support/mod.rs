@@ -354,7 +354,7 @@ pub fn manager_full_access_config(
     root: &DisposableRoot,
     provider: &CodexProvider,
 ) -> SessionConfig {
-    let catalog = provider.fetch_catalog().expect("codex catalog");
+    let catalog = provider.fetch_catalog(None).expect("codex catalog");
     let model = spocky_provider_codex::catalog::default_model_id(&catalog).expect("default model");
     SessionConfig {
         model: Some(model),
