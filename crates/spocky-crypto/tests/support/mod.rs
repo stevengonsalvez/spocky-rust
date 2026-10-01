@@ -676,6 +676,17 @@ pub fn record(name: &str, side: &str, transcript: &[(String, Vec<String>)]) {
     std::fs::write(&path, text).expect("write evidence transcript");
 }
 
+/// Writes a pair transcript when `SPOCKY_E2EE_EVIDENCE` names a directory.
+pub fn record_lines(name: &str, lines: &[String]) {
+    let Some(directory) = std::env::var_os("SPOCKY_E2EE_EVIDENCE") else {
+        return;
+    };
+    let mut text = lines.join("\n");
+    text.push('\n');
+    std::fs::write(Path::new(&directory).join(format!("{name}.txt")), text)
+        .expect("write evidence transcript");
+}
+
 /// Runs `ops` on the pinned TypeScript channel and on the Rust port and
 /// asserts identical entries after every operation. Returns the shared
 /// transcript, or `None` when skipping was requested.
