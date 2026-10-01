@@ -167,11 +167,14 @@ impl JsObject {
             .map(|(_, value)| value)
     }
 
+    /// `Object.keys(object).length`: own properties holding `undefined`
+    /// count, though `JSON.stringify` omits them.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// `Object.keys(object).length === 0`; see [`Self::len`].
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -1023,6 +1026,11 @@ mod tests {
         slotted.insert("e", JsValue::Null);
         slotted.insert("m", JsValue::Number(2.0));
         assert_eq!(stringify(&JsValue::Object(slotted)), r#"{"m":2,"e":null}"#);
+        // node: Object.keys({x: undefined}).length === 1
+        let JsValue::Object(only) = &only else {
+            unreachable!("built as an object")
+        };
+        assert_eq!((only.len(), only.is_empty()), (1, false));
     }
 
     #[test]
