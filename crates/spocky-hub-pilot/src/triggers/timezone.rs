@@ -71,17 +71,25 @@ impl HostTimeZone {
         }
     }
 
-    /// The zone Node would pick: `TZ` (a zone name, optionally after a colon), else
-    /// `/etc/localtime`. An unreadable or unknown zone is UTC, as it is for the baseline runtime.
+    /// The zone Node would pick: `TZ`, else `/etc/localtime`. An unreadable, unknown or
+    /// unsupported zone (including a version 1 `TZif` file) is UTC, as an unknown `TZ` is for the
+    /// baseline runtime.
     #[must_use]
     pub fn from_env() -> Self {
         let zone = match std::env::var("TZ") {
-            Ok(name) if !name.is_empty() => Self::named(name.trim_start_matches(':')),
+            Ok(value) if !value.is_empty() => Self::from_tz_value(&value),
             _ => std::fs::read("/etc/localtime")
                 .ok()
                 .and_then(|bytes| Self::from_tzif(&bytes)),
         };
         zone.unwrap_or_else(Self::utc)
+    }
+
+    /// Reads a `TZ` value: a zone name, optionally after a colon. Known gap: a POSIX rule string
+    /// such as `ABC5DEF` that has no zoneinfo file is not interpreted and gives `None`.
+    #[must_use]
+    pub fn from_tz_value(value: &str) -> Option<Self> {
+        Self::named(value.trim_start_matches(':'))
     }
 
     /// Loads an IANA zone such as `Europe/London` from the system zoneinfo directories.
