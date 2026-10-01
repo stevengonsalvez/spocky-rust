@@ -85,6 +85,39 @@ fn process_adapter_times_out_and_reaps_the_spawned_process_group() {
     cleanup(&root);
 }
 
+#[cfg(unix)]
+#[test]
+fn process_adapter_reaps_descendants_after_parent_exits() {
+    let root = temp_directory("process-parent-exit");
+    let child_pid = root.join("child.pid");
+    let script = format!(
+        "sleep 30 & child=$!; printf %s $child > '{}'; exit 0",
+        child_pid.display()
+    );
+    let started = Instant::now();
+    let result = ProcessCommand::new("/bin/sh")
+        .args(["-c", &script])
+        .timeout(Duration::from_millis(150))
+        .run()
+        .expect("exited parent returns without inherited-pipe hang");
+
+    assert_eq!(result.exit_code, Some(0));
+    assert!(started.elapsed() < Duration::from_secs(2));
+    let pid = fs::read_to_string(&child_pid).expect("child pid is recorded");
+    let probe = Command::new("/bin/kill")
+        .args(["-0", pid.trim()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("process probe runs");
+    assert!(
+        !probe.success(),
+        "exited parent's child process remains alive"
+    );
+
+    cleanup(&root);
+}
+
 #[test]
 fn pcm_runtime_writes_a_real_wav_that_the_host_audio_tool_parses() {
     let root = temp_directory("pcm");

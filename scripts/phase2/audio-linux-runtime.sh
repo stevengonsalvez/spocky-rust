@@ -42,16 +42,47 @@ case "${1:-}" in
     ;;
 esac
 
+case "$output" in
+  "$default_output"|"$default_output"/*) ;;
+  *)
+    printf 'output must remain inside owned evidence root: %s\n' "$default_output" >&2
+    exit 2
+    ;;
+esac
+case "/$output/" in
+  */../*|*/./*)
+    printf 'output must not contain dot path segments\n' >&2
+    exit 2
+    ;;
+esac
+
+mkdir -p "$default_output"
+default_output=$(CDPATH='' cd -- "$default_output" && pwd -P)
+if find "$default_output" -type l -print -quit | grep -q .; then
+  printf 'output root must not contain symlinks: %s\n' "$default_output" >&2
+  exit 2
+fi
+mkdir -p "$output/run"
+output=$(CDPATH='' cd -- "$output" && pwd -P)
+case "$output" in
+  "$default_output"|"$default_output"/*) ;;
+  *)
+    printf 'output resolved outside owned evidence root: %s\n' "$default_output" >&2
+    exit 2
+    ;;
+esac
+
 command -v gtimeout >/dev/null 2>&1 && timeout_command=gtimeout ||
   { command -v timeout >/dev/null 2>&1 && timeout_command=timeout; } || {
   printf 'gtimeout or timeout is required for bounded Linux audio qualification\n' >&2
   exit 1
 }
 command -v jq >/dev/null 2>&1 || { printf 'jq is required\n' >&2; exit 1; }
-docker info >/dev/null 2>&1 || { printf 'Docker is required for Linux audio qualification\n' >&2; exit 1; }
+"$timeout_command" --kill-after=5 30 docker info >/dev/null 2>&1 || {
+  printf 'Docker is required for Linux audio qualification\n' >&2
+  exit 1
+}
 
-mkdir -p "$output/run"
-output=$(CDPATH='' cd -- "$output" && pwd -P)
 rm -f "$output/container.log" "$output/container.cid" "$output/run-metadata.json"
 rm -f "$output/run/generated-playback.wav" "$output/run/generated-capture.wav"
 rm -f "$output/run/linux-audio-report.json"
@@ -60,10 +91,42 @@ container="spocky-audio-linux-$(date +%s)-$$"
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 cleanup_container() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  cleanup_failed=0
+  if "$timeout_command" --kill-after=5 30 docker inspect "$container" >/dev/null 2>&1; then
+    if ! "$timeout_command" --kill-after=5 30 docker rm -f "$container" >/dev/null 2>&1; then
+      cleanup_failed=1
+    fi
+  else
+    inspect_status=$?
+    if [ "$inspect_status" -eq 124 ] || [ "$inspect_status" -eq 137 ]; then
+      cleanup_failed=1
+    fi
+  fi
+  if "$timeout_command" --kill-after=5 30 docker inspect "$container" >/dev/null 2>&1; then
+    cleanup_failed=1
+  else
+    inspect_status=$?
+    if [ "$inspect_status" -eq 124 ] || [ "$inspect_status" -eq 137 ]; then
+      cleanup_failed=1
+    fi
+  fi
   rm -f "$output/container.cid"
+  [ "$cleanup_failed" -eq 0 ]
 }
-trap cleanup_container HUP INT TERM EXIT
+
+cleanup_on_exit() {
+  original_status=$?
+  trap - HUP INT TERM EXIT
+  if ! cleanup_container; then
+    printf 'container cleanup failed or left the exact container alive: %s\n' "$container" >&2
+    [ "$original_status" -ne 0 ] || original_status=1
+  fi
+  exit "$original_status"
+}
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap cleanup_on_exit EXIT
 
 # Shell variables in this command expand inside the Linux container.
 # shellcheck disable=SC2016
@@ -103,7 +166,11 @@ jq -e '\''
   (.limitations | index("pipewire_cli_inventory_only")) != null
 '\'' /output/run/linux-audio-report.json >/dev/null
 (cd /output && find run -type f | sort | xargs sha256sum)
-chown -R "$HOST_UID:$HOST_GID" /output
+chown "$HOST_UID:$HOST_GID" /output/run/generated-playback.wav
+chown "$HOST_UID:$HOST_GID" /output/run/generated-capture-input.raw
+chown "$HOST_UID:$HOST_GID" /output/run/generated-capture.wav
+chown "$HOST_UID:$HOST_GID" /output/run/alsa-null-capture.conf
+chown "$HOST_UID:$HOST_GID" /output/run/linux-audio-report.json
 printf "%s\n" LINUX_AUDIO_RUNTIME_OK'
 
 set +e
@@ -118,6 +185,12 @@ set +e
 run_status=$?
 set -e
 finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+if ! cleanup_container; then
+  printf 'container cleanup failed or left the exact container alive: %s\n' "$container" >&2
+  exit 1
+fi
+trap - HUP INT TERM EXIT
 
 jq -n \
   --arg baseline "paseo@$baseline" --arg image "rust@$image_digest" \

@@ -119,6 +119,9 @@ impl ProcessCommand {
             thread::sleep(Duration::from_millis(10));
         };
 
+        #[cfg(unix)]
+        let _ = terminate_process_group(child.id());
+
         Ok(ProcessResult {
             exit_code: status.code(),
             stdout: join_stream(stdout_reader)?,
@@ -143,7 +146,16 @@ fn join_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Ve
 
 #[cfg(unix)]
 fn terminate_process_tree(child: &mut Child) -> io::Result<()> {
-    let process_group = format!("-{}", child.id());
+    if terminate_process_group(child.id()).is_ok() {
+        Ok(())
+    } else {
+        child.kill()
+    }
+}
+
+#[cfg(unix)]
+fn terminate_process_group(process_group_id: u32) -> io::Result<()> {
+    let process_group = format!("-{process_group_id}");
     let killed = Command::new("/bin/kill")
         .args(["-KILL", "--", &process_group])
         .stdout(Stdio::null())
@@ -152,7 +164,9 @@ fn terminate_process_tree(child: &mut Child) -> io::Result<()> {
     if killed.success() {
         Ok(())
     } else {
-        child.kill()
+        Err(io::Error::other(format!(
+            "failed to terminate process group {process_group_id}"
+        )))
     }
 }
 
