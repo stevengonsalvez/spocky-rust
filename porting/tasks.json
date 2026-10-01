@@ -579,6 +579,16 @@
               "held": { "7ee4905": "P1: enumeration doc claims compare scripts and matched:true with no normalization before either exists", "6fea1f1": "P2: hub_triggers_evidence passes vacuously when SPOCKY_HUB_TRIGGERS_OUTPUT is unset", "01d9341, fc8194b, d99a946, be2d78e, 7bfe140, 51b5b96": "compare used jq -S and hid key order; writer reworking" },
               "routedFindings": ["P2 mod.rs idle deadline must also cap by execution deadline", "P2 mod.rs step lookup must match stepId and ordinal", "P2 manual.rs BOM strip and lossy UTF-8 like request.json(), inferred", "P2 webhook.rs test-double counters inside production type", "P3 parse_iso_ms discards value and treats no-offset time as UTC", "P3 wakeup tie-break by run id instead of insertion order", "P3 missing exact lease-expiry boundary test", "P3 gaps list misses Postgres receipt null ids, active-project check, and manual 503 database_unavailable", "P3 baseline harness executionIdIsDurable is tautological"],
               "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
+            },
+            {
+              "date": "2026-10-01",
+              "writer": "Claude Sonnet writer term_fbb7b2ab",
+              "sourceRange": "08b68ea..66ad68c, 30 commits including the previously held enumeration, evidence test, and trace commits plus 12 review fixes",
+              "integrationRange": "3b2bcd5..73bd030",
+              "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS; every checkpoint 1 finding fixed; committed original and Rust traces byte-identical at sha256 b90c37ca" },
+              "leadVerification": "gated: hub_triggers 14/14, hub_triggers_evidence 1/1 asserting against committed baseline, hub_contract 5/5, http_runtime 6/6, clippy, fmt, shasum -c hub-triggers-sha256.txt OK, cmp original versus rust traces identical",
+              "harnessOnly": "scripts/phase2/hub-triggers-original.integration.test.ts classified in porting/compatibility-exceptions.md",
+              "routedFindings": ["P3 compare.sh does not check raw original against committed evidence", "P3 capture npm ci is online", "P3 Rust local offset not wired to host TZ; UTC pin hides non-UTC and DST behavior", "P3 differential does not exercise the execution-deadline cap", "P3 evidence echoes baseline runId, revisionId, stepRunIds", "P3 step_run_ids test seam in production type"]
             }
           ],
           "dependencies": ["p2_hub_schema_downgrade"],
@@ -702,11 +712,32 @@
           "date": "2026-10-01",
           "writer": "Claude Opus 5.5 high, term_51416cca",
           "sourceCommits": ["3aff24d", "f248d46", "9e74436", "9edd5a2", "0ee7254", "de9fc46"],
-          "state": "held, not integrated",
+          "state": "superseded by checkpoint 2, which integrated the rebased commits",
           "leadVerification": "gated on integration branch: spocky-store 14/14 including unchanged baseline_roundtrip 3/3, clippy and fmt clean",
           "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS with one P1" },
           "heldFor": "P1 registry.rs:461 serde_json rejects lone-surrogate escapes that JSON.parse accepts; the registry loads empty and the next commit overwrites every record",
           "routedFindings": ["P2 records() drops initialize() load error", "P2 tie-break uses byte order, baseline uses localeCompare", "P2 missing per-registry archive helpers", "P3 updater id change appends instead of replacing at index", "P3 Date.parse lacks 8.64e15 ms range limit", "P3 expected zod output in registry_files.rs:133 is hand-written"]
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-01",
+          "checkpoint": 2,
+          "sourceRange": "b3a8167..732edc4, 21 commits; writer Cargo.lock commit 1a5d46b replaced by lead regeneration",
+          "integrationRange": "eea26f9..3b2bcd5",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS; all checkpoint 1 findings fixed; P1(b) kept as baseline defect after confirming workspace-registry.ts load() 285-304 marks loaded on failure, pinned by registry_files.rs:205; oracle reproduces registry-zod.json byte for byte; collate fuzz 616k ASCII pairs 0 mismatches" },
+          "leadVerification": "gated: spocky-store 34/34 with baseline_roundtrip 3/3 unchanged, spocky-domain 9/9, clippy, fmt",
+          "blockersBeforeSessionWiring": ["P1 js_value.rs derived Clone recurses; deep z.any subtrees in agent records overflow the stack on clone"],
+          "routedFindings": ["P2 stringify recursion", "P2 agent scan order must match node readdir byte sort", "P2 z.json non-finite rejection and z.record __proto__ stripping", "P2 remove tombstone and log-only unlink", "P2 surrogate decode underflow on raw U+10FFFF", "P2 dead js_json.rs", "P2 legacy serde_json AgentStore must not be wired", "P3 collate non-ASCII", "P3 zod-oracle network install", "P3 registry update skips schema.parse"]
+        },
+        {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-01",
+          "writer": "Claude Opus 5.5 high, term_2fb2a525",
+          "sourceRange": "65d3af2..ffb602f, 19 commits; uncommitted tools.rs excluded",
+          "state": "review passed, integration pending",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS; initialize clientInfo, ids, timeouts, readline framing, launch resolution, env overlay, and 14 fixture titles match baseline" },
+          "blockersBeforeDaemonWiring": ["P1 approval handlers drop the responder so non-full-access modes hang", "P1 subscribers run on the reader thread and can deadlock or kill it"],
+          "routedFindings": ["P2 disposed check and pending insert race", "P2 unported ledger unbounded", "P2 fetch_catalog has no deadline", "P2 real_codex tests hard-fail without codex", "P3 responder writes on reader thread, unbounded joins in launch, doc overclaims, test hooks public"]
         },
         {
           "lane": "p3_slice_harness",
