@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
@@ -65,8 +65,94 @@ struct Peer {
 
 #[derive(Clone, Debug)]
 struct SocketSender {
-    frames: mpsc::SyncSender<Message>,
+    frames: mpsc::SyncSender<DeliveryFrame>,
     control: mpsc::Sender<SocketClose>,
+}
+
+#[derive(Debug)]
+struct DeliveryMetrics {
+    inflight_bytes: AtomicU64,
+    backpressured_sources: AtomicU64,
+    wait_count: AtomicU64,
+    wait_microseconds: AtomicU64,
+    wait_buckets: [AtomicU64; 5],
+}
+
+impl Default for DeliveryMetrics {
+    fn default() -> Self {
+        Self {
+            inflight_bytes: AtomicU64::new(0),
+            backpressured_sources: AtomicU64::new(0),
+            wait_count: AtomicU64::new(0),
+            wait_microseconds: AtomicU64::new(0),
+            wait_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+        }
+    }
+}
+
+struct DeliveryFrame {
+    message: Option<Message>,
+    bytes: u64,
+    queued_at: Instant,
+    metrics: Arc<DeliveryMetrics>,
+    finished: bool,
+}
+
+impl DeliveryFrame {
+    fn new(message: Message, metrics: Arc<DeliveryMetrics>) -> Self {
+        let bytes = message_payload_bytes(&message) as u64;
+        metrics.inflight_bytes.fetch_add(bytes, Ordering::Relaxed);
+        metrics
+            .backpressured_sources
+            .fetch_add(1, Ordering::Relaxed);
+        Self {
+            message: Some(message),
+            bytes,
+            queued_at: Instant::now(),
+            metrics,
+            finished: false,
+        }
+    }
+
+    fn message(&mut self) -> Message {
+        self.message.take().expect("delivery frame message")
+    }
+
+    fn finish(mut self) {
+        self.record();
+    }
+
+    fn record(&mut self) {
+        if self.finished {
+            return;
+        }
+        let micros = u64::try_from(self.queued_at.elapsed().as_micros()).unwrap_or(u64::MAX);
+        self.metrics
+            .inflight_bytes
+            .fetch_sub(self.bytes, Ordering::Relaxed);
+        self.metrics
+            .backpressured_sources
+            .fetch_sub(1, Ordering::Relaxed);
+        self.metrics.wait_count.fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .wait_microseconds
+            .fetch_add(micros, Ordering::Relaxed);
+        for (index, limit) in [1_000, 10_000, 100_000, 1_000_000, 10_000_000]
+            .iter()
+            .enumerate()
+        {
+            if micros <= *limit {
+                self.metrics.wait_buckets[index].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for DeliveryFrame {
+    fn drop(&mut self) {
+        self.record();
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +207,7 @@ struct Shared {
     peer_losses: AtomicU64,
     topology: Mutex<Vec<TopologyEvent>>,
     ingress_reserved_bytes: Mutex<usize>,
+    delivery_metrics: Arc<DeliveryMetrics>,
     next_socket: AtomicU64,
     running: AtomicBool,
 }
@@ -151,8 +238,17 @@ impl NetworkNode {
     ///
     /// Returns the listener binding error.
     pub fn bind_with_config(node: NodeId, config: NetworkConfig) -> io::Result<Self> {
-        let peer_listener = loopback_listener()?;
-        let websocket_listener = loopback_listener()?;
+        Self::bind_on(node, config, IpAddr::V4(Ipv4Addr::LOCALHOST))
+    }
+
+    /// Binds both relay listeners on the selected local interface address.
+    ///
+    /// # Errors
+    ///
+    /// Returns a listener binding error when the address is not local or unavailable.
+    pub fn bind_on(node: NodeId, config: NetworkConfig, host: IpAddr) -> io::Result<Self> {
+        let peer_listener = listener(host)?;
+        let websocket_listener = listener(host)?;
         let peer_address = peer_listener.local_addr()?;
         let websocket_address = websocket_listener.local_addr()?;
         let shared = Arc::new(Shared {
@@ -172,6 +268,7 @@ impl NetworkNode {
             peer_losses: AtomicU64::new(0),
             topology: Mutex::new(Vec::new()),
             ingress_reserved_bytes: Mutex::new(0),
+            delivery_metrics: Arc::new(DeliveryMetrics::default()),
             next_socket: AtomicU64::new(0),
             running: AtomicBool::new(true),
         });
@@ -278,8 +375,8 @@ impl Drop for NetworkNode {
     }
 }
 
-fn loopback_listener() -> io::Result<TcpListener> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+fn listener(host: IpAddr) -> io::Result<TcpListener> {
+    let listener = TcpListener::bind(SocketAddr::new(host, 0))?;
     listener.set_nonblocking(true)?;
     Ok(listener)
 }
@@ -464,6 +561,7 @@ fn spawn_websocket_listener(shared: Arc<Shared>, listener: TcpListener) -> JoinH
 }
 
 #[allow(clippy::result_large_err)]
+#[allow(clippy::too_many_lines)]
 fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
     configure_websocket_stream(&stream);
     if serve_operation(shared, &mut stream) {
@@ -508,8 +606,10 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
             }
         }
         match frame_receiver.try_recv() {
-            Ok(frame) => {
-                if socket.send(frame).is_err() {
+            Ok(mut delivery) => {
+                let sent = socket.send(delivery.message());
+                delivery.finish();
+                if sent.is_err() {
                     if let Ok(reason) = control_receiver.try_recv() {
                         close_socket(&mut socket, &reason);
                     }
@@ -547,7 +647,10 @@ fn serve_websocket(shared: &Arc<Shared>, mut stream: TcpStream) {
                 }
                 broadcast(shared, &connection, socket_id, &frame);
             }
-            Ok(Message::Close(_)) => break,
+            Ok(Message::Close(_)) => {
+                let _ = socket.flush();
+                break;
+            }
             Ok(Message::Ping(bytes)) => {
                 let _ = socket.send(Message::Pong(bytes));
             }
@@ -1148,6 +1251,15 @@ fn render_metrics(shared: &Shared) -> String {
         .values()
         .filter(|owner| *owner == &shared.node)
         .count();
+    let wait_microseconds = shared
+        .delivery_metrics
+        .wait_microseconds
+        .load(Ordering::Relaxed);
+    let wait_seconds = format!(
+        "{}.{:06}",
+        wait_microseconds / 1_000_000,
+        wait_microseconds % 1_000_000
+    );
     format!(
         concat!(
             "# TYPE spocky_relay_ready gauge\n",
@@ -1169,7 +1281,20 @@ fn render_metrics(shared: &Shared) -> String {
             "# TYPE spocky_relay_peer_losses_total counter\n",
             "spocky_relay_peer_losses_total {}\n",
             "# TYPE spocky_relay_ingress_reserved_bytes gauge\n",
-            "spocky_relay_ingress_reserved_bytes {}\n"
+            "spocky_relay_ingress_reserved_bytes {}\n",
+            "# TYPE spocky_relay_inflight_delivery_bytes gauge\n",
+            "spocky_relay_inflight_delivery_bytes {}\n",
+            "# TYPE spocky_relay_backpressured_sources gauge\n",
+            "spocky_relay_backpressured_sources {}\n",
+            "# TYPE spocky_relay_delivery_wait_seconds histogram\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"0.001\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"0.01\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"0.1\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"1\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"10\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_bucket{{le=\"+Inf\"}} {}\n",
+            "spocky_relay_delivery_wait_seconds_sum {}\n",
+            "spocky_relay_delivery_wait_seconds_count {}\n"
         ),
         usize::from(ready(shared)),
         usize::from(shared.draining.load(Ordering::Relaxed)),
@@ -1181,7 +1306,36 @@ fn render_metrics(shared: &Shared) -> String {
         shared.bytes_forwarded.load(Ordering::Relaxed),
         shared.peer_losses.load(Ordering::Relaxed),
         *locked(&shared.ingress_reserved_bytes),
+        shared
+            .delivery_metrics
+            .inflight_bytes
+            .load(Ordering::Relaxed),
+        shared
+            .delivery_metrics
+            .backpressured_sources
+            .load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_buckets[0].load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_buckets[1].load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_buckets[2].load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_buckets[3].load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_buckets[4].load(Ordering::Relaxed),
+        shared.delivery_metrics.wait_count.load(Ordering::Relaxed),
+        wait_seconds,
+        shared.delivery_metrics.wait_count.load(Ordering::Relaxed),
     )
+}
+
+fn delivery(shared: &Shared, message: Message) -> DeliveryFrame {
+    DeliveryFrame::new(message, Arc::clone(&shared.delivery_metrics))
+}
+
+fn message_payload_bytes(message: &Message) -> usize {
+    match message {
+        Message::Text(text) => text.len(),
+        Message::Binary(bytes) | Message::Ping(bytes) | Message::Pong(bytes) => bytes.len(),
+        Message::Close(Some(frame)) => frame.reason.len() + 2,
+        Message::Close(None) | Message::Frame(_) => 0,
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1286,9 +1440,10 @@ fn register_socket(
                 })
                 .collect::<Vec<_>>()
                 .join(",");
-            let _ = sender.frames.try_send(Message::Text(
+            let frame = Message::Text(
                 format!(r#"{{"type":"sync","connectionIds":[{connection_ids}]}}"#).into(),
-            ));
+            );
+            let _ = sender.frames.try_send(delivery(shared, frame));
         }
         ConnectionKind::Client(_) | ConnectionKind::Legacy => {}
         ConnectionKind::Data(connection_id) => {
@@ -1318,7 +1473,7 @@ fn register_socket(
             {
                 release_ingress(shared, pending.bytes);
                 while let Some(frame) = pending.frames.pop_front() {
-                    let _ = sender.frames.try_send(frame);
+                    let _ = sender.frames.try_send(delivery(shared, frame));
                 }
             }
         }
@@ -1358,7 +1513,7 @@ fn notify_controls(shared: &Shared, session: &str, frame: &Message) {
     if let Some(sockets) = locked(&shared.sockets).get(session) {
         for socket_id in controls {
             if let Some(sender) = sockets.get(&socket_id) {
-                let _ = sender.frames.try_send(frame.clone());
+                let _ = sender.frames.try_send(delivery(shared, frame.clone()));
             }
         }
     }
@@ -1439,7 +1594,7 @@ fn broadcast(shared: &Shared, connection: &AcceptedConnection, source: u64, fram
     let mut remove = Vec::new();
     for socket_id in targets {
         if let Some(sender) = sockets.get(&socket_id) {
-            match sender.frames.try_send(frame.clone()) {
+            match sender.frames.try_send(delivery(shared, frame.clone())) {
                 Ok(()) => {}
                 Err(mpsc::TrySendError::Full(_)) => {
                     let _ = sender.control.send(SocketClose::SlowConsumer);
@@ -1463,7 +1618,7 @@ fn send_to_socket(shared: &Shared, session: &str, socket_id: u64, frame: Message
         .get(session)
         .and_then(|sockets| sockets.get(&socket_id))
     {
-        let _ = sender.frames.try_send(frame);
+        let _ = sender.frames.try_send(delivery(shared, frame));
     }
 }
 

@@ -1,5 +1,5 @@
 use std::io::{self, BufRead, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use spocky_relay_pilot::{NetworkConfig, NetworkNode, NodeId};
 
@@ -13,7 +13,15 @@ fn main() {
         max_websockets: environment_usize("SPOCKY_RELAY_MAX_WEBSOCKETS", 1_024),
         ..NetworkConfig::default()
     };
-    let node = NetworkNode::bind_with_config(NodeId::from(local_node.as_str()), config)
+    let host = std::env::var("SPOCKY_RELAY_HOST").map_or_else(
+        |_| "127.0.0.1".parse::<IpAddr>().expect("loopback address"),
+        |value| {
+            value
+                .parse::<IpAddr>()
+                .expect("SPOCKY_RELAY_HOST must be an IP address")
+        },
+    );
+    let node = NetworkNode::bind_on(NodeId::from(local_node.as_str()), config, host)
         .expect("bind relay peer and websocket listeners");
     if let Ok(peers) = std::env::var("SPOCKY_RELAY_PEERS") {
         node.discover_peers(
