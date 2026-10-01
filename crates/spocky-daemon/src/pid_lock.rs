@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 use rustix::process::{Pid, test_kill_process};
 use serde_json::Value;
 use spocky_contracts::js_value::parse as parse_js;
+use spocky_store::atomic::FsError;
 
 use crate::iso_time::{now_ms, parse_iso, to_iso_string};
 use crate::private_files::ensure_private_directory;
@@ -279,20 +280,50 @@ fn touch(pid_path: &Path) -> io::Result<()> {
         .set_times(FileTimes::new().set_accessed(now).set_modified(now))
 }
 
+/// A failed `readFile`: the open carries the path in node's message, a read
+/// failure (a directory, say) does not.
+enum ReadFailure {
+    Open(io::Error),
+    Read(io::Error),
+}
+
+impl ReadFailure {
+    /// `String(error)` as node builds it.
+    fn text(self, path: &Path) -> String {
+        let (syscall, source, path) = match self {
+            Self::Open(source) => ("open", source, Some(path.to_string_lossy().into_owned())),
+            Self::Read(source) => ("read", source, None),
+        };
+        let error = FsError {
+            syscall,
+            path,
+            dest: None,
+            source,
+        };
+        format!("Error: {error}")
+    }
+}
+
+/// `readFile(pidPath, "utf-8")`.
+fn read_lock_text(pid_path: &Path) -> Result<String, ReadFailure> {
+    let mut file = File::open(pid_path).map_err(ReadFailure::Open)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(ReadFailure::Read)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// `readPidLock`: up to 10 reads 50 ms apart, because a writer creates the file
 /// just before it fills it. A missing file is `None`; a file still empty after
 /// the retries was abandoned and is `None`; anything else unreadable is an
 /// error with code `DAEMON_STATE_READ_FAILED` whose text ends in `String(lastError)`:
-/// `Error: Invalid lock shape` or `SyntaxError: <V8 text>`. A file system error
-/// still carries Rust's text, not node's: it waits for the `FsError` in `spocky-store`
-/// (`atomic.rs`, public once `p3_session` `59cf316` is on main).
+/// `Error: Invalid lock shape`, `SyntaxError: <V8 text>` or a file system error
+/// as node words it (`Error: EACCES: permission denied, open '<path>'`).
 fn read_pid_lock(pid_path: &Path) -> Result<Option<PidLockInfo>, PidLockError> {
     let mut last_error = String::new();
     let mut empty = false;
     for _ in 0..PID_LOCK_READ_RETRY_ATTEMPTS {
-        match fs::read(pid_path) {
-            Ok(bytes) => {
-                let content = String::from_utf8_lossy(&bytes);
+        match read_lock_text(pid_path) {
+            Ok(content) => {
                 empty = content.is_empty();
                 if !empty {
                     match parse_js(&content) {
@@ -311,10 +342,12 @@ fn read_pid_lock(pid_path: &Path) -> Result<Option<PidLockInfo>, PidLockError> {
                     }
                 }
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
+            Err(ReadFailure::Open(error)) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(None);
+            }
+            Err(failure) => {
                 empty = false;
-                last_error = error.to_string();
+                last_error = failure.text(pid_path);
             }
         }
         // The baseline waits after every attempt, the last one included.
@@ -933,6 +966,44 @@ mod tests {
                 lock_file(home.path()).display()
             )
         );
+    }
+
+    /// `String(error)` of what node 22.20.0's `readFile(path, "utf-8")` throws.
+    #[test]
+    fn a_lock_that_cannot_be_read_reports_node_file_system_errors() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = home();
+        let path = lock_file(home.path());
+        let message = |home: &Path| {
+            let PidLockError::Lock { message, code, .. } = get_pid_lock_info(home).unwrap_err()
+            else {
+                panic!("expected a lock error");
+            };
+            assert_eq!(code, Some("DAEMON_STATE_READ_FAILED"));
+            message
+        };
+        fs::create_dir(&path).unwrap();
+        assert_eq!(
+            message(home.path()),
+            format!(
+                "Cannot read daemon state at {}: Error: EISDIR: illegal operation on a directory, read",
+                path.display()
+            )
+        );
+        fs::remove_dir(&path).unwrap();
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::File::open(&path).is_err() {
+            assert_eq!(
+                message(home.path()),
+                format!(
+                    "Cannot read daemon state at {}: Error: EACCES: permission denied, open '{}'",
+                    path.display(),
+                    path.display()
+                )
+            );
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
