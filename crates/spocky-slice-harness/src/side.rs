@@ -2007,7 +2007,7 @@ mod tests {
     /// did not start.
     fn decoy(needle: &str) -> std::process::Child {
         let child = Command::new("/bin/sleep")
-            .arg("30")
+            .arg("300")
             .env("SPOCKY_TEST_ROOT", needle)
             .spawn()
             .unwrap();
@@ -2027,11 +2027,16 @@ mod tests {
         let unrelated_pid = unrelated.id();
         // An unrelated live process whose argv (not only its environment)
         // names a path under the root.
-        let mut argv_decoy = Command::new("/bin/sh")
-            .args(["-c", "/bin/sleep 30; :"])
-            .arg(directory.join("decoy-argv"))
-            .spawn()
-            .unwrap();
+        // Its own process group, so cleanup can reap the sleep grandchild.
+        let mut argv_decoy = {
+            use std::os::unix::process::CommandExt;
+            Command::new("/bin/sh")
+                .args(["-c", "/bin/sleep 300; :"])
+                .arg(directory.join("decoy-argv"))
+                .process_group(0)
+                .spawn()
+                .unwrap()
+        };
         let argv_decoy_pid = argv_decoy.id();
         assert!(wait_until(Duration::from_secs(5), || {
             run_bounded(
@@ -2047,7 +2052,7 @@ mod tests {
         let fake_tmux = directory.join("tmux");
         fs::copy("/bin/sleep", &fake_tmux).unwrap();
         let script = format!(
-            "{} 30 & echo $! > {}; exec /bin/sleep 30",
+            "{} 300 & echo $! > {}; exec /bin/sleep 300",
             shell_quote(&fake_tmux.display().to_string()),
             shell_quote(&directory.join("tmux.pid").display().to_string())
         );
@@ -2090,6 +2095,11 @@ mod tests {
             alive(tmux_pid),
             "a tmux process in the owned tree must survive"
         );
+        let argv_grandchild = snapshot()
+            .into_iter()
+            .find(|process| process.ppid == argv_decoy_pid && process.comm.ends_with("sleep"))
+            .map(|process| process.pid)
+            .expect("argv decoy sleep grandchild");
         signal(tmux_pid, "KILL");
         let _ = unrelated.kill();
         let _ = unrelated.wait();
@@ -2098,6 +2108,11 @@ mod tests {
             .status();
         let _ = argv_decoy.kill();
         let _ = argv_decoy.wait();
+        // Cleanup leaks nothing: the group kill reaped the grandchild too.
+        assert!(wait_until(Duration::from_secs(5), || !alive(
+            argv_grandchild
+        )));
+        assert!(!group_has_members(argv_decoy_pid));
         fs::remove_dir_all(&directory).unwrap();
     }
 
