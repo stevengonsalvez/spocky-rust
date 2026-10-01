@@ -19,14 +19,11 @@ pub fn extract_http_bearer_token(value: Option<&str>) -> Option<&str> {
     (scheme == "Bearer" && parts.next().is_none()).then_some(token)
 }
 
-/// `paseo.bearer.<token>` split on dots: the protocol segments when it has
-/// the prefix and at least a third segment.
-fn bearer_segments(protocol: &str) -> Option<Vec<&str>> {
-    let segments: Vec<&str> = protocol.split('.').collect();
-    (segments.first() == Some(&"paseo")
-        && segments.get(1) == Some(&"bearer")
-        && segments.len() >= 3)
-        .then_some(segments)
+/// The token of a `paseo.bearer.<token>` protocol: everything after the
+/// prefix. The pinned code splits on dots and rejoins segments from the third,
+/// which is the same text; an empty token is still a token.
+fn bearer_token(protocol: &str) -> Option<&str> {
+    protocol.strip_prefix("paseo.bearer.")
 }
 
 /// `extractWsBearerProtocol`: the first listed protocol shaped like a bearer
@@ -37,19 +34,22 @@ pub fn extract_ws_bearer_protocol(value: Option<&str>) -> Option<&str> {
         .filter(|value| !value.is_empty())?
         .split(',')
         .map(js::trim)
-        .find(|protocol| bearer_segments(protocol).is_some())
+        .find(|protocol| bearer_token(protocol).is_some())
 }
 
-/// `extractWsBearerToken`: the segments after `paseo.bearer`, rejoined.
+/// `extractWsBearerToken`.
 #[must_use]
-pub fn extract_ws_bearer_token(protocol: Option<&str>) -> Option<String> {
-    let segments = bearer_segments(protocol.filter(|protocol| !protocol.is_empty())?)?;
-    Some(segments[2..].join("."))
+pub fn extract_ws_bearer_token(protocol: Option<&str>) -> Option<&str> {
+    bearer_token(protocol.filter(|protocol| !protocol.is_empty())?)
 }
 
 /// `selectWebSocketProtocol`: with no password the first offered protocol is
 /// echoed. With a password only a bearer protocol is accepted. `None` is the
 /// `false` that makes the handshake answer without a protocol.
+///
+/// Caller contract: `password_set` is true exactly when the daemon holds a
+/// password hash (`auth.password` in `createWebSocketServer`). It is not the
+/// per-connection credential.
 #[must_use]
 pub fn select_web_socket_protocol<'a>(
     protocols: &[&'a str],
@@ -100,12 +100,9 @@ mod tests {
     fn ws_bearer_token_rejoins_the_remaining_segments() {
         assert_eq!(
             extract_ws_bearer_token(Some("paseo.bearer.a.b")),
-            Some("a.b".to_owned())
+            Some("a.b")
         );
-        assert_eq!(
-            extract_ws_bearer_token(Some("paseo.bearer.")),
-            Some(String::new())
-        );
+        assert_eq!(extract_ws_bearer_token(Some("paseo.bearer.")), Some(""));
         assert_eq!(extract_ws_bearer_token(Some("paseo.bearer")), None);
         assert_eq!(extract_ws_bearer_token(Some("x.bearer.t")), None);
         assert_eq!(extract_ws_bearer_token(None), None);
