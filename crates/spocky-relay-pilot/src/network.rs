@@ -675,15 +675,18 @@ fn parse_handshake_fields(payload: &str) -> Option<HandshakeFields> {
         bytes: payload.as_bytes(),
         index: 0,
     };
-    parser.skip_whitespace();
     let mut fields = HandshakeFields::default();
-    if parser.peek()? == b'{' {
-        parser.parse_object(Some(&mut fields))?;
-    } else {
-        parser.parse_value()?;
-    }
+    let mut pending = vec![JsonExpectation::DocumentEnd];
     parser.skip_whitespace();
-    (parser.index == parser.bytes.len()).then_some(fields)
+    if parser.consume_if(b'{') {
+        pending.push(JsonExpectation::ObjectFirstKeyOrEnd { top_level: true });
+    } else {
+        pending.push(JsonExpectation::Value(None));
+    }
+    while let Some(expectation) = pending.pop() {
+        parser.apply(expectation, &mut pending, &mut fields)?;
+    }
+    Some(fields)
 }
 
 struct JsonParser<'a> {
@@ -691,89 +694,142 @@ struct JsonParser<'a> {
     index: usize,
 }
 
-enum JsonValue {
-    String(String),
-    Other,
+#[derive(Clone, Copy)]
+enum FieldCapture {
+    Type,
+    Key,
 }
 
-impl JsonValue {
-    fn into_string(self) -> Option<String> {
-        match self {
-            Self::String(value) => Some(value),
-            Self::Other => None,
-        }
-    }
+#[derive(Clone, Copy)]
+enum JsonExpectation {
+    Value(Option<FieldCapture>),
+    ArrayFirstValueOrEnd,
+    ArrayValue,
+    ArrayCommaOrEnd,
+    ObjectFirstKeyOrEnd { top_level: bool },
+    ObjectKey { top_level: bool },
+    ObjectCommaOrEnd { top_level: bool },
+    DocumentEnd,
 }
 
 impl JsonParser<'_> {
-    fn parse_value(&mut self) -> Option<JsonValue> {
+    fn apply(
+        &mut self,
+        expectation: JsonExpectation,
+        pending: &mut Vec<JsonExpectation>,
+        fields: &mut HandshakeFields,
+    ) -> Option<()> {
+        match expectation {
+            JsonExpectation::Value(capture) => self.parse_value(capture, pending, fields),
+            JsonExpectation::ArrayFirstValueOrEnd => {
+                self.skip_whitespace();
+                if !self.consume_if(b']') {
+                    pending.push(JsonExpectation::ArrayCommaOrEnd);
+                    pending.push(JsonExpectation::Value(None));
+                }
+                Some(())
+            }
+            JsonExpectation::ArrayValue => {
+                pending.push(JsonExpectation::ArrayCommaOrEnd);
+                pending.push(JsonExpectation::Value(None));
+                Some(())
+            }
+            JsonExpectation::ArrayCommaOrEnd => {
+                self.skip_whitespace();
+                if !self.consume_if(b']') {
+                    self.consume(b',')?;
+                    pending.push(JsonExpectation::ArrayValue);
+                }
+                Some(())
+            }
+            JsonExpectation::ObjectFirstKeyOrEnd { top_level } => {
+                self.skip_whitespace();
+                if !self.consume_if(b'}') {
+                    self.parse_object_field(top_level, pending, fields)?;
+                }
+                Some(())
+            }
+            JsonExpectation::ObjectKey { top_level } => {
+                self.skip_whitespace();
+                self.parse_object_field(top_level, pending, fields)
+            }
+            JsonExpectation::ObjectCommaOrEnd { top_level } => {
+                self.skip_whitespace();
+                if !self.consume_if(b'}') {
+                    self.consume(b',')?;
+                    pending.push(JsonExpectation::ObjectKey { top_level });
+                }
+                Some(())
+            }
+            JsonExpectation::DocumentEnd => {
+                self.skip_whitespace();
+                (self.index == self.bytes.len()).then_some(())
+            }
+        }
+    }
+
+    fn parse_value(
+        &mut self,
+        capture: Option<FieldCapture>,
+        pending: &mut Vec<JsonExpectation>,
+        fields: &mut HandshakeFields,
+    ) -> Option<()> {
         self.skip_whitespace();
         match self.peek()? {
-            b'"' => self.parse_string().map(JsonValue::String),
+            b'"' => {
+                let value = self.parse_string()?;
+                match capture {
+                    Some(FieldCapture::Type) => fields.handshake_type = Some(value),
+                    Some(FieldCapture::Key) => fields.key = Some(value),
+                    None => {}
+                }
+                Some(())
+            }
             b'{' => {
-                self.parse_object(None)?;
-                Some(JsonValue::Other)
+                self.index += 1;
+                pending.push(JsonExpectation::ObjectFirstKeyOrEnd { top_level: false });
+                Some(())
             }
             b'[' => {
-                self.parse_array()?;
-                Some(JsonValue::Other)
+                self.index += 1;
+                pending.push(JsonExpectation::ArrayFirstValueOrEnd);
+                Some(())
             }
-            b't' => self.parse_literal(b"true").map(|()| JsonValue::Other),
-            b'f' => self.parse_literal(b"false").map(|()| JsonValue::Other),
-            b'n' => self.parse_literal(b"null").map(|()| JsonValue::Other),
-            b'-' | b'0'..=b'9' => self.parse_number().map(|()| JsonValue::Other),
+            b't' => self.parse_literal(b"true"),
+            b'f' => self.parse_literal(b"false"),
+            b'n' => self.parse_literal(b"null"),
+            b'-' | b'0'..=b'9' => self.parse_number(),
             _ => None,
         }
     }
 
-    fn parse_object(&mut self, mut fields: Option<&mut HandshakeFields>) -> Option<()> {
-        self.consume(b'{')?;
+    fn parse_object_field(
+        &mut self,
+        top_level: bool,
+        pending: &mut Vec<JsonExpectation>,
+        fields: &mut HandshakeFields,
+    ) -> Option<()> {
+        let field = self.parse_string()?;
         self.skip_whitespace();
-        if self.consume_if(b'}') {
-            return Some(());
-        }
-        loop {
-            let field = self.parse_string()?;
-            self.skip_whitespace();
-            self.consume(b':')?;
-            let value = self.parse_value()?;
-            if let Some(fields) = fields.as_deref_mut() {
-                match field.as_str() {
-                    "type" if !fields.type_seen => {
-                        fields.type_seen = true;
-                        fields.handshake_type = value.into_string();
-                    }
-                    "key" if !fields.key_seen => {
-                        fields.key_seen = true;
-                        fields.key = value.into_string();
-                    }
-                    _ => {}
+        self.consume(b':')?;
+        let capture = if top_level {
+            match field.as_str() {
+                "type" if !fields.type_seen => {
+                    fields.type_seen = true;
+                    Some(FieldCapture::Type)
                 }
+                "key" if !fields.key_seen => {
+                    fields.key_seen = true;
+                    Some(FieldCapture::Key)
+                }
+                _ => None,
             }
-            self.skip_whitespace();
-            if self.consume_if(b'}') {
-                return Some(());
-            }
-            self.consume(b',')?;
-            self.skip_whitespace();
-        }
-    }
-
-    fn parse_array(&mut self) -> Option<()> {
-        self.consume(b'[')?;
-        self.skip_whitespace();
-        if self.consume_if(b']') {
-            return Some(());
-        }
-        loop {
-            self.parse_value()?;
-            self.skip_whitespace();
-            if self.consume_if(b']') {
-                return Some(());
-            }
-            self.consume(b',')?;
-            self.skip_whitespace();
-        }
+        } else {
+            None
+        };
+        pending.push(JsonExpectation::ObjectCommaOrEnd { top_level });
+        pending.push(JsonExpectation::Value(capture));
+        Some(())
     }
 
     fn parse_string(&mut self) -> Option<String> {
@@ -788,6 +844,7 @@ impl JsonParser<'_> {
     }
 
     fn parse_number(&mut self) -> Option<()> {
+        let start = self.index;
         self.consume_if(b'-');
         match self.peek()? {
             b'0' => self.index += 1,
@@ -808,6 +865,17 @@ impl JsonParser<'_> {
                 self.index += 1;
             }
             self.consume_digits()?;
+        }
+        let number = std::str::from_utf8(&self.bytes[start..self.index]).ok()?;
+        if number
+            .bytes()
+            .any(|byte| matches!(byte, b'.' | b'e' | b'E'))
+        {
+            if !number.parse::<f64>().ok()?.is_finite() {
+                return None;
+            }
+        } else if number.len() > 1_024 {
+            return None;
         }
         Some(())
     }

@@ -1,5 +1,6 @@
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use spocky_crypto::{export_public_key, key_pair_from_secret};
@@ -97,6 +98,74 @@ fn duplicate_handshake_fields_use_first_value() {
     let close = wait_for_close(&mut first_invalid_key);
     assert_eq!(close.code, CloseCode::Policy);
     assert_eq!(close.reason, "Invalid handshake key");
+}
+
+#[test]
+fn jason_number_limits_gate_whole_handshake_document() {
+    let node = NetworkNode::bind(NodeId::from("alpha")).unwrap();
+    let address = node.websocket_address();
+    let invalid_key = export_public_key(&[0; 32]).unwrap();
+    let mut daemon = websocket(address, "invalid-numbers", "server", "1", "");
+    let mut client = websocket(address, "invalid-numbers", "client", "1", "");
+    let invalid_documents = [
+        format!(r#"{{"type":"hello","key":"{invalid_key}","ignored":1e400}}"#),
+        format!(r#"{{"type":"hello","key":"{invalid_key}","ignored":-1e400}}"#),
+        format!(
+            r#"{{"type":"hello","key":"{invalid_key}","ignored":{}}}"#,
+            "9".repeat(1_025)
+        ),
+        format!(
+            r#"{{"type":"hello","key":"{invalid_key}","ignored":-{}}}"#,
+            "9".repeat(1_024)
+        ),
+    ];
+
+    for payload in invalid_documents {
+        client.send(Message::Text(payload.clone().into())).unwrap();
+        assert_eq!(daemon.read().unwrap(), Message::Text(payload.into()));
+    }
+
+    let mut boundary = websocket(address, "valid-number-boundary", "client", "1", "");
+    boundary
+        .send(Message::Text(
+            format!(
+                r#"{{"type":"hello","key":"{invalid_key}","ignored":{}}}"#,
+                "9".repeat(1_024)
+            )
+            .into(),
+        ))
+        .unwrap();
+    let close = wait_for_close(&mut boundary);
+    assert_eq!(close.code, CloseCode::Policy);
+    assert_eq!(close.reason, "Invalid handshake key");
+}
+
+#[test]
+fn deeply_nested_opaque_json_cannot_abort_relay_process() {
+    let mut relay = RelayProcess::spawn();
+    let address = relay.websocket_address;
+    let mut deep_source = websocket(address, "deep-json", "client", "1", "");
+    let mut deep_destination = websocket(address, "deep-json", "server", "1", "");
+    let mut healthy_source = websocket(address, "deep-healthy", "client", "2", "shared");
+    let mut healthy_destination = websocket(address, "deep-healthy", "server", "2", "shared");
+    let payload = format!("{}0{}", "[".repeat(50_000), "]".repeat(50_000));
+
+    deep_source
+        .send(Message::Text(payload.clone().into()))
+        .unwrap();
+    assert_eq!(
+        deep_destination.read().unwrap(),
+        Message::Text(payload.into())
+    );
+    assert!(relay.child.try_wait().unwrap().is_none());
+
+    healthy_source
+        .send(Message::Binary(vec![0x00, 0xff, 0x7e].into()))
+        .unwrap();
+    assert_eq!(
+        healthy_destination.read().unwrap(),
+        Message::Binary(vec![0x00, 0xff, 0x7e].into())
+    );
 }
 
 #[test]
@@ -239,6 +308,42 @@ fn wait_for_close(socket: &mut tungstenite::WebSocket<TcpStream>) -> CloseFrame 
             Ok(Message::Close(Some(close))) => return close,
             Ok(_) | Err(tungstenite::Error::Io(_)) if std::time::Instant::now() < deadline => {}
             result => panic!("expected close frame, got {result:?}"),
+        }
+    }
+}
+
+struct RelayProcess {
+    child: Child,
+    websocket_address: SocketAddr,
+}
+
+impl RelayProcess {
+    fn spawn() -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_spocky-relay-network-node"))
+            .arg("deep-json")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let mut ready = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        let fields = ready.trim().split('\t').collect::<Vec<_>>();
+        assert_eq!(fields.first(), Some(&"READY"));
+        Self {
+            child,
+            websocket_address: fields[4].parse().unwrap(),
+        }
+    }
+}
+
+impl Drop for RelayProcess {
+    fn drop(&mut self) {
+        if self.child.try_wait().unwrap().is_none() {
+            self.child.kill().unwrap();
+            self.child.wait().unwrap();
         }
     }
 }
