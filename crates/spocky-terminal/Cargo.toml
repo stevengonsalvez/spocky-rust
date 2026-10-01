@@ -11,3 +11,9 @@ unsafe_code = "forbid"
 [lints.clippy]
 all = "deny"
 pedantic = "deny"
+
+[dependencies]
+spocky-contracts = { path = "../spocky-contracts" }
+
+[dev-dependencies]
+sha2 = "0.10.9"
