@@ -1003,7 +1003,14 @@ impl CodexSession {
             let weak = Arc::downgrade(&self.inner);
             client.set_request_handler(
                 method,
-                Arc::new(move |_params, _id, responder| {
+                Arc::new(move |params, _id, responder| {
+                    if method == "mcpServer/elicitation/request"
+                        && let Some(reply) = paseo_declined_elicitation(params.as_ref())
+                    {
+                        // Paseo itself declines these at once: parity.
+                        responder.respond(Ok(Some(reply)));
+                        return;
+                    }
                     // TEMPORARY guard, not parity: Paseo shows these as
                     // questions or MCP approvals and waits for the user. Until
                     // that flow is ported, decline at once so Codex never waits
@@ -2111,6 +2118,39 @@ fn saved_async_questions(saved: Option<&Value>) -> Vec<AsyncQuestionRecord> {
         }
     }
     records
+}
+
+/// `handleMcpElicitationRequest` short-circuits: a `url` mode request or a
+/// schema with required fields is declined without asking the user. `None`
+/// for anything else, including params that fail Paseo's schema.
+fn paseo_declined_elicitation(params: Option<&Value>) -> Option<Value> {
+    let record = params?.as_object()?;
+    let string = |key: &str| matches!(record.get(key), Some(Value::String(_)));
+    let optional_string = |key: &str| matches!(record.get(key), None | Some(Value::String(_)));
+    let schema_ok = string("threadId")
+        && matches!(
+            record.get("turnId"),
+            None | Some(Value::Null | Value::String(_))
+        )
+        && string("serverName")
+        && matches!(
+            record.get("mode").and_then(Value::as_str),
+            Some("form" | "openai/form" | "url")
+        )
+        && string("message")
+        && optional_string("url")
+        && optional_string("elicitationId");
+    if !schema_ok {
+        return None;
+    }
+    let required = record
+        .get("requestedSchema")
+        .and_then(Value::as_object)
+        .and_then(|schema| schema.get("required"))
+        .and_then(Value::as_array);
+    let declined = record.get("mode").and_then(Value::as_str) == Some("url")
+        || required.is_some_and(|required| !required.is_empty());
+    declined.then(|| json!({"action": "decline", "content": null, "_meta": null}))
 }
 
 /// The reply Paseo itself sends when it dismisses each of these requests:
@@ -3694,6 +3734,44 @@ mod tests {
         let session = CodexSession::resumed(options, &handle, false).expect("session");
         assert_eq!(session.id(), None);
         assert!(session.stream_history().is_empty());
+    }
+
+    #[test]
+    fn elicitations_paseo_declines_are_declined_without_a_record() {
+        let decline = json!({"action": "decline", "content": null, "_meta": null});
+        let base = json!({"threadId": "t", "serverName": "s", "mode": "form", "message": "m"});
+        let with = |key: &str, value: Value| {
+            let mut params = base.clone();
+            params[key] = value;
+            params
+        };
+        assert_eq!(
+            paseo_declined_elicitation(Some(&with("mode", json!("url")))),
+            Some(decline.clone())
+        );
+        assert_eq!(
+            paseo_declined_elicitation(Some(&with("requestedSchema", json!({"required": ["a"]})))),
+            Some(decline)
+        );
+        assert_eq!(paseo_declined_elicitation(Some(&base)), None);
+        assert_eq!(
+            paseo_declined_elicitation(Some(&with("requestedSchema", json!({"required": []})))),
+            None
+        );
+        assert_eq!(
+            paseo_declined_elicitation(Some(
+                &with("mode", json!("url"))
+                    .as_object()
+                    .map(|params| {
+                        let mut params = params.clone();
+                        params.remove("serverName");
+                        Value::Object(params)
+                    })
+                    .unwrap()
+            )),
+            None,
+            "params failing Paseo's schema are not a Paseo decline"
+        );
     }
 
     #[test]
