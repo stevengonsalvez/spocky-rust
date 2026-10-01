@@ -145,7 +145,10 @@ fn device_authorization_issues_one_credential_that_works_for_every_scope_until_r
     let mut hub = harness();
     let started = hub
         .cli
-        .start(&post("https://hub.test/api/v1/cli-authorizations", "{}"))
+        .start(
+            &post("https://hub.test/api/v1/cli-authorizations", "{}"),
+            None,
+        )
         .expect("start");
     assert_eq!(started.status, 201);
     let started = body(&started);
@@ -229,12 +232,10 @@ fn device_authorization_limits_requests_per_client_and_expires_after_ten_minutes
     let mut hub = harness();
     let start = |hub: &mut Harness, client: &str| {
         hub.cli
-            .start(&request(
-                "POST",
-                "https://hub.test/api/v1/cli-authorizations",
-                &[("x-paseo-client-address", client)],
-                "{}",
-            ))
+            .start(
+                &post("https://hub.test/api/v1/cli-authorizations", "{}"),
+                Some(client),
+            )
             .expect("start")
     };
     for _ in 0..5 {
@@ -460,4 +461,38 @@ fn openapi_document_lists_every_operation_with_its_scope_and_documented_statuses
         Some("public, max-age=300")
     );
     assert_eq!(served.text(), document.stringify());
+}
+
+#[test]
+fn a_client_supplied_client_address_header_does_not_choose_the_capacity_key() {
+    let mut hub = harness();
+    for _ in 0..5 {
+        let response = hub
+            .cli
+            .start(
+                &request(
+                    "POST",
+                    "https://hub.test/api/v1/cli-authorizations",
+                    &[("x-paseo-client-address", "forged-1")],
+                    "{}",
+                ),
+                Some("198.51.100.9"),
+            )
+            .expect("start");
+        assert_eq!(response.status, 201);
+    }
+    // Same peer address, a different forged header: still the same bucket.
+    let limited = hub
+        .cli
+        .start(
+            &request(
+                "POST",
+                "https://hub.test/api/v1/cli-authorizations",
+                &[("x-paseo-client-address", "forged-2")],
+                "{}",
+            ),
+            Some("198.51.100.9"),
+        )
+        .expect("start");
+    assert_eq!(limited.status, 429);
 }

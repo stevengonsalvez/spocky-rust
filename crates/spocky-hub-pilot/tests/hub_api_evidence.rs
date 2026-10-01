@@ -21,7 +21,7 @@ use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use spocky_hub_pilot::public_api::{
     AccessFailure, ApiKeyAuthorizer, ApiRequest, ApiResponse, AuthorizationOutcome, BrowserAccess,
-    CliAuthorizations, Composition, ConfigurationResources, CredentialKind,
+    CLIENT_ADDRESS_HEADER, CliAuthorizations, Composition, ConfigurationResources, CredentialKind,
     DispatchManualRunResult, GithubResource, Headers, InstallConfigurationResult,
     InstallTriggerResult, Issue, IssueEnrollmentTokenResult, Json,
     ListConfigurationResourcesResult, ListProjectsResult, ListSetupResourcesResult,
@@ -1042,7 +1042,10 @@ fn run_scenario(spec: &Json) -> Json {
                     .cloned()
                     .unwrap_or_else(|| Json::object([("text", Json::string("{}"))]));
                 let request = scenario.post(text(member(step, "url")), headers, &body);
-                let result = scenario.authorizations.start(&request);
+                // The capture reads the client address from a request header; the server wiring sets it from
+                // the peer address, so Rust is handed the same value as an argument.
+                let address = request.headers.get(CLIENT_ADDRESS_HEADER);
+                let result = scenario.authorizations.start(&request, address.as_deref());
                 if let (Ok(response), Some(name)) = (&result, step.get("as"))
                     && response.status == 201
                 {
@@ -1079,7 +1082,11 @@ fn run_scenario(spec: &Json) -> Json {
                         &headers,
                         &Json::object([("text", Json::string("{}"))]),
                     );
-                    let response = scenario.authorizations.start(&request).expect("start");
+                    let address = request.headers.get(CLIENT_ADDRESS_HEADER);
+                    let response = scenario
+                        .authorizations
+                        .start(&request, address.as_deref())
+                        .expect("start");
                     *statuses.entry(response.status).or_default() += 1;
                 }
                 trace.push(Json::object([

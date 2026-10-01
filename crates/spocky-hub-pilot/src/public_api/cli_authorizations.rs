@@ -26,7 +26,8 @@ const LIFETIME_SECONDS: u64 = 10 * 60;
 const INITIAL_POLL_INTERVAL_SECONDS: u64 = 5;
 const PER_FINGERPRINT_LIMIT: usize = 5;
 const GLOBAL_LIMIT: usize = 1_000;
-/// Header the Hub's edge sets with the client address (`INTERNAL_CLIENT_ADDRESS_HEADER`).
+/// Header the baseline's node server sets from the peer address. Rust passes the address to
+/// [`CliAuthorizations::start`] instead of reading this header.
 pub const CLIENT_ADDRESS_HEADER: &str = "x-paseo-client-address";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -138,8 +139,10 @@ pub struct MemoryCliAuthorizations {
 
 #[derive(Default)]
 struct MemoryState {
-    /// Keyed by device verifier, like the baseline map.
-    authorizations: BTreeMap<String, StoredAuthorization>,
+    /// Keyed by device verifier and kept in insertion order, like the baseline `Map`: setting an
+    /// existing key replaces its value in place, and a lookup by user code finds the oldest match.
+    /// Records are never removed; the baseline has no code path that prunes them.
+    authorizations: Vec<(String, StoredAuthorization)>,
     /// Credentials created when an approved authorization was first polled, keyed by prefix.
     credentials: BTreeMap<String, CliCredentialRecord>,
 }
@@ -180,7 +183,8 @@ impl CliAuthorizationStore for MemoryCliAuthorizations {
         let mut state = self.state.borrow_mut();
         let active: Vec<&StoredAuthorization> = state
             .authorizations
-            .values()
+            .iter()
+            .map(|(_, stored)| stored)
             .filter(|stored| {
                 matches!(
                     stored.record.status,
@@ -204,15 +208,22 @@ impl CliAuthorizationStore for MemoryCliAuthorizations {
             created_at_ms: now,
             expires_at_ms: now + millis(input.lifetime_seconds),
         };
-        state.authorizations.insert(
-            input.device_verifier.clone(),
-            StoredAuthorization {
-                record: record.clone(),
-                user_code_verifier: input.user_code_verifier.clone(),
-                fingerprint_verifier: input.fingerprint_verifier.clone(),
-                next_poll_at_ms: now,
-            },
-        );
+        let stored = StoredAuthorization {
+            record: record.clone(),
+            user_code_verifier: input.user_code_verifier.clone(),
+            fingerprint_verifier: input.fingerprint_verifier.clone(),
+            next_poll_at_ms: now,
+        };
+        match state
+            .authorizations
+            .iter_mut()
+            .find(|(device, _)| *device == input.device_verifier)
+        {
+            Some(slot) => slot.1 = stored,
+            None => state
+                .authorizations
+                .push((input.device_verifier.clone(), stored)),
+        }
         Some(record)
     }
 
@@ -221,7 +232,8 @@ impl CliAuthorizationStore for MemoryCliAuthorizations {
         let mut state = self.state.borrow_mut();
         let stored = state
             .authorizations
-            .values_mut()
+            .iter_mut()
+            .map(|(_, stored)| stored)
             .find(|stored| stored.user_code_verifier == user_code_verifier)?;
         if stored.record.expires_at_ms <= now {
             stored.record.status = AuthorizationStatus::Expired;
@@ -239,7 +251,8 @@ impl CliAuthorizationStore for MemoryCliAuthorizations {
         let mut state = self.state.borrow_mut();
         let Some(stored) = state
             .authorizations
-            .values_mut()
+            .iter_mut()
+            .map(|(_, stored)| stored)
             .find(|stored| stored.user_code_verifier == user_code_verifier)
         else {
             return DecisionOutcome::Unavailable;
@@ -268,7 +281,11 @@ impl CliAuthorizationStore for MemoryCliAuthorizations {
             authorizations,
             credentials,
         } = &mut *state;
-        let Some(stored) = authorizations.get_mut(device_verifier) else {
+        let Some(stored) = authorizations
+            .iter_mut()
+            .find(|(device, _)| device == device_verifier)
+            .map(|(_, stored)| stored)
+        else {
             return PollOutcome::Expired {
                 interval_seconds: INITIAL_POLL_INTERVAL_SECONDS,
             };
@@ -377,6 +394,20 @@ impl std::error::Error for HandlerError {}
 
 /// Source of random bytes (`randomBytes`).
 pub type RandomBytes = Box<dyn FnMut(usize) -> Vec<u8>>;
+/// The production random byte source: the operating system generator.
+///
+/// # Panics
+///
+/// The returned closure panics if the system generator fails, as Node's `randomBytes` throws.
+#[must_use]
+pub fn os_random_bytes() -> RandomBytes {
+    Box::new(|size| {
+        let mut bytes = vec![0_u8; size];
+        getrandom::fill(&mut bytes).expect("system random bytes are available");
+        bytes
+    })
+}
+
 /// Source of generated identifiers (`randomUUID`).
 pub type UuidSource = Box<dyn FnMut() -> String>;
 
@@ -408,24 +439,31 @@ impl CliAuthorizations {
 
     /// `POST /api/v1/cli-authorizations`.
     ///
+    /// `client_address` is the caller's peer address, taken from the connection by the server
+    /// wiring (the baseline's node server overwrites `x-paseo-client-address` the same way). It
+    /// is the per-client capacity key; `None` is the baseline's `unknown`. A
+    /// `x-paseo-client-address` header on the request is ignored, so a client cannot choose its
+    /// own key.
+    ///
     /// # Errors
     ///
     /// Returns [`HandlerError`] when the verification URI cannot be built.
-    pub fn start(&mut self, request: &ApiRequest) -> Result<ApiResponse, HandlerError> {
+    pub fn start(
+        &mut self,
+        request: &ApiRequest,
+        client_address: Option<&str>,
+    ) -> Result<ApiResponse, HandlerError> {
         if !parsed_json(request).is_some_and(|body| is_empty_object(&body)) {
             return Ok(invalid_request());
         }
         let device_code = URL_SAFE_NO_PAD.encode((self.random_bytes)(32));
         let user_code = format_user_code(&base32(&(self.random_bytes)(8)));
-        let fingerprint = request
-            .headers
-            .get(CLIENT_ADDRESS_HEADER)
-            .unwrap_or_else(|| "unknown".to_owned());
+        let fingerprint = client_address.unwrap_or("unknown");
         let input = StartInput {
             id: (self.ids)(),
             device_verifier: hash_secret(&device_code),
             user_code_verifier: hash_secret(&normalize_user_code(&user_code)),
-            fingerprint_verifier: hash_secret(&fingerprint),
+            fingerprint_verifier: hash_secret(fingerprint),
             lifetime_seconds: LIFETIME_SECONDS,
             poll_interval_seconds: INITIAL_POLL_INTERVAL_SECONDS,
             per_fingerprint_limit: PER_FINGERPRINT_LIMIT,
@@ -683,7 +721,120 @@ fn format_user_code(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{base32, format_user_code, normalize_user_code};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use super::{
+        CliAuthorizationStore, DecisionAccess, DecisionOutcome, MemoryCliAuthorizations,
+        PollOutcome, StartInput, base32, format_user_code, normalize_user_code, os_random_bytes,
+    };
+    use super::{CredentialInput, hash_secret};
+
+    fn start_input(id: &str, device: &str, user: &str) -> StartInput {
+        StartInput {
+            id: id.to_owned(),
+            device_verifier: hash_secret(device),
+            user_code_verifier: hash_secret(user),
+            fingerprint_verifier: hash_secret(device),
+            lifetime_seconds: 600,
+            poll_interval_seconds: 5,
+            per_fingerprint_limit: 5,
+            global_limit: 1000,
+        }
+    }
+
+    fn access() -> DecisionAccess {
+        DecisionAccess {
+            session_id: "session".to_owned(),
+            user_id: "user".to_owned(),
+            membership_id: "member".to_owned(),
+            organization_id: "org".to_owned(),
+        }
+    }
+
+    fn credential() -> CredentialInput {
+        CredentialInput {
+            id: "credential".to_owned(),
+            prefix: "paseo_cli_aaaaaaaaaaaa".to_owned(),
+            verifier: hash_secret("secret"),
+        }
+    }
+
+    #[test]
+    fn a_user_code_collision_resolves_to_the_oldest_record_like_a_js_map() {
+        let store = MemoryCliAuthorizations::new(Rc::new(|| 0));
+        // Device verifiers are hashes, so their sorted order is unrelated to insertion order. Try
+        // several pairs so at least one has the later record sorting first.
+        for pair in 0..8 {
+            let first = format!("device-{pair}-first");
+            let second = format!("device-{pair}-second");
+            let user = format!("user-{pair}");
+            store
+                .start(&start_input("a", &first, &user))
+                .expect("first");
+            store
+                .start(&start_input("b", &second, &user))
+                .expect("second");
+            assert_eq!(
+                store.decide(&hash_secret(&user), true, &access()),
+                DecisionOutcome::Approved
+            );
+            assert!(matches!(
+                store.poll(&hash_secret(&first), &credential()),
+                PollOutcome::Authorized { .. }
+            ));
+            assert!(matches!(
+                store.poll(&hash_secret(&second), &credential()),
+                PollOutcome::Pending { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn expired_records_are_kept_like_the_baseline_keeps_them() {
+        let clock = Rc::new(Cell::new(0_i64));
+        let store = MemoryCliAuthorizations::new({
+            let clock = Rc::clone(&clock);
+            Rc::new(move || clock.get())
+        });
+        store
+            .start(&start_input("a", "device-a", "user-a"))
+            .expect("start");
+        store.poll(&hash_secret("device-a"), &credential());
+        // A second poll before the interval passes raises the interval to 10 seconds.
+        assert_eq!(
+            store.poll(&hash_secret("device-a"), &credential()),
+            PollOutcome::SlowDown {
+                interval_seconds: 10
+            }
+        );
+        clock.set(601_000);
+        for index in 0..20 {
+            store
+                .start(&start_input(
+                    "x",
+                    &format!("other-{index}"),
+                    &format!("other-user-{index}"),
+                ))
+                .expect("start");
+        }
+        // A pruned record would answer as an unknown code with the default interval of 5.
+        assert_eq!(
+            store.poll(&hash_secret("device-a"), &credential()),
+            PollOutcome::Expired {
+                interval_seconds: 10
+            }
+        );
+    }
+
+    #[test]
+    fn system_random_bytes_have_the_requested_length_and_differ() {
+        let mut draw = os_random_bytes();
+        let first = draw(32);
+        assert_eq!(first.len(), 32);
+        assert_ne!(first, draw(32));
+        assert_eq!(draw(8).len(), 8);
+    }
 
     #[test]
     fn user_codes_are_base32_and_normalize_compatibility_characters() {
