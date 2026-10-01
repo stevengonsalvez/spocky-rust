@@ -57,7 +57,9 @@ const OPS: &str = r#"[
   ["handle", 1900, "a", {"type":"timeline","provider":"codex","item":{"type":"reasoning","text":1}}],
   ["handle", 1901, "a", {"type":"timeline","provider":"codex","item":{"type":"reasoning","text":2}}],
   ["handle", 1902, "a", {"type":"timeline","provider":"codex","item":{"type":"reasoning","text":null}}],
-  ["advance", 2000]
+  ["advance", 2000],
+  ["handle", 2060, "a", {"type":"timeline","provider":"codex","item":{"type":"reasoning","text":"exactly one window later"}}],
+  ["advance", 2200]
 ]"#;
 
 const NODE_SCRIPT: &str = r#"
