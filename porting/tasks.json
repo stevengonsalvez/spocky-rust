@@ -192,6 +192,15 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-daemon-transport",
       "paths": ["crates/spocky-daemon/"],
+      "openPortGaps": {
+        "status": "OPEN, tracked, not accepted exceptions; they block P5 final parity, not G1 (coordinator decision 2026-10-02 when landing ce9567b..600b154 over reviewer BLOCK verdicts/p3_daemon_transport-600b154.txt)",
+        "gaps": [
+          "config_file.rs:136 config refusal: the baseline refuses unknown keys (\"Unrecognized key: \\\"bogus\\\"\"), invalid allowedHosts entries beside valid hostnames, joins every zod issue, and reports V8 JSON.parse text; the daemon loads such config and reports the first issue with serde text. Needs a persisted-config zod schema from spocky-contracts and a differential against pinned persisted-config.js",
+          "pid_lock.rs:286 io read failure text lacks node's \"Error: <CODE>: <description>, open '<path>'\"; daemon writer is wiring spocky-store FsError",
+          "tests/fixtures/gen-express-vectors.cjs:17 express vectors run real express 4.22.1 through a hand-copied middleware chain, not the pinned bootstrap.ts app; framing parity is proven, route and host-allowlist parity need the real-original probe the daemon writer is building",
+          "carried prior P2/P3 not rechecked individually: HEAD 404 body, conditional GET, routing case and slash, logging records, transport differential, iso_time, cwd test, js.rs copy, vectors provenance"
+        ]
+      },
       "delegation": "forbidden",
       "state": "running; admission and auth code gets lead Opus review at every checkpoint"
     },
@@ -922,6 +931,16 @@
           "review": "integration reviewer PASS (verdicts/p3_session-36eb624.txt); contracts strict_equals uses reference equality for objects as JS === does, no call site result changes",
           "leadChanges": ["9576f33 spocky-daemon-app codex_agent.rs imports truthy from spocky_contracts::js, so the session js re-export can be deleted"],
           "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-session plus spocky-daemon-app 83 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_daemon_transport",
+          "date": "2026-10-02",
+          "sourceRange": "ce9567b..600b154 (131 commits, landed as 126): restacked daemon transport (95 patch-identical to d54249e..d59fd7a) plus 36 fix commits: keep-alive and express framing differential, zod Invalid message text, close reasons, PID lock texts, test-only port guard, baseline default port, rejected-upgrade logs",
+          "integrationHead": "8fd343f0",
+          "review": "integration reviewer BLOCK (verdicts/p3_daemon_transport-600b154.txt); coordinator decision 2026-10-02: land for G1 with fixes at cherry-pick; remaining defects recorded as openPortGaps on the p3_daemon_transport task",
+          "leadChanges": ["693424d, be0faa6 and 7bec918 folded with their lock commits e97d0bb, 930992d and 904b38e into justified atomic commits", "279999c and 4079a5e reworded with their atomic justification", "net-zero pair a7821de and a6109bc dropped"],
+          "leadVerification": "spocky-daemon tree and Cargo.lock identical to 600b154; gated with --test-threads=1: spocky-daemon 203 passed 0 failed (203 test attributes at both 600b154 and 8fd343f0; reviewer reported 204), clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "followUps": ["daemon writer continues pid io error text via spocky-store FsError and the real-original express probe on top of main"]
         },
         {
           "lane": "p3_session",
