@@ -98,6 +98,7 @@ Tracked evidence manifests live under `evidence/`. Large raw captures live under
 - Every harness and test uses a dedicated tmux socket (`tmux -L <lane-or-gate-name>`), never the default socket. Never start, stop, or kill a tmux server that the harness did not create on its own socket.
 - Every real-provider test (a real external program such as `codex`) runs under the egress-deny sandbox launcher, routes the provider to a loopback stub, asserts that no egress happened, is marked `#[ignore]` so it runs only under `--include-ignored` with its env gate, and bounds every wait.
 - Kill only recorded PIDs and process groups the harness started. Never select processes to kill by matching argv, environment, command name, or path. A harness that sweeps strays must prove with a test that the sweep cannot reach a tmux server or an unrelated process.
+- The product daemon default listen address follows the baseline, `127.0.0.1:6767`. The port guard lives in the test and harness launchers, not in the product: they refuse `6767` and `6768` (`PROTECTED_PORTS`), so no test or harness ever starts a daemon on either port. Tests use disposable ports and never rely on a product-side guard. (2026-10-01 coordinator decision, after the reviewer found `tests/binary.rs` launching the real binary on `6767` and `6768` behind a product guard.)
 - Run targeted local tests. Full matrices belong in CI.
 - Preserve all four baseline checkouts without edits.
 
