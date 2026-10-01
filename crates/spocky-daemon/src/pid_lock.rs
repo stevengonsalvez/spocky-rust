@@ -220,7 +220,7 @@ fn uptime_seconds() -> Option<f64> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("sysctl")
+        let output = std::process::Command::new("/usr/sbin/sysctl")
             .args(["-n", "kern.boottime"])
             .output()
             .ok()?;
