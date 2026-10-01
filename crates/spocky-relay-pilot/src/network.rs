@@ -637,16 +637,16 @@ fn rejects_client_handshake(connection: &AcceptedConnection, frame: &Message) ->
     let Some(handshake_type) = json_string_field(payload, "type") else {
         return false;
     };
-    if !matches!(handshake_type, "hello" | "e2ee_hello") {
+    if !matches!(handshake_type.as_str(), "hello" | "e2ee_hello") {
         return false;
     }
-    json_string_field(payload, "key").is_none_or(|encoded| match import_public_key(encoded) {
+    json_string_field(payload, "key").is_none_or(|encoded| match import_public_key(&encoded) {
         Ok(key) => !canonical_x25519_coordinate(&key) || derive_shared_key(&[7; 32], &key).is_err(),
         Err(_) => true,
     })
 }
 
-fn json_string_field<'a>(payload: &'a str, field: &str) -> Option<&'a str> {
+fn json_string_field(payload: &str, field: &str) -> Option<String> {
     let payload = payload.trim();
     let inner = payload.strip_prefix('{')?.strip_suffix('}')?;
     let bytes = inner.as_bytes();
@@ -658,7 +658,9 @@ fn json_string_field<'a>(payload: &'a str, field: &str) -> Option<&'a str> {
             b'}' | b']' => depth = depth.saturating_sub(1),
             b'"' => {
                 let end = json_string_end(bytes, index + 1)?;
-                if depth == 0 && json_key_position(bytes, index) && &inner[index + 1..end] == field
+                if depth == 0
+                    && json_key_position(bytes, index)
+                    && decode_json_string(&inner[index + 1..end]).as_deref() == Some(field)
                 {
                     let mut value = end + 1;
                     while bytes.get(value).is_some_and(u8::is_ascii_whitespace) {
@@ -675,7 +677,7 @@ fn json_string_field<'a>(payload: &'a str, field: &str) -> Option<&'a str> {
                         return None;
                     }
                     let value_end = json_string_end(bytes, value + 1)?;
-                    return Some(&inner[value + 1..value_end]);
+                    return decode_json_string(&inner[value + 1..value_end]);
                 }
                 index = end;
             }
@@ -684,6 +686,63 @@ fn json_string_field<'a>(payload: &'a str, field: &str) -> Option<&'a str> {
         index += 1;
     }
     None
+}
+
+fn decode_json_string(encoded: &str) -> Option<String> {
+    let bytes = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            0x00..=0x1f => return None,
+            b'\\' => {
+                index += 1;
+                match *bytes.get(index)? {
+                    b'"' => decoded.push(b'"'),
+                    b'\\' => decoded.push(b'\\'),
+                    b'/' => decoded.push(b'/'),
+                    b'b' => decoded.push(0x08),
+                    b'f' => decoded.push(0x0c),
+                    b'n' => decoded.push(b'\n'),
+                    b'r' => decoded.push(b'\r'),
+                    b't' => decoded.push(b'\t'),
+                    b'u' => {
+                        let high = decode_hex_quad(bytes, index + 1)?;
+                        index += 4;
+                        let scalar = if (0xd800..=0xdbff).contains(&high) {
+                            if bytes.get(index + 1..index + 3) != Some(b"\\u") {
+                                return None;
+                            }
+                            let low = decode_hex_quad(bytes, index + 3)?;
+                            if !(0xdc00..=0xdfff).contains(&low) {
+                                return None;
+                            }
+                            index += 6;
+                            0x1_0000 + (u32::from(high - 0xd800) << 10) + u32::from(low - 0xdc00)
+                        } else if (0xdc00..=0xdfff).contains(&high) {
+                            return None;
+                        } else {
+                            u32::from(high)
+                        };
+                        let character = char::from_u32(scalar)?;
+                        let mut buffer = [0_u8; 4];
+                        decoded.extend_from_slice(character.encode_utf8(&mut buffer).as_bytes());
+                    }
+                    _ => return None,
+                }
+            }
+            byte => decoded.push(byte),
+        }
+        index += 1;
+    }
+    String::from_utf8(decoded).ok()
+}
+
+fn decode_hex_quad(bytes: &[u8], start: usize) -> Option<u16> {
+    let digits = bytes.get(start..start + 4)?;
+    digits.iter().try_fold(0_u16, |value, digit| {
+        Some((value << 4) | u16::try_from(char::from(*digit).to_digit(16)?).ok()?)
+    })
 }
 
 fn json_string_end(bytes: &[u8], mut index: usize) -> Option<usize> {
@@ -1192,7 +1251,7 @@ fn close_socket(socket: &mut tungstenite::WebSocket<TcpStream>, reason: &SocketC
         SocketClose::SlowConsumer => (CloseCode::Again, "Slow consumer"),
         SocketClose::DataRouteUnavailable => (CloseCode::Again, "Data route unavailable"),
         SocketClose::InvalidHandshake => (CloseCode::Policy, "Invalid handshake key"),
-        SocketClose::MessageTooLarge => (CloseCode::Size, "Message too large"),
+        SocketClose::MessageTooLarge => (CloseCode::Size, ""),
         SocketClose::ControlUnresponsive => (CloseCode::Error, "Control unresponsive"),
         SocketClose::RelayIngressCapacity => (CloseCode::Again, "Relay ingress capacity"),
         SocketClose::ClientDisconnected => (CloseCode::Away, "Client disconnected"),
