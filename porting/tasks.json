@@ -37,6 +37,7 @@
       {
         "date": "2026-10-01",
         "authority": "Stevie authorized maximum parallelism; recorded by the Claude coordinator session term_d3e130a0, which holds decision authority while Stevie is away",
+        "laterRevision": "2026-10-01: cap raised to 9 writers while load average stays under 24 (coordinator)",
         "change": "Slot cap revised from one lead plus three children to up to eight concurrent writers, bounded by machine load: back off above load average 24, and each writer sets CARGO_BUILD_JOBS=3.",
         "supersedes": "the plan rule of at most three children and four active slots"
       },
@@ -171,11 +172,14 @@
     },
     {
       "id": "p2_hub_triggers_followups",
-      "launchedBy": "Claude coordinator term_d3e130a0, queued",
-      "model": "claude-sonnet-5-5 when launched",
+      "terminal": "term_47aae1bb",
+      "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-triggers-followups",
+      "paths": ["crates/spocky-hub-pilot/src/triggers/", "crates/spocky-hub-pilot/tests/hub_triggers*.rs", "scripts/phase2/hub-triggers*", "evidence/phase2/hub-triggers*"],
+      "launchedBy": "Claude coordinator term_d3e130a0",
+      "model": "claude-sonnet-5-5",
       "effort": "high",
       "priorities": ["wire host time zone offset at construction and add a committed non-UTC capture", "differential case with execution deadline < run deadline < idle", "compare raw original against committed baseline evidence", "npm ci offline or stated as online", "deterministic runId, revisionId, and stepRunIds instead of echoing baseline values", "line-count diff helper"],
-      "state": "queued, not launched"
+      "state": "running, launched 2026-10-01"
     }
   ],
     "retiredWorkers": [
@@ -713,7 +717,8 @@
       "gateOrder": ["G1 unchanged pinned CLI plus real codex 0.159.0 happy path (workspace create, run, stream) against original and Spocky daemons", "G2 permission and cancel", "G3 restart and resume", "G4 failure, disconnect, retry, and old-state in both directions"],
       "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane",
       "acceptanceCommands": [
-        "SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node cargo test --locked -p spocky-session -p spocky-store -p spocky-domain (env var always set so pinned_node_depth never skips; revised 2026-10-01 at coordinator request)",
+        "SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node SPOCKY_PASEO_DIST=/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server cargo test --locked -p spocky-session -p spocky-store -p spocky-domain (revised 2026-10-01 at coordinator request; SPOCKY_ALLOW_SKIP must never be set in any gate; the dist is rebuilt by scripts/phase3/build-original.sh)",
+        "SPOCKY_REAL_CODEX=1 cargo test --locked -p spocky-provider-codex",
         "cargo test --locked -p spocky-contracts -p spocky-daemon -p spocky-provider-codex -p spocky-slice-harness",
         "cargo clippy --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain --all-targets -- -D warnings",
         "cargo fmt --package spocky-contracts --package spocky-daemon --package spocky-session --package spocky-provider-codex --package spocky-slice-harness --package spocky-store --package spocky-domain -- --check",
@@ -770,6 +775,23 @@
           "leadVerification": "gated: spocky-store 39/39 (unit 16, agent_records 6, baseline_roundtrip 3, registry_files 14), clippy, fmt",
           "divergences": ["DIV-001 JSON depth recorded in porting/inventory-summary.md and capability-matrix DSTA-001", "GAP-021 registry write after failed load recorded and linked to DWORK-001"],
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
+        },
+        {
+          "batch": "v2",
+          "date": "2026-10-01",
+          "integrationRange": "28b6f96..4cd62f2, 135 signed commits",
+          "lanes": {
+            "p3_contracts": "ae50c90..b95186a, G1 contract blockers fixed, js_value copied byte-identical (sha256 95741004)",
+            "p3_slice_harness": "5332154..3f4c640, compare-level negative tests",
+            "p3_session": "04e9dd6..40aab0e, checkpoint 4 follow-ups plus checkout and provisioning differential against the pinned build",
+            "p2_renderer_linux": "42214f6..69a43ff, Linux Dioxus evidence, no parity or selection claim",
+            "p3_provider_codex": "bf47a0a..6c92075, both P1 fixes: answered approvals and off-reader dispatch",
+            "p2_hub_api": "1af3d7a..2a71ea8, CLOUD-HUB-API-019 trace and OpenAPI byte-identical to pinned Hub"
+          },
+          "excluded": { "p3_daemon_transport": "does not compile against new contracts serverId TrimmedString; rebasing", "p2_pglite_rust_host": "tests pass but 204 clippy pedantic errors" },
+          "reviews": "read-only Opus reviews, all INTEGRATE-WITH-FOLLOWUPS; findings routed through the coordinator",
+          "leadVerification": "gated with SPOCKY_PINNED_NODE, SPOCKY_PASEO_DIST, SPOCKY_REAL_CODEX=1, SPOCKY_ALLOW_SKIP unset: contracts 34 + golden 2, provider_codex 75 + fixtures 21 + real_codex 6 + approvals 3 + resume 2, session 17 + checkout_differential 3, store 43, domain 9, slice-harness 58, hub http_runtime 6, hub_api 7, hub_api_evidence 2, hub_contract 5, hub_triggers 14 + evidence 1; clippy -D warnings and fmt clean on these crates; final lock is a subset of the tested lock and cargo check --locked passes",
+          "routingLimitation": "Claude-authored; not Sol-authored for success criterion 3"
         },
         {
           "lane": "p3_session",
