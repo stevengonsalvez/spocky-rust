@@ -1509,11 +1509,15 @@ fn stop_daemon(
     keep: &[u32],
     errors: &mut Vec<String>,
 ) -> (Vec<u32>, Vec<u32>) {
-    match term_target(daemon_pid, &sampler.owned(), &snapshot(), keep) {
-        Some(pid) => signal(pid, "TERM"),
-        None => errors.push(format!(
-            "daemon pid {daemon_pid:?} is not an owned live process; not signalled"
-        )),
+    if layout.path("daemon.exit").exists() {
+        // Already exited: its PID may belong to someone else now.
+    } else {
+        match term_target(daemon_pid, &sampler.owned(), &snapshot(), keep) {
+            Some(pid) => signal(pid, "TERM"),
+            None => errors.push(format!(
+                "daemon pid {daemon_pid:?} is not an owned live process; not signalled"
+            )),
+        }
     }
     let exited = wait_until(STOP_GRACE, || {
         layout.path("daemon.exit").exists()
@@ -1946,31 +1950,39 @@ mod tests {
 
     #[test]
     fn sweep_kills_owned_processes_and_spares_live_decoys_and_tmux() {
-        let needle = format!(
-            "/private/tmp/spocky-p3-test-{}-{}",
-            std::process::id(),
-            line!()
-        );
+        let directory = scratch(line!());
+        let needle = directory.display().to_string();
         let mut unrelated = decoy(&needle);
         let unrelated_pid = unrelated.id();
-        let mut ours = Command::new("/bin/sleep")
-            .arg("30")
+        // A program named tmux inside the owned tree (a copy of sleep).
+        let fake_tmux = directory.join("tmux");
+        fs::copy("/bin/sleep", &fake_tmux).unwrap();
+        let script = format!(
+            "{} 30 & echo $! > {}; exec /bin/sleep 30",
+            shell_quote(&fake_tmux.display().to_string()),
+            shell_quote(&directory.join("tmux.pid").display().to_string())
+        );
+        let mut ours = Command::new("/bin/sh")
+            .args(["-c", &script])
             .env("SPOCKY_TEST_ROOT", &needle)
             .spawn()
             .unwrap();
         let ours_pid = ours.id();
+        assert!(wait_until(Duration::from_secs(5), || directory
+            .join("tmux.pid")
+            .exists()));
+        let tmux_pid: u32 = fs::read_to_string(directory.join("tmux.pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
         let sampler = Sampler::start();
         sampler.add_root(ours_pid);
-        // A tmux process handed in as a root is refused.
-        let table = snapshot();
-        for process in table.iter().filter(|process| is_tmux(process)) {
+        // Real tmux processes handed in as roots are refused too.
+        for process in snapshot().iter().filter(|process| is_tmux(process)) {
             sampler.add_root(process.pid);
         }
-        let tmux_pids: Vec<u32> = table
-            .iter()
-            .filter(|process| is_tmux(process))
-            .map(|process| process.pid)
-            .collect();
+        assert!(wait_until(Duration::from_secs(5), || alive(tmux_pid)));
         assert_eq!(sampler.owned().pids(), vec![ours_pid]);
         let (killed, survivors) = kill_owned(&sampler, &[]);
         let _ = ours.wait();
@@ -1981,9 +1993,14 @@ mod tests {
             alive(unrelated_pid),
             "decoy that mentions the root must survive"
         );
-        assert!(tmux_pids.iter().all(|pid| !killed.contains(pid)));
+        assert!(
+            alive(tmux_pid),
+            "a tmux process in the owned tree must survive"
+        );
+        signal(tmux_pid, "KILL");
         let _ = unrelated.kill();
         let _ = unrelated.wait();
+        fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]
