@@ -403,8 +403,13 @@ pub struct TimelineProjection {
 
 impl TimelineProjection {
     pub fn append(&mut self, row: &TimelineRow) {
-        let entry = canonical_entry(row);
-        let identity = item_identity(&row.item);
+        self.append_entry(canonical_entry(row));
+    }
+
+    /// `append` of a row that is already projected (`"seqStart" in row`):
+    /// the row is taken as it is.
+    pub fn append_entry(&mut self, entry: ProjectedRow) {
+        let identity = item_identity(&entry.item);
         if let Some(index) = identity
             .as_ref()
             .and_then(|key| self.identities.get(key))
@@ -676,6 +681,32 @@ struct AgentTimeline {
     next_seq: i64,
 }
 
+/// A row `initialize` seeds: a source row or an already projected one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SeedRow {
+    Source(TimelineRow),
+    Projected(ProjectedRow),
+}
+
+impl SeedRow {
+    const fn seq(&self) -> i64 {
+        match self {
+            Self::Source(row) => row.seq,
+            Self::Projected(row) => row.seq,
+        }
+    }
+}
+
+/// `SeedAgentTimelineOptions`. Non-empty `rows` win over `items`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TimelineSeed {
+    pub items: Vec<JsValue>,
+    pub rows: Vec<SeedRow>,
+    pub epoch: Option<String>,
+    pub next_seq: Option<i64>,
+    pub timestamp: Option<String>,
+}
+
 /// Default page size of `fetch` when the caller gives no limit.
 pub const DEFAULT_TIMELINE_FETCH_LIMIT: usize = 200;
 
@@ -713,30 +744,58 @@ impl TimelineStore {
         next_seq: Option<i64>,
         timestamp: Option<String>,
     ) {
-        let timestamp = timestamp.unwrap_or_else(now_iso);
-        let mut seq = next_seq.unwrap_or(1);
+        self.initialize_with(
+            agent_id,
+            TimelineSeed {
+                items,
+                rows: Vec::new(),
+                epoch,
+                next_seq,
+                timestamp,
+            },
+        );
+    }
+
+    /// `initialize(agentId, options)`: seeds the given rows as they are, or
+    /// else one row per item from `next_seq` (default 1) at `timestamp`.
+    /// `nextSeq` becomes the larger of `next_seq` and every row's `seq + 1`.
+    pub fn initialize_with(&mut self, agent_id: &str, seed: TimelineSeed) {
+        let start_seq = seed.next_seq.unwrap_or(1);
+        let rows = if seed.rows.is_empty() {
+            let timestamp = seed.timestamp.unwrap_or_else(now_iso);
+            (start_seq..)
+                .zip(seed.items)
+                .map(|(seq, item)| {
+                    SeedRow::Source(TimelineRow {
+                        seq,
+                        timestamp: timestamp.clone(),
+                        item,
+                        turn_id: None,
+                        provider_message_id: None,
+                    })
+                })
+                .collect()
+        } else {
+            seed.rows
+        };
+        let next_seq = rows
+            .iter()
+            .fold(start_seq, |next, row| next.max(row.seq().saturating_add(1)));
         let mut projection = TimelineProjection::default();
-        let mut highest_next = next_seq.unwrap_or(1);
-        for item in items {
-            let row = TimelineRow {
-                seq,
-                timestamp: timestamp.clone(),
-                item,
-                turn_id: None,
-                provider_message_id: None,
-            };
-            highest_next = highest_next.max(seq + 1);
-            projection.append(&row);
-            seq += 1;
+        for row in rows {
+            match row {
+                SeedRow::Source(row) => projection.append(&row),
+                SeedRow::Projected(row) => projection.append_entry(row),
+            }
         }
         let min_seq = projection.rows().first().map_or(0, |row| row.seq_start);
         self.states.insert(
             agent_id.to_owned(),
             AgentTimeline {
-                epoch: epoch.unwrap_or_else(random_uuid),
+                epoch: seed.epoch.unwrap_or_else(random_uuid),
                 projection,
                 min_seq,
-                next_seq: highest_next,
+                next_seq,
             },
         );
     }
