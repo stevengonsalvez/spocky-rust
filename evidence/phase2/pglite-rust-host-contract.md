@@ -325,7 +325,7 @@ Lead review of this checkpoint: GO with conditions, desktop only.
 | --- | --- | --- |
 | macOS (x64, arm64) | GO | Cranelift targets both; measured on darwin/x64 only so far |
 | Linux (x64, arm64) | GO | Cranelift targets both; not yet measured |
-| Windows (x64) | GO with risks | NODEFS stat emulation reads POSIX mode bits that Windows does not keep; PostgreSQL `checkDataDir` expects `0700` or `0750` on the data directory; both need measured parity |
+| Windows (x64) | NO-GO as built | Source fact: `vfs.rs` implements NODEFS with `std::os::unix` (`FileExt` positional I/O, `MetadataExt` mode, uid and inode fields, `PermissionsExt`, `symlink`), which does not exist on Windows, so the crate cannot build there. Measured: `cargo check --target x86_64-pc-windows-msvc` from macOS stops earlier, in the `zstd-sys` C build pulled in by the Wasmtime `cache` feature (no Windows C headers), so no Windows build or run exists. Windows needs its own NODEFS backend, then measured parity for stat mode bits (Windows keeps no POSIX mode) and PostgreSQL `checkDataDir` (`0700` or `0750`) |
 | iOS | Not covered | iOS forbids writable executable memory, so Wasmtime would need its Pulley interpreter. Pulley performance is unmeasured, which conflicts with the reason `wasmi` was rejected above; the 2 GiB linear-memory maximum also exceeds iOS memory limits |
 | Browser | Not covered | Wasmtime cannot run in a browser. The browser keeps PGlite's own JavaScript host, which must be recorded as its own compatibility exception |
 
