@@ -13,8 +13,9 @@ gtimeout --kill-after=30 1800 scripts/phase3/receipts-differential.sh
 
 Exit 0. The script runs the three lane acceptance commands through the build
 gate with `SPOCKY_PINNED_NODE` (node 22.20.0, digest checked by
-`scripts/phase3/pins.sh`) and `SPOCKY_PASEO_DIST` set, and without
-`SPOCKY_ALLOW_SKIP`:
+`scripts/phase3/pins.sh`) and `SPOCKY_PASEO_DIST` set, and with
+`SPOCKY_ALLOW_SKIP` unset. It exits nonzero unless every command passes and
+both normalized differential outputs exist and are byte-identical:
 
 ```sh
 cargo test --locked -p spocky-message-receipts
@@ -24,16 +25,30 @@ cargo fmt --package spocky-message-receipts -- --check
 
 Test counts: 4 unit, 4 ported (`tests/receipts.rs`), 4 differential
 (`tests/receipts_differential.rs`), 0 doc tests. 12 passed, 0 failed, 0
-ignored. Clippy and fmt are clean.
+ignored. Clippy and fmt are clean. The differential first fails unless node
+reports `v22.20.0` and both dist modules match the digests below.
 
-## Recorded run `receipts-20261001T183820Z`
+The runner's own failure handling is proven by:
 
-Raw evidence lives under `evidence/raw/phase3/receipts-20261001T183820Z/`
+```sh
+gtimeout --kill-after=30 1800 scripts/phase3/receipts-differential.test.sh
+```
+
+Exit 0, 6 cases: a stubbed match exits 0 even with `SPOCKY_ALLOW_SKIP=1`
+exported; mismatched outputs, missing outputs, a failing test with matching
+outputs, and failing clippy exit nonzero; a real run against a dist with a
+tampered `index.js` exits nonzero on the pinned digest. Removing the output
+comparison, the test exit check, or the `SPOCKY_ALLOW_SKIP` unset from the
+runner each made one case fail.
+
+## Recorded run `receipts-20261001T190736Z`
+
+Raw evidence lives under `evidence/raw/phase3/receipts-20261001T190736Z/`
 (untracked).
 
 | Input | Value |
 |---|---|
-| Commit | `954e764db44af65903603cddeae2602dc4e6385d` |
+| Commit | `1a19cb6030da510863d9e42fba1b915aa392d68b` |
 | Node | `v22.20.0` |
 | Pinned dist | `paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server` |
 | `server/message-receipts/index.js` SHA-256 | `e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559` |
@@ -41,22 +56,22 @@ Raw evidence lives under `evidence/raw/phase3/receipts-20261001T183820Z/`
 
 | File | SHA-256 |
 |---|---|
-| `receipts-node-normalized.json` | `31957162939969a8a6ff6733cd5e384ea47b2695e5bc4620d6bbac92e8832899` |
-| `receipts-rust-normalized.json` | `31957162939969a8a6ff6733cd5e384ea47b2695e5bc4620d6bbac92e8832899` |
-| `receipts-node-raw.json` | `b1af006e88eaa1b9d038095a5686370cf903fe6ac604ccb46b1141d533e2630e` |
-| `receipts-rust-raw.json` | `c29078ffc926317e36b4cd9e6b389e2d1d1353ba2a7a3cb6e837cdd0836ceef9` |
-| `inputs.txt` | `720227e3a77fd7fd8611f791e4da333e752f5020685215d755e6f08b54045889` |
-| `test.log` | `f71c0180a961e9a1edc68fb8bd8c304d9f7225c40d07bba99ac01d24c52b8368` |
-| `clippy.log` | `7b89f9d8b45896e66051e0a6a0854f36f5acdc9e450391ac977c70c47d4c66e3` |
+| `receipts-node-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
+| `receipts-rust-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
+| `receipts-node-raw.json` | `c4c9619cd4ee8f517463790d2eb6a4916e6f2a4259d858d30ca0235ad04a60c8` |
+| `receipts-rust-raw.json` | `57dea0aea4d4d47ada4755836cd6c889006c19c43567d818166f1bb3cbd33565` |
+| `inputs.txt` | `30e893dc75bf33075d8716568e27af9cf35c7b16a96c55b41c0339a21a990e12` |
+| `test.log` | `47834232159872c7a595afdf02765bf0dbefac29cc15097a1144838d34d761c0` |
+| `clippy.log` | `abfeb40db11fb4a1dbe03bd1de171883b7940977ebcb78bb5039a74119c8bc9a` |
 | `fmt.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
-The normalized outputs are byte-identical, and the same digest was produced
-by the earlier runs `receipts-20261001T183301Z` and `receipts-20261001T183341Z`. Raw digests differ per run
+The normalized outputs are byte-identical, and an earlier gated run of the
+same 54 steps produced the same digest. Raw digests differ per run
 because temp names carry the pid, clock, and a random UUID.
 
 ## What is compared
 
-Node imports the built `server/message-receipts/index.js` and runs 52
+Node imports the built `server/message-receipts/index.js` and runs 54
 scripted steps in one disposable root; the port runs the same steps in
 another. After every step both print each send's result (`{ ok: true }`, or
 `{ name, message, ...error }` with node's own enumerable error fields), the
@@ -66,7 +81,9 @@ root with its mode, SHA-256, and text. The two JSON texts must be equal.
 | Scenario | Steps |
 |---|---|
 | First delivery | pending then completed receipt, 2-space JSON, key order `fingerprint`, `agentId`, `state` |
-| Duplicates | two concurrent sends, a restarted instance, reordered request keys (`localeCompare` and index-key order) |
+| Duplicates | two concurrent sends of a completed id, a restarted instance, reordered request keys (`localeCompare` and index-key order) |
+| Per-key serialization | two concurrent sends of a fresh id on one instance: one prepare, one delivery |
+| Two instances, one directory | concurrent sends of a fresh id from two instances both prepare and deliver, as in the pinned build |
 | Conflicts | same ids with another request: `agent_request_key_conflict` |
 | Failed send | `connection lost`, then a restart: `agent_request_outcome_unknown` |
 | Failed prepare | no receipt left; a later prepared send delivers once |
@@ -108,6 +125,13 @@ Covered by the differential and by
   unknown system error, unlike node's `path.win32` and libuv mapping.
 - `localeCompare` is the ASCII-only port in `spocky_store::collate`. A
   request with non-ASCII object keys can sort, and so digest, differently.
+  The pinned caller's request is `{ prompt, activeTurnBehavior }`; `prompt`
+  is a string or blocks from closed zod object schemas, so its keys are
+  ASCII. Recheck before another caller is ported.
+- Queue position: the baseline queues a send when `send` is called; the port
+  queues it when the future is first polled.
+- Queues are per instance in both: two instances on one directory can
+  deliver one message twice (pinned behavior, covered above).
 - A request nested deep enough to overflow V8's stack makes node throw a
   `RangeError`; the port digests it.
 - Not exercised by the differential: `write` syscall failures (`ENOSPC`,
