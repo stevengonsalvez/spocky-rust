@@ -151,13 +151,24 @@
       "id": "p2_hub_api",
       "terminal": "term_0a211a40",
       "launchedBy": "Claude coordinator term_d3e130a0",
-      "model": "Claude; exact model and effort not received (coordinator message arrived truncated)",
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "permissions": "--dangerously-skip-permissions",
+      "started": "2026-10-01 by the coordinator",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/phase2-hub-api",
       "capabilities": ["CLOUD-HUB-API-019"],
       "scope": "scoped organization API, device authorization, OpenAPI",
       "paths": ["crates/spocky-hub-pilot/src/public_api/ (new files only)", "crates/spocky-hub-pilot/tests/hub_api*.rs", "scripts/phase2/hub-api*", "evidence/phase2/hub-api*", "crates/spocky-hub-pilot/src/lib.rs (one-line module registration)"],
       "delegation": "forbidden",
-      "state": "running; base 1af3d7a"
+      "state": "running; base 1af3d7a; shared spocky-hub-pilot lib.rs registration line resolved by the lead at integration"
+    },
+    {
+      "id": "p2_hub_triggers_followups",
+      "launchedBy": "Claude coordinator term_d3e130a0, queued",
+      "model": "claude-sonnet-5-5 when launched",
+      "effort": "high",
+      "priorities": ["wire host time zone offset at construction and add a committed non-UTC capture", "differential case with execution deadline < run deadline < idle", "compare raw original against committed baseline evidence", "npm ci offline or stated as online", "deterministic runId, revisionId, and stepRunIds instead of echoing baseline values", "line-count diff helper"],
+      "state": "queued, not launched"
     }
   ],
     "retiredWorkers": [
