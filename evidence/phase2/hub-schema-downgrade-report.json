@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
+    "clean": true
+  },
+  "candidateNewer": {
+    "candidateApplied": 50,
+    "legacyApplied": 0,
+    "journal": 50,
+    "dataPreserved": true
+  },
+  "legacyNewer": {
+    "legacyApplied": 50,
+    "candidateApplied": 0,
+    "journal": 50,
+    "dataPreserved": true
+  },
+  "partialFailure": {
+    "errorObserved": true,
+    "journalRolledBack": true,
+    "schemaRolledBack": true
+  },
+  "behavior": "future maximum created_at is accepted and known older migrations are skipped",
+  "scope": "bounded-additive-only-no-full-parity-claim"
+}
