@@ -764,6 +764,19 @@
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
         },
         {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-01",
+          "checkpoint": 2,
+          "sourceRange": "d6618ba..38b003a, 22 commits; uncommitted writer Cargo.lock lines replaced by lead regeneration",
+          "integrationRange": "fcb1043..d671ae2",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS; all checkpoint 1 blockers fixed; gate fails closed when Spocky is missing or dies; creation digests normalized only when equal to sha256 of a harness-fixed preimage; 78 rules in 35 classes" },
+          "leadVerification": "gated: spocky-slice-harness 49/49, clippy, fmt, shell syntax for pins.sh, build-original.sh, gate.sh",
+          "writerEvidence": "evidence/phase3/gate-g1.md: original-versus-original self-check passed 4 consecutive runs, 6/6 fixtures, 5/5 checks; G1 parity blocked on missing spocky-daemon binary",
+          "leadDecisions": "evidence/phase3/slice-plan.md section 6 (d22ee09)",
+          "blockersBeforeG1Parity": ["P1 uuid shape matches constant UUIDs (nil and max were normalized); require version 4, 5, or 7 with valid variant and emit no rule for equal values", "P2 capture project/ and tmp/", "P2 READY check is satisfied by the prompt echo", "P2 compare-level negative tests for exit code, stub body, key order, missing state file, state content", "P2 client_metadata transform must be named in the manifest"],
+          "routedFindings": ["P3 per-format wall-clock numbering", "P3 bounded short7 replacement", "P3 reparented grandchildren in survivor check", "P3 unbounded pipe join after timeout", "P3 readiness attempts exceed 60 s cap", "P3 stale build lock race"]
+        },
+        {
           "lane": "p3_provider_codex",
           "date": "2026-10-01",
           "writer": "Claude Opus 5.5 high, term_2fb2a525",
