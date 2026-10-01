@@ -995,6 +995,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn json_objects_put_array_index_keys_first_like_javascript() {
+        let parsed = json_parse(r#"{"b":1,"10":2,"a":3,"2":4,"01":5}"#).expect("parse");
+        assert_eq!(
+            serde_json::to_string(&json_to_serde(&parsed)).expect("serialize"),
+            r#"{"2":4,"10":2,"b":1,"a":3,"01":5}"#
+        );
+    }
+
+    #[test]
     fn json_values_keep_key_order_like_json_parse() {
         let value: IpcValue =
             serde_json::from_str(r#"{"type":"json","value":{"b":1,"a":{"d":2,"c":3}}}"#)
