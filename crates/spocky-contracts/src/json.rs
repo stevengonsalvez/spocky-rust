@@ -125,7 +125,18 @@ impl<'de> Visitor<'de> for JsValueVisitor {
     }
 
     fn visit_unit<E>(self) -> Result<JsValue, E> {
-        Ok(JsValue::Null)
+        // The JsValueDeserializer token path hands the whole subtree over
+        // here without walking it; any other unit is JSON null.
+        Ok(STASH
+            .with(|stash| stash.borrow_mut().take())
+            .unwrap_or(JsValue::Null))
+    }
+
+    fn visit_newtype_struct<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<JsValue, D::Error> {
+        deserializer.deserialize_any(self)
     }
 
     fn visit_none<E>(self) -> Result<JsValue, E> {
@@ -153,13 +164,88 @@ impl<'de> Visitor<'de> for JsValueVisitor {
     }
 }
 
+/// Newtype name that lets [`JsValueDeserializer`] hand a [`JsonValue`] its
+/// subtree as one clone. Walking a 100k-deep `JSON.parse` result through
+/// serde visitors would overflow the stack.
+const JSON_VALUE_TOKEN: &str = "$spocky_contracts::JsonValue";
+
+thread_local! {
+    static STASH: std::cell::RefCell<Option<JsValue>> = const { std::cell::RefCell::new(None) };
+}
+
 impl<'de> Deserialize<'de> for JsonValue {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // A repeated key keeps its first position and its last value, as
         // JSON.parse does (`JsObject::insert`).
-        deserializer.deserialize_any(JsValueVisitor).map(Self)
+        deserializer
+            .deserialize_newtype_struct(JSON_VALUE_TOKEN, JsValueVisitor)
+            .map(Self)
     }
 }
+
+/// Splits a discriminated-union object into its tag and the whole object,
+/// without serde's recursive buffering of internally tagged enums.
+///
+/// # Errors
+///
+/// Rejects a non-object or a missing or non-string tag, as zod does.
+pub fn tagged_object<'de, D: Deserializer<'de>>(
+    deserializer: D,
+    tag: &'static str,
+) -> Result<(String, JsValue), D::Error> {
+    let JsonValue(value) = JsonValue::deserialize(deserializer)?;
+    let name = value
+        .as_object()
+        .and_then(|object| object.get(tag))
+        .and_then(JsValue::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| serde::de::Error::custom(format_args!("expected a string `{tag}`")))?;
+    Ok((name, value))
+}
+
+/// Reads a zod `.passthrough()` object: `K` takes the shape keys and every
+/// other key lands in the returned record, in JavaScript property order.
+///
+/// # Errors
+///
+/// Rejects a non-object or shape keys `K` does not accept.
+pub fn split_passthrough<'de, D: Deserializer<'de>, K: serde::de::DeserializeOwned>(
+    deserializer: D,
+    shape_keys: &[&str],
+) -> Result<(K, JsRecord<JsonValue>), D::Error> {
+    let JsonValue(value) = JsonValue::deserialize(deserializer)?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| serde::de::Error::custom("expected an object"))?;
+    let known = K::deserialize(JsValueDeserializer(&value)).map_err(serde::de::Error::custom)?;
+    let extra = object
+        .iter()
+        .filter(|(key, _)| !shape_keys.contains(key))
+        .map(|(key, item)| (key.to_owned(), JsonValue(item.clone())))
+        .collect();
+    Ok((known, extra))
+}
+
+/// Implements `Deserialize` for a zod discriminated union through
+/// [`tagged_object`]. Each arm maps a tag to a function of the object's
+/// [`JsValueDeserializer`].
+macro_rules! deserialize_tagged {
+    ($ty:ty, $tag:literal, { $($name:literal => $arm:expr),+ $(,)? }) => {
+        impl<'de> serde::Deserialize<'de> for $ty {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let (name, value) = $crate::json::tagged_object(deserializer, $tag)?;
+                let input = $crate::json::JsValueDeserializer(&value);
+                let parsed: Result<Self, serde::de::value::Error> = match name.as_str() {
+                    $($name => ($arm)(input),)+
+                    other => Err(serde::de::Error::unknown_variant(other, &[$($name),+])),
+                };
+                parsed.map_err(serde::de::Error::custom)
+            }
+        }
+    };
+}
+
+pub(crate) use deserialize_tagged;
 
 /// `z.json()`: any JSON value whose numbers are all finite. `JSON.parse`
 /// turns an overflowing literal into an infinity, which `z.json()` rejects.
@@ -249,10 +335,19 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
 
     fn deserialize_newtype_struct<V: Visitor<'de>>(
         self,
-        _name: &'static str,
+        name: &'static str,
         visitor: V,
     ) -> Result<V::Value, ValueError> {
+        if name == JSON_VALUE_TOKEN {
+            STASH.with(|stash| *stash.borrow_mut() = Some(self.0.clone()));
+            return visitor.visit_unit();
+        }
         visitor.visit_newtype_struct(self)
+    }
+
+    /// Skips an unknown key's value without walking it, as zod strips it.
+    fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, ValueError> {
+        visitor.visit_unit()
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -265,18 +360,16 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
             JsValue::String(text) => {
                 visitor.visit_enum(StrDeserializer::<ValueError>::new(text.as_str()))
             }
-            _ => self.deserialize_any(serde::de::IgnoredAny).and_then(|_| {
-                Err(serde::de::Error::custom(format_args!(
-                    "expected one of {variants:?} for {name}"
-                )))
-            }),
+            _ => Err(serde::de::Error::custom(format_args!(
+                "expected one of {variants:?} for {name}"
+            ))),
         }
     }
 
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct seq tuple tuple_struct map struct
-        identifier ignored_any
+        identifier
     }
 }
 
