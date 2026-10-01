@@ -9,6 +9,9 @@
 # SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass and
 # both sides' normalized differential outputs exist and are byte-identical.
 # SPOCKY_ALLOW_SKIP is always unset, so the differential can never skip.
+# The run also fails when the worktree has any change, tracked or untracked,
+# outside logs/ (session hook output), so evidence always names a clean
+# commit; the full `git status --porcelain` is kept in git-status.txt.
 # scripts/phase3/receipts-differential.test.sh proves every failure exits
 # nonzero.
 #
@@ -53,9 +56,14 @@ export SPOCKY_RECEIPTS_EVIDENCE="$evidence"
 
 cd "$repository_root"
 status=0
+git status --porcelain --untracked-files=all >"$evidence/git-status.txt"
+if [ -n "$(git status --porcelain --untracked-files=all -- . ':(exclude)logs')" ]; then
+  printf 'worktree is not clean; see %s\n' "$evidence/git-status.txt" >&2
+  status=1
+fi
 "$gate" cargo test --locked -p spocky-message-receipts >"$evidence/test.log" 2>&1 || status=1
 "$gate" cargo clippy --locked -p spocky-message-receipts --all-targets -- -D warnings >"$evidence/clippy.log" 2>&1 || status=1
-cargo fmt --package spocky-message-receipts -- --check >"$evidence/fmt.log" 2>&1 || status=1
+"$gate" cargo fmt --package spocky-message-receipts -- --check >"$evidence/fmt.log" 2>&1 || status=1
 node_normalized=$evidence/receipts-node-normalized.json
 rust_normalized=$evidence/receipts-rust-normalized.json
 if [ ! -s "$node_normalized" ] || [ ! -s "$rust_normalized" ]; then
