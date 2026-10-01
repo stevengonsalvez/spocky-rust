@@ -5,7 +5,7 @@
 //!
 //! Needs `SPOCKY_PINNED_NODE`, the path of the pinned node 22.20.0 binary,
 //! which the lane acceptance command sets. Without it the test FAILS; set
-//! `SPOCKY_ALLOW_SKIP=1` to skip it explicitly outside the gate.
+//! `SPOCKY_ALLOW_SKIP=1` (exactly) to skip it explicitly outside the gate.
 
 use std::fs;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ const DEPTH: usize = 10_000;
 fn pinned_node_reads_a_rust_written_10k_deep_record() {
     let Some(node) = std::env::var_os("SPOCKY_PINNED_NODE") else {
         assert!(
-            std::env::var_os("SPOCKY_ALLOW_SKIP").is_some(),
+            std::env::var("SPOCKY_ALLOW_SKIP").as_deref() == Ok("1"),
             "set SPOCKY_PINNED_NODE to the pinned node 22.20.0 binary (or SPOCKY_ALLOW_SKIP=1)"
         );
         eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: pinned node check not run");
