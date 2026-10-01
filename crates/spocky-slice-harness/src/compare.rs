@@ -415,6 +415,10 @@ mod tests {
     const AGENT_RIGHT: &str = "0299a3c4-1b2c-7d3e-8f40-cba987654321";
 
     fn gate() -> GateSpec {
+        gate_with(vec![Check::AllExitZero, Check::DaemonExit(0)])
+    }
+
+    fn gate_with(checks: Vec<Check>) -> GateSpec {
         GateSpec {
             id: "t",
             script: Script {
@@ -425,7 +429,7 @@ mod tests {
                 args: Vec::new(),
                 capture: None,
             }],
-            checks: vec![Check::AllExitZero, Check::DaemonExit(0)],
+            checks,
             preimages: |_| Vec::new(),
         }
     }
@@ -544,6 +548,68 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["counts:expected"]
         );
+    }
+
+    /// Verdict with no positive checks, so only the comparison can fail it.
+    fn compared_only(left: &SideRun, right: &SideRun) -> Verdict {
+        compare_sides(&gate_with(Vec::new()), left, right).verdict
+    }
+
+    fn with_record(mut side: SideRun, body: &str) -> SideRun {
+        side.stub_records.push(
+            serde_json::json!({"seq": 0, "method": "POST", "path": "/v1/responses", "headers": [], "body": body, "scripted": 0})
+                .to_string(),
+        );
+        side.stub_scripted = 1;
+        side.script_len = 1;
+        side
+    }
+
+    #[test]
+    fn comparison_alone_passes_equivalent_sides() {
+        let (left, right) = pair();
+        let body = r#"{"model":"m","input":"hi"}"#;
+        assert!(compared_only(&with_record(left, body), &with_record(right, body)).pass);
+    }
+
+    #[test]
+    fn comparison_alone_fails_step_exit_code_difference() {
+        let (left, mut right) = pair();
+        right.steps[0].exit = Exit::Code(1);
+        assert!(!compared_only(&left, &right).pass);
+    }
+
+    #[test]
+    fn comparison_alone_fails_stub_body_difference() {
+        let (left, right) = pair();
+        let left = with_record(left, r#"{"model":"m","input":"hi"}"#);
+        let right = with_record(right, r#"{"model":"m","input":"ho"}"#);
+        assert!(!compared_only(&left, &right).pass);
+    }
+
+    #[test]
+    fn comparison_alone_fails_body_key_order_swap() {
+        let (left, right) = pair();
+        let left = with_record(left, r#"{"model":"m","input":"hi"}"#);
+        let right = with_record(right, r#"{"input":"hi","model":"m"}"#);
+        assert!(!compared_only(&left, &right).pass);
+    }
+
+    #[test]
+    fn comparison_alone_fails_missing_state_file() {
+        let (left, mut right) = pair();
+        right.state.clear();
+        assert!(!compared_only(&left, &right).pass);
+    }
+
+    #[test]
+    fn comparison_alone_fails_state_content_difference() {
+        let (left, mut right) = pair();
+        right.state[0].bytes = format!(
+            "{{\"id\":\"{AGENT_RIGHT}\",\"createdAt\":\"2026-10-01T13:51:43.463Z\",\"x\":1}}"
+        )
+        .into_bytes();
+        assert!(!compared_only(&left, &right).pass);
     }
 
     #[test]
