@@ -99,6 +99,9 @@ impl SessionHandle for Handle {
 
 impl SessionBackend for Backend {
     fn open(&self, open: SessionOpen) -> Arc<dyn SessionHandle> {
+        if open.client_id == "slow-open" {
+            std::thread::sleep(Duration::from_millis(1500));
+        }
         self.0
             .opens
             .lock()
@@ -1088,4 +1091,53 @@ fn unparsable_text_after_hello_is_a_protocol_failure_with_the_v8_message() {
     send(&mut ws, &json!({"type": "ping"}));
     assert_eq!(next_json(&mut ws), json!({"type": "pong"}));
     harness.finish();
+}
+
+#[test]
+fn a_slow_session_open_holds_up_only_its_own_client() {
+    let harness = start(config());
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut slow = harness.connect(&[]);
+            send(&mut slow, &hello("slow-open"));
+            assert_eq!(
+                next_json(&mut slow)["message"]["payload"]["status"],
+                "server_info"
+            );
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        let started = Instant::now();
+        let mut fast = harness.connect(&[]);
+        send(&mut fast, &hello("fast"));
+        assert_eq!(
+            next_json(&mut fast)["message"]["payload"]["status"],
+            "server_info"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(1000),
+            "another client waited {:?} behind a slow open",
+            started.elapsed()
+        );
+    });
+    harness.finish();
+}
+
+#[test]
+fn closing_the_server_never_cleans_a_session_twice() {
+    for round in 0..30_u64 {
+        let mut cfg = config();
+        cfg.timeouts.reconnect_grace = Duration::from_millis(4);
+        let harness = start(cfg);
+        let mut ws = harness.connect(&[]);
+        send(&mut ws, &hello("once"));
+        next_json(&mut ws);
+        drop(ws);
+        wait_for("detach", || {
+            !harness.calls.detached.lock().unwrap().is_empty()
+        });
+        std::thread::sleep(Duration::from_millis(round % 7));
+        let calls = Arc::clone(&harness.calls);
+        harness.finish();
+        assert_eq!(calls.cleanups.load(Ordering::SeqCst), 1, "round {round}");
+    }
 }
