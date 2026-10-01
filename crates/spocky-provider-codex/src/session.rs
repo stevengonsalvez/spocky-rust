@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use crate::catalog::{self, normalize_thinking, read_configured_defaults};
+use crate::history::{HistoryEntry, project_thread_history};
 use crate::items::{
     self, AsyncQuestionItem, AsyncQuestionResolution, ThreadItemMapping, async_question_permission,
     async_question_record, async_question_timeline, item_type, non_empty_string, plan_tool_call,
@@ -78,6 +79,33 @@ pub struct SessionConfig {
     pub tool_policy: Option<Value>,
     /// `Record<string, McpServerConfig>`.
     pub mcp_servers: Option<Map<String, Value>>,
+}
+
+impl SessionConfig {
+    /// A config from stored agent metadata merged with overrides, as Paseo
+    /// spreads them into `AgentSessionConfig`: strings and objects are taken
+    /// as given, `null` and other types read as absent.
+    #[must_use]
+    pub fn from_json(record: &Map<String, Value>) -> Self {
+        let text = |key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
+        let object = |key: &str| record.get(key).and_then(Value::as_object).cloned();
+        Self {
+            cwd: text("cwd").unwrap_or_default(),
+            system_prompt: text("systemPrompt"),
+            daemon_append_system_prompt: text("daemonAppendSystemPrompt"),
+            mode_id: text("modeId"),
+            model: text("model"),
+            thinking_option_id: text("thinkingOptionId"),
+            feature_values: object("featureValues"),
+            title: record.get("title").cloned(),
+            provider_options: object("providerOptions"),
+            tool_policy: record
+                .get("toolPolicy")
+                .filter(|policy| !policy.is_null())
+                .cloned(),
+            mcp_servers: object("mcpServers"),
+        }
+    }
 }
 
 /// User prompt for one turn.
@@ -224,7 +252,17 @@ struct ResolvedCollaborationMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConnectionState {
     Disconnected,
+    /// Archived history was read through a short-lived app-server; no live
+    /// client exists (`"history-ready"`).
+    HistoryReady,
     Connected,
+}
+
+/// A persisted Codex session to resume (`AgentPersistenceHandle` subset).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResumeHandle {
+    pub session_id: String,
+    pub metadata: Option<Map<String, Value>>,
 }
 
 /// A one-shot value other threads can wait for (a resolved JS promise).
@@ -343,6 +381,9 @@ struct State {
     collaboration_modes: Vec<CollaborationMode>,
     resolved_collaboration_mode: Option<ResolvedCollaborationMode>,
     unported: UnportedLog,
+    history_only: bool,
+    history_pending: bool,
+    persisted_history: Vec<HistoryEntry>,
 }
 
 /// Unported paths seen so far, each recorded once in first-seen order, so a
@@ -493,6 +534,9 @@ impl CodexSession {
             collaboration_modes: Vec::new(),
             resolved_collaboration_mode: None,
             unported,
+            history_only: false,
+            history_pending: false,
+            persisted_history: Vec::new(),
         };
         let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
         let (dispatch, dispatch_thread) = spawn_dispatcher(Arc::clone(&subscribers));
@@ -510,6 +554,55 @@ impl CodexSession {
                 gates: options.gates,
             }),
         })
+    }
+
+    /// The session constructor for `resumeSession`: starts on the persisted
+    /// thread with its history pending, restoring saved async questions.
+    /// `history_only` is Paseo's `purpose: "history"`, which reads archived
+    /// history without resuming the native thread.
+    ///
+    /// # Errors
+    /// Returns the `Invalid Codex mode` message for an unknown `mode_id`.
+    pub fn resumed(
+        options: SessionOptions,
+        handle: &ResumeHandle,
+        history_only: bool,
+    ) -> Result<Self, String> {
+        let session = Self::new(options)?;
+        {
+            let mut state = lock(&session.inner.state);
+            state.current_thread_id = Some(handle.session_id.clone());
+            state.history_pending = true;
+            state.history_only = history_only;
+            state.async_questions = saved_async_questions(
+                handle
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("asyncQuestions")),
+            );
+        }
+        Ok(session)
+    }
+
+    /// `streamHistory()`: the replayed timeline once, as timeline events
+    /// without a turn id.
+    #[must_use]
+    pub fn stream_history(&self) -> Vec<Value> {
+        let mut state = lock(&self.inner.state);
+        if !state.history_pending || state.persisted_history.is_empty() {
+            return Vec::new();
+        }
+        state.history_pending = false;
+        std::mem::take(&mut state.persisted_history)
+            .into_iter()
+            .map(|entry| {
+                let mut event = timeline_event(entry.item);
+                if let Some(timestamp) = entry.timestamp {
+                    event.insert("timestamp".to_owned(), json!(timestamp));
+                }
+                Value::Object(event)
+            })
+            .collect()
     }
 
     /// Registers a stream event subscriber; returns its id.
@@ -745,6 +838,11 @@ impl CodexSession {
     }
 
     fn establish_connection(&self) -> Result<(), String> {
+        if lock(&self.inner.state).history_only {
+            self.read_archived_history()?;
+            lock(&self.inner.state).connection = ConnectionState::HistoryReady;
+            return Ok(());
+        }
         let child = (self.inner.spawn)()?;
         let client = AppServerClient::new(child).map_err(|error| error.message)?;
         if lock(&self.inner.state).closed {
@@ -794,11 +892,84 @@ impl CodexSession {
         self.load_resolved_workspace_write(client);
         self.load_collaboration_modes(client);
         self.load_skills(client);
+        if lock(&self.inner.state).current_thread_id.is_some() {
+            self.ensure_thread_loaded(client)?;
+            self.load_persisted_history(client)?;
+            self.apply_default_model_and_thinking(client)?;
+        }
         let mut state = lock(&self.inner.state);
         if state.closed {
             return Err(CLOSED_MESSAGE.to_owned());
         }
         state.connection = ConnectionState::Connected;
+        Ok(())
+    }
+
+    /// `readArchivedHistory()`: a short-lived app-server reads the thread and
+    /// is disposed whatever the outcome.
+    fn read_archived_history(&self) -> Result<(), String> {
+        let child = (self.inner.spawn)()?;
+        let client = AppServerClient::new(child).map_err(|error| error.message)?;
+        let outcome = client
+            .request(
+                "initialize",
+                Some(launch::initialize_params()),
+                DEFAULT_REQUEST_TIMEOUT,
+            )
+            .map_err(|error| error.message)
+            .and_then(|_| {
+                client.notify("initialized", Some(json!({})));
+                self.load_persisted_history(&client)
+            });
+        let disposed = client.dispose().map_err(|error| error.message);
+        outcome?;
+        disposed
+    }
+
+    /// `loadPersistedHistory(client)`: `thread/read` with turns, projected to
+    /// the timeline the session replays.
+    fn load_persisted_history(&self, client: &AppServerClient) -> Result<(), String> {
+        let Some(thread_id) = lock(&self.inner.state).current_thread_id.clone() else {
+            return Ok(());
+        };
+        let response = client
+            .request(
+                "thread/read",
+                Some(json!({"threadId": thread_id, "includeTurns": true})),
+                DEFAULT_REQUEST_TIMEOUT,
+            )
+            .map_err(|error| error.message)?;
+        let projection = project_thread_history(&response)?;
+        let mut state = lock(&self.inner.state);
+        for what in projection.unported {
+            state.unported.push(what);
+        }
+        state.user_message_turn_ids.clear();
+        state.user_message_provider_turn_ids.clear();
+        let mut timeline = projection.timeline;
+        for entry in &mut timeline {
+            if entry.item["type"] == "tool_call" && entry.item["name"] == "request_user_input_async"
+            {
+                let call_id = entry.item["callId"].as_str().unwrap_or_default().to_owned();
+                if let Some(record) = state
+                    .async_questions
+                    .iter()
+                    .find(|record| record.item.id == call_id)
+                {
+                    entry.item = async_question_timeline(&record.item, record.resolution.as_ref());
+                }
+            }
+            if entry.item["type"] == "user_message" {
+                let message_id = entry.item["messageId"].as_str().map(str::to_owned);
+                remember_user_message_turn(
+                    &mut state,
+                    message_id.as_deref(),
+                    entry.provider_turn_id.as_deref(),
+                );
+            }
+        }
+        state.history_pending = !timeline.is_empty();
+        state.persisted_history = timeline;
         Ok(())
     }
 
@@ -1866,6 +2037,52 @@ fn notification_kind(parsed: &ParsedNotification) -> &'static str {
         ParsedNotification::PatchApplyCompleted { .. } => "patch_apply_completed",
         _ => "other",
     }
+}
+
+/// `new CodexAsyncQuestions(saved)`: the saved records when the whole array
+/// parses, keyed by request id with the last record winning; otherwise none.
+fn saved_async_questions(saved: Option<&Value>) -> Vec<AsyncQuestionRecord> {
+    let Some(Value::Array(entries)) = saved else {
+        return Vec::new();
+    };
+    let mut records: Vec<AsyncQuestionRecord> = Vec::new();
+    for entry in entries {
+        let Some(record) = entry.as_object() else {
+            return Vec::new();
+        };
+        let Some(item) = record
+            .get("item")
+            .and_then(Value::as_object)
+            .and_then(items::parse_async_question)
+        else {
+            return Vec::new();
+        };
+        let resolution = match record.get("resolution") {
+            None => None,
+            Some(Value::String(text)) if text == "dismissed" => {
+                Some(AsyncQuestionResolution::Dismissed)
+            }
+            Some(Value::Array(answers)) if answers.iter().all(Value::is_string) => {
+                Some(AsyncQuestionResolution::Answers(
+                    answers
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect(),
+                ))
+            }
+            Some(_) => return Vec::new(),
+        };
+        let parsed = AsyncQuestionRecord { item, resolution };
+        match records
+            .iter_mut()
+            .find(|known| known.item.id == parsed.item.id)
+        {
+            Some(known) => *known = parsed,
+            None => records.push(parsed),
+        }
+    }
+    records
 }
 
 /// The reply Paseo itself sends when it dismisses each of these requests:
@@ -3182,6 +3399,73 @@ impl CodexProvider {
         Ok(catalog::catalog(models, gates.auto_review_enabled))
     }
 
+    fn spawner(&self, launch_env: Option<BTreeMap<String, String>>) -> SpawnAppServer {
+        let gates = self.gates();
+        let settings = self.runtime_settings.clone();
+        let base_env = self.base_env.clone();
+        Box::new(move || {
+            let prefix = launch::resolve_launch_prefix(settings.as_ref(), &base_env)?;
+            let env = launch::provider_env(&base_env, settings.as_ref(), launch_env.as_ref());
+            launch::spawn_app_server(&prefix, gates.goals_enabled, &env)
+        })
+    }
+
+    /// `resumeSession(handle, overrides, launchContext, { purpose })`: the
+    /// stored metadata overlaid with `overrides`, `cwd` falling back to the
+    /// daemon's working directory, then connected (which resumes the native
+    /// thread and replays its history).
+    ///
+    /// # Errors
+    /// Returns construction, resume, or history failures.
+    pub fn resume_session(
+        &self,
+        handle: &ResumeHandle,
+        overrides: &Map<String, Value>,
+        launch_env: Option<BTreeMap<String, String>>,
+        history_only: bool,
+    ) -> Result<CodexSession, String> {
+        let mut merged = handle.metadata.clone().unwrap_or_default();
+        for (key, value) in overrides {
+            merged.insert(key.clone(), value.clone());
+        }
+        merged.insert("provider".to_owned(), json!(CODEX_PROVIDER));
+        let cwd = overrides
+            .get("cwd")
+            .filter(|cwd| !cwd.is_null())
+            .or_else(|| {
+                handle
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.get("cwd"))
+                    .filter(|cwd| !cwd.is_null())
+            })
+            .cloned()
+            .unwrap_or_else(|| {
+                json!(
+                    std::env::current_dir()
+                        .map(|dir| dir.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                )
+            });
+        merged.insert("cwd".to_owned(), cwd);
+        let session = CodexSession::resumed(
+            SessionOptions {
+                config: SessionConfig::from_json(&merged),
+                spawn: self.spawner(launch_env),
+                custom_codex_config: launch::custom_provider_config(
+                    self.runtime_settings.as_ref(),
+                    self.custom_provider.as_ref(),
+                ),
+                ephemeral: false,
+                gates: self.gates(),
+            },
+            handle,
+            history_only,
+        )?;
+        session.connect()?;
+        Ok(session)
+    }
+
     /// `createSession(config, launchContext, options)`: constructs and
     /// connects a session.
     ///
@@ -3194,16 +3478,9 @@ impl CodexProvider {
         ephemeral: bool,
     ) -> Result<CodexSession, String> {
         let gates = self.gates();
-        let settings = self.runtime_settings.clone();
-        let base_env = self.base_env.clone();
-        let spawn: SpawnAppServer = Box::new(move || {
-            let prefix = launch::resolve_launch_prefix(settings.as_ref(), &base_env)?;
-            let env = launch::provider_env(&base_env, settings.as_ref(), launch_env.as_ref());
-            launch::spawn_app_server(&prefix, gates.goals_enabled, &env)
-        });
         let session = CodexSession::new(SessionOptions {
             config,
-            spawn,
+            spawn: self.spawner(launch_env),
             custom_codex_config: launch::custom_provider_config(
                 self.runtime_settings.as_ref(),
                 self.custom_provider.as_ref(),
