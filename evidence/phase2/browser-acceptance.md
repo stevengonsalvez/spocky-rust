@@ -1,8 +1,9 @@
 # Browser acceptance enforcement
 
-The browser runtime capture exits nonzero unless desktop and mobile pass direct
-zero-different-pixel, keyboard activation, dialog-outcome, accessibility, and
-candidate-stability gates. It does not normalize, mask, or allowlist pixels.
+The browser runtime capture exits nonzero unless desktop and mobile pass exact
+full-PNG hash, keyboard activation, dialog-outcome, accessibility, and
+candidate-stability gates. It does not normalize, mask, compare by RMSE, retry
+until a preferred image appears, or accept a pixel-count threshold.
 
 Original and candidate captures activate the Add a project control. The
 original resolves `open-project-submit`; the candidate resolves its first
@@ -15,8 +16,11 @@ outcome in both viewports and the exact mobile accessibility cycle.
 
 The contract test injects and rejects these regressions:
 
-- desktop pixel mismatch
-- mobile pixel mismatch
+- third desktop candidate hash
+- mobile candidate hash mismatch
+- candidate hash instability
+- browser, OS, dependency, source, or viewport drift
+- automatic golden-set expansion
 - mobile keyboard activation failure
 - desktop accessible focus-label mismatch
 - malformed keyboard focus entry
@@ -51,24 +55,40 @@ compares the accepted screenshot with a new browser context. Original repeat
 captures remain diagnostic evidence for the two observed upstream modes and do
 not create a visual exception.
 
+The visual contract is limited to empty-project Chromium at desktop `1280x800`
+and mobile `390x844`. It pins Google Chrome `154.0.8037.59` at its absolute
+executable path, macOS `15.7.3` build `24G419`, Darwin `24.6.0` x86_64, scale
+factor `1`, loaded system fonts, light theme, `en-US`, dependency lock hashes,
+and source and harness commits. A clean tracked tree is required so those
+commits identify the captured code.
+
+Desktop candidate PNGs must equal exactly one of these complete-file SHA-256
+values:
+
+- `fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f`
+- `597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d`
+
+Mobile candidate PNGs must equal
+`37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075`.
+Every same-page and fresh-context candidate frame must have the same hash as its
+accepted viewport frame. The contract rejects any third hash. Expanding the set
+requires an explicit code and evidence change.
+
 ## Desktop baseline evidence
 
-Attempt `20261001T001233Z-50366` verifies exact interaction in both viewports,
-zero mobile pixel difference, zero mobile accessibility difference, and zero
+Attempt `20261001T002951Z-91995` verifies exact interaction and complete
+accessibility in both viewports, zero mobile pixel difference, and zero
 candidate same-page and fresh-context instability. Its original and candidate
 desktop focus payloads are byte-for-byte equal. Both include the pinned
-source's unnamed focusable `div`. The former completeness predicate rejected
-that valid source entry because it required a label or text. The focused
-contract now accepts complete unnamed entries, rejects missing captured fields,
-and retains exact whole-payload equality. A later full capture has not verified
-the corrected gate.
+source's unnamed focusable `div`. The structural completeness gate accepts that
+entry, rejects missing captured fields, and retains exact whole-payload
+equality.
 
-The same attempt has 19 desktop pixel differences at `x=20..28`, `y=46..57`,
-inside the History icon. The candidate path data already matched pinned
-`lucide-react-native` 0.546.0. The renderer now emits the pinned root and child
-SVG presentation attributes directly. Focused renderer contracts pin those
-attributes. A later full capture has not verified the icon repair. No mask,
-threshold, normalization, or visual exception is applied.
+The same attempt has 19 desktop pixel differences at `x=20..28`, `y=46..57`.
+Its candidate desktop image is exact upstream mode B, `59709577...f4dc7d`.
+Original desktop is exact upstream mode A, `fad844b5...480f`. Candidate desktop
+same-page and fresh-context frames are exact mode B. Every mobile image is
+the exact pinned mobile hash.
 
 Attempt `20260930T235823Z-10020` cleanly reached every acceptance gate. Candidate
 same-page and fresh-context screenshots had zero differing pixels in both
@@ -95,8 +115,9 @@ for both desktop runtimes. Original, repeated original, and candidate mobile
 screenshots were identical.
 
 No recorded readiness probe distinguishes the two original desktop pixel modes.
-The exact desktop gate therefore continues to reject both recorded branded
-comparisons. No visual exception or allowlist is implemented.
+The narrow full-image contract accepts either complete upstream mode while
+rejecting any third rendering. No visual mask, normalization, threshold, or
+automatic golden expansion is implemented.
 
 ## Checks
 

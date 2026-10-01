@@ -16,6 +16,12 @@ esac
 result_file="$raw_dir/$evidence_stem-comparison.json"
 screenshot_dir="$raw_dir/$evidence_stem-comparison"
 dx_executable=${PASEO_DX_EXECUTABLE:-"$repository_root/.tools/bin/dx"}
+expected_chromium_executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+expected_chromium_version='Google Chrome 154.0.8037.59'
+expected_font_family='system-ui, -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+desktop_hash_a=fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f
+desktop_hash_b=597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d
+mobile_hash=37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075
 
 print_evidence_paths() {
   attempt_id=$1
@@ -102,7 +108,8 @@ if [ "${1:-}" = "--print-plan" ]; then
     'candidate desktop 1280x800' \
     'candidate mobile 390x844' \
     'candidate consecutive same-page and fresh-context stability captures' \
-    'exact-pixel threshold: 0 different pixels, direct images, no normalization' \
+    'exact full-PNG hash contract for two pinned desktop modes and one mobile mode' \
+    'direct pixel evidence with zero normalization, masking, or threshold tolerance' \
     'stable product-state readiness before interaction and screenshot' \
     'layout geometry and computed styles' \
     'complete keyboard focus cycle and activation dialog outcome' \
@@ -119,8 +126,12 @@ if [ "$#" -ne 0 ]; then
   printf 'usage: %s [--preflight-only|--print-plan|--parse-different-pixels IMAGE_MAGICK_METRIC|--enforce-result RESULT_JSON|--evidence-paths ATTEMPT_ID]\n' "$0" >&2
   exit 2
 fi
+if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=no)" ]; then
+  printf 'candidate and harness tracked tree is dirty: %s\n' "$repository_root" >&2
+  exit 1
+fi
 
-for command in gtimeout tmux python3 npm curl jq magick; do
+for command in gtimeout tmux python3 npm curl jq magick shasum sw_vers uname; do
   if ! command -v "$command" >/dev/null 2>&1; then
     printf '%s is required for bounded browser runtime capture\n' "$command" >&2
     exit 1
@@ -188,12 +199,43 @@ cp "$repository_root/scripts/phase2/browser-runtime-capture.cjs" "$capture_dir/r
 
 gtimeout 900 npm ci --prefix "$capture_dir/reference" --ignore-scripts --no-audit --no-fund \
   >"$attempt_dir/npm-ci.log" 2>&1
-chromium_executable=${PASEO_CHROMIUM_EXECUTABLE:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}
-if [ ! -x "$chromium_executable" ]; then
-  gtimeout 300 "$capture_dir/reference/node_modules/.bin/playwright" install chromium \
-    >"$attempt_dir/playwright-install.log" 2>&1
-  chromium_executable=
+chromium_executable=${PASEO_CHROMIUM_EXECUTABLE:-"$expected_chromium_executable"}
+if [ "$chromium_executable" != "$expected_chromium_executable" ]; then
+  printf 'Chromium executable is outside the pinned visual contract: %s\n' \
+    "$chromium_executable" >&2
+  exit 1
 fi
+if [ ! -x "$chromium_executable" ]; then
+  printf 'Pinned Chromium executable is unavailable: %s\n' "$chromium_executable" >&2
+  exit 1
+fi
+chromium_version=$(gtimeout 10 "$chromium_executable" --version)
+if [ "$chromium_version" != "$expected_chromium_version" ]; then
+  printf 'Chromium version mismatch: expected %s, got %s\n' \
+    "$expected_chromium_version" "$chromium_version" >&2
+  exit 1
+fi
+os_name=$(sw_vers -productName)
+os_version=$(sw_vers -productVersion)
+os_build=$(sw_vers -buildVersion)
+kernel_version=$(uname -r)
+architecture=$(uname -m)
+if [ "$os_name" != macOS ] || [ "$os_version" != 15.7.3 ] || \
+  [ "$os_build" != 24G419 ] || [ "$kernel_version" != 24.6.0 ] || \
+  [ "$architecture" != x86_64 ]; then
+  printf 'OS is outside pinned visual contract: %s %s %s Darwin %s %s\n' \
+    "$os_name" "$os_version" "$os_build" "$kernel_version" "$architecture" >&2
+  exit 1
+fi
+baseline_lock_sha=$(shasum -a 256 "$capture_dir/reference/package-lock.json" | awk '{print $1}')
+candidate_lock_sha=$(shasum -a 256 "$repository_root/Cargo.lock" | awk '{print $1}')
+if [ "$baseline_lock_sha" != 844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6 ] || \
+  [ "$candidate_lock_sha" != b1528e012f06833312ce6dd6ab206cb1db28569159c71a1fe71ac844137ba4b7 ]; then
+  printf 'dependency lock hash is outside pinned visual contract\n' >&2
+  exit 1
+fi
+candidate_commit=$(git -C "$repository_root" rev-parse HEAD)
+harness_commit=$candidate_commit
 (
   cd "$capture_dir/reference"
   PATH="$capture_dir/reference/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
@@ -255,7 +297,7 @@ different_pixels() {
   original=$1
   candidate=$2
   set +e
-  metric=$(magick compare -metric AE "$original" "$candidate" null: 2>&1)
+  metric=$(gtimeout 30 magick compare -metric AE "$original" "$candidate" null: 2>&1)
   status=$?
   set -e
   if [ "$status" -gt 1 ]; then
@@ -289,6 +331,33 @@ candidate_fresh_desktop_different_pixels=$(different_pixels \
 candidate_fresh_mobile_different_pixels=$(different_pixels \
   "$attempt_screenshot_dir/candidate-mobile.png" \
   "$attempt_screenshot_dir/candidate-fresh-mobile.png")
+if ! jq -e --arg family "$expected_font_family" '
+  all(.captures[];
+    any(.instrumentation.timeline[]?;
+      .event == "fonts:ready" and
+      .observed == true and
+      .probe.fonts.status == "loaded" and
+      .probe.fonts.pending == false
+    ) and
+    .layoutGeometry.sidebarEmpty.style.fontFamily == $family
+  )
+' "$attempt_result_file" >/dev/null; then
+  printf 'captured fonts are outside the pinned visual contract\n' >&2
+  exit 1
+fi
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+original_desktop_sha=$(sha256_file "$attempt_screenshot_dir/original-desktop.png")
+original_repeat_desktop_sha=$(sha256_file "$attempt_screenshot_dir/original-repeat-desktop.png")
+original_mobile_sha=$(sha256_file "$attempt_screenshot_dir/original-mobile.png")
+original_repeat_mobile_sha=$(sha256_file "$attempt_screenshot_dir/original-repeat-mobile.png")
+candidate_desktop_sha=$(sha256_file "$attempt_screenshot_dir/candidate-desktop.png")
+candidate_same_page_desktop_sha=$(sha256_file "$attempt_screenshot_dir/candidate-same-page-desktop.png")
+candidate_fresh_desktop_sha=$(sha256_file "$attempt_screenshot_dir/candidate-fresh-desktop.png")
+candidate_mobile_sha=$(sha256_file "$attempt_screenshot_dir/candidate-mobile.png")
+candidate_same_page_mobile_sha=$(sha256_file "$attempt_screenshot_dir/candidate-same-page-mobile.png")
+candidate_fresh_mobile_sha=$(sha256_file "$attempt_screenshot_dir/candidate-fresh-mobile.png")
 result_temp="$attempt_result_file.tmp"
 jq \
   --arg desktop "$desktop_different_pixels" \
@@ -299,6 +368,32 @@ jq \
   --arg candidateSamePageMobile "$candidate_same_page_mobile_different_pixels" \
   --arg candidateFreshDesktop "$candidate_fresh_desktop_different_pixels" \
   --arg candidateFreshMobile "$candidate_fresh_mobile_different_pixels" \
+  --arg chromiumExecutable "$chromium_executable" \
+  --arg chromiumVersion "$chromium_version" \
+  --arg osName "$os_name" \
+  --arg osVersion "$os_version" \
+  --arg osBuild "$os_build" \
+  --arg kernelVersion "$kernel_version" \
+  --arg architecture "$architecture" \
+  --arg fontFamily "$expected_font_family" \
+  --arg baselineLockSha "$baseline_lock_sha" \
+  --arg candidateLockSha "$candidate_lock_sha" \
+  --arg baselineCommit "$actual_baseline" \
+  --arg candidateCommit "$candidate_commit" \
+  --arg harnessCommit "$harness_commit" \
+  --arg desktopHashA "$desktop_hash_a" \
+  --arg desktopHashB "$desktop_hash_b" \
+  --arg mobileHash "$mobile_hash" \
+  --arg originalDesktopSha "$original_desktop_sha" \
+  --arg originalRepeatDesktopSha "$original_repeat_desktop_sha" \
+  --arg originalMobileSha "$original_mobile_sha" \
+  --arg originalRepeatMobileSha "$original_repeat_mobile_sha" \
+  --arg candidateDesktopSha "$candidate_desktop_sha" \
+  --arg candidateSamePageDesktopSha "$candidate_same_page_desktop_sha" \
+  --arg candidateFreshDesktopSha "$candidate_fresh_desktop_sha" \
+  --arg candidateMobileSha "$candidate_mobile_sha" \
+  --arg candidateSamePageMobileSha "$candidate_same_page_mobile_sha" \
+  --arg candidateFreshMobileSha "$candidate_fresh_mobile_sha" \
   '.comparison.visual = {
     threshold: { metric: "different pixels", maximum: 0, normalization: "none" },
     desktop: { differentPixels: ($desktop | tonumber), passes: (($desktop | tonumber) == 0) },
@@ -316,6 +411,57 @@ jq \
       freshContext: {
         desktop: { differentPixels: ($candidateFreshDesktop | tonumber), passes: (($candidateFreshDesktop | tonumber) == 0) },
         mobile: { differentPixels: ($candidateFreshMobile | tonumber), passes: (($candidateFreshMobile | tonumber) == 0) }
+      }
+    },
+    baselineDefect: {
+      contract: "empty-project-chromium-v1",
+      browser: {
+        engine: "chromium",
+        executable: $chromiumExecutable,
+        version: $chromiumVersion
+      },
+      os: {
+        name: $osName,
+        version: $osVersion,
+        build: $osBuild,
+        kernel: ("Darwin " + $kernelVersion),
+        arch: $architecture
+      },
+      rendering: {
+        deviceScaleFactor: 1,
+        fontsStatus: "loaded",
+        fontFamily: $fontFamily,
+        theme: "light",
+        locale: "en-US"
+      },
+      dependencies: {
+        baselinePackageLockSha256: $baselineLockSha,
+        candidateCargoLockSha256: $candidateLockSha
+      },
+      source: {
+        baselineCommit: $baselineCommit,
+        candidateCommit: $candidateCommit,
+        harnessCommit: $harnessCommit
+      },
+      acceptedCandidateSha256: {
+        desktop: [$desktopHashA, $desktopHashB],
+        mobile: $mobileHash
+      },
+      observedSha256: {
+        original: {
+          desktop: $originalDesktopSha,
+          repeatDesktop: $originalRepeatDesktopSha,
+          mobile: $originalMobileSha,
+          repeatMobile: $originalRepeatMobileSha
+        },
+        candidate: {
+          desktop: $candidateDesktopSha,
+          samePageDesktop: $candidateSamePageDesktopSha,
+          freshDesktop: $candidateFreshDesktopSha,
+          mobile: $candidateMobileSha,
+          samePageMobile: $candidateSamePageMobileSha,
+          freshMobile: $candidateFreshMobileSha
+        }
       }
     }
   }' "$attempt_result_file" >"$result_temp"

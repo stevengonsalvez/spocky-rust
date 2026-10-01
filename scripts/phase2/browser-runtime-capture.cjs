@@ -11,6 +11,38 @@ const relevantRequestTypes = new Set([
   "xhr",
   "fetch",
 ]);
+const desktopCandidateHashes = [
+  "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+  "597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d",
+];
+const mobileCandidateHash = "37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075";
+const pinnedRenderingEnvironment = {
+  contract: "empty-project-chromium-v1",
+  browser: {
+    engine: "chromium",
+    executable: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    version: "Google Chrome 154.0.8037.59",
+  },
+  os: {
+    name: "macOS",
+    version: "15.7.3",
+    build: "24G419",
+    kernel: "Darwin 24.6.0",
+    arch: "x86_64",
+  },
+  rendering: {
+    deviceScaleFactor: 1,
+    fontsStatus: "loaded",
+    fontFamily:
+      'system-ui, -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    theme: "light",
+    locale: "en-US",
+  },
+  dependencies: {
+    baselinePackageLockSha256: "844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6",
+    candidateCargoLockSha256: "b1528e012f06833312ce6dd6ab206cb1db28569159c71a1fe71ac844137ba4b7",
+  },
+};
 
 function captureByName(captures, name) {
   return captures.find((capture) => capture.name === name);
@@ -30,6 +62,53 @@ function focusEntryIsComplete(focus) {
     Object.hasOwn(focus, "label") &&
     Object.hasOwn(focus, "text") &&
     typeof focus.disabled === "boolean"
+  );
+}
+
+function isCommit(value) {
+  return typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
+}
+
+function viewportMatches(captures, name, width, height) {
+  const viewport = captureByName(captures, name)?.viewport;
+  return viewport?.width === width && viewport.height === height;
+}
+
+function baselineDefectContractPasses(captures, visual) {
+  const defect = visual?.baselineDefect;
+  const accepted = defect?.acceptedCandidateSha256;
+  const observed = defect?.observedSha256;
+  const source = defect?.source;
+  const desktop = observed?.candidate?.desktop;
+  const mobile = observed?.candidate?.mobile;
+  return (
+    Object.entries(pinnedRenderingEnvironment).every(([key, value]) =>
+      valuesMatch(defect?.[key], value),
+    ) &&
+    valuesMatch(accepted?.desktop, desktopCandidateHashes) &&
+    accepted?.mobile === mobileCandidateHash &&
+    isCommit(source?.baselineCommit) &&
+    source.baselineCommit === "5de45e208690b0efc51c59a585ae9729325a9204" &&
+    isCommit(source?.candidateCommit) &&
+    source.candidateCommit === source.harnessCommit &&
+    viewportMatches(captures, "original-desktop", 1280, 800) &&
+    viewportMatches(captures, "original-repeat-desktop", 1280, 800) &&
+    viewportMatches(captures, "candidate-desktop", 1280, 800) &&
+    viewportMatches(captures, "candidate-fresh-desktop", 1280, 800) &&
+    viewportMatches(captures, "original-mobile", 390, 844) &&
+    viewportMatches(captures, "original-repeat-mobile", 390, 844) &&
+    viewportMatches(captures, "candidate-mobile", 390, 844) &&
+    viewportMatches(captures, "candidate-fresh-mobile", 390, 844) &&
+    desktopCandidateHashes.includes(desktop) &&
+    observed?.candidate?.samePageDesktop === desktop &&
+    observed?.candidate?.freshDesktop === desktop &&
+    mobile === mobileCandidateHash &&
+    observed?.candidate?.samePageMobile === mobile &&
+    observed?.candidate?.freshMobile === mobile &&
+    desktopCandidateHashes.includes(observed?.original?.desktop) &&
+    desktopCandidateHashes.includes(observed?.original?.repeatDesktop) &&
+    observed?.original?.mobile === mobileCandidateHash &&
+    observed?.original?.repeatMobile === mobileCandidateHash
   );
 }
 
@@ -104,15 +183,19 @@ function comparisonState(captures, visual = null) {
     };
   }
   const comparable = readiness.every((capture) => capture.meaningfulRenderedText);
+  const directPixelMetadataIsConsistent =
+    Number.isInteger(visual?.desktop?.differentPixels) &&
+    visual.desktop.differentPixels >= 0 &&
+    visual.desktop.passes === (visual.desktop.differentPixels === 0) &&
+    visual?.mobile?.differentPixels === 0 &&
+    visual.mobile.passes === true;
   const accepted =
     comparable &&
     visual?.threshold?.metric === "different pixels" &&
     visual?.threshold?.maximum === 0 &&
     visual?.threshold?.normalization === "none" &&
-    visual?.desktop?.differentPixels === 0 &&
-    visual?.desktop?.passes === true &&
-    visual?.mobile?.differentPixels === 0 &&
-    visual?.mobile?.passes === true &&
+    directPixelMetadataIsConsistent &&
+    baselineDefectContractPasses(captures, visual) &&
     visual?.candidateStability?.samePage?.desktop?.differentPixels === 0 &&
     visual?.candidateStability?.samePage?.desktop?.passes === true &&
     visual?.candidateStability?.samePage?.mobile?.differentPixels === 0 &&
@@ -171,6 +254,9 @@ async function capture(
 ) {
   const context = await browser.newContext({
     viewport,
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+    locale: "en-US",
     reducedMotion: "reduce",
     serviceWorkers: "allow",
   });
@@ -725,7 +811,7 @@ async function waitForProductState(page, candidate) {
       limitations: [
         "Original capture uses an isolated pinned daemon with an empty disposable home.",
         "Chromium does not exercise Electron webview guest APIs.",
-        "Screenshots are observations, not pixel-parity acceptance.",
+        "Visual acceptance is scoped to the pinned empty-project Chromium hash contract.",
       ],
     });
     const writeCheckpoint = () =>

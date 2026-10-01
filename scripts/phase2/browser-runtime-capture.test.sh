@@ -31,7 +31,10 @@ printf '%s\n' "$plan" | grep -F 'original repeat desktop and mobile rejected-mod
 printf '%s\n' "$plan" | grep -F 'candidate desktop 1280x800'
 printf '%s\n' "$plan" | grep -F 'candidate mobile 390x844'
 printf '%s\n' "$plan" | grep -F 'candidate consecutive same-page and fresh-context stability captures'
-printf '%s\n' "$plan" | grep -F 'exact-pixel threshold: 0 different pixels, direct images, no normalization'
+printf '%s\n' "$plan" \
+  | grep -F 'exact full-PNG hash contract for two pinned desktop modes and one mobile mode'
+printf '%s\n' "$plan" \
+  | grep -F 'direct pixel evidence with zero normalization, masking, or threshold tolerance'
 printf '%s\n' "$plan" | grep -F 'stable product-state readiness before interaction and screenshot'
 printf '%s\n' "$plan" | grep -F 'layout geometry and computed styles'
 printf '%s\n' "$plan" | grep -F 'complete keyboard focus cycle and activation dialog outcome'
@@ -117,6 +120,77 @@ printf '%s\n' '{
   ],
   "comparison": {"visual":{"threshold":{"metric":"different pixels","maximum":0,"normalization":"none"},"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true},"candidateStability":{"samePage":{"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true}},"freshContext":{"desktop":{"differentPixels":0,"passes":true},"mobile":{"differentPixels":0,"passes":true}}}}}
 }' >"$valid_fixture"
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const desktopB = "597095777e1d610387667c732b7c08624e4f135a6064e1b1b739ec1342f4dc7d";
+  const mobile = "37ff2c272ad311efe1fc2e22df94ecb75af3a5f74a47b2ee6c7b356e58d99075";
+  result.captures.push(
+    { name: "original-repeat-desktop", guestStartup: { visibleText: "ready" } },
+    { name: "original-repeat-mobile", guestStartup: { visibleText: "ready" } },
+  );
+  for (const capture of result.captures) {
+    capture.viewport = capture.name.endsWith("desktop")
+      ? { width: 1280, height: 800 }
+      : { width: 390, height: 844 };
+  }
+  result.comparison.visual.desktop = { differentPixels: 19, passes: false };
+  result.comparison.visual.baselineDefect = {
+    contract: "empty-project-chromium-v1",
+    browser: {
+      engine: "chromium",
+      executable: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      version: "Google Chrome 154.0.8037.59",
+    },
+    os: {
+      name: "macOS",
+      version: "15.7.3",
+      build: "24G419",
+      kernel: "Darwin 24.6.0",
+      arch: "x86_64",
+    },
+    rendering: {
+      deviceScaleFactor: 1,
+      fontsStatus: "loaded",
+      fontFamily: `system-ui, -apple-system, "system-ui", "Segoe UI", Roboto, Helvetica, Arial, sans-serif`,
+      theme: "light",
+      locale: "en-US",
+    },
+    dependencies: {
+      baselinePackageLockSha256: "844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6",
+      candidateCargoLockSha256: "b1528e012f06833312ce6dd6ab206cb1db28569159c71a1fe71ac844137ba4b7",
+    },
+    source: {
+      baselineCommit: "5de45e208690b0efc51c59a585ae9729325a9204",
+      candidateCommit: "1111111111111111111111111111111111111111",
+      harnessCommit: "1111111111111111111111111111111111111111",
+    },
+    acceptedCandidateSha256: {
+      desktop: [
+        "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+        desktopB,
+      ],
+      mobile,
+    },
+    observedSha256: {
+      original: {
+        desktop: "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+        repeatDesktop: "fad844b57077bcdbed0c93db7de03e5811243049ef7b6b284dbb2a8286a6480f",
+        mobile,
+        repeatMobile: mobile,
+      },
+      candidate: {
+        desktop: desktopB,
+        samePageDesktop: desktopB,
+        freshDesktop: desktopB,
+        mobile,
+        samePageMobile: mobile,
+        freshMobile: mobile,
+      },
+    },
+  };
+  fs.writeFileSync(process.argv[1], JSON.stringify(result));
+' "$valid_fixture"
 valid_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
   --validate-result "$valid_fixture")
 printf '%s\n' "$valid_output" | grep -F '"accepted":true' >/dev/null
@@ -153,10 +227,11 @@ expect_rejected() {
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.desktop = { differentPixels: 1, passes: false };
+  result.comparison.visual.baselineDefect.observedSha256.candidate.desktop =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
-' "$valid_fixture" "$fixture_dir/pixel-desktop.json"
-expect_rejected 'desktop pixel' "$fixture_dir/pixel-desktop.json"
+' "$valid_fixture" "$fixture_dir/third-desktop-hash.json"
+expect_rejected 'third desktop hash' "$fixture_dir/third-desktop-hash.json"
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -164,15 +239,74 @@ node -e '
     (capture) => capture.name === "original-desktop",
   ).instrumentation;
   if (instrumentation.timeline[0].event !== "navigation:start") process.exit(1);
-' "$fixture_dir/pixel-desktop.json"
+' "$fixture_dir/third-desktop-hash.json"
 
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.mobile = { differentPixels: 1, passes: false };
+  const contract = result.comparison.visual.baselineDefect;
+  contract.observedSha256.candidate.desktop = contract.acceptedCandidateSha256.desktop[0];
+  contract.observedSha256.candidate.samePageDesktop = contract.acceptedCandidateSha256.desktop[0];
+  contract.observedSha256.candidate.freshDesktop = contract.acceptedCandidateSha256.desktop[0];
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
-' "$valid_fixture" "$fixture_dir/pixel-mobile.json"
-expect_rejected 'mobile pixel' "$fixture_dir/pixel-mobile.json"
+' "$valid_fixture" "$fixture_dir/desktop-mode-a.json"
+desktop_mode_a_output=$(node "$repository_root/scripts/phase2/browser-runtime-capture.cjs" \
+  --validate-result "$fixture_dir/desktop-mode-a.json")
+printf '%s\n' "$desktop_mode_a_output" | grep -F '"accepted":true' >/dev/null
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.baselineDefect.observedSha256.candidate.mobile =
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/mobile-hash.json"
+expect_rejected 'mobile hash' "$fixture_dir/mobile-hash.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.baselineDefect.browser.version = "Google Chrome 155.0.0.0";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/browser-version.json"
+expect_rejected 'browser version drift' "$fixture_dir/browser-version.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.baselineDefect.dependencies.candidateCargoLockSha256 =
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/dependency-drift.json"
+expect_rejected 'dependency drift' "$fixture_dir/dependency-drift.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.baselineDefect.source.harnessCommit =
+    "2222222222222222222222222222222222222222";
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/harness-source-drift.json"
+expect_rejected 'harness source drift' "$fixture_dir/harness-source-drift.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.captures.find((capture) => capture.name === "candidate-desktop")
+    .viewport.width = 1279;
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/viewport-drift.json"
+expect_rejected 'viewport drift' "$fixture_dir/viewport-drift.json"
+
+node -e '
+  const fs = require("node:fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  result.comparison.visual.baselineDefect.acceptedCandidateSha256.desktop.push(
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
+  fs.writeFileSync(process.argv[2], JSON.stringify(result));
+' "$valid_fixture" "$fixture_dir/golden-expansion.json"
+expect_rejected 'automatic golden expansion' "$fixture_dir/golden-expansion.json"
 
 node -e '
   const fs = require("node:fs");
@@ -213,10 +347,8 @@ expect_rejected 'malformed focus entry' "$fixture_dir/malformed-focus.json"
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.candidateStability.samePage.desktop = {
-    differentPixels: 1,
-    passes: false,
-  };
+  result.comparison.visual.baselineDefect.observedSha256.candidate.samePageDesktop =
+    result.comparison.visual.baselineDefect.acceptedCandidateSha256.desktop[0];
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/candidate-same-page-instability.json"
 expect_rejected 'candidate same-page stability' "$fixture_dir/candidate-same-page-instability.json"
@@ -224,10 +356,8 @@ expect_rejected 'candidate same-page stability' "$fixture_dir/candidate-same-pag
 node -e '
   const fs = require("node:fs");
   const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  result.comparison.visual.candidateStability.freshContext.mobile = {
-    differentPixels: 1,
-    passes: false,
-  };
+  result.comparison.visual.baselineDefect.observedSha256.candidate.freshMobile =
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   fs.writeFileSync(process.argv[2], JSON.stringify(result));
 ' "$valid_fixture" "$fixture_dir/candidate-fresh-context-instability.json"
 expect_rejected 'candidate fresh-context stability' "$fixture_dir/candidate-fresh-context-instability.json"
@@ -242,6 +372,14 @@ expect_rejected 'zero-pixel flag bypass' "$fixture_dir/visual-flag-bypass.json"
 
 grep -F 'page.routeWebSocket(/:(6767)' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'deviceScaleFactor: 1' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'colorScheme: "light"' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'locale: "en-US"' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
+grep -F 'gtimeout 30 magick compare -metric AE' \
+  "$repository_root/scripts/phase2/browser-runtime-capture.sh" >/dev/null
 grep -F 'sidebar-project-empty-state' \
   "$repository_root/scripts/phase2/browser-runtime-capture.cjs" >/dev/null
 grep -F 'page.locator(".action:nth-child(1)")' \
