@@ -79,6 +79,42 @@ impl<'de> Deserialize<'de> for NonEmptyString {
     }
 }
 
+/// `z.string().min(MIN).max(MAX)` without trimming, measured in UTF-16
+/// code units.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BoundedString<const MIN: usize, const MAX: usize>(String);
+
+impl<const MIN: usize, const MAX: usize> BoundedString<MIN, MAX> {
+    /// Returns `None` when the UTF-16 length is outside `MIN..=MAX`.
+    #[must_use]
+    pub fn new(value: String) -> Option<Self> {
+        (MIN..=MAX)
+            .contains(&js_length(&value))
+            .then_some(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<const MIN: usize, const MAX: usize> Serialize for BoundedString<MIN, MAX> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for BoundedString<MIN, MAX> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
+            de::Error::custom(format_args!(
+                "expected a string of {MIN}..={MAX} characters"
+            ))
+        })
+    }
+}
+
 /// `z.string().trim().min(MIN).max(MAX)`: zod trims first, then checks the
 /// trimmed UTF-16 length, and outputs the trimmed value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -120,7 +156,7 @@ impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for TrimmedString
 
 #[cfg(test)]
 mod tests {
-    use super::{NonEmptyString, TrimmedString, js_length, js_trim};
+    use super::{BoundedString, NonEmptyString, TrimmedString, js_length, js_trim};
 
     #[test]
     fn trim_matches_ecmascript_not_unicode_white_space() {
@@ -140,6 +176,9 @@ mod tests {
     fn refinements_follow_zod() {
         assert!(serde_json::from_str::<NonEmptyString>(r#""""#).is_err());
         assert!(serde_json::from_str::<NonEmptyString>(r#"" ""#).is_ok());
+        assert!(serde_json::from_str::<BoundedString<1, 2>>(r#""\ud83d\ude00""#).is_ok());
+        assert!(serde_json::from_str::<BoundedString<1, 2>>(r#""\ud83d\ude00a""#).is_err());
+        assert!(serde_json::from_str::<BoundedString<1, 2>>(r#""""#).is_err());
         let parsed: TrimmedString<1, 3> = serde_json::from_str(r#""  ab  ""#).unwrap();
         assert_eq!(serde_json::to_string(&parsed).unwrap(), r#""ab""#);
         assert!(serde_json::from_str::<TrimmedString<1, 3>>(r#""   ""#).is_err());
