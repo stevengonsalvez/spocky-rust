@@ -17,6 +17,7 @@ sha2 = "0.10"
 subtle = "2"
 time = "0.3.55"
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4"] }
 
 [lints.rust]
