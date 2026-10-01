@@ -1,34 +1,36 @@
 [
   {
     "name": "baseline-owner",
-    "pid": 82168,
-    "startedAt": "2026-10-01T10:18:11.460Z",
-    "exitedAt": "2026-10-01T10:18:20.631Z",
+    "pid": 21433,
+    "startedAt": "2026-10-01T10:33:46.455Z",
+    "exitedAt": "2026-10-01T10:33:55.670Z",
     "code": 0,
-    "signal": null
+    "signal": null,
+    "processGroupGone": true
   },
   {
     "name": "candidate-forward-probe",
-    "pid": 82494,
-    "exitedAt": "2026-10-01T10:18:19.600Z",
+    "pid": 22271,
+    "exitedAt": "2026-10-01T10:33:55.199Z",
     "code": 0,
     "signal": null,
     "stderr": ""
   },
   {
     "name": "baseline-reverse-probe",
-    "pid": 82540,
-    "exitedAt": "2026-10-01T10:18:24.914Z",
+    "pid": 22534,
+    "exitedAt": "2026-10-01T10:33:59.828Z",
     "code": 0,
     "signal": null,
     "stderr": ""
   },
   {
     "name": "candidate-owner",
-    "pid": 82537,
-    "startedAt": "2026-10-01T10:18:20.634Z",
-    "exitedAt": "2026-10-01T10:18:25.022Z",
+    "pid": 22338,
+    "startedAt": "2026-10-01T10:33:55.673Z",
+    "exitedAt": "2026-10-01T10:33:59.949Z",
     "code": 0,
-    "signal": null
+    "signal": null,
+    "processGroupGone": true
   }
 ]

@@ -8,9 +8,17 @@
     "simultaneous_pre_owner_record_race_unqualified",
     "schema_downgrade_unqualified"
   ],
+  "platform": {
+    "os": "darwin",
+    "arch": "x64",
+    "processGroupCleanup": "dedicated-process-group"
+  },
   "storage": {
     "disposableCopy": true,
-    "sameSchemaJournalRows": 49
+    "baselineJournalRows": 49,
+    "candidateJournalRows": 49,
+    "candidateMigrationsApplied": 0,
+    "journalRowsEqual": true
   },
   "forwardExclusion": {
     "baselineReady": true,
@@ -31,6 +39,11 @@
   "compatibilityMechanism": {
     "status": "not-required-for-ordered-starts",
     "reason": "shared live PID owner record excludes ordered mixed starts"
+  },
+  "shutdown": {
+    "candidateExitCode": 0,
+    "candidateExitSignal": null,
+    "candidateProcessGroupGone": true
   },
   "rawEvidence": [
     "hub-mixed-ownership-events.json",
