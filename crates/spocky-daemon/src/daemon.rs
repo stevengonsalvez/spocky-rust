@@ -42,10 +42,6 @@ use spocky_contracts::ws::{DaemonPermission, ServerId};
 /// `@getpaseo/server` version at the pinned commit; reported in `server_info`.
 pub const DAEMON_VERSION: &str = "0.10.0";
 
-/// Ports of the production daemon. Refused unless explicitly allowed, so a
-/// default `config.json` (which lists `127.0.0.1:6767`) cannot bind them.
-const PROTECTED_PORTS: [i64; 2] = [6767, 6768];
-
 /// The process inputs the daemon reads: environment, working directory, home.
 #[derive(Clone)]
 pub struct DaemonEnv {
@@ -373,15 +369,6 @@ fn resolve_target(
         env.get("PORT"),
     );
     let target = parse_listen_string(&listen_text).map_err(|error| fail(error.to_string()))?;
-    if let ListenTarget::Tcp { port, .. } = &target
-        && PROTECTED_PORTS.contains(port)
-        && env.get("SPOCKY_ALLOW_PRODUCTION_PORT") != Some("1")
-    {
-        return Err(fail(format!(
-            "Refusing to listen on {listen_text}: port {port} belongs to the production daemon. Set daemon.listen, PASEO_LISTEN or PORT, or SPOCKY_ALLOW_PRODUCTION_PORT=1."
-        )));
-    }
-
     Ok(target)
 }
 
