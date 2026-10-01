@@ -67,8 +67,15 @@ Two independent read-only reviews rejected candidate `5e0ad27f8381e83ecbec83ea5a
 | GAP-018 | PID ownership is not cryptographic. |
 | GAP-019 | Invalid schedule files are skipped and logged. |
 | GAP-020 | An unreadable encryption keypair regenerates daemon identity. |
+| GAP-021 | A project or workspace registry file that fails to load is treated as empty, and the next mutation overwrites it (`workspace-registry.ts` `load()` 285-304). Pinned by `crates/spocky-store/tests/registry_files.rs`. |
 
 Do not silently repair these behaviors during parity work. A safety exception requires explicit approval and a recorded differential.
+
+## Approved divergences
+
+| ID | Divergence | Decision |
+|---|---|---|
+| DIV-001 | Pinned Node `22.20.0` `JSON.stringify` throws `RangeError` on values nested between 3,000 and 5,000 levels deep, at a stack-dependent depth; the Spocky JSON writer in `spocky-store` writes them. Pinned `JSON.parse` reads at least 100,000 levels, so Node can read what Spocky writes. Node `26.7.0` stringifies 1,000,000 levels, so the limit is not stable across Node versions either. | Accepted by the coordinator on 2026-10-01 while Stevie is away. The baseline limit is nondeterministic and only affects values the baseline can never persist. A mixed-version test must show pinned Node parsing a Spocky-written 10,000-deep record. |
 
 ## Cloud baseline gaps
 
