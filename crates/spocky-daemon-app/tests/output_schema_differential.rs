@@ -2,8 +2,8 @@
 //! build's `normalizeCodexOutputSchema` (`codex-app-server-agent.js`): the
 //! normalized schema, key order included, or the thrown message.
 //!
-//! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` (the pinned
-//! `packages/server/dist/server`), as the session lane's differentials do;
+//! Needs `SPOCKY_PINNED_NODE` (Node v22.20.0, asserted) and
+//! `SPOCKY_PASEO_DIST` (the pinned `packages/server/dist/server`), as the session lane's differentials do;
 //! without them the test FAILS unless `SPOCKY_ALLOW_SKIP=1` (exactly).
 
 use std::process::Command;
@@ -32,6 +32,9 @@ const CASES: &str = r#"[
 ]"#;
 
 const NODE_SCRIPT: &str = r"
+if (process.version !== `v22.20.0`) {
+  throw new Error(`pinned node is v22.20.0, got ${process.version}`);
+}
 const [dist, casesJson] = process.argv.slice(1);
 const { normalizeCodexOutputSchema } = await import(`${dist}/server/agent/providers/codex-app-server-agent.js`);
 const out = JSON.parse(casesJson).map((schema) => {
