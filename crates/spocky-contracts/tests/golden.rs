@@ -27,7 +27,7 @@ use spocky_contracts::ws::{
 };
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 109;
+const EXPECTED_CASES: usize = 116;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
