@@ -498,6 +498,36 @@ fn extract_request_info(payload: &JsValue) -> Option<(String, Option<String>)> {
     ))
 }
 
+/// zod's `invalid_union` issue for a `type` the inbound schema does not list.
+const ZOD_NO_DISCRIMINATOR: &str = "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [],\n    \"note\": \"No matching discriminator\",\n    \"discriminator\": \"type\",\n    \"options\": [\n      \"ping\",\n      \"hello\",\n      \"recording_state\",\n      \"session\"\n    ],\n    \"path\": [\n      \"type\"\n    ],\n    \"message\": \"Invalid discriminator value. Expected 'ping' | 'hello' | 'recording_state' | 'session'\"\n  }\n]";
+
+/// zod's `invalid_type` issue ("expected object") at `path`.
+fn zod_invalid_type(path: &[&str], received: &JsValue) -> String {
+    let kind = match received {
+        JsValue::Undefined => "undefined",
+        JsValue::Null => "null",
+        JsValue::Bool(_) => "boolean",
+        JsValue::Number(_) => "number",
+        JsValue::String(_) => "string",
+        JsValue::Array(_) => "array",
+        JsValue::Object(_) => "object",
+    };
+    let path = if path.is_empty() {
+        "[]".to_owned()
+    } else {
+        format!(
+            "[\n{}\n    ]",
+            path.iter()
+                .map(|key| format!("      \"{key}\""))
+                .collect::<Vec<_>>()
+                .join(",\n")
+        )
+    };
+    format!(
+        "[\n  {{\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": {path},\n    \"message\": \"Invalid input: expected object, received {kind}\"\n  }}\n]"
+    )
+}
+
 /// Nesting a session message may have before the backend seam, which takes a
 /// `serde_json::Value` (recursive to build and to drop), refuses it. Control
 /// frames have no such limit: they are read straight from the parsed value.
@@ -1307,22 +1337,40 @@ impl SocketTask {
 
     /// The inbound schema: control frames by `type`, session frames through
     /// the backend.
+    ///
+    /// The error text is what `WSInboundMessageSchema.safeParse(..).error.message`
+    /// holds (zod's issue list) for a frame that is not an object, has no known
+    /// `type`, or is a session frame without an object `message`. A control
+    /// frame that has the right `type` but a bad field (a `hello` missing
+    /// `clientId`, say) still reports the serde text from spocky-contracts, not
+    /// zod's issue list: mapping every field issue is left to the contracts
+    /// crate, which owns those schemas.
     fn classify(&self, parsed: &JsValue) -> Result<Inbound, String> {
-        if parsed.get("type").and_then(JsValue::as_str) == Some("session") {
-            let message = match parsed.get("message") {
-                Some(message) => session_value(message, 0).ok_or("Invalid input")?,
-                None => Value::Null,
-            };
-            return self
-                .shared
-                .deps
-                .backend
-                .validate_inbound(&message)
-                .map(|()| Inbound::Session(message));
+        let Some(record) = parsed.as_object() else {
+            return Err(zod_invalid_type(&[], parsed));
+        };
+        match record.get("type").and_then(JsValue::as_str) {
+            Some("session") => {
+                let Some(message) = record.get("message").filter(|m| m.is_object()) else {
+                    return Err(zod_invalid_type(
+                        &["message"],
+                        record.get("message").unwrap_or(&JsValue::Undefined),
+                    ));
+                };
+                let message = session_value(message, 0).ok_or("Invalid input")?;
+                self.shared
+                    .deps
+                    .backend
+                    .validate_inbound(&message)
+                    .map(|()| Inbound::Session(message))
+            }
+            Some("ping" | "hello" | "recording_state") => {
+                WsControlInbound::deserialize(JsValueDeserializer(parsed))
+                    .map(|control| Inbound::Control(Box::new(control)))
+                    .map_err(|error| error.to_string())
+            }
+            _ => Err(ZOD_NO_DISCRIMINATOR.to_owned()),
         }
-        WsControlInbound::deserialize(JsValueDeserializer(parsed))
-            .map(|control| Inbound::Control(Box::new(control)))
-            .map_err(|error| error.to_string())
     }
 
     /// `handleInvalidInboundMessage`.
