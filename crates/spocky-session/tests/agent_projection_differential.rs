@@ -10,8 +10,8 @@
 use std::process::Command;
 
 use spocky_session::agent_projection::{
-    AgentAttention, ManagedAgentRecordView, SnapshotOverrides, apply_snapshot_record,
-    to_stored_agent_record,
+    AgentAttention, AgentPayloadView, ManagedAgentRecordView, SnapshotOverrides,
+    apply_snapshot_record, to_agent_payload, to_stored_agent_record,
 };
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
@@ -107,12 +107,62 @@ const SNAPSHOTS: &str = r#"[
     "internal":true}, null]
 ]"#;
 
+/// `[agent, options]` for `toAgentPayload`; agents add `capabilities`,
+/// `availableModes`, `pendingPermissions` (map values in order),
+/// `activeTurnId`, `activeTurnStartedAt` (epoch milliseconds or null), and
+/// `lastUsage`.
+const PAYLOADS: &str = r#"[
+  [{"id":"p1","provider":"codex","cwd":"/w","createdAt":1700000000000,"updatedAt":1700000001000,
+    "lastUserMessageAt":null,"labels":{},"lifecycle":"idle","currentModeId":null,
+    "config":{"provider":"codex","cwd":"/w"},"persistence":null,
+    "attention":{"requiresAttention":false},
+    "capabilities":{"supportsStreaming":true,"supportsMcpServers":false},"availableModes":[],
+    "pendingPermissions":[],"activeTurnId":null,"activeTurnStartedAt":null}, {}],
+  [{"id":"p2","provider":"codex","cwd":"/w","workspaceId":"wks_1","createdAt":1700000000000,
+    "updatedAt":1700000002000,"lastUserMessageAt":1700000001500,"labels":{"a":"b"},
+    "lifecycle":"running","currentModeId":"auto",
+    "config":{"provider":"codex","cwd":"/w","model":"gpt","thinkingOptionId":" high "},
+    "runtimeInfo":{"provider":"codex","sessionId":"s","thinkingOptionId":"","extra":{"k":{}}},
+    "features":[{"id":"f","type":"toggle","value":true}],
+    "persistence":{"provider":"codex","sessionId":"s","metadata":{"mcpServers":{"m":{}},"cwd":"/w"}},
+    "lastError":"",
+    "attention":{"requiresAttention":true,"attentionReason":"error","attentionTimestamp":1700000003000},
+    "capabilities":{"supportsStreaming":true,"x":"__undefined__"},
+    "availableModes":[{"id":"auto","label":"Auto","isUnattended":false}],
+    "pendingPermissions":[
+      {"id":"r1","provider":"codex","name":"shell","kind":"tool","input":{"a":1,"b":{}},
+       "suggestions":[{"x":1},{}],"actions":[{"id":"a","label":"A","behavior":"allow"}],"metadata":{}},
+      {"id":"r2","name":"n","kind":"tool","actions":null,"suggestions":[]}],
+    "activeTurnId":"t1","activeTurnStartedAt":1700000001600,
+    "lastUsage":{"inputTokens":5,"outputTokens":null,"totalCostUsd":1.5,"extra":"x"}},
+   {"title":"T"}],
+  [{"id":"p3","provider":"codex","cwd":"/w","workspaceId":"","createdAt":1700000000000,
+    "updatedAt":1700000001000,"lastUserMessageAt":null,"labels":{},"lifecycle":"idle",
+    "currentModeId":null,"config":{"provider":"codex","cwd":"/w","thinkingOptionId":"  "},
+    "runtimeInfo":{"provider":"codex","sessionId":null},
+    "persistence":{"provider":"codex","sessionId":"s","metadata":{"mcpServers":{"m":{}}}},
+    "attention":{"requiresAttention":false},"capabilities":{},"availableModes":[],
+    "pendingPermissions":[],"activeTurnId":"t2","activeTurnStartedAt":null,
+    "lastUsage":{"inputTokens":"x"}}, {"title":null}],
+  [{"id":"p4","provider":"codex","cwd":"/w","createdAt":1700000000000,"updatedAt":1700000001000,
+    "lastUserMessageAt":null,"labels":{},"lifecycle":"closed","currentModeId":null,
+    "config":{"provider":"codex","cwd":"/w"},"persistence":null,
+    "attention":{"requiresAttention":false},"capabilities":{},"availableModes":[],
+    "pendingPermissions":[],"activeTurnId":"","activeTurnStartedAt":null,"lastUsage":{}}, {}],
+  [{"id":"p5","provider":"codex","cwd":"/w","createdAt":1700000000000,"updatedAt":1700000001000,
+    "lastUserMessageAt":null,"labels":{},"lifecycle":"idle","currentModeId":null,
+    "config":{"provider":"codex","cwd":"/w"},"persistence":null,
+    "attention":{"requiresAttention":false},"capabilities":{},"availableModes":[],
+    "pendingPermissions":[{"id":"r","actions":"not an array"}],"activeTurnId":null,
+    "activeTurnStartedAt":null}, {}]
+]"#;
+
 const NODE_SCRIPT: &str = r#"
-const [dist, projectionsJson, snapshotsJson, marker] = process.argv.slice(1);
+const [dist, projectionsJson, snapshotsJson, marker, payloadsJson] = process.argv.slice(1);
 const fs = await import("node:fs");
 const os = await import("node:os");
 const path = await import("node:path");
-const { toStoredAgentRecord } = await import(`${dist}/server/agent/agent-projections.js`);
+const { toStoredAgentRecord, toAgentPayload } = await import(`${dist}/server/agent/agent-projections.js`);
 const { AgentStorage } = await import(`${dist}/server/agent/agent-storage.js`);
 const undef = (value) => {
   if (Array.isArray(value)) return value.map((item) => (item === marker ? undefined : undef(item)));
@@ -155,7 +205,13 @@ try {
 } finally {
   fs.rmSync(home, { recursive: true, force: true });
 }
-process.stdout.write(JSON.stringify({ projections, snapshots }));
+const payloads = JSON.parse(payloadsJson).map(([input, options]) => {
+  const agent = agentOf(input);
+  agent.pendingPermissions = new Map(agent.pendingPermissions.map((request) => [request.id, request]));
+  agent.activeTurnStartedAt = agent.activeTurnStartedAt === null ? null : new Date(agent.activeTurnStartedAt);
+  return attempt(() => toAgentPayload(agent, options));
+});
+process.stdout.write(JSON.stringify({ projections, snapshots, payloads }));
 "#;
 
 fn undefined_markers(value: &JsValue) -> JsValue {
@@ -284,9 +340,42 @@ fn rust_output() -> String {
                 .expect("snapshot record")
         })
         .collect();
+    let payloads = parse(PAYLOADS)
+        .expect("payloads")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|case| {
+            let case = case.as_array().expect("pair");
+            let options = undefined_markers(&case[1]);
+            let agent = undefined_markers(&case[0]);
+            let get = |key: &str| agent.get(key);
+            let payload_view = AgentPayloadView {
+                record: view(&case[0]),
+                capabilities: get("capabilities").expect("capabilities").clone(),
+                available_modes: get("availableModes")
+                    .and_then(JsValue::as_array)
+                    .expect("modes")
+                    .to_vec(),
+                pending_permissions: get("pendingPermissions")
+                    .and_then(JsValue::as_array)
+                    .expect("permissions")
+                    .to_vec(),
+                active_turn_id: optional_string(get("activeTurnId")),
+                active_turn_started_at_millis: present(get("activeTurnStartedAt"))
+                    .map(|value| millis(&value)),
+                last_usage: present(get("lastUsage")),
+            };
+            outcome(to_agent_payload(
+                &payload_view,
+                options.get("title").and_then(JsValue::as_str),
+            ))
+        })
+        .collect();
     let mut output = JsObject::new();
     output.insert("projections", JsValue::Array(projections));
     output.insert("snapshots", JsValue::Array(snapshots));
+    output.insert("payloads", JsValue::Array(payloads));
     stringify(&JsValue::Object(output))
 }
 
@@ -342,7 +431,7 @@ fn stored_records_match_pinned_projection() {
         .arg(&node)
         .args(["--input-type=module", "-e", NODE_SCRIPT])
         .arg(&dist)
-        .args([PROJECTIONS, SNAPSHOTS, UNDEFINED])
+        .args([PROJECTIONS, SNAPSHOTS, UNDEFINED, PAYLOADS])
         .output()
         .expect("run pinned node");
     assert!(
