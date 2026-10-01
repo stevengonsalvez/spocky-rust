@@ -809,15 +809,22 @@ fn connections_past_the_cap_are_closed_and_the_slot_frees_up() {
     let first = hold();
     let second = hold();
     std::thread::sleep(Duration::from_millis(150));
+    let started = Instant::now();
     let mut third = hold();
     third
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let mut byte = [0_u8; 1];
-    assert_eq!(
-        third.read(&mut byte).unwrap_or(0),
-        0,
-        "the excess connection is closed"
+    // A closed connection reads EOF or a reset; a timeout means it stayed open.
+    match third.read(&mut byte) {
+        Ok(0) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+        other => panic!("the excess connection was not closed: {other:?}"),
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "closed after {:?}",
+        started.elapsed()
     );
 
     drop(first);
@@ -860,19 +867,28 @@ fn a_peer_that_stops_reading_is_terminated_at_the_high_water_mark() {
     send(&mut ws, &hello("stalled"));
     next_json(&mut ws);
     let sink = Arc::clone(&harness.calls.sinks.lock().unwrap()[0]);
-    let message = json!({"type": "big", "data": "x".repeat(1_000_000)});
+    // Many small frames to a peer that never reads. The kernel buffers absorb the
+    // first megabytes; after that every write times out, so the socket must be
+    // dropped by the high-water mark, not by a single oversized frame.
+    let message = json!({"type": "chunk", "data": "x".repeat(16 * 1024)});
     let started = Instant::now();
     let mut peak = 0;
+    let mut sent = 0_u64;
     while harness.calls.detached.lock().unwrap().is_empty() {
         assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "the stalled socket was never dropped"
+            started.elapsed() < Duration::from_secs(15),
+            "the stalled socket was still attached after {sent} frames"
         );
         sink.send_to_connection(&message);
+        sent += 1;
         peak = peak.max(sink.buffered_amount(None).unwrap_or(0));
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(1));
     }
-    assert!(peak <= 256 * 1024 + 2_000_000, "buffered {peak} bytes");
+    assert!(
+        sent > 20,
+        "the mark was hit by the first frames ({sent}), not by a stall"
+    );
+    assert!(peak <= 256 * 1024 + 16 * 1024, "buffered {peak} bytes");
     harness.finish();
 }
 
