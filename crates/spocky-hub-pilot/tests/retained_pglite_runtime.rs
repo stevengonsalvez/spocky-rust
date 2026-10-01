@@ -1,7 +1,5 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -399,70 +397,30 @@ fn retained_host_reclaims_stale_owner_with_one_concurrent_winner() {
 
 #[test]
 #[cfg(unix)]
-fn retained_host_never_deletes_replacement_owner_after_stale_check() {
-    let root = TestDir::new();
-    fs::write(
-        root.0.join(".paseo-hub.lock"),
-        r#"{"pid":2147483647,"token":"stale"}"#,
-    )
-    .expect("write stale owner");
-    let ready = root.0.join("unlink-ready");
-    let resume = root.0.join("unlink-resume");
-    let preload = root.0.join("pause-unlink.mjs");
-    fs::write(
-        &preload,
-        r#"import fs from "node:fs";
-import { syncBuiltinESMExports } from "node:module";
-const original = fs.unlinkSync;
-let paused = false;
-fs.unlinkSync = function(path, ...args) {
-  if (!paused && String(path).includes(".paseo-hub.lock")) {
-    paused = true;
-    fs.writeFileSync(process.env.SPOCKY_LOCK_READY, "ready");
-    const gate = new Int32Array(new SharedArrayBuffer(4));
-    while (!fs.existsSync(process.env.SPOCKY_LOCK_RESUME)) Atomics.wait(gate, 0, 0, 10);
-  }
-  return original.call(this, path, ...args);
-};
-syncBuiltinESMExports();
-"#,
-    )
-    .expect("write unlink preload");
-    let wrapper = root.0.join("node-with-paused-unlink.sh");
-    let node = std::env::var("SPOCKY_NODE").expect("SPOCKY_NODE");
-    fs::write(
-        &wrapper,
-        format!(
-            "#!/bin/sh\nSPOCKY_LOCK_READY='{}' SPOCKY_LOCK_RESUME='{}' NODE_OPTIONS='--import={}' exec '{}' \"$@\"\n",
-            ready.display(),
-            resume.display(),
-            preload.display(),
-            node
-        ),
-    )
-    .expect("write node wrapper");
-    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
-        .expect("make node wrapper executable");
+fn retained_host_never_replaces_live_lock_inode() {
+    use std::os::unix::fs::MetadataExt as _;
 
-    let mut first_config = config(root.0.clone());
-    first_config.node_executable = wrapper;
-    let first = thread::spawn(move || RetainedPgliteHost::open(&first_config));
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while !ready.exists() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "first reclaimer did not pause"
+    let root = TestDir::new();
+    let lock_path = root.0.join(".paseo-hub.lock");
+    let owner = RetainedPgliteHost::open(&config(root.0.clone())).expect("open owner");
+    let inode = fs::metadata(&lock_path).expect("lock metadata").ino();
+    let record = fs::read(&lock_path).expect("lock record");
+
+    for _ in 0..8 {
+        assert!(matches!(
+            RetainedPgliteHost::open(&config(root.0.clone())),
+            Err(RetainedHostError::DirectoryInUse)
+        ));
+        assert_eq!(
+            fs::metadata(&lock_path).expect("lock metadata").ino(),
+            inode
         );
-        thread::sleep(Duration::from_millis(10));
+        assert_eq!(fs::read(&lock_path).expect("lock record"), record);
     }
 
-    let second = RetainedPgliteHost::open(&config(root.0.clone())).expect("replacement owner");
-    fs::write(&resume, "resume").expect("resume first reclaimer");
-    let first = first.join().expect("join first reclaimer");
-    assert!(matches!(first, Err(RetainedHostError::DirectoryInUse)));
-    second
+    owner
         .query("select 1::bigint as owned", &[])
-        .expect("replacement remains owner");
+        .expect("original owner remains usable");
 }
 
 #[test]

@@ -465,7 +465,8 @@ fn embedded_sql_recovers_stale_and_incomplete_owner_records() {
             );
         }
         drop(store);
-        assert!(!lock_path.exists());
+        assert!(lock_path.exists());
+        EmbeddedSqlStore::open(&root.0).expect("reopen released OS lock");
     }
 }
 

@@ -2,25 +2,17 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
+use crate::directory_lock::{DataDirectoryLock, DirectoryLockError};
 use crate::embedded_schema::{BASELINE_JOURNAL, BASELINE_SCHEMA_SQL};
 use crate::{DurableHubStore, StoreError, StoreSemantics};
 
 const DATABASE_FILE: &str = "hub.sqlite3";
-const LOCK_FILE: &str = ".paseo-hub.lock";
-const OWNER_READ_ATTEMPTS: usize = 10;
-const OWNER_READ_DELAY: Duration = Duration::from_millis(10);
 const SNAPSHOT_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS hub_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     state_bytes BLOB NOT NULL,
@@ -42,7 +34,13 @@ impl EmbeddedSqlStore {
     pub fn open(data_directory: impl AsRef<Path>) -> Result<Self, StoreError> {
         let data_directory = data_directory.as_ref().to_path_buf();
         fs::create_dir_all(&data_directory)?;
-        let directory_lock = DataDirectoryLock::acquire(&data_directory)?;
+        let directory_lock =
+            DataDirectoryLock::acquire(&data_directory).map_err(|error| match error {
+                DirectoryLockError::Busy => {
+                    StoreError::EmbeddedDirectoryInUse(data_directory.clone())
+                }
+                DirectoryLockError::Io(error) => StoreError::Io(error),
+            })?;
         let connection = Connection::open(data_directory.join(DATABASE_FILE))?;
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.busy_timeout(Duration::ZERO)?;
@@ -276,101 +274,6 @@ fn named_constraints(sql: &str) -> Vec<String> {
         remaining = after_name;
     }
     names
-}
-
-#[derive(Deserialize, Serialize)]
-struct LockOwner {
-    pid: u32,
-    token: String,
-}
-
-struct DataDirectoryLock {
-    path: PathBuf,
-    owner: LockOwner,
-}
-
-impl DataDirectoryLock {
-    fn acquire(data_directory: &Path) -> Result<Self, StoreError> {
-        let path = data_directory.join(LOCK_FILE);
-        let owner = LockOwner {
-            pid: std::process::id(),
-            token: Uuid::new_v4().to_string(),
-        };
-        loop {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt as _;
-
-                options.mode(0o600);
-            }
-            match options.open(&path) {
-                Ok(mut file) => {
-                    serde_json::to_writer(&mut file, &owner).map_err(std::io::Error::other)?;
-                    file.flush()?;
-                    return Ok(Self { path, owner });
-                }
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error.into()),
-            }
-            if read_lock_owner(&path)?.is_some_and(|existing| process_is_running(existing.pid)) {
-                return Err(StoreError::EmbeddedDirectoryInUse(
-                    data_directory.to_path_buf(),
-                ));
-            }
-            match fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-    }
-}
-
-impl Drop for DataDirectoryLock {
-    fn drop(&mut self) {
-        if read_lock_owner(&self.path)
-            .ok()
-            .flatten()
-            .is_some_and(|owner| owner.token == self.owner.token)
-        {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
-fn read_lock_owner(path: &Path) -> Result<Option<LockOwner>, StoreError> {
-    for _ in 0..OWNER_READ_ATTEMPTS {
-        match fs::read(path) {
-            Ok(bytes) => {
-                if let Ok(owner) = serde_json::from_slice(&bytes) {
-                    return Ok(Some(owner));
-                }
-            }
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        }
-        thread::sleep(OWNER_READ_DELAY);
-    }
-    Ok(None)
-}
-
-fn process_is_running(pid: u32) -> bool {
-    if pid == std::process::id() {
-        return true;
-    }
-    let Ok(output) = Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-    else {
-        return false;
-    };
-    output.status.success()
-        || String::from_utf8_lossy(&output.stderr).contains("Operation not permitted")
 }
 
 impl DurableHubStore for EmbeddedSqlStore {

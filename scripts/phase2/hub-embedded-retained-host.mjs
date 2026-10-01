@@ -1,13 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  closeSync,
-  linkSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
 import { join } from "node:path";
@@ -19,11 +11,8 @@ if (!packageRoot || !migrationsRoot || !dataDirectory || !maximumText) {
 }
 const maximum = Number(maximumText);
 if (!Number.isSafeInteger(maximum) || maximum < 1024) throw new Error("invalid frame maximum");
-const ownerReadAttempts = 10;
-const ownerReadDelayMilliseconds = 10;
 
 let client;
-let owner;
 let input = Buffer.alloc(0);
 let operationChain = Promise.resolve();
 let closing = false;
@@ -37,7 +26,6 @@ const jsonParsers = {
 
 try {
   await mkdir(dataDirectory, { recursive: true });
-  owner = await acquireOwner(dataDirectory);
   const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   const { PGlite } = await import(pathToFileURL(join(packageRoot, "dist/index.js")).href);
   client = new PGlite(dataDirectory);
@@ -178,11 +166,6 @@ async function closeAndReply(id) {
     failure = error;
   }
   client = undefined;
-  try {
-    releaseOwner();
-  } catch (error) {
-    failure ??= error;
-  }
   if (!failure && failClose) {
     failure = Object.assign(new Error("injected close failure after durable close"), {
       code: "CLOSE_FAILED",
@@ -312,100 +295,6 @@ function writeFrame(bytes) {
   process.stdout.write(bytes);
 }
 
-async function acquireOwner(directory) {
-  const path = join(directory, ".paseo-hub.lock");
-  const token = randomUUID();
-  const record = JSON.stringify({ pid: process.pid, token });
-  for (;;) {
-    try {
-      const descriptor = openSync(path, "wx", 0o600);
-      writeFileSync(descriptor, record);
-      closeSync(descriptor);
-      await delay(ownerReadAttempts * ownerReadDelayMilliseconds);
-      try {
-        if (readFileSync(path, "utf8") === record) return { path, token };
-      } catch (error) {
-        if (error?.code !== "ENOENT") throw error;
-      }
-      continue;
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-    }
-    const observed = await readOwner(path);
-    if (observed.owner && processIsRunning(observed.owner.pid)) {
-      throw Object.assign(new Error("PGlite data directory is already in use"), {
-        code: "DIRECTORY_IN_USE",
-      });
-    }
-    const tombstone = `${path}.reclaim-${token}`;
-    try {
-      renameSync(path, tombstone);
-    } catch (error) {
-      if (error?.code === "ENOENT") continue;
-      throw error;
-    }
-    const claimed = readFileSync(tombstone, "utf8");
-    if (claimed !== observed.raw) {
-      try {
-        linkSync(tombstone, path);
-        unlinkSync(tombstone);
-      } catch (error) {
-        if (error?.code !== "EEXIST") throw error;
-      }
-      continue;
-    }
-    unlinkSync(tombstone);
-  }
-}
-
-async function readOwner(path) {
-  let raw;
-  for (let attempt = 0; attempt < ownerReadAttempts; attempt += 1) {
-    try {
-      raw = readFileSync(path, "utf8");
-      const parsed = JSON.parse(raw);
-      if (
-        parsed !== null &&
-        typeof parsed === "object" &&
-        Number.isSafeInteger(parsed.pid) &&
-        typeof parsed.token === "string"
-      ) {
-        return { raw, owner: { pid: parsed.pid, token: parsed.token } };
-      }
-    } catch (error) {
-      if (error?.code === "ENOENT") return { raw: undefined, owner: undefined };
-      if (!(error instanceof SyntaxError)) throw error;
-    }
-    await delay(ownerReadDelayMilliseconds);
-  }
-  return { raw, owner: undefined };
-}
-
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function processIsRunning(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
-function releaseOwner() {
-  if (!owner) return;
-  try {
-    const current = JSON.parse(readFileSync(owner.path, "utf8"));
-    if (current.token === owner.token) unlinkSync(owner.path);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  owner = undefined;
-}
-
 function errorPayload(error, fallback = "REMOTE_ERROR") {
   return {
     code: typeof error?.code === "string" ? error.code : fallback,
@@ -430,9 +319,6 @@ async function shutdown(code) {
   if (stallTimer) clearInterval(stallTimer);
   try {
     await client?.close();
-  } catch {}
-  try {
-    releaseOwner();
   } catch {}
   process.exitCode = code;
   process.stdin.pause();

@@ -1,6 +1,7 @@
 //! Bounded IPC client for the retained `PGlite` JavaScript host.
 
 use std::fmt;
+use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -10,6 +11,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+use crate::directory_lock::{DataDirectoryLock, DirectoryLockError};
 
 #[derive(Clone, Debug)]
 pub struct RetainedPgliteConfig {
@@ -192,6 +195,7 @@ struct RemoteError {
 
 struct HostState {
     child: Child,
+    directory_lock: Option<DataDirectoryLock>,
     writer: mpsc::Sender<WriteRequest>,
     responses: Receiver<Result<Response, RetainedHostError>>,
     next_request_id: u64,
@@ -212,6 +216,12 @@ pub struct RetainedPgliteHost {
 
 impl RetainedPgliteHost {
     pub fn open(config: &RetainedPgliteConfig) -> Result<Self, RetainedHostError> {
+        fs::create_dir_all(&config.data_directory)?;
+        let directory_lock =
+            DataDirectoryLock::acquire(&config.data_directory).map_err(|error| match error {
+                DirectoryLockError::Busy => RetainedHostError::DirectoryInUse,
+                DirectoryLockError::Io(error) => RetainedHostError::Io(error),
+            })?;
         let mut child = Command::new(&config.node_executable)
             .arg(&config.adapter_path)
             .arg(&config.package_root)
@@ -295,6 +305,7 @@ impl RetainedPgliteHost {
             identity,
             state: Mutex::new(HostState {
                 child,
+                directory_lock: Some(directory_lock),
                 writer,
                 responses,
                 next_request_id: 1,
@@ -355,6 +366,7 @@ impl RetainedPgliteHost {
         let mut state = self.state.lock().map_err(|_| RetainedHostError::Poisoned)?;
         state.closed = true;
         terminate_and_reap(&mut state.child, self.request_timeout);
+        state.directory_lock = None;
         result
     }
 

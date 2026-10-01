@@ -19,6 +19,7 @@ mod account_emails;
 mod api_keys;
 pub mod billing;
 pub mod daemon_socket;
+mod directory_lock;
 mod email_delivery;
 mod embedded_schema;
 mod embedded_sql;
