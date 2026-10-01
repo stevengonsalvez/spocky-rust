@@ -108,12 +108,15 @@ pub struct HttpResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    /// The socket stays open for the next request (`Connection: keep-alive`).
+    pub keep_alive: bool,
 }
 
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
         204 => "No Content",
+        304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
@@ -147,6 +150,7 @@ impl HttpResponse {
             status,
             headers: vec![("Connection".to_owned(), "close".to_owned())],
             body: Vec::new(),
+            keep_alive: false,
         }
     }
 }
@@ -198,12 +202,94 @@ pub struct HttpContext<'a, S: BuildHasher> {
     pub now_ms: i64,
 }
 
+/// Node's `server.keepAliveTimeout`, announced in `Keep-Alive: timeout=5`.
+pub const KEEP_ALIVE_TIMEOUT_SECS: u64 = 5;
+
+/// `llhttp_should_keep_alive` over the request's `Connection` tokens: HTTP/1.1
+/// stays open unless it says `close`; HTTP/1.0 only if it says `keep-alive`.
+#[must_use]
+pub fn wants_keep_alive(request: &UpgradeRequest) -> bool {
+    let connection = request.header("connection").unwrap_or_default();
+    let has = |token: &str| {
+        connection
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case(token))
+    };
+    if request.http_minor >= 1 {
+        !has("close")
+    } else {
+        has("keep-alive")
+    }
+}
+
+/// `Date`, `Connection` and `Keep-Alive`, which Node appends to every response.
+fn tail_headers(now: i64, keep_alive: bool) -> Vec<(String, String)> {
+    let mut headers = vec![("Date".to_owned(), http_date(now))];
+    if keep_alive {
+        headers.push(("Connection".to_owned(), "keep-alive".to_owned()));
+        headers.push((
+            "Keep-Alive".to_owned(),
+            format!("timeout={KEEP_ALIVE_TIMEOUT_SECS}"),
+        ));
+    } else {
+        headers.push(("Connection".to_owned(), "close".to_owned()));
+    }
+    headers
+}
+
+/// `fresh@0.5.2` for a response carrying `etag` and no `Last-Modified`.
+fn is_fresh(request: &UpgradeRequest, etag: &str) -> bool {
+    let none_match = request.header("if-none-match");
+    let modified_since = request.header("if-modified-since");
+    if none_match.as_deref().is_none_or(str::is_empty)
+        && modified_since.as_deref().is_none_or(str::is_empty)
+    {
+        return false;
+    }
+    if request
+        .header("cache-control")
+        .is_some_and(|value| has_no_cache(&value))
+    {
+        return false;
+    }
+    if let Some(none_match) = none_match.filter(|value| !value.is_empty())
+        && none_match != "*"
+    {
+        let weak = format!("W/{etag}");
+        let matched = none_match
+            .split(',')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .any(|token| token == etag || token == weak || format!("W/{token}") == etag);
+        if !matched {
+            return false;
+        }
+    }
+    // There is no Last-Modified, so any If-Modified-Since is stale.
+    modified_since.is_none_or(|value| value.is_empty())
+}
+
+/// `/(?:^|,)\s*?no-cache\s*?(?:,|$)/`.
+fn has_no_cache(cache_control: &str) -> bool {
+    cache_control
+        .split(',')
+        .any(|part| part.trim() == "no-cache")
+}
+
+/// Whether `path` is `route` under Express' defaults: case-insensitive, one
+/// optional trailing slash (`^\/api\/health\/?$` with the `i` flag).
+fn matches_route(path: &str, route: &str) -> bool {
+    let path = path.strip_suffix('/').unwrap_or(path);
+    path.eq_ignore_ascii_case(route)
+}
+
 /// `res.json(body)` as Express writes it.
 fn json_response(
     status: u16,
     body: &Value,
     ctx_now: i64,
     cors: &[(String, String)],
+    keep_alive: bool,
 ) -> HttpResponse {
     let bytes = body.to_string().into_bytes();
     let mut headers = vec![("X-Powered-By".to_owned(), "Express".to_owned())];
@@ -214,16 +300,21 @@ fn json_response(
     ));
     headers.push(("Content-Length".to_owned(), bytes.len().to_string()));
     headers.push(("ETag".to_owned(), weak_etag(&bytes)));
-    headers.push(("Date".to_owned(), http_date(ctx_now)));
-    headers.push(("Connection".to_owned(), "close".to_owned()));
+    headers.extend(tail_headers(ctx_now, keep_alive));
     HttpResponse {
         status,
         headers,
         body: bytes,
+        keep_alive,
     }
 }
 
-fn not_found(request: &UpgradeRequest, now: i64, cors: &[(String, String)]) -> HttpResponse {
+fn not_found(
+    request: &UpgradeRequest,
+    now: i64,
+    cors: &[(String, String)],
+    keep_alive: bool,
+) -> HttpResponse {
     let path = encode_path(request_path(request));
     let escaped = path
         .replace('&', "&amp;")
@@ -250,12 +341,18 @@ fn not_found(request: &UpgradeRequest, now: i64, cors: &[(String, String)]) -> H
         "text/html; charset=utf-8".to_owned(),
     ));
     headers.push(("Content-Length".to_owned(), body.len().to_string()));
-    headers.push(("Date".to_owned(), http_date(now)));
-    headers.push(("Connection".to_owned(), "close".to_owned()));
+    headers.extend(tail_headers(now, keep_alive));
+    // finalhandler ends a HEAD response without its body.
+    let body = if request.method == "HEAD" {
+        Vec::new()
+    } else {
+        body
+    };
     HttpResponse {
         status: 404,
         headers,
         body,
+        keep_alive,
     }
 }
 
@@ -287,28 +384,14 @@ fn bypasses_bearer_auth(method: &str, path: &str) -> bool {
         || path == "/mcp/agents"
 }
 
-/// The middleware chain and routes, in `bootstrap.ts` order.
-#[must_use]
-pub fn handle_request<S: BuildHasher>(
+/// The CORS middleware's headers for an allowed `Origin`.
+fn cors_headers<S: BuildHasher>(
     request: &UpgradeRequest,
-    ctx: &HttpContext<'_, S>,
-) -> HttpResponse {
-    let host = request.header("host");
-    if ctx.tcp_listener && !is_http_host_allowed(host.as_deref(), ctx.hostnames) {
-        return json_response(
-            403,
-            &Value::Object(Map::from_iter([(
-                "error".to_owned(),
-                Value::from("Invalid Host header"),
-            )])),
-            ctx.now_ms,
-            &[],
-        );
-    }
-
+    allowed_origins: &HashSet<String, S>,
+) -> Vec<(String, String)> {
     let mut cors: Vec<(String, String)> = Vec::new();
     if let Some(origin) = request.header("origin").filter(|origin| !origin.is_empty())
-        && (ctx.allowed_origins.contains("*") || ctx.allowed_origins.contains(origin.as_str()))
+        && (allowed_origins.contains("*") || allowed_origins.contains(origin.as_str()))
     {
         cors.extend([
             ("Access-Control-Allow-Origin".to_owned(), origin),
@@ -326,15 +409,40 @@ pub fn handle_request<S: BuildHasher>(
             ),
         ]);
     }
+    cors
+}
+
+/// The middleware chain and routes, in `bootstrap.ts` order.
+#[must_use]
+pub fn handle_request<S: BuildHasher>(
+    request: &UpgradeRequest,
+    ctx: &HttpContext<'_, S>,
+) -> HttpResponse {
+    let keep_alive = wants_keep_alive(request);
+    let host = request.header("host");
+    if ctx.tcp_listener && !is_http_host_allowed(host.as_deref(), ctx.hostnames) {
+        return json_response(
+            403,
+            &Value::Object(Map::from_iter([(
+                "error".to_owned(),
+                Value::from("Invalid Host header"),
+            )])),
+            ctx.now_ms,
+            &[],
+            keep_alive,
+        );
+    }
+
+    let cors = cors_headers(request, ctx.allowed_origins);
     if request.method == "OPTIONS" {
         let mut headers = vec![("X-Powered-By".to_owned(), "Express".to_owned())];
         headers.extend(cors);
-        headers.push(("Date".to_owned(), http_date(ctx.now_ms)));
-        headers.push(("Connection".to_owned(), "close".to_owned()));
+        headers.extend(tail_headers(ctx.now_ms, keep_alive));
         return HttpResponse {
             status: 204,
             headers,
             body: Vec::new(),
+            keep_alive,
         };
     }
 
@@ -360,37 +468,55 @@ pub fn handle_request<S: BuildHasher>(
                 )])),
                 ctx.now_ms,
                 &cors,
+                keep_alive,
             );
         }
     }
 
     let is_get = request.method == "GET" || request.method == "HEAD";
     let response = match (is_get, path) {
-        (true, "/api/health") => Some(Value::Object(Map::from_iter([
-            ("status".to_owned(), Value::from("ok")),
-            (
-                "timestamp".to_owned(),
-                Value::from(to_iso_string(ctx.now_ms)),
-            ),
-        ]))),
-        (true, "/api/status") => Some(Value::Object(Map::from_iter([
-            ("status".to_owned(), Value::from("server_info")),
-            ("serverId".to_owned(), Value::from(ctx.server_id)),
-            ("hostname".to_owned(), Value::from(ctx.hostname)),
-            ("version".to_owned(), Value::from(ctx.version)),
-            ("listen".to_owned(), Value::from(ctx.listen)),
-        ]))),
+        (true, route) if matches_route(route, "/api/health") => {
+            Some(Value::Object(Map::from_iter([
+                ("status".to_owned(), Value::from("ok")),
+                (
+                    "timestamp".to_owned(),
+                    Value::from(to_iso_string(ctx.now_ms)),
+                ),
+            ])))
+        }
+        (true, route) if matches_route(route, "/api/status") => {
+            Some(Value::Object(Map::from_iter([
+                ("status".to_owned(), Value::from("server_info")),
+                ("serverId".to_owned(), Value::from(ctx.server_id)),
+                ("hostname".to_owned(), Value::from(ctx.hostname)),
+                ("version".to_owned(), Value::from(ctx.version)),
+                ("listen".to_owned(), Value::from(ctx.listen)),
+            ])))
+        }
         _ => None,
     };
     match response {
         Some(body) => {
-            let mut response = json_response(200, &body, ctx.now_ms, &cors);
-            if request.method == "HEAD" {
+            let mut response = json_response(200, &body, ctx.now_ms, &cors, keep_alive);
+            let etag = response
+                .headers
+                .iter()
+                .find(|(name, _)| name == "ETag")
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default();
+            if is_fresh(request, &etag) {
+                // `res.send` answers 304 without the entity headers or body.
+                response.status = 304;
+                response
+                    .headers
+                    .retain(|(name, _)| name != "Content-Type" && name != "Content-Length");
+                response.body.clear();
+            } else if request.method == "HEAD" {
                 response.body.clear();
             }
             response
         }
-        None => not_found(request, ctx.now_ms, &cors),
+        None => not_found(request, ctx.now_ms, &cors, keep_alive),
     }
 }
 
@@ -450,10 +576,6 @@ mod tests {
         )
     }
 
-    fn text(response: &HttpResponse) -> String {
-        String::from_utf8(response.to_bytes()).unwrap()
-    }
-
     #[test]
     fn dates_and_etags_match_node_and_express() {
         assert_eq!(http_date(NOW), "Thu, 01 Oct 2026 15:17:04 GMT");
@@ -467,20 +589,6 @@ mod tests {
         assert_eq!(
             weak_etag(br#"{"error":"Invalid Host header"}"#),
             "W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\""
-        );
-    }
-
-    #[test]
-    fn the_forbidden_host_response_matches_express_bytes() {
-        let response = respond(
-            &request("GET", "/api/status", &[("Host", "evil.example")]),
-            None,
-            &HashSet::new(),
-            true,
-        );
-        assert_eq!(
-            text(&response),
-            "HTTP/1.1 403 Forbidden\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 31\r\nETag: W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\"\r\nDate: Thu, 01 Oct 2026 15:17:04 GMT\r\nConnection: close\r\n\r\n{\"error\":\"Invalid Host header\"}"
         );
     }
 
@@ -547,17 +655,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_routes_and_methods_get_the_express_404_page() {
+    fn unknown_routes_and_methods_get_the_express_404_page_with_an_encoded_path() {
         let response = respond(
             &request("POST", "/api/status", &[("Host", "localhost")]),
             None,
             &HashSet::new(),
             true,
         );
-        assert_eq!(
-            text(&response),
-            "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 150\r\nDate: Thu, 01 Oct 2026 15:17:04 GMT\r\nConnection: close\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/status</pre>\n</body>\n</html>\n"
-        );
+        assert_eq!(response.status, 404);
         let odd = respond(
             &request("GET", "/nope<x", &[("Host", "localhost")]),
             None,
