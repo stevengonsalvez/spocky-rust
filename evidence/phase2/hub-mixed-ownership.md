@@ -25,6 +25,6 @@ Port 6767 was untouched.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `hub-mixed-ownership-events.json` | `7e97f7222966074791fccffca71d753ea8e4e3e33957c3e7758f661b6524f7ea` |
-| `hub-mixed-ownership-processes.json` | `9ac9b4a86cd61fcefa6cdfa6556dea986bce6e8278ea543230a5ed992d496458` |
+| `hub-mixed-ownership-events.json` | `de2852dac811fb68628be8b3eb8e57a63b983e14818075c0f169a666b9b88023` |
+| `hub-mixed-ownership-processes.json` | `2a5ef4ebc76bbd0a879ca2b21cef01323e9fd598eba24b828b3083565db2dcaa` |
 | `hub-mixed-ownership-report.json` | `ec640ef7c641812ad108b9966ee9f45e6188fd148bcc5d40799f1f7398415ae3` |

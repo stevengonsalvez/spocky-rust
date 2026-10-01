@@ -2,7 +2,7 @@
   {
     "operation": "baseline-hold",
     "event": "ready",
-    "ownerPid": 21438,
+    "ownerPid": 44649,
     "journalRows": 49,
     "marker": "pinned-baseline-live-owner"
   },
@@ -17,11 +17,11 @@
     "journalRows": 49,
     "migrationsApplied": 0,
     "operation": "candidate-hold",
-    "retainedProcessId": 22419
+    "retainedProcessId": 44819
   },
   {
     "operation": "baseline-try-open",
     "opened": false,
-    "error": "Embedded database directory is already in use by another Paseo Hub process (PID 22419): /var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-hub-mixed-ownership.xkpbjy/database. Embedded mode supports one process per data directory."
+    "error": "Embedded database directory is already in use by another Paseo Hub process (PID 44819): /var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-hub-mixed-ownership.c2m7Dc/database. Embedded mode supports one process per data directory."
   }
 ]
