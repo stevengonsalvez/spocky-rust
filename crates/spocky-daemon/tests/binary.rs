@@ -1,4 +1,4 @@
-//! The `spocky-daemon` binary as a process: start from a disposable home, serve
+//! The transport probe binary (`spocky-transport-probe`) as a process: start from a disposable home, serve
 //! hello, and stop on SIGTERM or SIGINT. Ports are chosen by the kernel
 //! (`127.0.0.1:0`); the reserved daemon ports are only used to prove they are
 //! refused.
@@ -35,7 +35,7 @@ fn spawn(root: &Path, listen: &str) -> Daemon {
         json!({"daemon": {"listen": listen, "relay": {"enabled": false}}}).to_string(),
     )
     .unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_spocky-daemon"))
+    let child = Command::new(env!("CARGO_BIN_EXE_spocky-transport-probe"))
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", root)
