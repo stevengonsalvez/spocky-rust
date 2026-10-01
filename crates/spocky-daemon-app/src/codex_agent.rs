@@ -298,11 +298,13 @@ impl AgentClient for CodexAgentClient {
         let provider = Arc::clone(&self.provider);
         Box::pin(async move {
             let handle = to_object(&handle, "handle")?;
+            // `handle: { sessionId: string; metadata? }`: a handle without its
+            // thread id cannot resume, so it is refused rather than read as "".
             let handle = ResumeHandle {
                 session_id: handle
                     .get("sessionId")
                     .and_then(Value::as_str)
-                    .unwrap_or_default()
+                    .ok_or_else(|| AgentError::new("Codex resume handle has no sessionId"))?
                     .to_owned(),
                 metadata: handle.get("metadata").and_then(Value::as_object).cloned(),
             };
@@ -541,6 +543,22 @@ mod tests {
             .err()
             .expect("bad config");
         assert_eq!(error.message, "config is not an object");
+    }
+
+    #[tokio::test]
+    async fn resume_without_a_session_id_is_refused() {
+        let client = missing_binary_client();
+        for handle in [
+            r#"{"provider":"codex","metadata":{"cwd":"/tmp/p"}}"#,
+            r#"{"provider":"codex","sessionId":null}"#,
+        ] {
+            let error = client
+                .resume_session(js_value::parse(handle).unwrap(), None, None, None)
+                .await
+                .err()
+                .expect(handle);
+            assert_eq!(error.message, "Codex resume handle has no sessionId");
+        }
     }
 
     #[test]
