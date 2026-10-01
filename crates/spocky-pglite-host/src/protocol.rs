@@ -1,7 +1,7 @@
-//! PostgreSQL wire messages as the pinned PGlite client builds and parses
+//! `PostgreSQL` wire messages as the pinned `PGlite` client builds and parses
 //! them (`We` serializers and the `pe` parser in the glue).
 
-/// A bind parameter after PGlite's serializers ran.
+/// A bind parameter after `PGlite`'s serializers ran.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindValue {
     Null,
@@ -231,6 +231,7 @@ pub fn parse_messages(bytes: &[u8]) -> Vec<Backend> {
     messages
 }
 
+#[allow(clippy::too_many_lines, reason = "one arm per backend message")]
 fn parse_one(code: u8, body: &[u8], length: usize) -> Backend {
     let mut reader = Reader {
         bytes: body,
