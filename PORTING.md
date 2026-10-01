@@ -134,16 +134,20 @@ normalization, threshold, or runtime exception is used. The shared
 offline-reload failure remains pinned behavior.
 Hub retained-PGlite evidence matches 50 table names, 537 constraint and index
 names, 49 journal rows, and five narrow scenarios. The retained JavaScript host
-is a defensible candidate, but its exception remains unaccepted while lock,
-request-delivery timeout, graceful close, typed JSON, failure evidence,
-reproducibility, platform delivery, and performance repairs remain. Full schema
-definitions and relational mutation parity remain incomplete. The selected
+uses one shared OS-backed data-directory lock across the Rust storage adapters.
+Its 17 retained-host and 13 embedded-SQL tests pass, but the exception remains
+unaccepted pending adversarial review and declared packaging, platform, IPC
+performance, delivery, callback-transaction, keyed-lock, and full-schema gaps.
+The selected
 plugin wrapper passes settings migration success and failure plus binary IPC.
 Its selected 25-case matrix passes on macOS and pinned Linux. Windows MSVC
 all-target compilation passes, but native Windows runtime qualification remains
 open. The selected relay runtime passes control,
 pairing, capacity, readiness, metrics, discovery, and node-loss cases; bounded
 protocol residuals and production qualification remain. Full renderer
-platforms, cross-platform plugin clients, audio, native, and delivery cases
-remain incomplete. Phase 3 remains blocked. No runtime parity milestone is
-complete. No runtime compatibility exception is accepted.
+platforms, cross-platform plugin clients, and native audio cases remain
+incomplete. Audio passes 10 targeted macOS cases and Windows MSVC all-target
+compilation. Unsigned macOS delivery lifecycle and retained Linux AppImage and
+deb lifecycle pass, while signed delivery and native Windows, iOS, Android, and
+browser delivery remain open. Phase 3 remains blocked. No runtime parity
+milestone is complete. No runtime compatibility exception is accepted.
