@@ -86,10 +86,12 @@ pub mod testing {
     use super::Logger;
     use std::sync::Mutex;
 
+    type Record = (&'static str, Vec<(String, String)>, String);
+
     /// Records `(level, fields, message)` for assertions.
     #[derive(Default)]
     pub struct RecordingLogger {
-        pub records: Mutex<Vec<(&'static str, Vec<(String, String)>, String)>>,
+        pub records: Mutex<Vec<Record>>,
     }
 
     impl RecordingLogger {
@@ -104,6 +106,9 @@ pub mod testing {
             ));
         }
 
+        /// # Panics
+        ///
+        /// Panics if the record lock is poisoned.
         pub fn messages(&self) -> Vec<(&'static str, String)> {
             self.records
                 .lock()
