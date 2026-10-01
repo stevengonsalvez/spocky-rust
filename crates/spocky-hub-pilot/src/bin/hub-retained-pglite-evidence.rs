@@ -23,11 +23,18 @@ fn main() {
 }
 
 fn config(data_directory: PathBuf) -> RetainedPgliteConfig {
+    config_with_migrations(data_directory, env_path("SPOCKY_HUB_MIGRATIONS"))
+}
+
+fn config_with_migrations(
+    data_directory: PathBuf,
+    migrations_root: PathBuf,
+) -> RetainedPgliteConfig {
     RetainedPgliteConfig {
         node_executable: env_path("SPOCKY_NODE"),
         adapter_path: env_path("SPOCKY_PGLITE_ADAPTER"),
         package_root: env_path("SPOCKY_PGLITE_PACKAGE"),
-        migrations_root: env_path("SPOCKY_HUB_MIGRATIONS"),
+        migrations_root,
         data_directory,
         max_frame_bytes: 1_048_576,
         startup_timeout: Duration::from_secs(60),
@@ -39,9 +46,20 @@ fn config(data_directory: PathBuf) -> RetainedPgliteConfig {
 fn capture(root: &std::path::Path) {
     let main = root.join("main");
     let old = root.join("old-state");
+    let partial = root.join("partial-state");
     let first = RetainedPgliteHost::open(&config(main.clone())).expect("open candidate");
     let identity = first.identity().clone();
     let migration = first.migrate().expect("migrate candidate");
+    let json_tags = first
+        .query(
+            "select null::text as sql_null, true::boolean as sql_boolean, \
+                    'null'::jsonb as json_null, 'true'::jsonb as json_boolean, \
+                    '42'::jsonb as json_numeric, '\"value\"'::jsonb as json_string, \
+                    '{\"key\":\"value\"}'::jsonb as json_object, \
+                    '[1,2]'::jsonb as json_array",
+            &[],
+        )
+        .expect("capture JSON tags");
     first
         .execute("create table differential_probe (value text not null unique)")
         .expect("create probe");
@@ -83,7 +101,7 @@ fn capture(root: &std::path::Path) {
             &[],
         )
         .expect("query rollback");
-    drop(first);
+    first.close().expect("close first candidate");
 
     let reopened = RetainedPgliteHost::open(&config(main.clone())).expect("reopen candidate");
     let restart = reopened
@@ -121,17 +139,55 @@ fn capture(root: &std::path::Path) {
             &[],
         )
         .expect("query journal");
-    let crash_error = format!("{:?}", reopened.crash_for_test().expect_err("crash reply"));
+    let crash_error = format!(
+        "{:?}",
+        reopened
+            .execute_then_crash_for_test(
+                "insert into differential_probe (value) values ('committed-before-crash')",
+            )
+            .expect_err("crash reply")
+    );
     drop(reopened);
-    let recovered = RetainedPgliteHost::open(&config(main)).expect("recover crashed candidate");
+    let recovered =
+        RetainedPgliteHost::open(&config(main.clone())).expect("recover crashed candidate");
     let recovered_migration = recovered.migrate().expect("migrate recovered candidate");
+    let crash_rows = recovered
+        .query(
+            "select value from differential_probe where value = 'committed-before-crash'",
+            &[],
+        )
+        .expect("query committed crash row");
+    recovered.fail_close_for_test().expect("arm close failure");
+    let close_error = format!("{:?}", recovered.close().expect_err("close failure"));
     drop(recovered);
+    let close_recovered =
+        RetainedPgliteHost::open(&config(main)).expect("recover after close failure");
+    let close_rows = close_recovered
+        .query("select value from differential_probe order by value", &[])
+        .expect("query rows after close failure");
+    close_recovered.close().expect("close recovered candidate");
 
     let historical = RetainedPgliteHost::open(&config(old.clone())).expect("open old state");
     install_first_historical_migration(&historical);
-    drop(historical);
+    historical
+        .query(
+            "insert into \"user\" (id, name, email) values ($1, $2, $3)",
+            &[
+                IpcValue::String("historical-user".into()),
+                IpcValue::String("Historical User".into()),
+                IpcValue::String("historical@example.com".into()),
+            ],
+        )
+        .expect("insert historical user");
+    historical.close().expect("close historical prefix");
     let historical = RetainedPgliteHost::open(&config(old)).expect("reopen old state");
     let suffix = historical.migrate().expect("migrate historical suffix");
+    let historical_user = historical
+        .query("select id from \"user\" where id = 'historical-user'", &[])
+        .expect("query historical user");
+    historical.close().expect("close historical candidate");
+
+    let partial_rollback = capture_partial_migration_rollback(&partial);
 
     let schema_tables = strings(&catalog_tables)
         .into_iter()
@@ -158,7 +214,14 @@ fn capture(root: &std::path::Path) {
             "crossProcessRejection": second_owner_error == "DIRECTORY_IN_USE",
             "transactionRollback": rolled_back.rows.is_empty(),
             "staleOwnerRecovery": recovered_migration.journal_rows == 49,
-            "historicalResume": { "prefixJournalRows": 1, "suffix": suffix },
+            "committedWriteCrashRecovery": crash_rows.rows == [vec![IpcValue::String("committed-before-crash".into())]],
+            "closeFailureRecovery": close_rows.rows.len() == 2,
+            "historicalResume": {
+                "prefixJournalRows": 1,
+                "suffix": suffix,
+                "userRowPreserved": historical_user.rows == [vec![IpcValue::String("historical-user".into())]],
+            },
+            "partialMigrationRollback": partial_rollback,
         },
         "observations": {
             "schemaTables": schema_tables,
@@ -168,11 +231,13 @@ fn capture(root: &std::path::Path) {
             "catalogTablesRaw": catalog_tables,
             "constraintsRaw": constraints,
             "indexesRaw": indexes,
+            "jsonTags": json_tags,
         },
         "failures": {
             "secondOwner": second_owner_error,
             "rollback": rollback_error,
             "lostReply": crash_error,
+            "close": close_error,
         },
         "boundary": {
             "engine": "PGlite",
@@ -185,6 +250,50 @@ fn capture(root: &std::path::Path) {
         "{}",
         serde_json::to_string_pretty(&output).expect("serialize evidence")
     );
+}
+
+fn capture_partial_migration_rollback(root: &std::path::Path) -> bool {
+    let migrations = root.join("migrations");
+    fs::create_dir_all(migrations.join("meta")).expect("create partial migration metadata");
+    fs::write(
+        migrations.join("meta/_journal.json"),
+        r#"{"entries":[{"idx":0,"version":"7","when":1,"tag":"0000_first","breakpoints":true},{"idx":1,"version":"7","when":2,"tag":"0001_second","breakpoints":true}]}"#,
+    )
+    .expect("write partial migration journal");
+    fs::write(
+        migrations.join("0000_first.sql"),
+        "create table partial_probe (value text primary key);\n\
+         --> statement-breakpoint\n\
+         insert into partial_probe values ('seed');",
+    )
+    .expect("write first partial migration");
+    fs::write(
+        migrations.join("0001_second.sql"),
+        "create table rolled_back_probe (value text);\n\
+         --> statement-breakpoint\n\
+         definitely not valid sql;",
+    )
+    .expect("write failing partial migration");
+    let host = RetainedPgliteHost::open(&config_with_migrations(root.join("database"), migrations))
+        .expect("open partial migration host");
+    assert!(matches!(
+        host.migrate(),
+        Err(RetainedHostError::Remote { .. })
+    ));
+    let result = host
+        .query(
+            "select \
+               (select count(*)::bigint from drizzle.__drizzle_migrations), \
+               (select count(*)::bigint from information_schema.tables \
+                where table_schema = 'public')",
+            &[],
+        )
+        .expect("query partial rollback");
+    result.rows
+        == [vec![
+            IpcValue::Numeric("0".into()),
+            IpcValue::Numeric("0".into()),
+        ]]
 }
 
 fn install_first_historical_migration(host: &RetainedPgliteHost) {

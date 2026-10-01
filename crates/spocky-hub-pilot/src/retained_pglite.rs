@@ -3,11 +3,11 @@
 use std::fmt;
 use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +100,15 @@ pub enum RetainedHostError {
         request_id: u64,
         write_may_have_committed: bool,
     },
+    DeliveryTimeout {
+        request_id: u64,
+        write_may_have_committed: bool,
+    },
+    DeliveryFailed {
+        request_id: u64,
+        write_may_have_committed: bool,
+        cause: String,
+    },
     ReplyLost {
         request_id: u64,
         write_may_have_committed: bool,
@@ -127,6 +136,18 @@ impl fmt::Display for RetainedHostError {
             Self::Timeout { request_id, .. } => {
                 write!(formatter, "retained-host request {request_id} timed out")
             }
+            Self::DeliveryTimeout { request_id, .. } => {
+                write!(
+                    formatter,
+                    "retained-host request {request_id} delivery timed out"
+                )
+            }
+            Self::DeliveryFailed {
+                request_id, cause, ..
+            } => write!(
+                formatter,
+                "retained-host request {request_id} delivery failed: {cause}"
+            ),
             Self::ReplyLost { request_id, .. } => {
                 write!(
                     formatter,
@@ -171,10 +192,15 @@ struct RemoteError {
 
 struct HostState {
     child: Child,
-    stdin: ChildStdin,
+    writer: mpsc::Sender<WriteRequest>,
     responses: Receiver<Result<Response, RetainedHostError>>,
     next_request_id: u64,
     closed: bool,
+}
+
+struct WriteRequest {
+    frame: Vec<u8>,
+    completion: mpsc::Sender<Result<(), std::io::Error>>,
 }
 
 pub struct RetainedPgliteHost {
@@ -204,6 +230,18 @@ impl RetainedPgliteHost {
             .stdout
             .take()
             .ok_or_else(|| RetainedHostError::Protocol("child stdout is absent".into()))?;
+        let (writer, write_requests) = mpsc::channel::<WriteRequest>();
+        thread::spawn(move || {
+            let mut stdin = stdin;
+            for request in write_requests {
+                let result = stdin.write_all(&request.frame).and_then(|()| stdin.flush());
+                let terminal = result.is_err();
+                let _ = request.completion.send(result);
+                if terminal {
+                    break;
+                }
+            }
+        });
         let (sender, responses) = mpsc::channel();
         let maximum = config.max_frame_bytes;
         thread::spawn(move || {
@@ -257,7 +295,7 @@ impl RetainedPgliteHost {
             identity,
             state: Mutex::new(HostState {
                 child,
-                stdin,
+                writer,
                 responses,
                 next_request_id: 1,
                 closed: false,
@@ -310,9 +348,28 @@ impl RetainedPgliteHost {
         serde_json::from_value(value).map_err(Into::into)
     }
 
+    pub fn close(&self) -> Result<(), RetainedHostError> {
+        let result = self
+            .request(serde_json::json!({ "operation": "close" }))
+            .map(|_| ());
+        let mut state = self.state.lock().map_err(|_| RetainedHostError::Poisoned)?;
+        state.closed = true;
+        terminate_and_reap(&mut state.child, self.request_timeout);
+        result
+    }
+
     #[doc(hidden)]
     pub fn crash_for_test(&self) -> Result<(), RetainedHostError> {
         self.request(serde_json::json!({ "operation": "crash" }))?;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn execute_then_crash_for_test(&self, sql: &str) -> Result<(), RetainedHostError> {
+        self.request(serde_json::json!({
+            "operation": "executeThenCrash",
+            "sql": sql,
+        }))?;
         Ok(())
     }
 
@@ -322,6 +379,18 @@ impl RetainedPgliteHost {
             "operation": "delay",
             "milliseconds": duration.as_millis(),
         }))?;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn stall_reads_for_test(&self) -> Result<(), RetainedHostError> {
+        self.request(serde_json::json!({ "operation": "stallReads" }))?;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn fail_close_for_test(&self) -> Result<(), RetainedHostError> {
+        self.request(serde_json::json!({ "operation": "failClose" }))?;
         Ok(())
     }
 
@@ -336,7 +405,13 @@ impl RetainedPgliteHost {
         let request_id = state.next_request_id;
         state.next_request_id += 1;
         value["id"] = request_id.into();
-        write_frame(&mut state.stdin, &value, self.max_frame_bytes)?;
+        deliver_frame(
+            &mut state,
+            &value,
+            self.max_frame_bytes,
+            self.request_timeout,
+            request_id,
+        )?;
         match state.responses.recv_timeout(self.request_timeout) {
             Ok(Ok(response)) if response.id == request_id && response.ok => Ok(response.result),
             Ok(Ok(response)) if response.id == request_id => {
@@ -399,21 +474,24 @@ impl Drop for RetainedPgliteHost {
                 let request_id = state.next_request_id;
                 state.next_request_id += 1;
                 let close = serde_json::json!({ "id": request_id, "operation": "close" });
-                let _ = write_frame(&mut state.stdin, &close, self.max_frame_bytes);
-                let _ = state.responses.recv_timeout(self.request_timeout);
+                let delivered = deliver_frame(
+                    &mut state,
+                    &close,
+                    self.max_frame_bytes,
+                    self.request_timeout,
+                    request_id,
+                );
+                if delivered.is_ok() {
+                    let _ = state.responses.recv_timeout(self.request_timeout);
+                }
                 state.closed = true;
             }
-            let _ = state.child.kill();
-            let _ = state.child.wait();
+            terminate_and_reap(&mut state.child, self.request_timeout);
         }
     }
 }
 
-fn write_frame(
-    writer: &mut impl Write,
-    value: &serde_json::Value,
-    maximum: usize,
-) -> Result<(), RetainedHostError> {
+fn encode_frame(value: &serde_json::Value, maximum: usize) -> Result<Vec<u8>, RetainedHostError> {
     let bytes = serde_json::to_vec(value)?;
     if bytes.len() > maximum {
         return Err(RetainedHostError::FrameTooLarge {
@@ -423,10 +501,65 @@ fn write_frame(
     }
     let length = u32::try_from(bytes.len())
         .map_err(|_| RetainedHostError::Protocol("frame exceeds u32 length".into()))?;
-    writer.write_all(&length.to_be_bytes())?;
-    writer.write_all(&bytes)?;
-    writer.flush()?;
-    Ok(())
+    let mut frame = Vec::with_capacity(4 + bytes.len());
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend_from_slice(&bytes);
+    Ok(frame)
+}
+
+fn deliver_frame(
+    state: &mut HostState,
+    value: &serde_json::Value,
+    maximum: usize,
+    timeout: Duration,
+    request_id: u64,
+) -> Result<(), RetainedHostError> {
+    let frame = encode_frame(value, maximum)?;
+    let (completion, completed) = mpsc::channel();
+    if state
+        .writer
+        .send(WriteRequest { frame, completion })
+        .is_err()
+    {
+        state.closed = true;
+        terminate_and_reap(&mut state.child, timeout);
+        return Err(RetainedHostError::DeliveryFailed {
+            request_id,
+            write_may_have_committed: true,
+            cause: "writer channel disconnected".into(),
+        });
+    }
+    match completed.recv_timeout(timeout) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            state.closed = true;
+            terminate_and_reap(&mut state.child, timeout);
+            Err(RetainedHostError::DeliveryFailed {
+                request_id,
+                write_may_have_committed: true,
+                cause: error.to_string(),
+            })
+        }
+        Err(_) => {
+            state.closed = true;
+            terminate_and_reap(&mut state.child, timeout);
+            Err(RetainedHostError::DeliveryTimeout {
+                request_id,
+                write_may_have_committed: true,
+            })
+        }
+    }
+}
+
+fn terminate_and_reap(child: &mut Child, timeout: Duration) {
+    let _ = child.kill();
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(Some(_) | None) | Err(_) => return,
+        }
+    }
 }
 
 fn read_response(reader: &mut impl Read, maximum: usize) -> Result<Response, RetainedHostError> {

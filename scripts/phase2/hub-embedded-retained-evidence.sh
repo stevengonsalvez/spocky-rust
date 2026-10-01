@@ -2,9 +2,20 @@
 set -eu
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
-baseline_root=${PASEO_HUB_BASELINE_ROOT:-$repository_root/../../paseo-rust/.baselines/hub}
+if [ -n "${PASEO_HUB_BASELINE_ROOT:-}" ]; then
+  baseline_root=$PASEO_HUB_BASELINE_ROOT
+elif [ -d "$repository_root/.baselines/hub" ]; then
+  baseline_root="$repository_root/.baselines/hub"
+else
+  baseline_root="$repository_root/../../paseo-rust/.baselines/hub"
+fi
 expected_baseline=28f6c78833065fd282f9064f92a9aa61875dd359
 evidence_root="$repository_root/evidence/phase2"
+
+if [ "${1:-}" = "--print-baseline-root" ]; then
+  printf '%s\n' "$baseline_root"
+  exit 0
+fi
 fixture_root=$(gtimeout 30 mktemp -d "${TMPDIR:-/tmp}/spocky-hub-retained-evidence.XXXXXX")
 cleanup() {
   gtimeout 30 rm -rf "$fixture_root"
@@ -89,6 +100,12 @@ gtimeout 30 jq -n \
         and $candidate[0].operations.historicalResume.suffix.journalRows == 49
       )
     },
+    candidateRecoveryEvidence: {
+      committedWriteCrashRecovery: $candidate[0].operations.committedWriteCrashRecovery,
+      closeFailureRecovery: $candidate[0].operations.closeFailureRecovery,
+      partialMigrationRollback: $candidate[0].operations.partialMigrationRollback,
+      historicalUserRow: $candidate[0].operations.historicalResume.userRowPreserved
+    },
     runtime: $candidate[0].identity,
     dependencyGraph: $dependencyGraph[0],
     failures: $candidate[0].failures,
@@ -101,7 +118,9 @@ gtimeout 30 jq -n \
     unqualifiedResiduals: [
       "Node executable availability and platform packaging are not qualified",
       "Framed IPC throughput and latency are not qualified",
-      "Retained JavaScript delivery, updates, and support ownership are not qualified"
+      "Retained JavaScript delivery, updates, and support ownership are not qualified",
+      "Callback transactions and keyed application locks are not ported or qualified",
+      "Catalog parity does not prove full schema-definition provenance parity"
     ],
     compatibilityException: {
       status: "required-not-accepted",
@@ -117,6 +136,7 @@ gtimeout 30 jq -e '
   .catalogParity == true
   and .journalParity == true
   and (.scenarioParity | all(.[]; . == true))
+  and (.candidateRecoveryEvidence | all(.[]; . == true))
   and .compatibilityException.status == "required-not-accepted"
 ' "$fixture_root/comparison.json" >/dev/null
 

@@ -2,8 +2,19 @@
 set -eu
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
-baseline_root=${PASEO_HUB_BASELINE_ROOT:-$repository_root/../../paseo-rust/.baselines/hub}
+if [ -n "${PASEO_HUB_BASELINE_ROOT:-}" ]; then
+  baseline_root=$PASEO_HUB_BASELINE_ROOT
+elif [ -d "$repository_root/.baselines/hub" ]; then
+  baseline_root="$repository_root/.baselines/hub"
+else
+  baseline_root="$repository_root/../../paseo-rust/.baselines/hub"
+fi
 expected_baseline=28f6c78833065fd282f9064f92a9aa61875dd359
+
+if [ "${1:-}" = "--print-baseline-root" ]; then
+  printf '%s\n' "$baseline_root"
+  exit 0
+fi
 
 actual=$(gtimeout 30 git -C "$baseline_root" rev-parse HEAD)
 if [ "$actual" != "$expected_baseline" ]; then

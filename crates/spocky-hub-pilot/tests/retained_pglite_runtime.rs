@@ -2,8 +2,8 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -43,6 +43,16 @@ impl Drop for TestDir {
 }
 
 fn config(data_directory: PathBuf) -> RetainedPgliteConfig {
+    config_with_migrations(
+        data_directory,
+        PathBuf::from(std::env::var_os("SPOCKY_HUB_MIGRATIONS").expect("SPOCKY_HUB_MIGRATIONS")),
+    )
+}
+
+fn config_with_migrations(
+    data_directory: PathBuf,
+    migrations_root: PathBuf,
+) -> RetainedPgliteConfig {
     RetainedPgliteConfig {
         node_executable: PathBuf::from(std::env::var_os("SPOCKY_NODE").expect("SPOCKY_NODE")),
         adapter_path: PathBuf::from(
@@ -51,9 +61,7 @@ fn config(data_directory: PathBuf) -> RetainedPgliteConfig {
         package_root: PathBuf::from(
             std::env::var_os("SPOCKY_PGLITE_PACKAGE").expect("SPOCKY_PGLITE_PACKAGE"),
         ),
-        migrations_root: PathBuf::from(
-            std::env::var_os("SPOCKY_HUB_MIGRATIONS").expect("SPOCKY_HUB_MIGRATIONS"),
-        ),
+        migrations_root,
         data_directory,
         max_frame_bytes: 1_048_576,
         startup_timeout: Duration::from_secs(60),
@@ -138,11 +146,33 @@ fn retained_host_reopens_real_historical_state_and_applies_remaining_migrations(
     {
         let host = RetainedPgliteHost::open(&config(root.0.clone())).expect("open old host");
         install_first_historical_migration(&host);
+        host.query(
+            "insert into \"user\" (id, name, email) values ($1, $2, $3)",
+            &[
+                IpcValue::String("historical-user".into()),
+                IpcValue::String("Historical User".into()),
+                IpcValue::String("historical@example.com".into()),
+            ],
+        )
+        .expect("insert historical user row");
     }
     let reopened = RetainedPgliteHost::open(&config(root.0.clone())).expect("reopen old state");
     let remaining = reopened.migrate().expect("apply remaining migrations");
     assert_eq!(remaining.applied, 48);
     assert_eq!(remaining.journal_rows, 49);
+    let row = reopened
+        .query(
+            "select id, email from \"user\" where id = $1",
+            &[IpcValue::String("historical-user".into())],
+        )
+        .expect("query historical user row");
+    assert_eq!(
+        row.rows,
+        [vec![
+            IpcValue::String("historical-user".into()),
+            IpcValue::String("historical@example.com".into()),
+        ]]
+    );
 }
 
 fn install_first_historical_migration(host: &RetainedPgliteHost) {
@@ -276,6 +306,96 @@ fn retained_host_rejects_second_owner_and_recovers_after_child_crash() {
 }
 
 #[test]
+fn retained_host_recovers_committed_write_after_lost_crash_reply() {
+    let root = TestDir::new();
+    let host = RetainedPgliteHost::open(&config(root.0.clone())).expect("open host");
+    host.execute("create table crash_probe (value text primary key)")
+        .expect("create crash probe");
+    let lost = host.execute_then_crash_for_test(
+        "insert into crash_probe (value) values ('committed-before-crash')",
+    );
+    assert!(matches!(
+        lost,
+        Err(RetainedHostError::ReplyLost {
+            write_may_have_committed: true,
+            ..
+        })
+    ));
+    drop(host);
+
+    let recovered = RetainedPgliteHost::open(&config(root.0.clone())).expect("recover host");
+    let rows = recovered
+        .query("select value from crash_probe", &[])
+        .expect("query committed crash row");
+    assert_eq!(
+        rows.rows,
+        [vec![IpcValue::String("committed-before-crash".into())]]
+    );
+}
+
+#[test]
+fn retained_host_gives_partial_live_owner_bounded_grace() {
+    let root = TestDir::new();
+    let lock_path = root.0.join(".paseo-hub.lock");
+    fs::write(&lock_path, "{\"pid\":").expect("write partial live owner");
+    let writer = thread::spawn({
+        let lock_path = lock_path.clone();
+        move || {
+            thread::sleep(Duration::from_millis(50));
+            fs::write(
+                lock_path,
+                format!(
+                    "{{\"pid\":{},\"token\":\"live-owner\"}}",
+                    std::process::id()
+                ),
+            )
+            .expect("complete live owner");
+        }
+    });
+
+    let opened = RetainedPgliteHost::open(&config(root.0.clone()));
+    writer.join().expect("join lock writer");
+    assert!(matches!(opened, Err(RetainedHostError::DirectoryInUse)));
+    assert!(
+        fs::read_to_string(lock_path)
+            .expect("read preserved live owner")
+            .contains("live-owner")
+    );
+}
+
+#[test]
+fn retained_host_reclaims_stale_owner_with_one_concurrent_winner() {
+    let root = TestDir::new();
+    fs::write(
+        root.0.join(".paseo-hub.lock"),
+        r#"{"pid":2147483647,"token":"stale"}"#,
+    )
+    .expect("write stale owner");
+    let barrier = Arc::new(Barrier::new(4));
+    let contenders = (0..4)
+        .map(|_| {
+            let barrier = Arc::clone(&barrier);
+            let contender_config = config(root.0.clone());
+            thread::spawn(move || {
+                barrier.wait();
+                RetainedPgliteHost::open(&contender_config)
+            })
+        })
+        .collect::<Vec<_>>();
+    let outcomes = contenders
+        .into_iter()
+        .map(|contender| contender.join().expect("join contender"))
+        .collect::<Vec<_>>();
+    assert_eq!(outcomes.iter().filter(|outcome| outcome.is_ok()).count(), 1);
+    assert!(
+        outcomes
+            .iter()
+            .filter_map(|outcome| outcome.as_ref().err())
+            .all(|error| matches!(error, RetainedHostError::DirectoryInUse))
+    );
+}
+
+#[test]
 fn retained_host_keeps_baseline_partial_journal_semantics() {
     let root = TestDir::new();
     let host = RetainedPgliteHost::open(&config(root.0.clone())).expect("open retained host");
@@ -345,6 +465,67 @@ fn retained_host_rolls_back_pending_migrations_after_partial_journal() {
 }
 
 #[test]
+fn retained_host_rolls_back_applied_steps_when_later_migration_fails() {
+    let root = TestDir::new();
+    let migrations = root.0.join("migrations");
+    fs::create_dir_all(migrations.join("meta")).expect("create migration metadata directory");
+    fs::write(
+        migrations.join("meta/_journal.json"),
+        r#"{"entries":[{"idx":0,"version":"7","when":1,"tag":"0000_first","breakpoints":true},{"idx":1,"version":"7","when":2,"tag":"0001_second","breakpoints":true}]}"#,
+    )
+    .expect("write migration journal");
+    fs::write(
+        migrations.join("0000_first.sql"),
+        "create table partial_probe (value text primary key);\n\
+         --> statement-breakpoint\n\
+         insert into partial_probe values ('seed');",
+    )
+    .expect("write first migration");
+    fs::write(
+        migrations.join("0001_second.sql"),
+        "create table rolled_back_probe (value text);\n\
+         --> statement-breakpoint\n\
+         definitely not valid sql;",
+    )
+    .expect("write failing migration");
+    let migration_config = config_with_migrations(root.0.join("database"), migrations.clone());
+    let host = RetainedPgliteHost::open(&migration_config).expect("open host");
+    assert!(matches!(
+        host.migrate(),
+        Err(RetainedHostError::Remote { .. })
+    ));
+    let after_failure = host
+        .query(
+            "select \
+               (select count(*)::bigint from drizzle.__drizzle_migrations) as journal_rows, \
+               (select count(*)::bigint from information_schema.tables \
+                where table_schema = 'public') as public_tables",
+            &[],
+        )
+        .expect("query rollback state");
+    assert_eq!(
+        after_failure.rows,
+        [vec![
+            IpcValue::Numeric("0".into()),
+            IpcValue::Numeric("0".into()),
+        ]]
+    );
+
+    fs::write(
+        migrations.join("0001_second.sql"),
+        "alter table partial_probe add column extra text;",
+    )
+    .expect("repair second migration");
+    let recovered = host.migrate().expect("replay repaired transaction");
+    assert_eq!(recovered.applied, 2);
+    assert_eq!(recovered.journal_rows, 2);
+    let rows = host
+        .query("select value from partial_probe", &[])
+        .expect("query replayed seed");
+    assert_eq!(rows.rows, [vec![IpcValue::String("seed".into())]]);
+}
+
+#[test]
 fn retained_host_enforces_frame_bound_and_timeout_without_replay() {
     let root = TestDir::new();
     let mut bounded = config(root.0.clone());
@@ -377,6 +558,122 @@ fn retained_host_enforces_frame_bound_and_timeout_without_replay() {
             ..
         })
     ));
+}
+
+#[test]
+fn retained_host_bounds_delivery_when_child_stops_reading() {
+    let root = TestDir::new();
+    let mut bounded = config(root.0.clone());
+    bounded.max_frame_bytes = 8 * 1024 * 1024;
+    bounded.request_timeout = Duration::from_millis(100);
+    let host = RetainedPgliteHost::open(&bounded).expect("open bounded host");
+    host.stall_reads_for_test().expect("stall child reads");
+
+    let started = std::time::Instant::now();
+    let delivery = host.query(
+        "select $1::text",
+        &[IpcValue::String("x".repeat(4 * 1024 * 1024))],
+    );
+    assert!(
+        matches!(
+            &delivery,
+            Err(RetainedHostError::DeliveryTimeout {
+                write_may_have_committed: true,
+                ..
+            })
+        ),
+        "unexpected delivery result: {delivery:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+
+    let drop_started = std::time::Instant::now();
+    drop(host);
+    assert!(drop_started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn retained_host_acknowledges_close_after_persistence_and_recovers_close_failure() {
+    let root = TestDir::new();
+    let mut close_config = config(root.0.clone());
+    close_config.request_timeout = Duration::from_secs(2);
+    let host = RetainedPgliteHost::open(&close_config).expect("open host");
+    host.execute("create table close_probe (value text primary key)")
+        .expect("create close probe");
+    host.query("insert into close_probe values ('normal')", &[])
+        .expect("insert normal close row");
+    host.close().expect("graceful close");
+
+    let reopened = RetainedPgliteHost::open(&close_config).expect("reopen after normal close");
+    let normal = reopened
+        .query("select value from close_probe order by value", &[])
+        .expect("query normal close row");
+    assert_eq!(normal.rows, [vec![IpcValue::String("normal".into())]]);
+    reopened
+        .query("insert into close_probe values ('failed')", &[])
+        .expect("insert close failure row");
+    reopened.fail_close_for_test().expect("arm close failure");
+    let close_started = std::time::Instant::now();
+    assert!(matches!(
+        reopened.close(),
+        Err(RetainedHostError::Remote { ref code, .. }) if code == "CLOSE_FAILED"
+    ));
+    assert!(close_started.elapsed() < Duration::from_secs(4));
+    drop(reopened);
+
+    let recovered = RetainedPgliteHost::open(&close_config).expect("reopen after failed close");
+    let rows = recovered
+        .query("select value from close_probe order by value", &[])
+        .expect("query persisted close rows");
+    assert_eq!(
+        rows.rows,
+        [
+            vec![IpcValue::String("failed".into())],
+            vec![IpcValue::String("normal".into())],
+        ]
+    );
+}
+
+#[test]
+fn retained_host_preserves_json_tags_distinct_from_sql_scalars() {
+    let root = TestDir::new();
+    let host = RetainedPgliteHost::open(&config(root.0.clone())).expect("open host");
+    let json_values = [
+        serde_json::Value::Null,
+        serde_json::json!(true),
+        serde_json::json!(42),
+        serde_json::json!("json-string"),
+        serde_json::json!({ "key": "value" }),
+        serde_json::json!([1, 2]),
+    ];
+    let result = host
+        .query(
+            "select null::text as sql_null, true::boolean as sql_boolean, \
+                    42::numeric as sql_numeric, 'plain'::text as sql_string, \
+                    $1::json as json_null, $2::jsonb as json_boolean, \
+                    $3::jsonb as json_numeric, $4::jsonb as json_string, \
+                    $5::jsonb as json_object, $6::json as json_array",
+            &json_values
+                .iter()
+                .cloned()
+                .map(IpcValue::Json)
+                .collect::<Vec<_>>(),
+        )
+        .expect("round trip JSON and SQL scalars");
+    assert_eq!(
+        result.rows,
+        [vec![
+            IpcValue::Null,
+            IpcValue::Boolean(true),
+            IpcValue::Numeric("42".into()),
+            IpcValue::String("plain".into()),
+            IpcValue::Json(json_values[0].clone()),
+            IpcValue::Json(json_values[1].clone()),
+            IpcValue::Json(json_values[2].clone()),
+            IpcValue::Json(json_values[3].clone()),
+            IpcValue::Json(json_values[4].clone()),
+            IpcValue::Json(json_values[5].clone()),
+        ]]
+    );
 }
 
 #[test]

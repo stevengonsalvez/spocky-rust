@@ -11,16 +11,20 @@ if (!packageRoot || !migrationsRoot || !dataDirectory || !maximumText) {
 }
 const maximum = Number(maximumText);
 if (!Number.isSafeInteger(maximum) || maximum < 1024) throw new Error("invalid frame maximum");
+const ownerReadAttempts = 10;
+const ownerReadDelayMilliseconds = 10;
 
 let client;
 let owner;
 let input = Buffer.alloc(0);
 let operationChain = Promise.resolve();
 let closing = false;
+let stallTimer;
+let failClose = false;
 
 try {
   await mkdir(dataDirectory, { recursive: true });
-  owner = acquireOwner(dataDirectory);
+  owner = await acquireOwner(dataDirectory);
   const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   const { PGlite } = await import(pathToFileURL(join(packageRoot, "dist/index.js")).href);
   client = new PGlite(dataDirectory);
@@ -114,13 +118,25 @@ async function handle(request) {
       case "crash":
         process.exit(86);
         return;
+      case "executeThenCrash":
+        await client.exec(request.sql);
+        process.exit(87);
+        return;
       case "delay":
         await new Promise((resolve) => setTimeout(resolve, Number(request.milliseconds)));
         result = null;
         break;
+      case "stallReads":
+        process.stdin.pause();
+        stallTimer = setInterval(() => {}, 1_000);
+        result = null;
+        break;
+      case "failClose":
+        failClose = true;
+        result = null;
+        break;
       case "close":
-        send({ id, ok: true, result: null });
-        await shutdown(0);
+        await closeAndReply(id);
         return;
       default:
         throw Object.assign(new Error(`unknown operation: ${request.operation}`), {
@@ -131,6 +147,36 @@ async function handle(request) {
   } catch (error) {
     send({ id, ok: false, error: errorPayload(error) });
   }
+}
+
+async function closeAndReply(id) {
+  closing = true;
+  if (stallTimer) clearInterval(stallTimer);
+  let failure;
+  try {
+    await client?.close();
+  } catch (error) {
+    failure = error;
+  }
+  client = undefined;
+  try {
+    releaseOwner();
+  } catch (error) {
+    failure ??= error;
+  }
+  if (!failure && failClose) {
+    failure = Object.assign(new Error("injected close failure after durable close"), {
+      code: "CLOSE_FAILED",
+    });
+  }
+  if (failure) {
+    send({ id, ok: false, error: errorPayload(failure, "CLOSE_FAILED") });
+    process.exitCode = 1;
+  } else {
+    send({ id, ok: true, result: null });
+    process.exitCode = 0;
+  }
+  process.stdin.pause();
 }
 
 async function migrate() {
@@ -176,8 +222,9 @@ function decodeParams(params = []) {
       case "string":
       case "timestamp":
       case "numeric":
-      case "json":
         return value.value;
+      case "json":
+        return JSON.stringify(value.value);
       case "binary":
         return Uint8Array.from(value.value);
       default:
@@ -204,6 +251,7 @@ function encodeResult(result) {
 }
 
 function encodeValue(value, oid) {
+  if (oid === 114 || oid === 3802) return { type: "json", value };
   if (value === null || value === undefined) return { type: "null" };
   if (value instanceof Uint8Array) return { type: "binary", value: [...value] };
   if (value instanceof Date) return { type: "timestamp", value: value.toISOString() };
@@ -242,35 +290,65 @@ function writeFrame(bytes) {
   process.stdout.write(bytes);
 }
 
-function acquireOwner(directory) {
+async function acquireOwner(directory) {
   const path = join(directory, ".paseo-hub.lock");
+  const token = randomUUID();
+  const record = JSON.stringify({ pid: process.pid, token });
   for (;;) {
-    const token = randomUUID();
     try {
       const descriptor = openSync(path, "wx", 0o600);
-      writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token }));
+      writeFileSync(descriptor, record);
       closeSync(descriptor);
-      return { path, token };
+      await delay(ownerReadAttempts * ownerReadDelayMilliseconds);
+      try {
+        if (readFileSync(path, "utf8") === record) return { path, token };
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      continue;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
     }
-    let existing;
-    try {
-      existing = JSON.parse(readFileSync(path, "utf8"));
-    } catch {
-      existing = null;
-    }
-    if (existing && processIsRunning(existing.pid)) {
+    const observed = await readOwner(path);
+    if (observed.owner && processIsRunning(observed.owner.pid)) {
       throw Object.assign(new Error("PGlite data directory is already in use"), {
         code: "DIRECTORY_IN_USE",
       });
     }
     try {
+      if (readFileSync(path, "utf8") !== observed.raw) continue;
       unlinkSync(path);
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
   }
+}
+
+async function readOwner(path) {
+  let raw;
+  for (let attempt = 0; attempt < ownerReadAttempts; attempt += 1) {
+    try {
+      raw = readFileSync(path, "utf8");
+      const parsed = JSON.parse(raw);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        Number.isSafeInteger(parsed.pid) &&
+        typeof parsed.token === "string"
+      ) {
+        return { raw, owner: { pid: parsed.pid, token: parsed.token } };
+      }
+    } catch (error) {
+      if (error?.code === "ENOENT") return { raw: undefined, owner: undefined };
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    await delay(ownerReadDelayMilliseconds);
+  }
+  return { raw, owner: undefined };
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function processIsRunning(pid) {
@@ -288,7 +366,9 @@ function releaseOwner() {
   try {
     const current = JSON.parse(readFileSync(owner.path, "utf8"));
     if (current.token === owner.token) unlinkSync(owner.path);
-  } catch {}
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
   owner = undefined;
 }
 
@@ -313,10 +393,13 @@ function errorPayload(error, fallback = "REMOTE_ERROR") {
 async function shutdown(code) {
   if (closing) return;
   closing = true;
+  if (stallTimer) clearInterval(stallTimer);
   try {
     await client?.close();
   } catch {}
-  releaseOwner();
+  try {
+    releaseOwner();
+  } catch {}
   process.exitCode = code;
   process.stdin.pause();
 }
