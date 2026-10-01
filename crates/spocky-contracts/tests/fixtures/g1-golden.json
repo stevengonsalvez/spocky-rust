@@ -7,7 +7,7 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "a945bf76244d11882c98cd4b53beddaae15d8a481334d7f5bcb0126b0721bce7",
+    "casesSha256": "ee09489b7d8a2c33c3a6ce7c3c5c9797ebbce8c6d40920418e959d2669d2e2e5",
     "pinnedServer": {
       "buildMarkerSha256": "d2a479bfec301b3d2659c25a9cc42393cce1c09f9c457f92356008e3d48cea2f",
       "agentProjectionsJsSha256": "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
@@ -1516,6 +1516,16 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "id": "session.agent_create.title_198_plus_astral",
+      "direction": "inbound",
+      "source": "title max(200): U+10FFFF is two code units, so 198 + 2 = 200 passes",
+      "input": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"requestId\":\"r\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\\udbff\\udfff\"}}}",
+      "zod": {
+        "success": true,
+        "output": "{\"type\":\"session\",\"message\":{\"type\":\"agent.create.request\",\"config\":{\"provider\":\"codex\",\"cwd\":\"/c\",\"title\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy􏿿\"},\"labels\":{},\"requestId\":\"r\"}}"
       }
     },
     {
