@@ -359,8 +359,9 @@ for (const [name, body] of [
 // A deeply nested array as an object's `length` is joined recursively by the baseline
 // (ToPrimitive on the array) and overflows V8's stack at some depth.
 // The overflow depth depends on V8's stack: in the capture it lies between 4,400 (joined) and 4,600
-// (RangeError), so only depths well clear of that band are compared.
-for (const depth of [1000, 3000, 4000, 6000, 10000, 100000]) {
+// (RangeError). Both sides of that band are compared; Rust approximates the stack boundary with
+// MAX_JOIN_DEPTH and the exact depth is a listed divergence, so no depth inside the band is compared.
+for (const depth of [1000, 3000, 4000, 4400, 4600, 6000, 10000, 100000]) {
   add(`body/validateTrigger/deep-length-${depth}`, "handle", request("validateTrigger", {
     body: repeat('{"yaml":{"length":', "[", depth, "", "]", "}}"),
   }), { operation: { result: RESULTS.validateTrigger.valid } });

@@ -9381,6 +9381,78 @@
       }
     },
     {
+      "name": "body/validateTrigger/deep-length-4400",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 4400,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/deep-length-4600",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 4600,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
       "name": "body/validateTrigger/deep-length-6000",
       "via": "handle",
       "request": {
