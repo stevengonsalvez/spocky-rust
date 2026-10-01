@@ -255,20 +255,29 @@ impl Child {
     }
 }
 
+/// `process.stdin.pause()`: once `stallReads` has run, nothing more is
+/// read from stdin.
+fn park_while_stalled(stalled: &AtomicBool) {
+    while stalled.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
 /// Reads frames until end of input. A frame over the maximum is answered
 /// at once and ends reading; invalid JSON is answered at once, as in the
 /// Node child, which replies before queued operations finish.
 fn read_frames(output: &Output, stalled: &AtomicBool, inputs: &mpsc::Sender<Input>) {
     let mut stdin = io::stdin().lock();
     loop {
-        while stalled.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_secs(1));
-        }
+        park_while_stalled(stalled);
         let mut header = [0_u8; 4];
         if stdin.read_exact(&mut header).is_err() {
             let _ = inputs.send(Input::End);
             return;
         }
+        // The read of this header may have started before stallReads ran;
+        // the body must not be read after it.
+        park_while_stalled(stalled);
         let length = u32::from_be_bytes(header) as usize;
         if length > output.maximum {
             output.write(
