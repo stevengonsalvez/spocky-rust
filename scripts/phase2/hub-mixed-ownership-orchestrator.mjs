@@ -3,161 +3,179 @@ import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-if (process.argv[2] === "--self-test-cleanup") {
-  await selfTestCleanup();
-  process.stdout.write('{"processGroupCleanup":"passed"}\n');
-  process.exit(0);
-}
-
-const [
-  tsx,
-  baselineDriver,
-  candidateBinary,
-  database,
-  eventsPath,
-  processesPath,
-] = process.argv.slice(2);
-if (!processesPath) throw new Error("six arguments are required");
-
-const candidateEnvironment = {
-  ...process.env,
-  SPOCKY_NODE: process.execPath,
-};
-const processes = [];
-const events = [];
 let active = [];
-
-try {
-  const baseline = start("baseline-owner", tsx, [
-    baselineDriver,
-    "hold",
-    database,
-  ], {
-    ...process.env,
-  });
-  const baselineReady = await nextJson(baseline, 90_000);
-  baseline.ownedPids.push(baselineReady.ownerPid);
-  events.push(baselineReady);
-
-  const directoryInode = statSync(database).ino;
-  const candidateProbe = await run(
-    "candidate-forward-probe",
-    candidateBinary,
-    ["try-open", database],
-    candidateEnvironment,
-    60_000,
-  );
-  const candidateExcluded = parseSingleJson(candidateProbe.stdout);
-  events.push(candidateExcluded);
-
-  const baselineExit = await closeOwner(baseline, 30_000);
-  if (
-    baselineExit.code !== 0 ||
-    baselineExit.signal !== null ||
-    !baselineExit.processGroupGone
-  ) {
-    throw new Error(
-      `baseline owner did not close cleanly: ${JSON.stringify(baselineExit)}`,
-    );
-  }
-  const unchangedDirectory = statSync(database).ino === directoryInode;
-
-  const candidate = start(
-    "candidate-owner",
-    candidateBinary,
-    ["hold", database],
-    candidateEnvironment,
-  );
-  const candidateReady = await nextJson(candidate, 90_000);
-  candidate.ownedPids.push(candidateReady.retainedProcessId);
-  events.push(candidateReady);
-
-  const baselineProbe = await run(
-    "baseline-reverse-probe",
-    tsx,
-    [baselineDriver, "try-open", database],
-    process.env,
-    60_000,
-  );
-  const baselineExcluded = parseSingleJson(baselineProbe.stdout);
-  events.push(baselineExcluded);
-  const candidateExit = await closeOwner(candidate, 30_000);
-  if (
-    candidateExit.code !== 0 ||
-    candidateExit.signal !== null ||
-    !candidateExit.processGroupGone
-  ) {
-    throw new Error(
-      `candidate owner did not close cleanly: ${JSON.stringify(candidateExit)}`,
-    );
-  }
-
-  const reverseGuaranteed = baselineExcluded.opened === false &&
-    baselineExcluded.error.includes("already in use");
-  const report = {
-    scope: "ordered-live-starts-only",
-    platform: {
-      os: process.platform,
-      arch: process.arch,
-      processGroupCleanup: process.platform === "win32"
-        ? "direct-child-only"
-        : "dedicated-process-group",
-    },
-    limitations: [
-      "simultaneous_pre_owner_record_race_unqualified",
-      "schema_downgrade_unqualified",
-    ],
-    forwardExclusion: {
-      baselineReady: baselineReady.event === "ready",
-      candidateExcluded: candidateExcluded.opened === false,
-      candidateError: candidateExcluded.error,
-    },
-    handoff: {
-      baselineExit: "bounded-clean",
-      directoryRecreated: !unchangedDirectory,
-      candidateOpenedUnchangedDirectory: candidateReady.event === "ready" &&
-        unchangedDirectory,
-      baselineMarkerPayload: candidateReady.baselineMarkerPayload,
-    },
-    reverseExclusion: {
-      candidateReady: candidateReady.event === "ready",
-      baselineExcluded: reverseGuaranteed,
-      baselineErrorContains: reverseGuaranteed ? "already in use" : "",
-    },
-    storageObservation: {
-      baselineJournalRows: baselineReady.journalRows,
-      candidateJournalRows: candidateReady.journalRows,
-      candidateMigrationsApplied: candidateReady.migrationsApplied,
-    },
-    shutdown: {
-      candidateExitCode: candidateExit.code,
-      candidateExitSignal: candidateExit.signal,
-      candidateProcessGroupGone: candidateExit.processGroupGone,
-    },
-    compatibilityMechanism: reverseGuaranteed
-      ? {
-        status: "not-required-for-ordered-starts",
-        reason: "shared live PID owner record excludes ordered mixed starts",
-      }
-      : {
-        status: "required",
-        reason: "pinned baseline ignored candidate ownership",
-      },
-  };
-  processes.push(
-    baselineExit,
-    candidateProbe.process,
-    baselineProbe.process,
-    candidateExit,
-  );
-  await writeFile(eventsPath, `${JSON.stringify(events, null, 2)}\n`);
-  await writeFile(processesPath, `${JSON.stringify(processes, null, 2)}\n`);
-  process.stdout.write(`${JSON.stringify(report)}\n`);
-} finally {
-  await Promise.all(active.map((child) => forceStop(child)));
+let shutdownPromise;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.once(signal, () => void terminateForSignal(signal));
 }
 
-function start(name, command, args, env) {
+if (process.argv[2] === "--self-test-cleanup") {
+  try {
+    await selfTestCleanup();
+    process.stdout.write('{"processGroupCleanup":"passed"}\n');
+  } finally {
+    await cleanupActive();
+  }
+  process.exitCode = 0;
+} else if (process.argv[2] === "--self-test-signal-cleanup") {
+  await selfTestSignalCleanup();
+} else {
+  await qualifyMixedOwnership();
+}
+
+async function qualifyMixedOwnership() {
+  const [
+    tsx,
+    baselineDriver,
+    candidateBinary,
+    database,
+    eventsPath,
+    processesPath,
+  ] = process.argv.slice(2);
+  if (!processesPath) throw new Error("six arguments are required");
+
+  const candidateEnvironment = {
+    ...process.env,
+    SPOCKY_NODE: process.execPath,
+  };
+  const processes = [];
+  const events = [];
+
+  try {
+    const baseline = start("baseline-owner", tsx, [
+      baselineDriver,
+      "hold",
+      database,
+    ], {
+      ...process.env,
+    }, processesPath);
+    const baselineReady = await nextJson(baseline, 90_000);
+    baseline.ownedPids.push(baselineReady.ownerPid);
+    events.push(baselineReady);
+
+    const directoryInode = statSync(database).ino;
+    const candidateProbe = await run(
+      "candidate-forward-probe",
+      candidateBinary,
+      ["try-open", database],
+      candidateEnvironment,
+      60_000,
+    );
+    const candidateExcluded = parseSingleJson(candidateProbe.stdout);
+    events.push(candidateExcluded);
+
+    const baselineExit = await closeOwner(baseline, 30_000);
+    if (
+      baselineExit.code !== 0 ||
+      baselineExit.signal !== null ||
+      !baselineExit.processGroupGone
+    ) {
+      throw new Error(
+        `baseline owner did not close cleanly: ${JSON.stringify(baselineExit)}`,
+      );
+    }
+    const unchangedDirectory = statSync(database).ino === directoryInode;
+
+    const candidate = start(
+      "candidate-owner",
+      candidateBinary,
+      ["hold", database],
+      candidateEnvironment,
+      processesPath,
+    );
+    const candidateReady = await nextJson(candidate, 90_000);
+    candidate.ownedPids.push(candidateReady.retainedProcessId);
+    events.push(candidateReady);
+
+    const baselineProbe = await run(
+      "baseline-reverse-probe",
+      tsx,
+      [baselineDriver, "try-open", database],
+      process.env,
+      60_000,
+    );
+    const baselineExcluded = parseSingleJson(baselineProbe.stdout);
+    events.push(baselineExcluded);
+    const candidateExit = await closeOwner(candidate, 30_000);
+    if (
+      candidateExit.code !== 0 ||
+      candidateExit.signal !== null ||
+      !candidateExit.processGroupGone
+    ) {
+      throw new Error(
+        `candidate owner did not close cleanly: ${
+          JSON.stringify(candidateExit)
+        }`,
+      );
+    }
+
+    const reverseGuaranteed = baselineExcluded.opened === false &&
+      baselineExcluded.error.includes("already in use");
+    const report = {
+      scope: "ordered-live-starts-only",
+      platform: {
+        os: process.platform,
+        arch: process.arch,
+        processGroupCleanup: process.platform === "win32"
+          ? "direct-child-only"
+          : "dedicated-process-group",
+      },
+      limitations: [
+        "simultaneous_pre_owner_record_race_unqualified",
+        "schema_downgrade_unqualified",
+      ],
+      forwardExclusion: {
+        baselineReady: baselineReady.event === "ready",
+        candidateExcluded: candidateExcluded.opened === false,
+        candidateError: candidateExcluded.error,
+      },
+      handoff: {
+        baselineExit: "bounded-clean",
+        directoryRecreated: !unchangedDirectory,
+        candidateOpenedUnchangedDirectory: candidateReady.event === "ready" &&
+          unchangedDirectory,
+        baselineMarkerPayload: candidateReady.baselineMarkerPayload,
+      },
+      reverseExclusion: {
+        candidateReady: candidateReady.event === "ready",
+        baselineExcluded: reverseGuaranteed,
+        baselineErrorContains: reverseGuaranteed ? "already in use" : "",
+      },
+      storageObservation: {
+        baselineJournalRows: baselineReady.journalRows,
+        candidateJournalRows: candidateReady.journalRows,
+        candidateMigrationsApplied: candidateReady.migrationsApplied,
+      },
+      shutdown: {
+        candidateExitCode: candidateExit.code,
+        candidateExitSignal: candidateExit.signal,
+        candidateProcessGroupGone: candidateExit.processGroupGone,
+      },
+      compatibilityMechanism: reverseGuaranteed
+        ? {
+          status: "not-required-for-ordered-starts",
+          reason: "shared live PID owner record excludes ordered mixed starts",
+        }
+        : {
+          status: "required",
+          reason: "pinned baseline ignored candidate ownership",
+        },
+    };
+    processes.push(
+      baselineExit,
+      candidateProbe.process,
+      baselineProbe.process,
+      candidateExit,
+    );
+    await writeFile(eventsPath, `${JSON.stringify(events, null, 2)}\n`);
+    await writeFile(processesPath, `${JSON.stringify(processes, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(report)}\n`);
+  } finally {
+    await cleanupActive();
+  }
+}
+
+function start(name, command, args, env, processesPath) {
   const stderrPath = `${processesPath}.${name}.stderr`;
   const stderr = createWriteStream(stderrPath, { flags: "w" });
   const child = spawn(command, args, {
@@ -260,6 +278,35 @@ async function forceStop(child) {
   }
 }
 
+async function cleanupActive() {
+  const children = active;
+  active = [];
+  const outcomes = await Promise.allSettled(
+    children.map((child) => forceStop(child)),
+  );
+  const failures = outcomes
+    .filter((outcome) => outcome.status === "rejected")
+    .map((outcome) => outcome.reason);
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "owned process cleanup failed");
+  }
+}
+
+async function terminateForSignal(signal) {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    let exitCode = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 }[signal] ?? 1;
+    try {
+      await cleanupActive();
+    } catch (error) {
+      exitCode = 1;
+      process.stderr.write(`${error.stack ?? error}\n`);
+    }
+    process.exit(exitCode);
+  })();
+  return shutdownPromise;
+}
+
 async function ownedProcessAlive(child) {
   const exactProcessAlive = child.ownedPids.some((pid) => processExists(pid));
   if (process.platform === "win32") {
@@ -341,6 +388,35 @@ function parseSingleJson(stdout) {
 
 async function selfTestCleanup() {
   if (process.platform === "win32") return;
+  const owner = await createCleanupFixture();
+  try {
+    process.kill(owner.ownedPids[1], "SIGSTOP");
+    await forceStop(owner);
+    if (await ownedProcessAlive(owner)) {
+      throw new Error("cleanup self-test process group remains alive");
+    }
+  } finally {
+    active = active.filter((entry) => entry !== owner);
+    await forceStop(owner);
+  }
+}
+
+async function selfTestSignalCleanup() {
+  if (process.platform === "win32") {
+    throw new Error("signal cleanup self-test requires Unix process groups");
+  }
+  const owner = await createCleanupFixture();
+  process.kill(owner.ownedPids[1], "SIGSTOP");
+  process.stdout.write(`${
+    JSON.stringify({
+      ownerPid: owner.pid,
+      descendantPid: owner.ownedPids[1],
+    })
+  }\n`);
+  await new Promise(() => {});
+}
+
+async function createCleanupFixture() {
   const program = `
     const { spawn } = require("node:child_process");
     const child = spawn("/bin/sh", ["-c", "trap '' TERM; while :; do sleep 1; done"], {
@@ -353,19 +429,29 @@ async function selfTestCleanup() {
     detached: true,
     stdio: ["ignore", "pipe", "ignore"],
   });
-  const descendantPid = Number(
-    await withTimeout(
-      new Promise((resolve) =>
-        owner.stdout.once("data", (chunk) => resolve(chunk.toString().trim()))
+  owner.name = "cleanup-self-test-owner";
+  owner.ownedPids = [owner.pid];
+  active.push(owner);
+  try {
+    const descendantPid = Number(
+      await withTimeout(
+        new Promise((resolve) =>
+          owner.stdout.once("data", (chunk) => resolve(chunk.toString().trim()))
+        ),
+        2_000,
+        "cleanup self-test descendant readiness",
       ),
-      2_000,
-      "cleanup self-test descendant readiness",
-    ),
-  );
-  owner.ownedPids = [owner.pid, descendantPid];
-  process.kill(descendantPid, "SIGSTOP");
-  await forceStop(owner);
-  if (await ownedProcessAlive(owner)) {
-    throw new Error("cleanup self-test process group remains alive");
+    );
+    if (!Number.isSafeInteger(descendantPid) || descendantPid <= 1) {
+      throw new Error(
+        `invalid cleanup self-test descendant PID: ${descendantPid}`,
+      );
+    }
+    owner.ownedPids.push(descendantPid);
+    return owner;
+  } catch (error) {
+    active = active.filter((entry) => entry !== owner);
+    await forceStop(owner);
+    throw error;
   }
 }

@@ -58,7 +58,7 @@ PASEO_HUB_SOURCE_ROOT="$fixture_root/source" \
 SPOCKY_PGLITE_ADAPTER="$repository_root/scripts/phase2/hub-embedded-retained-host.mjs" \
 SPOCKY_PGLITE_PACKAGE="$fixture_root/source/node_modules/@electric-sql/pglite" \
 SPOCKY_HUB_MIGRATIONS="$fixture_root/source/drizzle" \
-  gtimeout --kill-after=30 300 node "$repository_root/scripts/phase2/hub-mixed-ownership-orchestrator.mjs" \
+  gtimeout --kill-after=30 480 node "$repository_root/scripts/phase2/hub-mixed-ownership-orchestrator.mjs" \
     "$fixture_root/source/node_modules/.bin/tsx" \
     "$repository_root/scripts/phase2/hub-mixed-ownership-baseline.mjs" \
     "$repository_root/target/debug/hub-mixed-ownership-evidence" \

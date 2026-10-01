@@ -20,6 +20,49 @@ gtimeout --kill-after=2 10 node \
   "$repository_root/scripts/phase2/hub-mixed-ownership-orchestrator.mjs" \
   --self-test-cleanup >/dev/null
 
+signal_output=$(mktemp "${TMPDIR:-/tmp}/spocky-hub-signal-cleanup.XXXXXX")
+signal_runner=
+owner_pid=
+descendant_pid=
+cleanup_signal_test() {
+  for pid in "$signal_runner" "$owner_pid" "$descendant_pid"; do
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$signal_output"
+}
+trap cleanup_signal_test EXIT HUP INT TERM
+node "$repository_root/scripts/phase2/hub-mixed-ownership-orchestrator.mjs" \
+  --self-test-signal-cleanup >"$signal_output" &
+signal_runner=$!
+attempt=0
+while [ ! -s "$signal_output" ] && kill -0 "$signal_runner" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 100 ]; then
+    printf 'signal cleanup self-test readiness timed out\n' >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+owner_pid=$(jq -er '.ownerPid' "$signal_output")
+descendant_pid=$(jq -er '.descendantPid' "$signal_output")
+kill -TERM "$signal_runner"
+attempt=0
+while kill -0 "$signal_runner" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 200 ]; then
+    printf 'signal cleanup self-test shutdown timed out\n' >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+wait "$signal_runner" || [ "$?" -eq 143 ]
+! kill -0 "$owner_pid" 2>/dev/null
+! kill -0 "$descendant_pid" 2>/dev/null
+cleanup_signal_test
+trap - EXIT HUP INT TERM
+
 gtimeout --kill-after=30 1200 "$runner" >"$output"
 
 jq -e '
