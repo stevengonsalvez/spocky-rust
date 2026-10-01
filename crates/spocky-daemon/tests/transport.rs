@@ -781,3 +781,54 @@ fn a_unix_socket_listener_serves_the_same_protocol() {
     server.close();
     handle.stop();
 }
+
+#[test]
+fn connections_past_the_cap_are_closed_and_the_slot_frees_up() {
+    let harness = start(config());
+    harness.server.set_max_connections(2);
+    let hold = || TcpStream::connect(("127.0.0.1", harness.port)).unwrap();
+    let first = hold();
+    let second = hold();
+    std::thread::sleep(Duration::from_millis(150));
+    let mut third = hold();
+    third
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut byte = [0_u8; 1];
+    assert_eq!(
+        third.read(&mut byte).unwrap_or(0),
+        0,
+        "the excess connection is closed"
+    );
+
+    drop(first);
+    wait_for("a free slot", || {
+        harness
+            .raw("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .starts_with("HTTP/1.1 200")
+    });
+    drop(second);
+    harness.finish();
+}
+
+#[test]
+fn a_flood_of_connections_does_not_stop_the_accept_loop() {
+    let harness = start(config());
+    harness.server.set_max_connections(8);
+    let flood: Vec<TcpStream> = (0..200)
+        .filter_map(|_| TcpStream::connect(("127.0.0.1", harness.port)).ok())
+        .collect();
+    drop(flood);
+    wait_for("the flood to drain", || {
+        harness
+            .raw("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .starts_with("HTTP/1.1 200")
+    });
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("after-flood"));
+    assert_eq!(
+        next_json(&mut ws)["message"]["payload"]["status"],
+        "server_info"
+    );
+    harness.finish();
+}
