@@ -1,7 +1,8 @@
 //! Differential check of small agent helpers against the pinned build:
 //! label helpers (`protocol/agent-labels`), `isSystemInjectedEnvelope`,
-//! `stripInternalPaseoMcpServer` and `withRuntimePaseoMcpServer`, and
-//! `commandMayHaveChangedExternalState`.
+//! `stripInternalPaseoMcpServer` and `withRuntimePaseoMcpServer`,
+//! `commandMayHaveChangedExternalState`, and `submittedPromptText` (module
+//! private, so its source is read from the pinned `agent-manager.js`).
 //!
 //! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` like
 //! `checkout_differential`; without them the test FAILS unless
@@ -12,7 +13,8 @@ use std::process::Command;
 use spocky_session::agent_labels::{
     has_open_agent_tab, is_delegated_agent, parent_agent_id_from_labels,
 };
-use spocky_session::agent_prompt::is_system_injected_envelope;
+use spocky_session::agent_prompt::{is_system_injected_envelope, submitted_prompt_text};
+use spocky_session::agent_sdk::AgentPromptInput;
 use spocky_session::external_state::command_may_have_changed_external_state;
 use spocky_session::runtime_mcp_config::{
     strip_internal_paseo_mcp_server, with_runtime_paseo_mcp_server,
@@ -60,8 +62,21 @@ const COMMANDS: &str = r#"[
   "git push", "git_push", "echo 'git fetch'", "gh pr comment_x", "git\npush", ""
 ]"#;
 
+/// Prompts: a string, or content blocks.
+const PROMPTS: &str = r#"[
+  "  as is  ",
+  [{"type":"text","text":" a"},{"type":"image","data":"x","mimeType":"image/png"},
+   {"type":"text","text":"b","mimeType":"text/plain"},{"type":"text"},{"type":"text","text":"c\n"}],
+  [{"type":"text","text":null},{"type":"text","text":1},{"type":"text","text":"\u00a0z\ufeff"}],
+  []
+]"#;
+
 const NODE_SCRIPT: &str = r"
-const [dist, labelsJson, envelopesJson, mcpJson, commandsJson] = process.argv.slice(1);
+const [dist, labelsJson, envelopesJson, mcpJson, commandsJson, promptsJson] = process.argv.slice(1);
+const { readFileSync } = await import(`node:fs`);
+const managerSource = readFileSync(`${dist}/server/agent/agent-manager.js`, `utf8`);
+const promptSource = managerSource.match(/function submittedPromptText\(prompt\) \{[\s\S]*?\n\}\n/)[0];
+const submittedPromptText = new Function(`return (${promptSource})`)();
 const labelsModule = await import(`${dist}/../../../protocol/dist/agent-labels.js`);
 const { isSystemInjectedEnvelope } = await import(`${dist}/server/agent/agent-prompt.js`);
 const { stripInternalPaseoMcpServer, withRuntimePaseoMcpServer } = await import(`${dist}/server/agent/runtime-mcp-config.js`);
@@ -77,7 +92,8 @@ const mcp = JSON.parse(mcpJson).map(([config, agentId, mcpBaseUrl, mcpAuthToken]
   withRuntimePaseoMcpServer({ config, agentId, mcpBaseUrl, mcpAuthToken }),
 ]);
 const commands = JSON.parse(commandsJson).map(commandMayHaveChangedExternalState);
-process.stdout.write(JSON.stringify({ labels, envelopes, mcp, commands }));
+const prompts = JSON.parse(promptsJson).map(submittedPromptText);
+process.stdout.write(JSON.stringify({ labels, envelopes, mcp, commands, prompts }));
 ";
 
 fn list(text: &str) -> Vec<JsValue> {
@@ -132,6 +148,18 @@ fn rust_output() -> String {
     output.insert("envelopes", JsValue::Array(envelopes));
     output.insert("mcp", JsValue::Array(mcp));
     output.insert("commands", JsValue::Array(commands));
+    let prompts = list(PROMPTS)
+        .iter()
+        .map(|prompt| {
+            let prompt = match prompt {
+                JsValue::String(text) => AgentPromptInput::Text(text.clone()),
+                JsValue::Array(blocks) => AgentPromptInput::Blocks(blocks.clone()),
+                other => panic!("unexpected prompt {other:?}"),
+            };
+            JsValue::String(submitted_prompt_text(&prompt))
+        })
+        .collect();
+    output.insert("prompts", JsValue::Array(prompts));
     stringify(&JsValue::Object(output))
 }
 
@@ -195,7 +223,7 @@ fn helpers_match_pinned_modules() {
         .arg(&node)
         .args(["--input-type=module", "-e", NODE_SCRIPT])
         .arg(&dist)
-        .args([LABELS, ENVELOPES, MCP, COMMANDS])
+        .args([LABELS, ENVELOPES, MCP, COMMANDS, PROMPTS])
         .output()
         .expect("run pinned node");
     assert!(
