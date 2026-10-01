@@ -323,6 +323,41 @@
             "scripts/phase2/hub-simultaneous-ownership*",
             "evidence/phase2/hub-simultaneous-ownership*"
           ]
+        },
+        {
+          "task": "p2_hub_schema_downgrade",
+          "canonicalThread": "/root/p2_relay_frame_parity",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "approvalPolicy": "never",
+          "sandbox": "disabled/unrestricted",
+          "status": "ready; isolated worktree pending permission preflight",
+          "baseCommit": "e2316a5b635d809a101c8d41604dc2ec0e6e5ffa",
+          "dependencies": ["p2_hub_legacy_handoff", "p2_hub_mixed_ownership", "p2_hub_simultaneous_ownership"],
+          "acceptanceCommands": [
+            "targeted directory-lock, retained-host, and embedded-SQL tests only",
+            "bounded pinned baseline versus candidate schema-downgrade harness",
+            "cargo clippy --locked -p spocky-hub-pilot --all-targets -- -D warnings",
+            "cargo fmt --package spocky-hub-pilot -- --check"
+          ],
+          "acceptanceCases": [
+            "inventory exact pinned Hub schema and migration ordering/version contracts before implementation",
+            "preserve same-schema forward and reverse handoff evidence",
+            "exercise disposable candidate-newer state against the pinned legacy runtime without normalization",
+            "exercise disposable legacy-newer state against the candidate without normalization",
+            "match refusal, migration, rollback, and user-data preservation behavior or document a bounded incompatibility",
+            "reject partial migration publication and retain exact pre-attempt state on failure",
+            "all processes and commands have forced-kill deadlines",
+            "baseline checkout stays clean and port 6767 stays untouched"
+          ],
+          "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo/paseo-rust-worktrees/phase2-hub-schema-downgrade",
+          "branch": "phase2/hub-schema-downgrade",
+          "delegation": "forbidden",
+          "permittedPaths": [
+            "crates/spocky-hub-pilot/",
+            "scripts/phase2/hub-schema-downgrade*",
+            "evidence/phase2/hub-schema-downgrade*"
+          ]
         }
       ],
       "blockedBy": null
