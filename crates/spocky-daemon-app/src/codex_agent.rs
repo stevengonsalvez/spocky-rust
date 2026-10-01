@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use spocky_contracts::js_value::{self, JsValue};
+use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_provider_codex::launch::{CODEX_NOT_FOUND_MESSAGE, resolve_launch_prefix};
 use spocky_provider_codex::{
     CodexProvider, CodexSession, Prompt, ProviderRuntimeSettings, ResumeHandle, RunOptions,
@@ -110,6 +110,142 @@ fn resume_handle(handle: &JsValue) -> AgentResult<ResumeHandle> {
     })
 }
 
+/// Keywords whose value maps names to schemas.
+const SCHEMA_MAP_KEYWORDS: [&str; 5] = [
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+];
+
+/// Keywords whose value is a schema or an array of schemas.
+const SUBSCHEMA_KEYWORDS: [&str; 15] = [
+    "items",
+    "prefixItems",
+    "additionalItems",
+    "contains",
+    "additionalProperties",
+    "unevaluatedProperties",
+    "unevaluatedItems",
+    "propertyNames",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "not",
+    "if",
+    "then",
+    "else",
+];
+
+/// `isSchemaRecord`: a non-null, non-array object.
+fn schema_record(value: &JsValue) -> Option<&JsObject> {
+    value.as_object()
+}
+
+/// `isObjectSchemaNode`.
+fn is_object_schema_node(schema: &JsObject) -> bool {
+    schema
+        .get("properties")
+        .is_some_and(|p| p.as_object().is_some())
+        || match schema.get("type") {
+            Some(JsValue::String(kind)) => kind == "object",
+            Some(JsValue::Array(kinds)) => kinds.iter().any(|k| k.as_str() == Some("object")),
+            _ => false,
+        }
+}
+
+fn normalize_subschema(schema: &JsValue, path: &str) -> Result<JsValue, String> {
+    match schema {
+        JsValue::Array(entries) => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| normalize_node(entry, &format!("{path}[{index}]")))
+            .collect::<Result<_, _>>()
+            .map(JsValue::Array),
+        other => normalize_node(other, path),
+    }
+}
+
+fn normalize_node(schema: &JsValue, path: &str) -> Result<JsValue, String> {
+    let Some(source) = schema_record(schema) else {
+        return Ok(schema.clone());
+    };
+    let mut normalized = source.clone();
+    for keyword in SCHEMA_MAP_KEYWORDS {
+        if let Some(schemas) = source.get(keyword).and_then(schema_record) {
+            let mut mapped = JsObject::new();
+            for (name, child) in schemas.iter() {
+                mapped.insert(
+                    name,
+                    normalize_node(child, &format!("{path}.{keyword}.{name}"))?,
+                );
+            }
+            normalized.insert(keyword, JsValue::Object(mapped));
+        }
+    }
+    for keyword in SUBSCHEMA_KEYWORDS {
+        if let Some(value) = source.get(keyword) {
+            normalized.insert(
+                keyword,
+                normalize_subschema(value, &format!("{path}.{keyword}"))?,
+            );
+        }
+    }
+    if !is_object_schema_node(&normalized) {
+        return Ok(JsValue::Object(normalized));
+    }
+    match normalized.get("additionalProperties") {
+        None | Some(JsValue::Undefined) => {
+            normalized.insert("additionalProperties", JsValue::Bool(false));
+        }
+        Some(JsValue::Bool(false)) => {}
+        Some(_) => {
+            return Err(format!(
+                "Codex structured outputs require {path} to set additionalProperties to false for object schemas."
+            ));
+        }
+    }
+    let Some(properties) = normalized.get("properties").and_then(schema_record) else {
+        return Ok(JsValue::Object(normalized));
+    };
+    let keys: Vec<String> = properties.iter().map(|(key, _)| key.to_owned()).collect();
+    let mut required: Vec<String> = match normalized.get("required") {
+        Some(JsValue::Array(entries)) => entries
+            .iter()
+            .filter_map(|e| e.as_str().map(str::to_owned))
+            .collect(),
+        _ => Vec::new(),
+    };
+    required.extend(keys);
+    let mut seen = std::collections::HashSet::new();
+    required.retain(|key| seen.insert(key.clone()));
+    normalized.insert(
+        "required",
+        JsValue::Array(required.into_iter().map(JsValue::String).collect()),
+    );
+    Ok(JsValue::Object(normalized))
+}
+
+/// `normalizeCodexOutputSchema` (`codex-app-server-agent.ts`): every object
+/// schema node gets `additionalProperties: false` and requires all of its
+/// properties, as Codex structured outputs demand.
+///
+/// # Errors
+///
+/// The baseline's messages for a non-object schema, a non-object root, or
+/// an object node whose `additionalProperties` is not `false`.
+pub fn normalize_codex_output_schema(schema: &JsValue) -> Result<JsValue, String> {
+    if schema_record(schema).is_none() {
+        return Err("Codex structured outputs require a JSON object schema.".to_owned());
+    }
+    let normalized = normalize_node(schema, "$")?;
+    if !normalized.as_object().is_some_and(is_object_schema_node) {
+        return Err("Codex structured outputs require a root object schema.".to_owned());
+    }
+    Ok(normalized)
+}
+
 /// `CodexAppServerAgentSession`.
 pub struct CodexAgentSession {
     session: BlockingDrop,
@@ -194,7 +330,14 @@ impl AgentSession for CodexAgentSession {
             // `buildTurnStartParams` reads `outputSchema` when truthy and
             // ignores `resumeFrom` and `maxThinkingTokens`.
             let options = options.unwrap_or_default();
-            if truthy(options.output_schema.as_ref()) {
+            if let Some(schema) = options
+                .output_schema
+                .as_ref()
+                .filter(|schema| truthy(Some(schema)))
+            {
+                // The baseline throws the normalizer's error before turn/start;
+                // a valid schema needs a provider field that does not exist yet.
+                normalize_codex_output_schema(schema).map_err(AgentError::new)?;
                 return Err(not_exposed("startTurn outputSchema"));
             }
             let options = RunOptions {
@@ -545,6 +688,18 @@ mod tests {
             output_schema: Some(js_value::parse(r#"{"type":"object"}"#).unwrap()),
             ..AgentRunOptions::default()
         };
+        let invalid = AgentRunOptions {
+            output_schema: Some(js_value::parse(r#"{"type":"string"}"#).unwrap()),
+            ..AgentRunOptions::default()
+        };
+        let error = agent
+            .start_turn(AgentPromptInput::Text("hi".to_owned()), Some(invalid))
+            .await
+            .expect_err("invalid outputSchema");
+        assert_eq!(
+            error.message,
+            "Codex structured outputs require a root object schema."
+        );
         let error = agent
             .start_turn(AgentPromptInput::Text("hi".to_owned()), Some(schema))
             .await
