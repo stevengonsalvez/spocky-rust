@@ -18,6 +18,7 @@ use crate::git::{GitError, GitOptions, run_git};
 use crate::paths::{
     basename, dirname, expand_tilde, realpath_aware_relative_path, realpath_js, resolve,
 };
+use crate::text::js_trim;
 
 /// `ProjectCheckoutLitePayload`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +78,7 @@ async fn git_stdout(args: &[&str], cwd: &Path) -> Result<String, GitError> {
 
 /// `parseGitRevParsePath`.
 fn parse_rev_parse_path(stdout: &str) -> Option<String> {
-    let trimmed = stdout.trim();
+    let trimmed = js_trim(stdout);
     if trimmed.is_empty() {
         return None;
     }
@@ -86,12 +87,12 @@ fn parse_rev_parse_path(stdout: &str) -> Option<String> {
     if lines.next().is_some() {
         return None;
     }
-    let path = first.trim_end_matches('\r').trim();
+    let path = js_trim(first.trim_end_matches('\r'));
     (!path.is_empty() && !path.starts_with("--")).then(|| path.to_owned())
 }
 
 fn non_empty(stdout: &str) -> Option<String> {
-    let trimmed = stdout.trim();
+    let trimmed = js_trim(stdout);
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
@@ -101,11 +102,11 @@ async fn rebase_head_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
         let Ok(stdout) = git_stdout(&["rev-parse", "--git-path", name], cwd).await else {
             continue;
         };
-        let head_name_path = resolve(cwd_text, stdout.trim());
+        let head_name_path = resolve(cwd_text, js_trim(&stdout));
         let Ok(contents) = blocking(move || std::fs::read_to_string(head_name_path)).await else {
             continue;
         };
-        let head = contents.trim();
+        let head = js_trim(&contents);
         let branch = head.strip_prefix("refs/heads/").unwrap_or(head);
         if !branch.is_empty() {
             return Some(branch.to_owned());
@@ -119,7 +120,7 @@ async fn current_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
     let stdout = git_stdout(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
         .await
         .ok()?;
-    let branch = stdout.trim();
+    let branch = js_trim(&stdout);
     if branch == "HEAD" {
         return rebase_head_branch(cwd, cwd_text).await;
     }
@@ -129,7 +130,7 @@ async fn current_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
 /// `branchNameFromRef`.
 #[must_use]
 pub fn branch_name_from_ref(reference: &str) -> String {
-    let trimmed = reference.trim();
+    let trimmed = js_trim(reference);
     if let Some(rest) = trimmed.strip_prefix("refs/heads/") {
         return rest.to_owned();
     }
@@ -152,7 +153,7 @@ async fn repository_default_branch(cwd: &Path) -> Result<Option<String>, GitErro
     )
     .await
     {
-        let reference = stdout.trim();
+        let reference = js_trim(&stdout);
         if !reference.is_empty() {
             let remote_short = reference.strip_prefix("refs/remotes/").unwrap_or(reference);
             let local = remote_short.strip_prefix("origin/").unwrap_or(remote_short);
@@ -172,7 +173,7 @@ async fn repository_default_branch(cwd: &Path) -> Result<Option<String>, GitErro
     let stdout = git_stdout(&["branch", "--format=%(refname:short)"], cwd).await?;
     let branches: Vec<&str> = stdout
         .split('\n')
-        .map(str::trim)
+        .map(js_trim)
         .filter(|line| !line.is_empty())
         .collect();
     Ok(["main", "master"]
@@ -266,10 +267,10 @@ struct WorktreeEntry {
 fn parse_worktree_list(stdout: &str) -> Vec<WorktreeEntry> {
     let mut entries: Vec<WorktreeEntry> = Vec::new();
     for line in stdout.split('\n') {
-        let trimmed = line.trim();
+        let trimmed = js_trim(line);
         if let Some(path) = trimmed.strip_prefix("worktree ") {
             entries.push(WorktreeEntry {
-                path: path.trim().to_owned(),
+                path: js_trim(path).to_owned(),
                 bare: false,
             });
         } else if trimmed == "bare"
@@ -303,11 +304,12 @@ fn git_dir_for_worktree_root(worktree_root: &str) -> Result<String, GitError> {
     if let Ok(contents) = std::fs::read_to_string(&git_path)
         && let Some(start) = contents.find("gitdir:")
     {
-        let after = contents[start + "gitdir:".len()..].trim_start();
+        let after =
+            contents[start + "gitdir:".len()..].trim_start_matches(crate::text::is_js_whitespace);
         let line_end = after
             .find(['\n', '\r', '\u{2028}', '\u{2029}'])
             .unwrap_or(after.len());
-        let raw = after[..line_end].trim();
+        let raw = js_trim(&after[..line_end]);
         if !raw.is_empty() {
             return Ok(if raw.starts_with('/') {
                 raw.to_owned()
