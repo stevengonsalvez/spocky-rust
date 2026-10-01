@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 let active = [];
+let cleanupPromise;
 let shutdownPromise;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => void terminateForSignal(signal));
@@ -18,9 +19,19 @@ if (process.argv[2] === "--self-test-cleanup") {
   }
   process.exitCode = 0;
 } else if (process.argv[2] === "--self-test-signal-cleanup") {
-  await selfTestSignalCleanup();
+  try {
+    await selfTestSignalCleanup();
+  } catch (error) {
+    if (shutdownPromise) await shutdownPromise;
+    throw error;
+  }
 } else {
-  await qualifyMixedOwnership();
+  try {
+    await qualifyMixedOwnership();
+  } catch (error) {
+    if (shutdownPromise) await shutdownPromise;
+    throw error;
+  }
 }
 
 async function qualifyMixedOwnership() {
@@ -279,16 +290,24 @@ async function forceStop(child) {
 }
 
 async function cleanupActive() {
-  const children = active;
-  active = [];
-  const outcomes = await Promise.allSettled(
-    children.map((child) => forceStop(child)),
-  );
-  const failures = outcomes
-    .filter((outcome) => outcome.status === "rejected")
-    .map((outcome) => outcome.reason);
-  if (failures.length > 0) {
-    throw new AggregateError(failures, "owned process cleanup failed");
+  if (cleanupPromise) return cleanupPromise;
+  const children = [...active];
+  cleanupPromise = (async () => {
+    const outcomes = await Promise.allSettled(
+      children.map((child) => forceStop(child)),
+    );
+    active = active.filter((child) => !children.includes(child));
+    const failures = outcomes
+      .filter((outcome) => outcome.status === "rejected")
+      .map((outcome) => outcome.reason);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "owned process cleanup failed");
+    }
+  })();
+  try {
+    await cleanupPromise;
+  } finally {
+    cleanupPromise = undefined;
   }
 }
 
@@ -407,13 +426,14 @@ async function selfTestSignalCleanup() {
   }
   const owner = await createCleanupFixture();
   process.kill(owner.ownedPids[1], "SIGSTOP");
+  owner.lines = createInterface({ input: owner.stdout });
   process.stdout.write(`${
     JSON.stringify({
       ownerPid: owner.pid,
       descendantPid: owner.ownedPids[1],
     })
   }\n`);
-  await new Promise(() => {});
+  await nextJson(owner, 60_000);
 }
 
 async function createCleanupFixture() {
