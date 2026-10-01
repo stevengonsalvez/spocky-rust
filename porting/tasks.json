@@ -47,6 +47,12 @@
       },
       {
         "date": "2026-10-01",
+        "authority": "Claude lead, at the coordinator's request",
+        "change": "Coordinated path exception: p2_hub_api may edit the existing crates/spocky-hub-pilot/src/api_keys.rs (outside its new-files-only scope) for one purpose: keep JS Set insertion order for API key scopes, per the coordinator's P3 order. Accepted on condition that read-only review finds it limited to that purpose and the existing tests/api_key_boundary.rs and tests/relational_api_keys.rs pass unmodified on the integration branch.",
+        "scope": "crates/spocky-hub-pilot/src/api_keys.rs scope ordering only; any other edit to existing Hub modules still needs a separate decision"
+      },
+      {
+        "date": "2026-10-01",
         "authority": "Stevie, relayed by the Claude coordinator session term_d3e130a0",
         "change": "Hub retained JavaScript PGlite host accepted as a time-boxed interim compatibility exception (accepted-interim). Removal condition unchanged. Lane p2_pglite_rust_host opened to replace it with a Rust Wasm host."
       },
