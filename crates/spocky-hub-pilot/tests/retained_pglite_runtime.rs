@@ -741,12 +741,27 @@ fn retained_host_releases_owner_when_parent_process_dies() {
         .read_line(&mut line)
         .expect("read child pid");
     let node_pid: u32 = line.trim().parse().expect("parse child pid");
+    let stopped = Command::new("kill")
+        .args(["-STOP", &node_pid.to_string()])
+        .status()
+        .expect("stop retained child");
+    assert!(stopped.success());
     let status = Command::new("kill")
         .args(["-9", &helper.id().to_string()])
         .status()
         .expect("kill helper");
     assert!(status.success());
     helper.wait().expect("reap helper");
+
+    assert!(matches!(
+        RetainedPgliteHost::open(&config(root.0.clone())),
+        Err(RetainedHostError::DirectoryInUse)
+    ));
+    let resumed = Command::new("kill")
+        .args(["-CONT", &node_pid.to_string()])
+        .status()
+        .expect("resume retained child");
+    assert!(resumed.success());
 
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while process_is_running(node_pid) && std::time::Instant::now() < deadline {

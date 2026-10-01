@@ -217,21 +217,12 @@ pub struct RetainedPgliteHost {
 impl RetainedPgliteHost {
     pub fn open(config: &RetainedPgliteConfig) -> Result<Self, RetainedHostError> {
         fs::create_dir_all(&config.data_directory)?;
-        let directory_lock =
+        let mut directory_lock =
             DataDirectoryLock::acquire(&config.data_directory).map_err(|error| match error {
                 DirectoryLockError::Busy => RetainedHostError::DirectoryInUse,
                 DirectoryLockError::Io(error) => RetainedHostError::Io(error),
             })?;
-        let mut child = Command::new(&config.node_executable)
-            .arg(&config.adapter_path)
-            .arg(&config.package_root)
-            .arg(&config.migrations_root)
-            .arg(&config.data_directory)
-            .arg(config.max_frame_bytes.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
+        let mut child = spawn_retained_child(config, &mut directory_lock)?;
         let stdin = child
             .stdin
             .take()
@@ -365,8 +356,9 @@ impl RetainedPgliteHost {
             .map(|_| ());
         let mut state = self.state.lock().map_err(|_| RetainedHostError::Poisoned)?;
         state.closed = true;
-        terminate_and_reap(&mut state.child, self.request_timeout);
-        state.directory_lock = None;
+        if terminate_and_reap(&mut state.child, self.request_timeout) {
+            state.directory_lock = None;
+        }
         result
     }
 
@@ -503,6 +495,28 @@ impl Drop for RetainedPgliteHost {
     }
 }
 
+fn spawn_retained_child(
+    config: &RetainedPgliteConfig,
+    directory_lock: &mut DataDirectoryLock,
+) -> Result<Child, RetainedHostError> {
+    let inherited_guard = directory_lock.inherited_guard()?;
+    let mut child = Command::new(&config.node_executable)
+        .arg(&config.adapter_path)
+        .arg(&config.package_root)
+        .arg(&config.migrations_root)
+        .arg(&config.data_directory)
+        .arg(config.max_frame_bytes.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(inherited_guard))
+        .spawn()?;
+    if let Err(error) = directory_lock.set_owner_pid(child.id()) {
+        terminate_and_reap(&mut child, config.startup_timeout);
+        return Err(error.into());
+    }
+    Ok(child)
+}
+
 fn encode_frame(value: &serde_json::Value, maximum: usize) -> Result<Vec<u8>, RetainedHostError> {
     let bytes = serde_json::to_vec(value)?;
     if bytes.len() > maximum {
@@ -563,13 +577,14 @@ fn deliver_frame(
     }
 }
 
-fn terminate_and_reap(child: &mut Child, timeout: Duration) {
+fn terminate_and_reap(child: &mut Child, timeout: Duration) -> bool {
     let _ = child.kill();
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            Ok(Some(_) | None) | Err(_) => return,
+            Ok(Some(_)) => return true,
+            Ok(None) | Err(_) => return false,
         }
     }
 }

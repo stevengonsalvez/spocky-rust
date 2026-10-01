@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub(crate) const LOCK_FILE: &str = ".paseo-hub.lock";
+const GUARD_FILE: &str = ".spocky-hub.lock.guard";
 const OWNER_READ_ATTEMPTS: usize = 10;
 const OWNER_READ_DELAY: Duration = Duration::from_millis(10);
 const LOCK_PROTOCOL: &str = "os-file-lock-v1";
@@ -34,12 +35,14 @@ struct LockOwner {
 }
 
 pub(crate) struct DataDirectoryLock {
-    _file: File,
+    guard: File,
+    owner_file: File,
+    owner: LockOwner,
 }
 
 impl DataDirectoryLock {
     pub(crate) fn acquire(data_directory: &Path) -> Result<Self, DirectoryLockError> {
-        let path = data_directory.join(LOCK_FILE);
+        let guard_path = data_directory.join(GUARD_FILE);
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true);
         #[cfg(unix)]
@@ -48,8 +51,8 @@ impl DataDirectoryLock {
 
             options.mode(0o600);
         }
-        let mut file = options.open(path)?;
-        match file.try_lock() {
+        let guard = options.open(guard_path)?;
+        match guard.try_lock() {
             Ok(()) => {}
             Err(std::fs::TryLockError::WouldBlock) => {
                 return Err(DirectoryLockError::Busy);
@@ -60,10 +63,17 @@ impl DataDirectoryLock {
         {
             use std::os::unix::fs::PermissionsExt as _;
 
-            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            guard.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
 
-        if read_legacy_owner(&mut file)?
+        let mut owner_file = options.open(data_directory.join(LOCK_FILE))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            owner_file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        if read_legacy_owner(&mut owner_file)?
             .is_some_and(|owner| owner.protocol.is_none() && process_is_running(owner.pid))
         {
             return Err(DirectoryLockError::Busy);
@@ -74,12 +84,29 @@ impl DataDirectoryLock {
             token: Uuid::new_v4().to_string(),
             protocol: Some(LOCK_PROTOCOL.to_owned()),
         };
-        file.set_len(0)?;
-        file.seek(SeekFrom::Start(0))?;
-        serde_json::to_writer(&mut file, &owner).map_err(std::io::Error::other)?;
-        file.flush()?;
-        Ok(Self { _file: file })
+        write_owner(&mut owner_file, &owner)?;
+        Ok(Self {
+            guard,
+            owner_file,
+            owner,
+        })
     }
+
+    pub(crate) fn inherited_guard(&self) -> Result<File, std::io::Error> {
+        self.guard.try_clone()
+    }
+
+    pub(crate) fn set_owner_pid(&mut self, pid: u32) -> Result<(), std::io::Error> {
+        self.owner.pid = pid;
+        write_owner(&mut self.owner_file, &self.owner)
+    }
+}
+
+fn write_owner(file: &mut File, owner: &LockOwner) -> Result<(), std::io::Error> {
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    serde_json::to_writer(&mut *file, owner).map_err(std::io::Error::other)?;
+    file.flush()
 }
 
 fn read_legacy_owner(file: &mut File) -> Result<Option<LockOwner>, std::io::Error> {
