@@ -375,3 +375,51 @@ fn a_subscriber_can_interrupt_from_inside_turn_started() {
     assert_eq!(*interrupted.lock().unwrap(), Some(Ok(())));
     session.close().expect("close");
 }
+
+/// Child half of `watchdog_aborts_a_test_past_its_deadline`: a no-op unless
+/// that test re-runs this binary with `SPOCKY_P3_WATCHDOG_CHILD` set.
+#[test]
+fn watchdog_child() {
+    if std::env::var_os("SPOCKY_P3_WATCHDOG_CHILD").is_none() {
+        return;
+    }
+    let _watchdog = support::Watchdog::arm("watchdog-child", Duration::from_millis(200));
+    std::thread::sleep(Duration::from_secs(30));
+}
+
+#[test]
+fn watchdog_aborts_a_test_past_its_deadline() {
+    use std::io::Read;
+    use std::os::unix::process::ExitStatusExt;
+    let mut child = Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", "watchdog_child", "--nocapture"])
+        .env("SPOCKY_P3_WATCHDOG_CHILD", "1")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("re-run test binary");
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait for child") {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("watchdog did not abort the child within 20 s");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("child stderr")
+        .read_to_string(&mut stderr)
+        .expect("read child stderr");
+    assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
+    assert!(
+        stderr.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; aborting"),
+        "{stderr}"
+    );
+}
