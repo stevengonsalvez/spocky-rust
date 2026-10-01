@@ -137,6 +137,13 @@ pub trait Connection: Read + Write + Send + 'static {
     ///
     /// Any error from the socket option.
     fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    /// Bounds a blocking write, so a peer that stops reading cannot stall the
+    /// connection thread: the write returns and the rest stays queued.
+    ///
+    /// # Errors
+    ///
+    /// Any error from the socket option.
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
     /// Switches blocking mode. A socket accepted from a non-blocking listener
     /// inherits that mode on macOS and BSD, which makes a read timeout a no-op.
     ///
@@ -157,6 +164,9 @@ impl Connection for TcpStream {
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         TcpStream::set_nonblocking(self, nonblocking)
     }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        TcpStream::set_write_timeout(self, timeout)
+    }
     fn remote_address(&self) -> Option<IpAddr> {
         self.peer_addr().ok().map(|address| address.ip())
     }
@@ -172,6 +182,9 @@ impl Connection for UnixStream {
     }
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
         UnixStream::set_nonblocking(self, nonblocking)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        UnixStream::set_write_timeout(self, timeout)
     }
     fn remote_address(&self) -> Option<IpAddr> {
         None
@@ -224,6 +237,9 @@ struct Shared {
     /// Connections being served, and the most the process may hold.
     active_connections: AtomicUsize,
     max_connections: AtomicUsize,
+    /// Bytes queued for one socket and not yet written to the kernel; past this
+    /// the socket is terminated (`MAX_PHYSICAL_SOCKET_BUFFERED_BYTES`).
+    max_buffered_bytes: AtomicUsize,
     janitor_started: AtomicBool,
     registry: Mutex<Registry>,
     stop: AtomicBool,
@@ -247,9 +263,10 @@ impl Shared {
             _ => 0,
         };
         let queued = entry.queued_bytes.fetch_add(bytes, Ordering::SeqCst) + bytes;
-        if queued > MAX_BUFFERED_BYTES {
+        let max_buffered = self.max_buffered_bytes.load(Ordering::SeqCst);
+        if queued > max_buffered {
             self.deps.logger.warn(
-                &[("maxBufferedBytes", &MAX_BUFFERED_BYTES.to_string())],
+                &[("maxBufferedBytes", &max_buffered.to_string())],
                 "Closing physical WebSocket at outbound high-water mark",
             );
             return entry.queue.send(Outbound::Terminate).is_ok();
@@ -516,6 +533,7 @@ impl Server {
             next_socket: AtomicU64::new(0),
             active_connections: AtomicUsize::new(0),
             max_connections: AtomicUsize::new(default_max_connections()),
+            max_buffered_bytes: AtomicUsize::new(MAX_BUFFERED_BYTES),
             janitor_started: AtomicBool::new(false),
             registry: Mutex::new(Registry::default()),
             stop: AtomicBool::new(false),
@@ -558,6 +576,11 @@ impl Server {
             .inspect_err(|_| self.shared.janitor_started.store(false, Ordering::SeqCst))?;
         lock(&self.threads).push(janitor);
         Ok(())
+    }
+
+    /// Sets the per-socket outbound high-water mark. The default is 64 MiB.
+    pub fn set_max_buffered_bytes(&self, max: usize) {
+        self.shared.max_buffered_bytes.store(max, Ordering::SeqCst);
     }
 
     /// Caps concurrent connections. The default is the process's open-file limit
@@ -710,6 +733,14 @@ impl Server {
     }
 }
 
+/// A read or write that timed out or would block.
+fn is_would_block(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
+}
+
 /// Counts a connection while its thread is alive.
 struct ConnectionGuard(Arc<Shared>);
 
@@ -738,6 +769,7 @@ fn default_max_connections() -> usize {
 /// connection thread spins.
 fn configure_accepted(stream: &dyn Connection) -> io::Result<()> {
     stream.set_nonblocking(false)?;
+    stream.set_write_timeout(Some(POLL))?;
     stream.set_read_timeout(Some(POLL))
 }
 
@@ -850,6 +882,9 @@ struct SocketTask {
     ws: WebSocket<Box<dyn Connection>>,
     queue: Receiver<Outbound>,
     queued_bytes: Arc<AtomicUsize>,
+    /// Bytes written to the library's buffer that a successful flush has not yet
+    /// confirmed as handed to the kernel.
+    unflushed: usize,
     identity: Identity,
     phase: Phase,
     /// Set once a close frame went out; the peer has until then to answer.
@@ -867,7 +902,15 @@ fn run_socket(
     remaining: Vec<u8>,
 ) {
     let remote = stream.remote_address();
+    // The library's write buffer holds frames the kernel has not taken yet. Bound
+    // it at the high-water mark so a peer that stops reading cannot grow it.
+    let write_buffer = WebSocketConfig::default().write_buffer_size;
+    let max_write_buffer = shared
+        .max_buffered_bytes
+        .load(Ordering::SeqCst)
+        .saturating_add(write_buffer + 1);
     let config = WebSocketConfig::default()
+        .max_write_buffer_size(max_write_buffer)
         .max_message_size(Some(MAX_PAYLOAD_BYTES))
         .max_frame_size(Some(MAX_PAYLOAD_BYTES));
     let ws = WebSocket::from_partially_read(stream, remaining, Role::Server, Some(config));
@@ -901,6 +944,7 @@ fn run_socket(
         ws,
         queue: rx,
         queued_bytes,
+        unflushed: 0,
         identity,
         phase: Phase::Done,
         closing_deadline: None,
@@ -1008,8 +1052,13 @@ impl SocketTask {
                 Err(_) => return,
             }
             match self.ws.flush() {
-                Ok(()) => {}
-                Err(WsError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Ok(()) => {
+                    // Everything written so far has reached the kernel.
+                    self.queued_bytes
+                        .fetch_sub(self.unflushed, Ordering::SeqCst);
+                    self.unflushed = 0;
+                }
+                Err(WsError::Io(error)) if is_would_block(&error) => {}
                 Err(_) => return,
             }
         }
@@ -1020,13 +1069,23 @@ impl SocketTask {
         loop {
             match self.queue.try_recv() {
                 Ok(Outbound::Text(text)) => {
-                    self.queued_bytes.fetch_sub(text.len(), Ordering::SeqCst);
+                    let bytes = text.len();
                     if self.closing_deadline.is_some() {
+                        self.queued_bytes.fetch_sub(bytes, Ordering::SeqCst);
                         continue;
                     }
-                    match self.ws.send(Message::text(text)) {
+                    self.unflushed += bytes;
+                    match self.ws.write(Message::text(text)) {
                         Ok(()) => {}
-                        Err(WsError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(WsError::Io(error)) if is_would_block(&error) => {}
+                        Err(WsError::WriteBufferFull(_)) => {
+                            self.logger().warn(
+                                &self.identity.fields(),
+                                "Closing physical WebSocket at outbound high-water mark",
+                            );
+                            self.ws.get_mut().shutdown();
+                            return false;
+                        }
                         Err(_) => return false,
                     }
                 }
