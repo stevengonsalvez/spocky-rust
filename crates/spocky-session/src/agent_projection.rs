@@ -168,10 +168,9 @@ fn build_serializable_config(config: &JsValue) -> Result<Option<JsValue>, JsType
             serializable.insert(key, value.clone());
         }
     }
-    // `hasOwnProperty`: an own `featureValues` holding undefined still counts.
-    if config.get("featureValues").is_some()
-        && let Some(feature_values) = sanitize_metadata(config.get("featureValues"))
-    {
+    // The baseline's `hasOwnProperty` guard changes nothing: a missing or
+    // undefined `featureValues` sanitizes to nothing either way.
+    if let Some(feature_values) = sanitize_metadata(config.get("featureValues")) {
         serializable.insert("featureValues", feature_values);
     }
     if let Some(options) = defined(config.get("providerOptions"))
