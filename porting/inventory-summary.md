@@ -75,7 +75,7 @@ Do not silently repair these behaviors during parity work. A safety exception re
 
 | ID | Divergence | Decision |
 |---|---|---|
-| DIV-001 | Pinned Node `22.20.0` `JSON.stringify` throws `RangeError` on values nested between 3,000 and 5,000 levels deep, at a stack-dependent depth; the Spocky JSON writer in `spocky-store` writes them. Pinned `JSON.parse` reads at least 100,000 levels, so Node can read what Spocky writes. Node `26.7.0` stringifies 1,000,000 levels, so the limit is not stable across Node versions either. | Accepted by the coordinator on 2026-10-01 while Stevie is away. The baseline limit is nondeterministic and only affects values the baseline can never persist. A mixed-version test must show pinned Node parsing a Spocky-written 10,000-deep record. |
+| DIV-001 | Pinned Node `22.20.0` `JSON.stringify` throws `RangeError` on values nested between 3,000 and 5,000 levels deep, at a stack-dependent depth; the Spocky JSON writer in `spocky-store` writes them. Pinned `JSON.parse` reads at least 100,000 levels, so Node can read what Spocky writes. Node `26.7.0` stringifies 1,000,000 levels, so the limit is not stable across Node versions either. Same family: pinned zod `4.4.3` recursive `z.json` validation throws `RangeError` by 10,000 levels (3,000 passes), so the baseline skips such an agent record on load while Spocky loads it. | Accepted by the coordinator on 2026-10-01 while Stevie is away. The baseline limit is nondeterministic and only affects values the baseline can never persist. A mixed-version test must show pinned Node parsing a Spocky-written 10,000-deep record. |
 
 ## Cloud baseline gaps
 
