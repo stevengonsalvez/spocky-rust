@@ -9,8 +9,8 @@
 use spocky_store::js_value::{JsObject, JsValue};
 
 use crate::clock::iso_from_millis;
-use crate::js::{spread, truthy};
 use crate::timeline::JsTypeError;
+use spocky_contracts::js::{spread, truthy};
 
 /// `ManagedAgent.attention`.
 #[derive(Debug, Clone, PartialEq, Eq)]
