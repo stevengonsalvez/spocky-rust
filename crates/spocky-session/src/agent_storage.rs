@@ -1,31 +1,42 @@
 //! `AgentStorage` from pinned Paseo `agent/agent-storage.ts`: the agent
-//! record files behind the manager, with writes queued in call order.
+//! record files behind the manager, with writes queued per agent.
 //!
-//! Records live in [`AgentRecordStore`]. Every mutation waits its turn on
-//! one first-in first-out queue (the baseline queues per agent; one queue
-//! keeps each agent's order and only serializes different agents' writes).
+//! Records live in [`AgentRecordStore`]. Each agent's mutations form one
+//! chain, as the baseline's `pendingWrites` map chains
+//! `prev.then(...)` with no rejection handler: a mutation runs once the
+//! previous one has settled, and when the previous one failed it fails with
+//! that same error without running. The chain entry is dropped when its
+//! last link settles, so a mutation queued after that starts fresh.
+//! Different agents never wait for each other.
+//!
 //! A snapshot reads the live agent when its turn comes, not when it is
 //! queued, as the baseline's queued closure reads the agent object then.
-//! File work runs on the blocking pool.
+//! Links run as spawned tasks, so a dropped caller does not cancel a queued
+//! write, as a JS promise is not cancelled. File work runs on the blocking
+//! pool.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use spocky_store::StoreError;
 use spocky_store::agent_record::AgentRecordStore;
 use spocky_store::js_value::JsValue;
+use tokio::sync::watch;
 
 use crate::agent_projection::{ManagedAgentRecordView, SnapshotOverrides, apply_snapshot_record};
 use crate::timeline::JsTypeError;
 
-/// Why a storage call failed.
-#[derive(Debug)]
+/// Why a storage call failed. Cloned to every mutation that short-circuits
+/// on it, as the baseline hands them the same rejection.
+#[derive(Debug, Clone)]
 pub enum StorageError {
     /// `toStoredAgentRecord` threw.
     Projection(JsTypeError),
     /// Writing the record file failed.
-    Store(StoreError),
+    Store(Arc<StoreError>),
 }
 
 impl std::fmt::Display for StorageError {
@@ -39,9 +50,20 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
+/// A link's outcome: `None` until it settles.
+type Settled = Option<Result<(), StorageError>>;
+
+/// The `tracked` promise of the newest link in one agent's chain.
+struct Link {
+    id: u64,
+    settled: watch::Receiver<Settled>,
+}
+
 struct Inner {
     store: Mutex<AgentRecordStore>,
-    queue: tokio::sync::Mutex<()>,
+    loaded: AtomicBool,
+    pending_writes: Mutex<HashMap<String, Link>>,
+    next_link: AtomicU64,
 }
 
 /// `AgentStorage`.
@@ -50,8 +72,19 @@ pub struct AgentStorage {
     inner: Arc<Inner>,
 }
 
-fn lock(store: &Mutex<AgentRecordStore>) -> MutexGuard<'_, AgentRecordStore> {
-    store.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Waits for a link to settle and returns its outcome.
+async fn settled(mut link: watch::Receiver<Settled>) -> Result<(), StorageError> {
+    // The sender only drops unsettled when the link task panicked, and that
+    // panic already reaches the link's own caller.
+    let outcome = link.wait_for(Option::is_some).await.map_or_else(
+        |_| panic!("an earlier agent record write panicked"),
+        |outcome| outcome.clone(),
+    );
+    outcome.unwrap_or(Ok(()))
 }
 
 impl AgentStorage {
@@ -61,54 +94,120 @@ impl AgentStorage {
         Self {
             inner: Arc::new(Inner {
                 store: Mutex::new(AgentRecordStore::new(base_dir)),
-                queue: tokio::sync::Mutex::new(()),
+                loaded: AtomicBool::new(false),
+                pending_writes: Mutex::new(HashMap::new()),
+                next_link: AtomicU64::new(0),
             }),
         }
     }
 
     async fn blocking<T: Send + 'static>(
         &self,
-        work: impl FnOnce(&mut AgentRecordStore) -> T + Send + 'static,
+        work: impl FnOnce(&Inner) -> T + Send + 'static,
     ) -> T {
         let inner = Arc::clone(&self.inner);
-        tokio::task::spawn_blocking(move || work(&mut lock(&inner.store)))
+        tokio::task::spawn_blocking(move || work(&inner))
             .await
             .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
     }
 
-    /// `initialize()`: loads the record files once.
+    /// `initialize()`: loads the record files once. Once loaded it returns
+    /// without suspending, as the baseline's `load()` does no I/O then, so
+    /// calls made together queue in call order.
     pub async fn initialize(&self) {
-        self.blocking(AgentRecordStore::initialize).await;
+        if self.inner.loaded.load(Ordering::Acquire) {
+            return;
+        }
+        self.blocking(|inner| lock(&inner.store).initialize()).await;
+        self.inner.loaded.store(true, Ordering::Release);
     }
 
     /// `list()`.
     pub async fn list(&self) -> Vec<JsValue> {
-        self.blocking(AgentRecordStore::list).await
+        self.initialize().await;
+        self.blocking(|inner| lock(&inner.store).list()).await
     }
 
     /// `get(agentId)`.
     pub async fn get(&self, agent_id: &str) -> Option<JsValue> {
+        self.initialize().await;
         let agent_id = agent_id.to_owned();
-        self.blocking(move |store| store.get(&agent_id)).await
+        self.blocking(move |inner| lock(&inner.store).get(&agent_id))
+            .await
     }
 
-    /// Runs `mutate` on the existing record when its queue turn comes and
-    /// writes the result, unless a delete of `agent_id` has begun.
+    /// The newest link of `agent_id`'s chain, if one is pending.
+    fn tail(&self, agent_id: &str) -> Option<watch::Receiver<Settled>> {
+        lock(&self.inner.pending_writes)
+            .get(agent_id)
+            .map(|link| link.settled.clone())
+    }
+
+    /// `queueRecordMutation`: chains `mutate` behind `agent_id`'s pending
+    /// writes. When its turn comes it is skipped if a delete has begun;
+    /// otherwise it builds the record from the existing one and writes it.
     async fn queue_record_mutation(
         &self,
         agent_id: &str,
         mutate: impl FnOnce(Option<&JsValue>) -> Result<JsValue, StorageError> + Send + 'static,
     ) -> Result<(), StorageError> {
         self.initialize().await;
-        let _turn = self.inner.queue.lock().await;
+        let id = self.inner.next_link.fetch_add(1, Ordering::Relaxed);
+        let (settle, settled_link) = watch::channel(None);
+        let prev = lock(&self.inner.pending_writes)
+            .insert(
+                agent_id.to_owned(),
+                Link {
+                    id,
+                    settled: settled_link,
+                },
+            )
+            .map(|link| link.settled);
+        let storage = self.clone();
         let agent_id = agent_id.to_owned();
-        self.blocking(move |store| {
-            if store.is_deleting(&agent_id) {
-                return Ok(());
+        let link = tokio::spawn(async move {
+            let outcome = match prev {
+                Some(prev) => settled(prev).await,
+                None => Ok(()),
+            };
+            let outcome = match outcome {
+                Ok(()) => storage.run_mutation(agent_id.clone(), mutate).await,
+                Err(error) => Err(error),
+            };
+            {
+                let mut pending = lock(&storage.inner.pending_writes);
+                if pending.get(&agent_id).is_some_and(|link| link.id == id) {
+                    pending.remove(&agent_id);
+                }
             }
-            let existing = store.get(&agent_id);
+            settle.send_replace(Some(outcome.clone()));
+            outcome
+        });
+        link.await
+            .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+    }
+
+    /// The body of one link: the delete check and the projection run
+    /// together, then the record is written. The store lock is not held
+    /// while `mutate` reads the live agent.
+    async fn run_mutation(
+        &self,
+        agent_id: String,
+        mutate: impl FnOnce(Option<&JsValue>) -> Result<JsValue, StorageError> + Send + 'static,
+    ) -> Result<(), StorageError> {
+        self.blocking(move |inner| {
+            let existing = {
+                let mut store = lock(&inner.store);
+                if store.is_deleting(&agent_id) {
+                    return Ok(());
+                }
+                store.get(&agent_id)
+            };
             let record = mutate(existing.as_ref())?;
-            store.write(record).map(|_| ()).map_err(StorageError::Store)
+            lock(&inner.store)
+                .write_record(record)
+                .map(|_| ())
+                .map_err(|error| StorageError::Store(Arc::new(error)))
         })
         .await
     }
@@ -117,7 +216,8 @@ impl AgentStorage {
     ///
     /// # Errors
     ///
-    /// Returns the write failure.
+    /// Returns the write failure, or the failure of an earlier write of the
+    /// same agent that was still pending when this one was queued.
     pub async fn upsert(&self, record: JsValue) -> Result<(), StorageError> {
         let agent_id = record
             .get("id")
@@ -133,7 +233,9 @@ impl AgentStorage {
     ///
     /// # Errors
     ///
-    /// Returns the projection's `TypeError` or the write failure.
+    /// Returns the projection's `TypeError` or the write failure, or the
+    /// failure of an earlier write of the same agent that was still pending
+    /// when this one was queued.
     pub async fn apply_snapshot(
         &self,
         agent_id: &str,
@@ -151,25 +253,49 @@ impl AgentStorage {
         lock(&self.inner.store).begin_delete(agent_id);
     }
 
-    /// `remove(agentId)`: waits for queued writes, then unlinks the files.
-    /// Unlink failures other than not-found come back for the caller to log.
-    pub async fn remove(&self, agent_id: &str) -> Vec<(PathBuf, io::Error)> {
+    /// `remove(agentId)`: marks the agent deleting, waits for its pending
+    /// writes, then unlinks the files. Unlink failures other than not-found
+    /// come back for the caller to log.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure of the pending write it waited for; the files
+    /// and the cached record then stay, as the baseline's `await` throws
+    /// before the unlinks.
+    pub async fn remove(&self, agent_id: &str) -> Result<Vec<(PathBuf, io::Error)>, StorageError> {
         self.initialize().await;
         self.begin_delete(agent_id);
-        let _turn = self.inner.queue.lock().await;
+        if let Some(tail) = self.tail(agent_id) {
+            settled(tail).await?;
+        }
         let agent_id = agent_id.to_owned();
-        self.blocking(move |store| store.remove(&agent_id)).await
+        Ok(self
+            .blocking(move |inner| lock(&inner.store).remove(&agent_id))
+            .await)
     }
 
-    /// `flush()`: resolves once every write queued before it has settled.
+    /// `flush()`: loads, then resolves once every write pending when it
+    /// was called has settled, failed or not.
     pub async fn flush(&self) {
-        drop(self.inner.queue.lock().await);
+        self.initialize().await;
+        let tails: Vec<_> = lock(&self.inner.pending_writes)
+            .values()
+            .map(|link| link.settled.clone())
+            .collect();
+        for tail in tails {
+            let _ = settled(tail).await;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::path::PathBuf;
+    use std::pin::Pin;
+    use std::sync::mpsc;
+    use std::task::Poll;
+    use std::time::Duration;
 
     use spocky_store::js_value::{JsValue, parse};
 
@@ -258,7 +384,7 @@ mod tests {
         assert_eq!(status(reopened.get("a1").await), Some("idle".to_owned()));
         assert_eq!(reopened.list().await.len(), 1);
 
-        assert!(storage.remove("a1").await.is_empty());
+        assert!(storage.remove("a1").await.expect("remove").is_empty());
         storage
             .apply_snapshot(
                 "a1",
@@ -289,5 +415,165 @@ mod tests {
             "Cannot read properties of undefined (reading 'map')"
         );
         assert_eq!(storage.get("a1").await, None);
+    }
+
+    /// Polls `future` once, as a JS call runs up to its first `await`.
+    async fn poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
+        std::future::poll_fn(|context| {
+            Poll::Ready(match Pin::new(&mut *future).poll(context) {
+                Poll::Ready(output) => Some(output),
+                Poll::Pending => None,
+            })
+        })
+        .await
+    }
+
+    /// Lets a test hold a snapshot's projection: `entered` fires once the
+    /// projection has started, and it returns once `open` is sent.
+    struct Gate {
+        entered: mpsc::Receiver<()>,
+        open: mpsc::Sender<()>,
+    }
+
+    fn gated(
+        id: &'static str,
+        config: &'static str,
+    ) -> (Gate, impl FnOnce() -> ManagedAgentRecordView + Send) {
+        let (entered_tx, entered) = mpsc::channel();
+        let (open, gate) = mpsc::channel::<()>();
+        let agent = move || {
+            entered_tx.send(()).expect("entered");
+            gate.recv().expect("gate opened");
+            ManagedAgentRecordView {
+                id: id.to_owned(),
+                ..view("idle", config)
+            }
+        };
+        (Gate { entered, open }, agent)
+    }
+
+    impl Gate {
+        async fn wait_entered(self) -> mpsc::Sender<()> {
+            let Self { entered, open } = self;
+            tokio::task::spawn_blocking(move || entered.recv())
+                .await
+                .expect("join")
+                .expect("projection started");
+            open
+        }
+    }
+
+    const FAILING: &str = r#"{"provider":"codex","cwd":"/w","toolPolicy":{}}"#;
+    const MAP_ERROR: &str = "Cannot read properties of undefined (reading 'map')";
+
+    fn record(id: &str, title: &str) -> JsValue {
+        parse(&format!(
+            r#"{{"id":"{id}","provider":"codex","cwd":"/w","title":"{title}"}}"#
+        ))
+        .expect("record")
+    }
+
+    #[tokio::test]
+    async fn queued_writes_share_an_earlier_failure_until_the_chain_drains() {
+        let home = home("chain");
+        let storage = AgentStorage::new(&home.0);
+        storage.initialize().await;
+        let (gate, agent) = gated("a1", FAILING);
+        let mut snapshot =
+            Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
+        let mut upsert = Box::pin(storage.upsert(record("a1", "queued")));
+        assert!(poll_once(&mut snapshot).await.is_none());
+        assert!(poll_once(&mut upsert).await.is_none());
+        gate.wait_entered().await.send(()).expect("open");
+        assert_eq!(
+            snapshot.await.expect_err("projection").to_string(),
+            MAP_ERROR
+        );
+        // The upsert never ran: it fails with the snapshot's error.
+        assert_eq!(
+            upsert.await.expect_err("short-circuit").to_string(),
+            MAP_ERROR
+        );
+        assert_eq!(storage.get("a1").await, None);
+        // The chain has drained, so the next write starts fresh.
+        storage
+            .upsert(record("a1", "fresh"))
+            .await
+            .expect("fresh write");
+        assert_eq!(
+            storage
+                .get("a1")
+                .await
+                .and_then(|record| record.get("title").cloned()),
+            Some(JsValue::String("fresh".to_owned()))
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_fails_with_the_pending_write_and_keeps_the_record() {
+        let home = home("remove-chain");
+        let storage = AgentStorage::new(&home.0);
+        storage
+            .upsert(record("a1", "kept"))
+            .await
+            .expect("first write");
+        let (gate, agent) = gated("a1", FAILING);
+        let mut snapshot =
+            Box::pin(storage.apply_snapshot("a1", agent, SnapshotOverrides::default()));
+        assert!(poll_once(&mut snapshot).await.is_none());
+        let open = gate.wait_entered().await;
+        let mut remove = Box::pin(storage.remove("a1"));
+        assert!(poll_once(&mut remove).await.is_none());
+        open.send(()).expect("open");
+        assert_eq!(
+            snapshot.await.expect_err("projection").to_string(),
+            MAP_ERROR
+        );
+        assert_eq!(remove.await.expect_err("remove").to_string(), MAP_ERROR);
+        // The throw came before the unlinks: the record and its file stay.
+        assert_eq!(
+            storage
+                .get("a1")
+                .await
+                .and_then(|record| record.get("title").cloned()),
+            Some(JsValue::String("kept".to_owned()))
+        );
+        let project = std::fs::read_dir(&home.0)
+            .expect("home")
+            .next()
+            .expect("project directory")
+            .expect("entry")
+            .path();
+        assert!(project.join("a1.json").is_file());
+        // The delete has begun, so later writes are skipped.
+        storage.upsert(record("a1", "late")).await.expect("skipped");
+        assert_eq!(
+            storage
+                .get("a1")
+                .await
+                .and_then(|record| record.get("title").cloned()),
+            Some(JsValue::String("kept".to_owned()))
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_does_not_wait_for_other_agents() {
+        let home = home("per-agent");
+        let storage = AgentStorage::new(&home.0);
+        storage.upsert(record("a1", "a")).await.expect("a1 write");
+        let (gate, agent) = gated("b1", r#"{"provider":"codex","cwd":"/w"}"#);
+        let mut other = Box::pin(storage.apply_snapshot("b1", agent, SnapshotOverrides::default()));
+        assert!(poll_once(&mut other).await.is_none());
+        let open = gate.wait_entered().await;
+        // b1's write is held open; removing a1 still finishes.
+        let removed = tokio::time::timeout(Duration::from_secs(30), storage.remove("a1"))
+            .await
+            .expect("remove(a1) waited for b1");
+        assert!(removed.expect("remove").is_empty());
+        assert_eq!(storage.get("a1").await, None);
+        open.send(()).expect("open");
+        other.await.expect("b1 snapshot");
+        storage.flush().await;
+        assert_eq!(status(storage.get("b1").await), Some("idle".to_owned()));
     }
 }
