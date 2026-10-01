@@ -275,7 +275,7 @@ fn length_after_type_failure(
 ) {
     match value {
         Json::Array(items) => {
-            length_issues(Origin::Array, items.len() as f64, min, max, path, issues)
+            length_issues(Origin::Array, items.len() as f64, min, max, path, issues);
         }
         Json::String(text) => {
             length_issues(
