@@ -15,6 +15,7 @@ use crate::runtime::{
     self, Callback, ExitStatus, INITDB_LAYOUT, InitdbIo, ModuleSpec, PGLITE_LAYOUT, Runtime,
     abort_error, c_string, call_i32, string_on_stack,
 };
+use crate::values::{IpcValue, JsError, JsValue, TypeRegistry, encode_value, serialize_param};
 use crate::vfs::{self, Device, Fs, MountKind, makedev};
 
 /// An `ErrnoError` raised during setup, labelled with the step.
@@ -167,6 +168,96 @@ pub struct Pglite {
     pub main: usize,
     pub closed: bool,
     pub initdb_report: Option<InitdbReport>,
+    pub types: TypeRegistry,
+}
+
+/// A failed request, shaped like the retained host's `errorPayload`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteError {
+    pub code: String,
+    pub message: String,
+    pub details: serde_json::Value,
+}
+
+impl RemoteError {
+    fn from_database(fields: &ErrorFields) -> Self {
+        Self {
+            code: fields.code.clone().unwrap_or_else(|| "REMOTE_ERROR".into()),
+            message: fields.message.clone().unwrap_or_default(),
+            details: serde_json::json!({
+                "name": "error",
+                "severity": fields.severity,
+                "detail": fields.detail,
+                "hint": fields.hint,
+                "position": fields.position,
+                "schema": fields.schema,
+                "table": fields.table,
+                "column": fields.column,
+                "constraint": fields.constraint,
+            }),
+        }
+    }
+
+    fn from_js(error: &JsError) -> Self {
+        Self::plain(error.name, &error.message)
+    }
+
+    fn plain(name: &str, message: &str) -> Self {
+        Self {
+            code: "REMOTE_ERROR".into(),
+            message: message.to_owned(),
+            details: serde_json::json!({
+                "name": name,
+                "severity": null,
+                "detail": null,
+                "hint": null,
+                "position": null,
+                "schema": null,
+                "table": null,
+                "column": null,
+                "constraint": null,
+            }),
+        }
+    }
+
+    /// A host failure the JavaScript glue would raise as an exception.
+    #[must_use]
+    pub fn from_host(error: &HostError) -> Self {
+        match error {
+            HostError::Database(fields) => Self::from_database(fields),
+            HostError::Engine(error) => Self::plain("RuntimeError", &format!("{error}")),
+            HostError::Startup(message) => Self::plain("Error", message),
+        }
+    }
+}
+
+/// `encodeResult` of one `PGlite` query result.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<IpcValue>>,
+    pub affected_rows: u64,
+}
+
+/// `mn`: the affected-row count `PGlite` reads from a command tag.
+fn command_rows(tag: &str) -> u64 {
+    let parts: Vec<&str> = tag.split(' ').collect();
+    let index = match parts.first().copied() {
+        Some("INSERT") => 2,
+        Some("UPDATE" | "DELETE" | "COPY" | "MERGE") => 1,
+        _ => return 0,
+    };
+    // parseInt: leading digits, NaN (here 0) otherwise.
+    parts
+        .get(index)
+        .map(|part| {
+            part.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|digits| digits.parse().ok())
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -479,12 +570,189 @@ impl Pglite {
             main,
             closed: false,
             initdb_report,
+            types: TypeRegistry::default(),
         };
-        pglite.query_messages(
+        let array_types = pglite.query_messages(
             "\n      SELECT b.oid, b.typarray\n      FROM pg_catalog.pg_type a\n      LEFT JOIN pg_catalog.pg_type b ON b.oid = a.typelem\n      WHERE a.typcategory = 'A'\n      GROUP BY b.oid, b.typarray\n      ORDER BY b.oid\n    ",
             &[],
         )?;
+        for message in array_types {
+            if let Backend::DataRow(cells) = message {
+                let element = cells
+                    .first()
+                    .cloned()
+                    .flatten()
+                    .and_then(|text| text.parse().ok());
+                let array = cells
+                    .get(1)
+                    .cloned()
+                    .flatten()
+                    .and_then(|text| text.parse().ok());
+                if let Some(array) = array {
+                    pglite.types.arrays.insert(array, element.unwrap_or(0));
+                }
+            }
+        }
         Ok(pglite)
+    }
+
+    /// `query(sql, params, { parsers: jsonParsers })` then `encodeResult`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the payload the retained host sends for a failed query.
+    pub fn query(
+        &mut self,
+        sql: &str,
+        params: &[IpcValue],
+    ) -> std::result::Result<QueryResult, RemoteError> {
+        let mut messages = Vec::new();
+        let mut parameter_types = Vec::new();
+        let outcome: std::result::Result<(), RemoteError> = (|| {
+            for message in [protocol::parse(sql, &[]), protocol::describe(b'S')] {
+                let (results, error) = self
+                    .exec_protocol(&message)
+                    .map_err(|error| RemoteError::from_host(&error))?;
+                if let Some(error) = error {
+                    return Err(RemoteError::from_database(&error));
+                }
+                for result in &results {
+                    if let Backend::ParameterDescription(types) = result {
+                        parameter_types.clone_from(types);
+                    }
+                }
+                messages.extend(results);
+            }
+            let mut bound = Vec::with_capacity(params.len());
+            for (index, value) in params.iter().enumerate() {
+                let oid = parameter_types.get(index).copied().unwrap_or(0);
+                bound.push(
+                    serialize_param(value, oid, &self.types)
+                        .map_err(|error| RemoteError::from_js(&error))?,
+                );
+            }
+            for message in [
+                protocol::bind(&bound),
+                protocol::describe(b'P'),
+                protocol::execute(),
+            ] {
+                let (results, error) = self
+                    .exec_protocol(&message)
+                    .map_err(|error| RemoteError::from_host(&error))?;
+                if let Some(error) = error {
+                    return Err(RemoteError::from_database(&error));
+                }
+                messages.extend(results);
+            }
+            Ok(())
+        })();
+        let sync = self.exec_protocol(&protocol::sync());
+        outcome?;
+        sync.map_err(|error| RemoteError::from_host(&error))?;
+        self.encode_first_result(&messages)
+    }
+
+    /// `parseResults(messages)[0]` followed by `encodeResult`.
+    fn encode_first_result(
+        &self,
+        messages: &[Backend],
+    ) -> std::result::Result<QueryResult, RemoteError> {
+        let clock = &self.store.data().clock;
+        let mut fields: Vec<(String, i32)> = Vec::new();
+        let mut rows: Vec<Vec<IpcValue>> = Vec::new();
+        let mut affected = 0_u64;
+        for message in messages {
+            match message {
+                Backend::RowDescription(described) => {
+                    fields = described
+                        .iter()
+                        .map(|field| (field.name.clone(), field.type_oid))
+                        .collect();
+                }
+                Backend::DataRow(cells) => {
+                    // Object.fromEntries: a later duplicate name wins.
+                    let mut by_name: Vec<(String, JsValue, i32)> = Vec::new();
+                    for (index, cell) in cells.iter().enumerate() {
+                        let (name, oid) = fields.get(index).cloned().unwrap_or_default();
+                        let value = self
+                            .types
+                            .parse_cell(clock, oid, cell.as_deref())
+                            .map_err(|error| RemoteError::from_js(&error))?;
+                        if let Some(entry) = by_name.iter_mut().find(|entry| entry.0 == name) {
+                            entry.1 = value;
+                        } else {
+                            by_name.push((name, value, oid));
+                        }
+                    }
+                    let mut row = Vec::with_capacity(fields.len());
+                    for (name, oid) in &fields {
+                        let value = by_name
+                            .iter()
+                            .find(|entry| &entry.0 == name)
+                            .map_or(JsValue::Null, |entry| entry.1.clone());
+                        row.push(
+                            encode_value(&value, *oid)
+                                .map_err(|error| RemoteError::from_js(&error))?,
+                        );
+                    }
+                    rows.push(row);
+                }
+                Backend::CommandComplete(tag) => {
+                    affected += command_rows(tag);
+                    let columns = fields.iter().map(|(name, _)| name.clone()).collect();
+                    let row_count = rows.len() as u64;
+                    return Ok(QueryResult {
+                        columns,
+                        rows,
+                        affected_rows: if row_count > 0 { row_count } else { affected },
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(QueryResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            affected_rows: 0,
+        })
+    }
+
+    /// `exec(sql)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the payload the retained host sends for a failed statement.
+    pub fn execute(&mut self, sql: &str) -> std::result::Result<(), RemoteError> {
+        match self.exec_messages(sql) {
+            Ok(_) => Ok(()),
+            Err(error) => Err(RemoteError::from_host(&error)),
+        }
+    }
+
+    /// `transaction(async (tx) => ...)` running each statement as a query.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first failure after `ROLLBACK`.
+    pub fn transaction(
+        &mut self,
+        statements: &[(String, Vec<IpcValue>)],
+    ) -> std::result::Result<Vec<QueryResult>, RemoteError> {
+        self.execute("BEGIN")?;
+        let mut results = Vec::with_capacity(statements.len());
+        for (sql, params) in statements {
+            match self.query(sql, params) {
+                Ok(result) => results.push(result),
+                Err(error) => {
+                    self.execute("ROLLBACK")?;
+                    return Err(error);
+                }
+            }
+        }
+        // The closed flag is set before COMMIT runs, so a failed COMMIT is
+        // not followed by ROLLBACK.
+        self.execute("COMMIT")?;
+        Ok(results)
     }
 
     /// `execProtocolRawSync`.
