@@ -45,10 +45,10 @@ struct Turn {
     root: DisposableRoot,
 }
 
-fn start_turn(label: &str, replies: Vec<Reply>) -> Turn {
+fn start_turn(label: &str, replies: Vec<Reply>, codex: &str) -> Turn {
     let stub = ResponsesStub::start(replies);
     let root = DisposableRoot::new(label);
-    let provider = stub_provider(&root, &stub);
+    let provider = stub_provider(&root, &stub, codex);
     let session = provider
         .create_session(manager_auto_config(&root, &provider), None, false)
         .expect("create session");
@@ -88,7 +88,10 @@ fn expected_request(turn: &Turn, request: &Value) -> Value {
 
 #[test]
 fn allowed_command_runs_and_matches_paseo_events() {
-    let turn = start_turn("allow", vec![escalated_echo(), done()]);
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
+    let turn = start_turn("allow", vec![escalated_echo(), done()], &codex);
     let pending = turn.session.pending_permissions();
     assert_eq!(pending.len(), 1, "permit ls shows the request");
     let request = pending[0].clone();
@@ -164,7 +167,10 @@ fn allowed_command_runs_and_matches_paseo_events() {
 
 #[test]
 fn denied_command_emits_the_failed_tool_call_and_declines() {
-    let turn = start_turn("deny", vec![escalated_echo(), done()]);
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
+    let turn = start_turn("deny", vec![escalated_echo(), done()], &codex);
     let request = turn.session.pending_permissions()[0].clone();
     turn.session
         .respond_to_permission(
@@ -207,7 +213,10 @@ fn denied_command_emits_the_failed_tool_call_and_declines() {
 
 #[test]
 fn interrupting_a_turn_waiting_on_approval_cancels_it() {
-    let turn = start_turn("cancel", vec![escalated_echo(), done()]);
+    let Some(codex) = support::real_codex() else {
+        return;
+    };
+    let turn = start_turn("cancel", vec![escalated_echo(), done()], &codex);
     turn.session.interrupt().expect("interrupt");
     let canceled = turn.events.wait_for("turn_canceled", WAIT);
     assert_eq!(
