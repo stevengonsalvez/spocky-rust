@@ -3,3 +3,5 @@
 //! provider contracts, following pinned Paseo `5de45e2`.
 
 pub mod partial_json;
+pub mod tool_call_detail;
+pub mod tool_call_mapper;
