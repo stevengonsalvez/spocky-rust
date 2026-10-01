@@ -102,8 +102,16 @@ gtimeout 30 jq -n \
     },
     candidateRecoveryEvidence: {
       committedWriteCrashRecovery: $candidate[0].operations.committedWriteCrashRecovery,
-      closeFailureRecovery: $candidate[0].operations.closeFailureRecovery,
-      partialMigrationRollback: $candidate[0].operations.partialMigrationRollback,
+      injectedPostCloseFailureRecovery: $candidate[0].operations.injectedPostCloseFailureRecovery,
+      partialMigrationRollback: {
+        verified: (
+          $candidate[0].operations.partialMigrationRollback.journalRows == 0
+          and $candidate[0].operations.partialMigrationRollback.publicTableRows == 0
+          and $candidate[0].operations.partialMigrationRollback.partialProbeRows == 0
+          and $candidate[0].operations.partialMigrationRollback.rolledBackProbeRows == 0
+        ),
+        observed: $candidate[0].operations.partialMigrationRollback
+      },
       historicalUserRow: $candidate[0].operations.historicalResume.userRowPreserved
     },
     runtime: $candidate[0].identity,
@@ -136,7 +144,10 @@ gtimeout 30 jq -e '
   .catalogParity == true
   and .journalParity == true
   and (.scenarioParity | all(.[]; . == true))
-  and (.candidateRecoveryEvidence | all(.[]; . == true))
+  and .candidateRecoveryEvidence.committedWriteCrashRecovery == true
+  and .candidateRecoveryEvidence.injectedPostCloseFailureRecovery == true
+  and .candidateRecoveryEvidence.partialMigrationRollback.verified == true
+  and .candidateRecoveryEvidence.historicalUserRow == true
   and .compatibilityException.status == "required-not-accepted"
 ' "$fixture_root/comparison.json" >/dev/null
 

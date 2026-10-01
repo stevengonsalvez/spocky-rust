@@ -1,5 +1,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -396,6 +398,74 @@ fn retained_host_reclaims_stale_owner_with_one_concurrent_winner() {
 }
 
 #[test]
+#[cfg(unix)]
+fn retained_host_never_deletes_replacement_owner_after_stale_check() {
+    let root = TestDir::new();
+    fs::write(
+        root.0.join(".paseo-hub.lock"),
+        r#"{"pid":2147483647,"token":"stale"}"#,
+    )
+    .expect("write stale owner");
+    let ready = root.0.join("unlink-ready");
+    let resume = root.0.join("unlink-resume");
+    let preload = root.0.join("pause-unlink.mjs");
+    fs::write(
+        &preload,
+        r#"import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const original = fs.unlinkSync;
+let paused = false;
+fs.unlinkSync = function(path, ...args) {
+  if (!paused && String(path).includes(".paseo-hub.lock")) {
+    paused = true;
+    fs.writeFileSync(process.env.SPOCKY_LOCK_READY, "ready");
+    const gate = new Int32Array(new SharedArrayBuffer(4));
+    while (!fs.existsSync(process.env.SPOCKY_LOCK_RESUME)) Atomics.wait(gate, 0, 0, 10);
+  }
+  return original.call(this, path, ...args);
+};
+syncBuiltinESMExports();
+"#,
+    )
+    .expect("write unlink preload");
+    let wrapper = root.0.join("node-with-paused-unlink.sh");
+    let node = std::env::var("SPOCKY_NODE").expect("SPOCKY_NODE");
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nSPOCKY_LOCK_READY='{}' SPOCKY_LOCK_RESUME='{}' NODE_OPTIONS='--import={}' exec '{}' \"$@\"\n",
+            ready.display(),
+            resume.display(),
+            preload.display(),
+            node
+        ),
+    )
+    .expect("write node wrapper");
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))
+        .expect("make node wrapper executable");
+
+    let mut first_config = config(root.0.clone());
+    first_config.node_executable = wrapper;
+    let first = thread::spawn(move || RetainedPgliteHost::open(&first_config));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "first reclaimer did not pause"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let second = RetainedPgliteHost::open(&config(root.0.clone())).expect("replacement owner");
+    fs::write(&resume, "resume").expect("resume first reclaimer");
+    let first = first.join().expect("join first reclaimer");
+    assert!(matches!(first, Err(RetainedHostError::DirectoryInUse)));
+    second
+        .query("select 1::bigint as owned", &[])
+        .expect("replacement remains owner");
+}
+
+#[test]
 fn retained_host_keeps_baseline_partial_journal_semantics() {
     let root = TestDir::new();
     let host = RetainedPgliteHost::open(&config(root.0.clone())).expect("open retained host");
@@ -592,7 +662,7 @@ fn retained_host_bounds_delivery_when_child_stops_reading() {
 }
 
 #[test]
-fn retained_host_acknowledges_close_after_persistence_and_recovers_close_failure() {
+fn retained_host_persists_normal_close_and_recovers_injected_post_close_failure() {
     let root = TestDir::new();
     let mut close_config = config(root.0.clone());
     close_config.request_timeout = Duration::from_secs(2);
@@ -610,8 +680,10 @@ fn retained_host_acknowledges_close_after_persistence_and_recovers_close_failure
     assert_eq!(normal.rows, [vec![IpcValue::String("normal".into())]]);
     reopened
         .query("insert into close_probe values ('failed')", &[])
-        .expect("insert close failure row");
-    reopened.fail_close_for_test().expect("arm close failure");
+        .expect("insert injected post-close failure row");
+    reopened
+        .fail_close_for_test()
+        .expect("arm injected post-close failure");
     let close_started = std::time::Instant::now();
     assert!(matches!(
         reopened.close(),
@@ -647,7 +719,8 @@ fn retained_host_preserves_json_tags_distinct_from_sql_scalars() {
     ];
     let result = host
         .query(
-            "select null::text as sql_null, true::boolean as sql_boolean, \
+            "select null::text as sql_null, null::json as sql_json_null, \
+                    null::jsonb as sql_jsonb_null, true::boolean as sql_boolean, \
                     42::numeric as sql_numeric, 'plain'::text as sql_string, \
                     $1::json as json_null, $2::jsonb as json_boolean, \
                     $3::jsonb as json_numeric, $4::jsonb as json_string, \
@@ -662,6 +735,8 @@ fn retained_host_preserves_json_tags_distinct_from_sql_scalars() {
     assert_eq!(
         result.rows,
         [vec![
+            IpcValue::Null,
+            IpcValue::Null,
             IpcValue::Null,
             IpcValue::Boolean(true),
             IpcValue::Numeric("42".into()),

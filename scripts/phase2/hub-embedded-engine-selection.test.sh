@@ -21,6 +21,10 @@ jq -e '
   and .decision.sqliteExactEngine == false
   and .decision.requiresRetainedJavaScriptOrRootDependencies == true
   and .compatibilityException.status == "required-not-accepted"
+  and (.compatibilityException.pilotEvidence | contains("retained PGlite host candidate"))
+  and (.compatibilityException.pilotEvidence | contains("darwin/x64"))
+  and (.compatibilityException.originalVsCandidateTests | contains("retained-host candidate"))
+  and (.compatibilityException.platforms | startswith("Retained candidate is qualified only on darwin/x64"))
   and ([
     "capability", "owner", "exactRuntimeVersion", "boundary", "exchangedData",
     "pilotEvidence", "securityPackagingRisk", "performanceSupportRisk",

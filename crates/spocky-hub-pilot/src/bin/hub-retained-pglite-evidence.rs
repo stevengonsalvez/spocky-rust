@@ -52,7 +52,8 @@ fn capture(root: &std::path::Path) {
     let migration = first.migrate().expect("migrate candidate");
     let json_tags = first
         .query(
-            "select null::text as sql_null, true::boolean as sql_boolean, \
+            "select null::text as sql_null, null::json as sql_json_null, \
+                    null::jsonb as sql_jsonb_null, true::boolean as sql_boolean, \
                     'null'::jsonb as json_null, 'true'::jsonb as json_boolean, \
                     '42'::jsonb as json_numeric, '\"value\"'::jsonb as json_string, \
                     '{\"key\":\"value\"}'::jsonb as json_object, \
@@ -157,14 +158,21 @@ fn capture(root: &std::path::Path) {
             &[],
         )
         .expect("query committed crash row");
-    recovered.fail_close_for_test().expect("arm close failure");
-    let close_error = format!("{:?}", recovered.close().expect_err("close failure"));
+    recovered
+        .fail_close_for_test()
+        .expect("arm injected post-close failure");
+    let close_error = format!(
+        "{:?}",
+        recovered
+            .close()
+            .expect_err("injected failure after durable close")
+    );
     drop(recovered);
     let close_recovered =
-        RetainedPgliteHost::open(&config(main)).expect("recover after close failure");
+        RetainedPgliteHost::open(&config(main)).expect("recover after injected post-close failure");
     let close_rows = close_recovered
         .query("select value from differential_probe order by value", &[])
-        .expect("query rows after close failure");
+        .expect("query rows after injected post-close failure");
     close_recovered.close().expect("close recovered candidate");
 
     let historical = RetainedPgliteHost::open(&config(old.clone())).expect("open old state");
@@ -215,7 +223,7 @@ fn capture(root: &std::path::Path) {
             "transactionRollback": rolled_back.rows.is_empty(),
             "staleOwnerRecovery": recovered_migration.journal_rows == 49,
             "committedWriteCrashRecovery": crash_rows.rows == [vec![IpcValue::String("committed-before-crash".into())]],
-            "closeFailureRecovery": close_rows.rows.len() == 2,
+            "injectedPostCloseFailureRecovery": close_rows.rows.len() == 2,
             "historicalResume": {
                 "prefixJournalRows": 1,
                 "suffix": suffix,
@@ -252,7 +260,7 @@ fn capture(root: &std::path::Path) {
     );
 }
 
-fn capture_partial_migration_rollback(root: &std::path::Path) -> bool {
+fn capture_partial_migration_rollback(root: &std::path::Path) -> serde_json::Value {
     let migrations = root.join("migrations");
     fs::create_dir_all(migrations.join("meta")).expect("create partial migration metadata");
     fs::write(
@@ -276,24 +284,34 @@ fn capture_partial_migration_rollback(root: &std::path::Path) -> bool {
     .expect("write failing partial migration");
     let host = RetainedPgliteHost::open(&config_with_migrations(root.join("database"), migrations))
         .expect("open partial migration host");
-    assert!(matches!(
-        host.migrate(),
-        Err(RetainedHostError::Remote { .. })
-    ));
+    let migration_error = match host.migrate() {
+        Err(RetainedHostError::Remote { code, message, .. }) => {
+            serde_json::json!({ "code": code, "message": message })
+        }
+        other => panic!("unexpected partial migration outcome: {other:?}"),
+    };
     let result = host
         .query(
             "select \
-               (select count(*)::bigint from drizzle.__drizzle_migrations), \
+               (select count(*)::bigint from drizzle.__drizzle_migrations) as journal_rows, \
                (select count(*)::bigint from information_schema.tables \
-                where table_schema = 'public')",
+                where table_schema = 'public') as public_table_rows, \
+               (select count(*)::bigint from information_schema.tables \
+                where table_schema = 'public' and table_name = 'partial_probe') \
+                  as partial_probe_rows, \
+               (select count(*)::bigint from information_schema.tables \
+                where table_schema = 'public' and table_name = 'rolled_back_probe') \
+                  as rolled_back_probe_rows",
             &[],
         )
         .expect("query partial rollback");
-    result.rows
-        == [vec![
-            IpcValue::Numeric("0".into()),
-            IpcValue::Numeric("0".into()),
-        ]]
+    serde_json::json!({
+        "migrationError": migration_error,
+        "journalRows": numeric(&result.rows[0][0]),
+        "publicTableRows": numeric(&result.rows[0][1]),
+        "partialProbeRows": numeric(&result.rows[0][2]),
+        "rolledBackProbeRows": numeric(&result.rows[0][3]),
+    })
 }
 
 fn install_first_historical_migration(host: &RetainedPgliteHost) {

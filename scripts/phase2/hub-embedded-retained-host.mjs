@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  linkSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
 import { join } from "node:path";
@@ -21,6 +29,11 @@ let operationChain = Promise.resolve();
 let closing = false;
 let stallTimer;
 let failClose = false;
+const jsonValue = Symbol("jsonValue");
+const jsonParsers = {
+  114: (value) => ({ [jsonValue]: JSON.parse(value) }),
+  3802: (value) => ({ [jsonValue]: JSON.parse(value) }),
+};
 
 try {
   await mkdir(dataDirectory, { recursive: true });
@@ -95,7 +108,9 @@ async function handle(request) {
     let result;
     switch (request.operation) {
       case "query":
-        result = encodeResult(await client.query(request.sql, decodeParams(request.params)));
+        result = encodeResult(
+          await client.query(request.sql, decodeParams(request.params), { parsers: jsonParsers }),
+        );
         break;
       case "execute":
         await client.exec(request.sql);
@@ -106,7 +121,11 @@ async function handle(request) {
           const results = [];
           for (const statement of request.statements ?? []) {
             results.push(
-              encodeResult(await transaction.query(statement.sql, decodeParams(statement.params))),
+              encodeResult(
+                await transaction.query(statement.sql, decodeParams(statement.params), {
+                  parsers: jsonParsers,
+                }),
+              ),
             );
           }
           return results;
@@ -251,8 +270,11 @@ function encodeResult(result) {
 }
 
 function encodeValue(value, oid) {
-  if (oid === 114 || oid === 3802) return { type: "json", value };
+  if (typeof value === "object" && value !== null && jsonValue in value) {
+    return { type: "json", value: value[jsonValue] };
+  }
   if (value === null || value === undefined) return { type: "null" };
+  if (oid === 114 || oid === 3802) return { type: "json", value };
   if (value instanceof Uint8Array) return { type: "binary", value: [...value] };
   if (value instanceof Date) return { type: "timestamp", value: value.toISOString() };
   if (oid === 1114 || oid === 1184) {
@@ -315,12 +337,24 @@ async function acquireOwner(directory) {
         code: "DIRECTORY_IN_USE",
       });
     }
+    const tombstone = `${path}.reclaim-${token}`;
     try {
-      if (readFileSync(path, "utf8") !== observed.raw) continue;
-      unlinkSync(path);
+      renameSync(path, tombstone);
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (error?.code === "ENOENT") continue;
+      throw error;
     }
+    const claimed = readFileSync(tombstone, "utf8");
+    if (claimed !== observed.raw) {
+      try {
+        linkSync(tombstone, path);
+        unlinkSync(tombstone);
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+      }
+      continue;
+    }
+    unlinkSync(tombstone);
   }
 }
 
