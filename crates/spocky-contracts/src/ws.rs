@@ -14,7 +14,7 @@ use crate::json::{
     JsRecord, JsonValue, deserialize_tagged, serialize_passthrough, split_passthrough,
 };
 use crate::number::Int;
-use crate::text::{NonEmptyString, TrimmedString};
+use crate::text::{JsText, NonEmptyString, TrimmedString};
 
 /// `WS_PROTOCOL_VERSION` in `websocket-server.ts`.
 pub const WS_PROTOCOL_VERSION: i64 = 1;
@@ -35,16 +35,16 @@ pub enum ClientType {
 #[serde(tag = "kind")]
 pub enum HelloAuth {
     #[serde(rename = "password")]
-    Password { password: String },
+    Password { password: JsText },
     #[serde(rename = "localCredential")]
-    LocalCredential { token: String },
+    LocalCredential { token: JsText },
 }
 
 deserialize_tagged!(HelloAuth, "kind", {
     "password" => |input| {
         #[derive(Deserialize)]
         struct Fields {
-            password: String,
+            password: JsText,
         }
         Fields::deserialize(input).map(|fields| HelloAuth::Password {
             password: fields.password,
@@ -53,7 +53,7 @@ deserialize_tagged!(HelloAuth, "kind", {
     "localCredential" => |input| {
         #[derive(Deserialize)]
         struct Fields {
-            token: String,
+            token: JsText,
         }
         Fields::deserialize(input).map(|fields| HelloAuth::LocalCredential {
             token: fields.token,
@@ -92,7 +92,7 @@ pub const BROWSER_AUTOMATION_COMMAND_NAMES: [&str; 22] = [
 /// must keep at least one; `hostKind` defaults to `"browser host"`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserHostCapability {
-    pub supported_commands: Vec<String>,
+    pub supported_commands: Vec<JsText>,
     pub host_kind: NonEmptyString,
     /// Keys outside the shape, kept as zod's `.passthrough()` keeps them.
     pub extra: JsRecord<JsonValue>,
@@ -103,7 +103,7 @@ impl Serialize for BrowserHostCapability {
         #[derive(Serialize)]
         struct Known<'a> {
             #[serde(rename = "supportedCommands")]
-            supported_commands: &'a [String],
+            supported_commands: &'a [JsText],
             #[serde(rename = "hostKind")]
             host_kind: &'a NonEmptyString,
         }
@@ -131,9 +131,9 @@ impl<'de> Deserialize<'de> for BrowserHostCapability {
 
         let (known, extra): (Known, _) =
             split_passthrough(deserializer, &["supportedCommands", "hostKind"])?;
-        let mut supported_commands: Vec<String> = Vec::new();
+        let mut supported_commands: Vec<JsText> = Vec::new();
         for command in known.supported_commands {
-            let command = command.into_string();
+            let command = JsText::from_js(command.into_string());
             if BROWSER_AUTOMATION_COMMAND_NAMES.contains(&command.as_str())
                 && !supported_commands.contains(&command)
             {
@@ -293,7 +293,7 @@ pub struct Hello {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub app_version: Option<String>,
+    pub app_version: Option<JsText>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub capabilities: Option<HelloCapabilities>,
 }
@@ -374,7 +374,7 @@ impl DaemonPermission {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerCapabilityState {
     pub enabled: bool,
-    pub reason: String,
+    pub reason: JsText,
 }
 
 /// `ServerVoiceCapabilitiesSchema`.
@@ -600,8 +600,8 @@ pub struct ServerInfo {
     #[serde(rename = "serverId")]
     pub server_id: ServerId,
     /// `os.hostname()`.
-    pub hostname: String,
-    pub version: String,
+    pub hostname: JsText,
+    pub version: JsText,
     pub permissions: Vec<DaemonPermission>,
     #[serde(rename = "desktopManaged")]
     pub desktop_managed: bool,
