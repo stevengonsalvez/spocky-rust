@@ -70,10 +70,9 @@ fn persisted_turn(
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn resumed_session_replays_history_then_continues() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![
         message("msg_first", "Hello from stub."),
         message("msg_second", "Back again."),
@@ -139,10 +138,9 @@ fn resumed_session_replays_history_then_continues() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn history_purpose_reads_without_resuming() {
-    let Some(codex) = support::real_codex() else {
-        return;
-    };
+    let codex = support::real_codex();
     let stub = ResponsesStub::start(vec![message("msg_first", "Hello from stub.")]);
     let root = DisposableRoot::new("history");
     let provider = stub_provider(&root, &stub, &codex);
