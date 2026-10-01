@@ -7,6 +7,7 @@ pub mod checkout;
 pub mod clock;
 pub mod git;
 pub mod git_remote;
+pub mod js;
 pub mod paths;
 pub mod project_key;
 pub mod provisioning;
