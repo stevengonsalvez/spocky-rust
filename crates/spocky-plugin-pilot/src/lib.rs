@@ -37,6 +37,14 @@ pub use settings::{
     SettingsWriteState,
 };
 
+const fn node_program() -> &'static str {
+    if cfg!(windows) { "node.exe" } else { "node" }
+}
+
+const fn npm_program() -> &'static str {
+    if cfg!(windows) { "npm.cmd" } else { "npm" }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct PluginId(String);
 
@@ -897,7 +905,7 @@ impl CompiledPluginServer {
         if invocation.is_some_and(|(method, _)| method.is_empty()) {
             return Err(PluginError::RuntimeProtocol);
         }
-        let mut child = Command::new("node")
+        let mut child = Command::new(node_program())
             .arg("-e")
             .arg(SELECTED_NODE_FORK_BRIDGE)
             .arg("--")
@@ -1068,7 +1076,7 @@ impl AcquiredPlugin {
             .server_entry
             .ok_or(PluginError::PluginServerEntryMissing)?;
         let bundle = fs::read_to_string(&entry)?;
-        let mut command = Command::new("node");
+        let mut command = Command::new(node_program());
         match transport {
             RuntimeTransport::Stdio => {
                 command.args(["-e", &bundle]).stderr(Stdio::null());
@@ -1350,7 +1358,7 @@ pub fn acquire_npm_tarball(
     fs::create_dir_all(&staging)?;
     let acquired = (|| {
         run_bounded(
-            Command::new("npm")
+            Command::new(npm_program())
                 .args([
                     "install",
                     "--offline",
@@ -1537,7 +1545,21 @@ fn terminate_command_tree(child: &mut Child) -> Result<(), PluginError> {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn terminate_command_tree(child: &mut Child) -> Result<(), PluginError> {
+    let status = Command::new("taskkill.exe")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        child.kill().map_err(PluginError::Io)
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn terminate_command_tree(child: &mut Child) -> Result<(), PluginError> {
     child.kill().map_err(PluginError::Io)
 }
@@ -2013,13 +2035,36 @@ impl From<serde_json::Error> for PluginError {
     }
 }
 
-#[cfg(all(test, unix))]
+impl fmt::Display for PluginError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for PluginError {}
+
+#[cfg(test)]
 mod tests {
-    use super::run_bounded;
+    use super::{node_program, npm_program, run_bounded};
     use std::fs;
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
+    #[test]
+    fn platform_runtime_programs_are_native_executables() {
+        #[cfg(windows)]
+        {
+            assert_eq!(node_program(), "node.exe");
+            assert_eq!(npm_program(), "npm.cmd");
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(node_program(), "node");
+            assert_eq!(npm_program(), "npm");
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn bounded_command_drains_large_output_before_exit() {
         let output = run_bounded(
@@ -2035,6 +2080,7 @@ mod tests {
         assert_eq!(output.stderr.len(), 1_048_576);
     }
 
+    #[cfg(unix)]
     #[test]
     fn bounded_command_timeout_reaps_descendants() {
         let root = std::env::temp_dir().join(format!(
@@ -2066,12 +2112,47 @@ mod tests {
         assert!(!probe.success(), "timed-out descendant must be reaped");
         fs::remove_dir_all(&root).expect("remove timeout fixture");
     }
-}
 
-impl fmt::Display for PluginError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{self:?}")
+    #[cfg(windows)]
+    #[test]
+    fn bounded_command_timeout_reaps_windows_descendants() {
+        let root = std::env::temp_dir().join(format!(
+            "spocky-plugin-command-timeout-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create timeout fixture");
+        let child_pid = root.join("child.pid");
+        let script = format!(
+            "$child = Start-Process -PassThru powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 30'; Set-Content -NoNewline -Path '{}' -Value $child.Id; Wait-Process -Id $child.Id",
+            child_pid.display()
+        );
+
+        assert!(matches!(
+            run_bounded(
+                Command::new("powershell.exe").args(["-NoProfile", "-Command", &script]),
+                Duration::from_millis(500),
+            ),
+            Err(super::PluginError::CommandTimedOut)
+        ));
+        let pid = fs::read_to_string(&child_pid).expect("child pid");
+        let probe = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "if (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ exit 1 }} else {{ exit 0 }}",
+                    pid.trim()
+                ),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("probe child");
+        assert!(
+            probe.success(),
+            "timed-out Windows descendant must be reaped"
+        );
+        fs::remove_dir_all(&root).expect("remove timeout fixture");
     }
 }
-
-impl std::error::Error for PluginError {}

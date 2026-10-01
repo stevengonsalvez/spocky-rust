@@ -112,10 +112,20 @@ const FAILING_SETTINGS_MIGRATION_BUNDLE: &str = r#"(function(require) {
 })"#;
 
 fn esbuild() -> PathBuf {
+    if let Some(path) = std::env::var_os("PASEO_ESBUILD_BIN") {
+        return path.into();
+    }
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let binary = if cfg!(windows) {
+        "esbuild.cmd"
+    } else {
+        "esbuild"
+    };
     for ancestor in manifest.ancestors() {
         for root in [ancestor.to_path_buf(), ancestor.join("paseo-rust")] {
-            let candidate = root.join(".baselines/paseo-runtime/node_modules/.bin/esbuild");
+            let candidate = root
+                .join(".baselines/paseo-runtime/node_modules/.bin")
+                .join(binary);
             if candidate.is_file() {
                 return candidate;
             }

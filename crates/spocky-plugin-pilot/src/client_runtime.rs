@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PluginError, run_bounded};
+use crate::{PluginError, node_program, run_bounded};
 
 const CLIENT_RUNTIME_BRIDGE: &str = r#"
 const readline = require("node:readline");
@@ -426,7 +426,7 @@ impl std::fmt::Debug for ClientRuntimeSession {
 
 impl ClientRuntimeSession {
     fn start(bundle: &str, timeout: Duration) -> Result<Self, PluginError> {
-        let mut child = Command::new("node")
+        let mut child = Command::new(node_program())
             .args(["-e", CLIENT_RUNTIME_BRIDGE])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
