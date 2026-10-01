@@ -177,6 +177,10 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-session",
       "paths": ["crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/"],
+      "decisions": [
+        "2026-10-01 coordinator: port the Node fs rename error text 'EISDIR: illegal operation on a directory, rename <tmp> -> <path>' (code, uv description, syscall, paths) in crates/spocky-store atomic.rs; it reaches createAgent callers; node-verified tests, only temp paths normalized",
+        "2026-10-01 coordinator: BREAKING seam in crates/spocky-session/src/agent_sdk.rs, AbortReason {Value, Error(AgentError)}, so abortMessage sees Error reasons and the default DOMException text 'This operation was aborted'; session writer drafts before and after signatures to the lead; lead lands it in one atomic commit with the provider-codex and daemon-app call-site fixes after the session resend PASS"
+      ],
       "delegation": "forbidden",
       "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
     },
