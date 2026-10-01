@@ -1,0 +1,103 @@
+{
+  "tree": {
+    "nodeEntries": 1001,
+    "rustEntries": 1001,
+    "onlyNode": [],
+    "onlyRust": [],
+    "filesWithSameBytes": 973,
+    "differences": {
+      "type": [],
+      "size": [],
+      "mode": [],
+      "mtimeClass": [],
+      "content": [
+        "global/pg_control",
+        "pg_wal/000000010000000000000001"
+      ]
+    }
+  },
+  "steps": {
+    "select1": {
+      "node": {
+        "step": "select1",
+        "rows": [
+          {
+            "one": 1
+          }
+        ]
+      },
+      "rust": {
+        "step": "select1",
+        "rows": [
+          {
+            "one": 1
+          }
+        ]
+      }
+    },
+    "plpgsqlException": {
+      "node": {
+        "step": "plpgsqlException",
+        "longjmpCalls": 1
+      },
+      "rust": {
+        "step": "plpgsqlException",
+        "longjmpCalls": 1
+      }
+    },
+    "structuredError": {
+      "node": {
+        "step": "structuredError",
+        "code": "42P01",
+        "message": "relation \"missing_table\" does not exist",
+        "severity": "ERROR"
+      },
+      "rust": {
+        "step": "structuredError",
+        "code": "42P01",
+        "message": "relation \"missing_table\" does not exist",
+        "severity": "ERROR"
+      }
+    },
+    "settings": {
+      "node": {
+        "step": "settings",
+        "rows": [
+          {
+            "timezone": "Etc/GMT0",
+            "version": "18.3"
+          }
+        ]
+      },
+      "rust": {
+        "step": "settings",
+        "rows": [
+          {
+            "timezone": "Etc/GMT0",
+            "version": "18.3"
+          }
+        ]
+      }
+    }
+  },
+  "nodeCounters": {
+    "longjmp": 1,
+    "invokeCaughtLongjmp": 1,
+    "exit": 7,
+    "dlopen": 3,
+    "dlsym": 18
+  },
+  "rustCounters": {
+    "longjmp": 1,
+    "invokeCaughtLongjmp": 1,
+    "exit": 7,
+    "dlopen": 3,
+    "dlsym": 18
+  },
+  "rustOpen": {
+    "step": "open",
+    "ok": true
+  },
+  "rustCompile": null,
+  "rustReopen": null
+}
