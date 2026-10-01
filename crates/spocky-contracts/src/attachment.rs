@@ -9,6 +9,7 @@ use crate::js_value::JsValue;
 use crate::json::{JsValueDeserializer, JsonValue, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::{NonNegativeInt, PositiveInt};
+use crate::text::JsText;
 
 string_literal!(GitHubPrMimeType = "application/github-pr");
 string_literal!(ForgeChangeRequestMimeType = "application/paseo-forge-change-request");
@@ -17,8 +18,8 @@ string_literal!(ForgeIssueMimeType = "application/paseo-forge-issue");
 string_literal!(TextMimeType = "text/plain");
 string_literal!(ReviewMimeType = "application/paseo-review");
 
-fn default_forge() -> String {
-    "github".to_owned()
+fn default_forge() -> JsText {
+    JsText::new("github")
 }
 
 /// `GitHubPrAttachmentSchema` fields after `type`.
@@ -27,24 +28,24 @@ pub struct GitHubPrAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: GitHubPrMimeType,
     pub number: PositiveInt,
-    pub title: String,
-    pub url: String,
+    pub title: JsText,
+    pub url: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub body: Option<Nullable<String>>,
+    pub body: Option<Nullable<JsText>>,
     #[serde(
         rename = "baseRefName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub base_ref_name: Option<Nullable<String>>,
+    pub base_ref_name: Option<Nullable<JsText>>,
     #[serde(
         rename = "headRefName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub head_ref_name: Option<Nullable<String>>,
+    pub head_ref_name: Option<Nullable<JsText>>,
 }
 
 /// `ForgeChangeRequestAttachmentSchema` fields after `type`; `forge`
@@ -54,33 +55,33 @@ pub struct ForgeChangeRequestAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: ForgeChangeRequestMimeType,
     #[serde(default = "default_forge")]
-    pub forge: String,
+    pub forge: JsText,
     pub number: PositiveInt,
-    pub title: String,
-    pub url: String,
+    pub title: JsText,
+    pub url: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub body: Option<Nullable<String>>,
+    pub body: Option<Nullable<JsText>>,
     #[serde(
         rename = "projectPath",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_path: Option<String>,
+    pub project_path: Option<JsText>,
     #[serde(
         rename = "baseRefName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub base_ref_name: Option<Nullable<String>>,
+    pub base_ref_name: Option<Nullable<JsText>>,
     #[serde(
         rename = "headRefName",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub head_ref_name: Option<Nullable<String>>,
+    pub head_ref_name: Option<Nullable<JsText>>,
 }
 
 /// `GitHubIssueAttachmentSchema` fields after `type`.
@@ -89,10 +90,10 @@ pub struct GitHubIssueAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: GitHubIssueMimeType,
     pub number: PositiveInt,
-    pub title: String,
-    pub url: String,
+    pub title: JsText,
+    pub url: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub body: Option<Nullable<String>>,
+    pub body: Option<Nullable<JsText>>,
 }
 
 /// `ForgeIssueAttachmentSchema` fields after `type`; `forge` defaults to
@@ -102,33 +103,33 @@ pub struct ForgeIssueAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: ForgeIssueMimeType,
     #[serde(default = "default_forge")]
-    pub forge: String,
+    pub forge: JsText,
     pub number: PositiveInt,
-    pub title: String,
-    pub url: String,
+    pub title: JsText,
+    pub url: JsText,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
-    pub body: Option<Nullable<String>>,
+    pub body: Option<Nullable<JsText>>,
     #[serde(
         rename = "projectPath",
         default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub project_path: Option<String>,
+    pub project_path: Option<JsText>,
 }
 
 /// `ExternalResourceAttachmentMetadataSchema`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalResourceMetadata {
-    pub provider: String,
+    pub provider: JsText,
     #[serde(rename = "providerLabel")]
-    pub provider_label: String,
+    pub provider_label: JsText,
     #[serde(rename = "resourceType")]
-    pub resource_type: String,
-    pub id: String,
-    pub identifier: String,
-    pub title: String,
-    pub url: String,
+    pub resource_type: JsText,
+    pub id: JsText,
+    pub identifier: JsText,
+    pub title: JsText,
+    pub url: JsText,
 }
 
 /// `TextAttachmentSchema` fields after `type`. The schema's transform drops
@@ -138,8 +139,8 @@ pub struct TextAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: TextMimeType,
     #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
-    pub title: Option<Nullable<String>>,
-    pub text: String,
+    pub title: Option<Nullable<JsText>>,
+    pub text: JsText,
     #[serde(
         rename = "externalResource",
         skip_serializing_if = "Option::is_none",
@@ -152,7 +153,7 @@ pub struct TextAttachment {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub context_kind: Option<String>,
+    pub context_kind: Option<JsText>,
 }
 
 impl<'de> Deserialize<'de> for TextAttachment {
@@ -162,10 +163,10 @@ impl<'de> Deserialize<'de> for TextAttachment {
             #[serde(rename = "mimeType")]
             mime_type: TextMimeType,
             #[serde(rename = "contextKind", default, with = "optional")]
-            context_kind: Option<String>,
+            context_kind: Option<JsText>,
             #[serde(default, with = "optional")]
-            title: Option<Nullable<String>>,
-            text: String,
+            title: Option<Nullable<JsText>>,
+            text: JsText,
             #[serde(rename = "externalResource", default, with = "optional")]
             external_resource: Option<ExternalResourceMetadata>,
         }
@@ -198,7 +199,7 @@ pub struct ReviewContextLine {
     pub new_line_number: Option<PositiveInt>,
     #[serde(rename = "type")]
     pub line_type: ReviewLineType,
-    pub content: String,
+    pub content: JsText,
 }
 
 /// `ReviewAttachmentCommentSchema.side`.
@@ -213,7 +214,7 @@ pub enum ReviewSide {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReviewCommentContext {
     #[serde(rename = "hunkHeader")]
-    pub hunk_header: String,
+    pub hunk_header: JsText,
     #[serde(rename = "targetLine")]
     pub target_line: ReviewContextLine,
     pub lines: Vec<ReviewContextLine>,
@@ -223,11 +224,11 @@ pub struct ReviewCommentContext {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReviewComment {
     #[serde(rename = "filePath")]
-    pub file_path: String,
+    pub file_path: JsText,
     pub side: ReviewSide,
     #[serde(rename = "lineNumber")]
     pub line_number: PositiveInt,
-    pub body: String,
+    pub body: JsText,
     pub context: ReviewCommentContext,
 }
 
@@ -244,7 +245,7 @@ pub enum ReviewMode {
 pub struct ReviewAttachment {
     #[serde(rename = "mimeType")]
     pub mime_type: ReviewMimeType,
-    pub cwd: String,
+    pub cwd: JsText,
     pub mode: ReviewMode,
     #[serde(
         rename = "baseRef",
@@ -252,20 +253,20 @@ pub struct ReviewAttachment {
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
-    pub base_ref: Option<Nullable<String>>,
+    pub base_ref: Option<Nullable<JsText>>,
     pub comments: Vec<ReviewComment>,
 }
 
 /// `UploadedFileAttachmentSchema` fields after `type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UploadedFileAttachment {
-    pub id: String,
+    pub id: JsText,
     #[serde(rename = "fileName")]
-    pub file_name: String,
+    pub file_name: JsText,
     #[serde(rename = "mimeType")]
-    pub mime_type: String,
+    pub mime_type: JsText,
     pub size: NonNegativeInt,
-    pub path: String,
+    pub path: JsText,
 }
 
 /// `AgentAttachmentSchema`, discriminated by `type`.
@@ -334,7 +335,7 @@ impl<'de> Deserialize<'de> for LenientAttachments {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageAttachment {
     /// Base64 image data.
-    pub data: String,
+    pub data: JsText,
     #[serde(rename = "mimeType")]
-    pub mime_type: String,
+    pub mime_type: JsText,
 }
