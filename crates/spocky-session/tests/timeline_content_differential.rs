@@ -103,6 +103,28 @@ fn rust_output() -> String {
     stringify(&JsValue::Array(results))
 }
 
+/// The pinned dist modules this test runs, relative to `SPOCKY_PASEO_DIST`,
+/// with their SHA-256: a different build fails instead of silently passing.
+const PINNED_MODULES: &[(&str, &str)] = &[(
+    "server/agent/agent-timeline-content.js",
+    "0460bb5811c3d2b953eb535228ff19731942f711804315ac81100ac552191662",
+)];
+
+fn assert_pinned_modules(dist: &std::ffi::OsStr) {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    for (path, expected) in PINNED_MODULES {
+        let bytes = std::fs::read(std::path::Path::new(dist).join(path)).expect("pinned module");
+        let actual = Sha256::digest(&bytes)
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            });
+        assert_eq!(&actual, expected, "{path} is not the pinned build");
+    }
+}
+
 #[test]
 fn item_limits_match_pinned_content_module() {
     let (node, dist) = match (
@@ -116,6 +138,7 @@ fn item_limits_match_pinned_content_module() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    assert_pinned_modules(&dist);
     let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
         "gtimeout"
     } else {
