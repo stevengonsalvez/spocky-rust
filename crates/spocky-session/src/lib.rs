@@ -17,6 +17,7 @@ pub mod paths;
 pub mod project_key;
 pub mod provisioning;
 pub mod runtime_mcp_config;
+pub mod stream_coalescer;
 pub mod text;
 pub mod timeline;
 pub mod timeline_content;
