@@ -79,38 +79,59 @@ impl std::error::Error for AgentError {}
 /// The result of a fallible asynchronous member.
 pub type AgentResult<T> = Result<T, AgentError>;
 
-/// `AbortSignal`: set once, observed by providers.
+#[derive(Debug, Default)]
+struct AbortState {
+    aborted: AtomicBool,
+    reason: std::sync::OnceLock<JsValue>,
+    notify: Notify,
+}
+
+/// `AbortController`: the side that aborts.
+#[derive(Debug, Clone, Default)]
+pub struct AbortController {
+    state: Arc<AbortState>,
+}
+
+impl AbortController {
+    /// `controller.signal`.
+    #[must_use]
+    pub fn signal(&self) -> AbortSignal {
+        AbortSignal {
+            state: Arc::clone(&self.state),
+        }
+    }
+
+    /// `controller.abort(reason)`; later calls keep the first reason.
+    pub fn abort(&self, reason: JsValue) {
+        let _ = self.state.reason.set(reason);
+        self.state.aborted.store(true, Ordering::SeqCst);
+        self.state.notify.notify_waiters();
+    }
+}
+
+/// `AbortSignal`: read-only; observed by providers.
 #[derive(Debug, Clone, Default)]
 pub struct AbortSignal {
-    aborted: Arc<AtomicBool>,
-    reason: Arc<std::sync::OnceLock<JsValue>>,
-    notify: Arc<Notify>,
+    state: Arc<AbortState>,
 }
 
 impl AbortSignal {
-    /// `controller.abort(reason)`; later calls keep the first reason.
-    pub fn abort(&self, reason: JsValue) {
-        let _ = self.reason.set(reason);
-        self.aborted.store(true, Ordering::SeqCst);
-        self.notify.notify_waiters();
-    }
-
     /// `signal.aborted`.
     #[must_use]
     pub fn aborted(&self) -> bool {
-        self.aborted.load(Ordering::SeqCst)
+        self.state.aborted.load(Ordering::SeqCst)
     }
 
     /// `signal.reason`.
     #[must_use]
     pub fn reason(&self) -> Option<&JsValue> {
-        self.reason.get()
+        self.state.reason.get()
     }
 
     /// Resolves when the signal aborts.
     pub async fn wait(&self) {
         loop {
-            let notified = self.notify.notified();
+            let notified = self.state.notify.notified();
             if self.aborted() {
                 return;
             }
@@ -623,8 +644,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{
-        AbortSignal, ActivityGuard, AgentError, ProviderRefreshContext, run_activity,
-        stream_event_turn_id,
+        AbortController, AbortSignal, ActivityGuard, AgentError, ProviderRefreshContext,
+        run_activity, stream_event_turn_id,
     };
     use spocky_store::js_value::{JsValue, parse};
 
@@ -637,11 +658,12 @@ mod tests {
             "Provider session s1 is stale after its plugin reloaded"
         );
         assert!(!AgentError::new("boom").is_stale_provider_session());
-        let signal = AbortSignal::default();
+        let controller = AbortController::default();
+        let signal = controller.signal();
         let waiter = signal.clone();
         let wait = tokio::spawn(async move { waiter.wait().await });
-        signal.abort(JsValue::String("first".to_owned()));
-        signal.abort(JsValue::String("second".to_owned()));
+        controller.abort(JsValue::String("first".to_owned()));
+        controller.abort(JsValue::String("second".to_owned()));
         wait.await.expect("wait resolves");
         assert!(signal.aborted());
         assert_eq!(signal.reason().and_then(JsValue::as_str), Some("first"));
