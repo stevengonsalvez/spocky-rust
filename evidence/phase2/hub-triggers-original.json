@@ -323,122 +323,100 @@
     "results": {
       "dispatched": {
         "status": 200,
-        "code": null,
         "contentType": "application/json",
         "wwwAuthenticate": null,
-        "body": {
-          "deliveryKey": "delivery-1",
-          "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
-          "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
-          "configuredTriggerName": "deploy",
-          "workflowStatus": "running"
-        }
+        "body": "{\"deliveryKey\":\"delivery-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}"
       },
       "project_not_found": {
         "status": 404,
-        "code": "project_not_found",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/project-not-found\",\"title\":\"Project not found\",\"status\":404,\"detail\":\"No active project with that slug exists in the credential's organization.\",\"code\":\"project_not_found\",\"requestId\":\"request-1\"}"
       },
       "actor_forbidden": {
         "status": 403,
-        "code": "actor_forbidden",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/actor-forbidden\",\"title\":\"Actor forbidden\",\"status\":403,\"detail\":\"The configured manual trigger does not allow this actor.\",\"code\":\"actor_forbidden\",\"requestId\":\"request-1\"}"
       },
       "daemon_offline": {
         "status": 409,
-        "code": "daemon_offline",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/daemon-offline\",\"title\":\"Daemon offline\",\"status\":409,\"detail\":\"The selected daemon is not connected. Reconnect it before retrying.\",\"code\":\"daemon_offline\",\"requestId\":\"request-1\"}"
       },
       "expected_configuration_not_current": {
         "status": 409,
-        "code": "configuration_changed",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/configuration-changed\",\"title\":\"Configuration changed\",\"status\":409,\"detail\":\"expectedVersionId is not the configuration version selected for this delivery.\",\"code\":\"configuration_changed\",\"requestId\":\"request-1\"}"
       },
       "configuration_not_found": {
         "status": 404,
-        "code": "configuration_not_found",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/configuration-not-found\",\"title\":\"Configuration not found\",\"status\":404,\"detail\":\"The requested configuration revision is not available.\",\"code\":\"configuration_not_found\",\"requestId\":\"request-1\"}"
       },
       "trigger_not_found": {
         "status": 404,
-        "code": "trigger_not_found",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/trigger-not-found\",\"title\":\"Trigger not found\",\"status\":404,\"detail\":\"The active configuration has no matching manual trigger.\",\"code\":\"trigger_not_found\",\"requestId\":\"request-1\"}"
       },
       "dispatch_conflict": {
         "status": 409,
-        "code": "dispatch_conflict",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/dispatch-conflict\",\"title\":\"Run not dispatched\",\"status\":409,\"detail\":\"The durable event exists but no matching run is available yet. Retry with the same deliveryKey.\",\"code\":\"dispatch_conflict\",\"requestId\":\"request-1\"}"
       },
       "invalid_input": {
         "status": 400,
-        "code": "invalid_input",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/invalid-input\",\"title\":\"Invalid trigger input\",\"status\":400,\"detail\":\"Run f83dc934-02a0-4849-8de7-699110be24ed rejected the submitted input.\",\"code\":\"invalid_input\",\"requestId\":\"request-1\",\"issues\":[]}"
       },
       "infrastructure_unavailable": {
         "status": 503,
-        "code": "infrastructure_unavailable",
         "contentType": "application/problem+json",
         "wwwAuthenticate": null,
-        "body": null
+        "body": "{\"type\":\"https://paseo.sh/problems/infrastructure-unavailable\",\"title\":\"Service unavailable\",\"status\":503,\"detail\":\"The operation could not reach durable storage. Retry the request later.\",\"code\":\"infrastructure_unavailable\",\"requestId\":\"request-1\"}"
       }
     },
     "unauthorized": {
       "status": 401,
-      "code": "unauthorized",
       "contentType": "application/problem+json",
       "wwwAuthenticate": "Bearer",
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/unauthorized\",\"title\":\"Authentication required\",\"status\":401,\"detail\":\"Provide an active Paseo organization credential in the Authorization: Bearer header.\",\"code\":\"unauthorized\",\"requestId\":\"request-1\"}"
     },
     "forbidden": {
       "status": 403,
-      "code": "insufficient_scope",
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/insufficient-scope\",\"title\":\"Insufficient scope\",\"status\":403,\"detail\":\"This operation requires the runs:dispatch scope.\",\"code\":\"insufficient_scope\",\"requestId\":\"request-1\"}"
     },
     "authenticationUnavailable": {
       "status": 503,
-      "code": "authentication_unavailable",
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/authentication-unavailable\",\"title\":\"Authentication unavailable\",\"status\":503,\"detail\":\"Bearer-credential authentication is currently unavailable. Retry the request later.\",\"code\":\"authentication_unavailable\",\"requestId\":\"request-1\"}"
     },
     "invalidJson": {
       "status": 400,
-      "code": "invalid_json",
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
     },
     "wrongContentType": {
       "status": 400,
-      "code": "invalid_json",
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
     },
     "missingContentType": {
       "status": 400,
-      "code": "invalid_json",
       "contentType": "application/problem+json",
       "wwwAuthenticate": null,
-      "body": null
+      "body": "{\"type\":\"https://paseo.sh/problems/invalid-json\",\"title\":\"Invalid JSON\",\"status\":400,\"detail\":\"Send a JSON request body using Content-Type: application/json.\",\"code\":\"invalid_json\",\"requestId\":\"request-1\"}"
     }
   },
   "github": {
