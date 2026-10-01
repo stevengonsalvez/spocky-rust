@@ -76,6 +76,20 @@ pub struct ProjectedRow {
     pub provider_message_id_last: bool,
 }
 
+/// `value + delta` on JavaScript numbers: sequence numbers are doubles in
+/// the baseline, so above 2^53 an increment can round back to the same value
+/// (`2 ** 53 + 1 === 2 ** 53`). Sequence values here always come from
+/// JavaScript numbers, so they are exact doubles; results past the `i64`
+/// range saturate.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    reason = "reproduces JavaScript double arithmetic on sequence numbers"
+)]
+fn js_add(value: i64, delta: i64) -> i64 {
+    (value as f64 + delta as f64) as i64
+}
+
 #[allow(
     clippy::cast_precision_loss,
     reason = "sequence numbers are JavaScript numbers; seeds stay below 2^53"
@@ -258,11 +272,14 @@ fn merge_tool_call_items(existing: &JsValue, incoming: &JsValue) -> Result<JsVal
 }
 
 /// `appendSeqToRanges` applied over whole ranges (equivalent to per-seq appends).
+/// The baseline appends one sequence number at a time with `seq += 1`, a
+/// loop that never ends once a range reaches 2^53; whole-range merging here
+/// terminates there.
 fn merge_seq_ranges(existing: &[SeqRange], incoming: &[SeqRange]) -> Vec<SeqRange> {
     let mut merged = existing.to_vec();
     for range in incoming {
         match merged.last_mut() {
-            Some(last) if range.start_seq <= last.end_seq + 1 => {
+            Some(last) if range.start_seq <= js_add(last.end_seq, 1) => {
                 last.end_seq = last.end_seq.max(range.end_seq);
             }
             _ => merged.push(*range),
@@ -368,7 +385,7 @@ fn merge_adjacent(
     };
     let mergeable = item_type(&previous.item) == Some(kind)
         && item_type(&entry.item) == Some(kind)
-        && previous.seq_end + 1 == entry.seq_start
+        && js_add(previous.seq_end, 1) == entry.seq_start
         && previous.turn_id == entry.turn_id;
     if !mergeable {
         return None;
@@ -619,12 +636,12 @@ fn select_after(
             .cmp(&right.start_seq)
             .then(left.end_seq.cmp(&right.end_seq))
     });
-    let mut end_seq = start_seq - 1;
+    let mut end_seq = js_add(start_seq, -1);
     for range in ranges {
         if range.end_seq <= end_seq {
             continue;
         }
-        if range.start_seq > end_seq + 1 {
+        if range.start_seq > js_add(end_seq, 1) {
             break;
         }
         end_seq = range.end_seq.min(max_seq);
@@ -666,11 +683,11 @@ fn select_projected(
     if all.is_empty() {
         return match direction {
             FetchDirection::After => {
-                let cursor = cursor_seq.unwrap_or(bounds.min_seq - 1);
+                let cursor = cursor_seq.unwrap_or(js_add(bounds.min_seq, -1));
                 empty(cursor >= bounds.min_seq, cursor < bounds.max_seq)
             }
             FetchDirection::Before => {
-                let cursor = cursor_seq.unwrap_or(bounds.max_seq + 1);
+                let cursor = cursor_seq.unwrap_or(js_add(bounds.max_seq, 1));
                 empty(cursor > bounds.min_seq, cursor <= bounds.max_seq)
             }
             FetchDirection::Tail => empty(false, false),
@@ -701,10 +718,9 @@ fn select_projected(
             }
         }
         FetchDirection::After => {
-            let cursor = cursor_seq.unwrap_or(bounds.min_seq - 1);
-            // A client cursor may be any integer; JavaScript numbers do not
-            // overflow, so the arithmetic saturates.
-            let start_seq = bounds.min_seq.max(cursor.saturating_add(1));
+            let cursor = cursor_seq.unwrap_or(js_add(bounds.min_seq, -1));
+            // A client cursor may be any number; `js_add` saturates past `i64`.
+            let start_seq = bounds.min_seq.max(js_add(cursor, 1));
             let (entries, end_seq) = select_after(all, start_seq, bounds.max_seq, limit);
             PageSelection {
                 entries,
@@ -715,8 +731,8 @@ fn select_projected(
             }
         }
         FetchDirection::Before => {
-            let cursor = cursor_seq.unwrap_or(bounds.max_seq + 1);
-            let end_seq = bounds.max_seq.min(cursor.saturating_sub(1));
+            let cursor = cursor_seq.unwrap_or(js_add(bounds.max_seq, 1));
+            let end_seq = bounds.max_seq.min(js_add(cursor, -1));
             if end_seq < bounds.min_seq {
                 return empty(false, end_seq < bounds.max_seq);
             }
@@ -829,7 +845,11 @@ struct AgentTimeline {
     next_seq: i64,
 }
 
-/// A row `initialize` seeds: a source row or an already projected one.
+/// A row `initialize` seeds: a source row or an already projected one
+/// (`"seqStart" in row`). A projected seed is taken in the key order of
+/// [`ProjectedRow::to_js`], which is what [`TimelineStore::rows`] returns;
+/// a stored object with another key order or extra keys is not represented.
+/// Production seeds only source rows.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SeedRow {
     Source(TimelineRow),
@@ -971,7 +991,7 @@ impl TimelineStore {
         };
         let next_seq = rows
             .iter()
-            .fold(start_seq, |next, row| next.max(row.seq().saturating_add(1)));
+            .fold(start_seq, |next, row| next.max(js_add(row.seq(), 1)));
         let mut projection = TimelineProjection::default();
         for row in rows {
             match row {
@@ -1043,7 +1063,7 @@ impl TimelineStore {
             turn_id: turn_id.filter(|id| !id.is_empty()),
             provider_message_id: provider_message_id.filter(|id| !id.is_empty()),
         };
-        state.next_seq += 1;
+        state.next_seq = js_add(state.next_seq, 1);
         if state.min_seq == 0 {
             state.min_seq = row.seq;
         }
@@ -1068,13 +1088,14 @@ impl TimelineStore {
         let rows = state.projection.rows();
         let window = TimelineWindow {
             min_seq: state.min_seq,
-            max_seq: state.next_seq - 1,
+            max_seq: js_add(state.next_seq, -1),
             next_seq: state.next_seq,
         };
         let stale_cursor = cursor.is_some_and(|cursor| cursor.epoch != state.epoch);
         let gap = !stale_cursor
             && direction == FetchDirection::After
-            && cursor.is_some_and(|cursor| !rows.is_empty() && cursor.seq < state.min_seq - 1);
+            && cursor
+                .is_some_and(|cursor| !rows.is_empty() && cursor.seq < js_add(state.min_seq, -1));
         let reset = stale_cursor || gap;
         let page = select_page(
             rows,
@@ -1116,7 +1137,7 @@ impl TimelineStore {
             .projection
             .rows()
             .iter()
-            .find(|row| row.seq_end == state.next_seq - 1)
+            .find(|row| row.seq_end == js_add(state.next_seq, -1))
             .map(|row| row.item.clone()))
     }
 
@@ -1186,6 +1207,34 @@ mod tests {
 
     use super::{FetchDirection, TimelineCursor, TimelineStore, project_rows};
     use spocky_store::js_value::parse;
+
+    #[test]
+    fn sequence_numbers_round_like_javascript_doubles() {
+        // node: 2 ** 53 + 1 === 2 ** 53, so appends at 2^53 reuse the number.
+        let mut store = TimelineStore::default();
+        let top = 1_i64 << 53;
+        store
+            .initialize(
+                "a",
+                Vec::new(),
+                Some("E".to_owned()),
+                Some(top),
+                Some("T".to_owned()),
+            )
+            .expect("seed");
+        let message = || parse(r#"{"type":"user_message","text":"q"}"#).expect("item");
+        let first = store
+            .append("a", message(), None, None, None)
+            .expect("append");
+        let second = store
+            .append("a", message(), None, None, None)
+            .expect("append");
+        assert_eq!((first.seq, second.seq), (top, top));
+        let page = store
+            .fetch("a", FetchDirection::Tail, None, None)
+            .expect("fetch");
+        assert_eq!((page.window.max_seq, page.window.next_seq), (top - 1, top));
+    }
 
     #[test]
     fn page_projection_borrows_rows_no_merge_touches() {
