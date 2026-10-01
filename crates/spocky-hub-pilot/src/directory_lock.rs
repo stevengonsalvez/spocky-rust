@@ -42,6 +42,13 @@ pub(crate) struct DataDirectoryLock {
 
 impl DataDirectoryLock {
     pub(crate) fn acquire(data_directory: &Path) -> Result<Self, DirectoryLockError> {
+        Self::acquire_with_hook(data_directory, || {})
+    }
+
+    fn acquire_with_hook(
+        data_directory: &Path,
+        after_guard: impl FnOnce(),
+    ) -> Result<Self, DirectoryLockError> {
         let guard_path = data_directory.join(GUARD_FILE);
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true);
@@ -65,6 +72,7 @@ impl DataDirectoryLock {
 
             guard.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
+        after_guard();
 
         let owner_path = data_directory.join(LOCK_FILE);
         let mut owner_file = loop {
@@ -165,4 +173,58 @@ fn process_is_running(pid: u32) -> bool {
     };
     output.status.success()
         || String::from_utf8_lossy(&output.stderr).contains("Operation not permitted")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
+
+    use super::{DataDirectoryLock, DirectoryLockError, LOCK_FILE};
+
+    #[test]
+    #[cfg(unix)]
+    fn completed_legacy_owner_wins_while_candidate_is_paused_after_guard() {
+        use std::os::unix::fs::MetadataExt as _;
+
+        let root = std::env::temp_dir().join(format!(
+            "spocky-directory-lock-pause-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir(&root).expect("create test directory");
+        let lock_path = root.join(LOCK_FILE);
+        let (paused_sender, paused_receiver) = mpsc::channel();
+        let (resume_sender, resume_receiver) = mpsc::channel();
+        let contender_root = root.clone();
+        let contender = thread::spawn(move || {
+            DataDirectoryLock::acquire_with_hook(&contender_root, || {
+                paused_sender.send(()).expect("signal paused candidate");
+                resume_receiver.recv().expect("resume candidate");
+            })
+        });
+        paused_receiver.recv().expect("candidate acquires guard");
+
+        let record = format!(
+            r#"{{"pid":{},"token":"completed-live-baseline"}}"#,
+            std::process::id()
+        );
+        fs::write(&lock_path, &record).expect("write completed legacy owner");
+        let inode = fs::metadata(&lock_path).expect("owner metadata").ino();
+        resume_sender.send(()).expect("resume candidate");
+
+        assert!(matches!(
+            contender.join().expect("join contender"),
+            Err(DirectoryLockError::Busy)
+        ));
+        assert_eq!(
+            fs::metadata(&lock_path).expect("owner metadata").ino(),
+            inode
+        );
+        assert_eq!(
+            fs::read_to_string(&lock_path).expect("owner record"),
+            record
+        );
+        fs::remove_dir_all(root).expect("remove test directory");
+    }
 }

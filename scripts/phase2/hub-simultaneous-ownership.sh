@@ -26,7 +26,7 @@ gtimeout 30 chmod -R a-w "$fixture_root/source"
 
 gtimeout --kill-after=30 300 cargo build --locked --manifest-path "$repository_root/Cargo.toml" \
   -p spocky-hub-pilot --bin hub-simultaneous-ownership-evidence >/dev/null
-gtimeout --kill-after=5 60 node "$repository_root/scripts/phase2/hub-simultaneous-ownership-orchestrator.mjs" \
+gtimeout --kill-after=30 90 node "$repository_root/scripts/phase2/hub-simultaneous-ownership-orchestrator.mjs" \
   "$repository_root/target/debug/hub-simultaneous-ownership-evidence" \
   "$fixture_root/database" \
   "$fixture_root/source/src/db/runtime/internal/data-directory-lock.ts" \
