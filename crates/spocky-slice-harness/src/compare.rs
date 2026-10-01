@@ -408,6 +408,153 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::side::{Check, DaemonKind, StepSpec};
+    use crate::stub::Script;
+
+    const AGENT_LEFT: &str = "0199a3c4-1b2c-7d3e-8f40-123456789abc";
+    const AGENT_RIGHT: &str = "0299a3c4-1b2c-7d3e-8f40-cba987654321";
+
+    fn gate() -> GateSpec {
+        GateSpec {
+            id: "t",
+            script: Script {
+                responses: Vec::new(),
+            },
+            steps: vec![StepSpec {
+                name: "run",
+                args: Vec::new(),
+                capture: None,
+            }],
+            checks: vec![Check::AllExitZero, Check::DaemonExit(0)],
+            preimages: |_| Vec::new(),
+        }
+    }
+
+    fn step(name: &str, stdout: String) -> StepRun {
+        StepRun {
+            name: name.into(),
+            argv: vec!["run".into()],
+            stdout: stdout.into_bytes(),
+            stderr: b"Using workspace\n".to_vec(),
+            exit: Exit::Code(0),
+            stub_requests: 0,
+        }
+    }
+
+    fn side(kind: DaemonKind, root: &str, agent: &str, port: u16) -> SideRun {
+        SideRun {
+            kind,
+            root: root.into(),
+            session: String::new(),
+            daemon_port: port,
+            stub_port: port + 1,
+            daemon_pid: None,
+            window_start_ms: 1_790_862_700_000,
+            window_end_ms: 1_790_862_710_000,
+            readiness_attempts: 1,
+            readiness: step("ready", "[]\n".into()),
+            steps: vec![step(
+                "run",
+                format!("{{\"agentId\":\"{agent}\",\"cwd\":\"{root}/project\"}}\n"),
+            )],
+            daemon_exit: Exit::Code(0),
+            stub_records: Vec::new(),
+            stub_scripted: 0,
+            stub_unscripted: 0,
+            script_len: 0,
+            state: vec![CapturedFile {
+                path: format!("paseo-home/agents/{agent}.json"),
+                bytes: format!("{{\"id\":\"{agent}\",\"createdAt\":\"2026-10-01T13:51:43.463Z\"}}")
+                    .into_bytes(),
+            }],
+            uncompared: Vec::new(),
+            extracted: Vec::new(),
+            preimages: Vec::new(),
+            force_killed: Vec::new(),
+            survivors: Vec::new(),
+            harness_errors: Vec::new(),
+        }
+    }
+
+    fn pair() -> (SideRun, SideRun) {
+        (
+            side(
+                DaemonKind::Original,
+                "/private/tmp/spocky-p3-t-0000000000a",
+                AGENT_LEFT,
+                41000,
+            ),
+            side(
+                DaemonKind::Spocky,
+                "/private/tmp/spocky-p3-t-0000000000b",
+                AGENT_RIGHT,
+                42000,
+            ),
+        )
+    }
+
+    #[test]
+    fn equivalent_sides_pass() {
+        let (left, right) = pair();
+        let verdict = compare_sides(&gate(), &left, &right).verdict;
+        assert!(verdict.pass, "{verdict:?}");
+    }
+
+    #[test]
+    fn stderr_difference_fails() {
+        let (left, mut right) = pair();
+        right.steps[0].stderr = b"Using workspace!\n".to_vec();
+        assert!(!compare_sides(&gate(), &left, &right).verdict.pass);
+    }
+
+    #[test]
+    fn exit_code_difference_fails() {
+        let (left, mut right) = pair();
+        right.daemon_exit = Exit::Code(143);
+        let verdict = compare_sides(&gate(), &left, &right).verdict;
+        assert!(!verdict.pass);
+        assert!(!verdict.check_failures.is_empty());
+    }
+
+    #[test]
+    fn extra_state_file_fails() {
+        let (left, mut right) = pair();
+        right.state.push(CapturedFile {
+            path: "paseo-home/extra.json".into(),
+            bytes: b"{}".to_vec(),
+        });
+        let verdict = compare_sides(&gate(), &left, &right).verdict;
+        assert!(!verdict.pass);
+        assert!(!verdict.differences.is_empty());
+    }
+
+    #[test]
+    fn identical_failures_on_both_sides_still_fail() {
+        let (mut left, mut right) = pair();
+        for side in [&mut left, &mut right] {
+            side.steps[0].exit = Exit::NotRun("daemon not ready".into());
+        }
+        let verdict = compare_sides(&gate(), &left, &right).verdict;
+        assert!(!verdict.pass);
+        assert_eq!(
+            verdict
+                .differences
+                .iter()
+                .map(|difference| difference.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["counts:expected"]
+        );
+    }
+
+    #[test]
+    fn survivor_or_harness_error_fails() {
+        let (left, mut right) = pair();
+        right.survivors.push(4242);
+        assert!(!compare_sides(&gate(), &left, &right).verdict.pass);
+        let (mut left, right) = pair();
+        left.harness_errors.push("tmux session survived".into());
+        assert!(!compare_sides(&gate(), &left, &right).verdict.pass);
+    }
 
     fn record(body: &str) -> String {
         serde_json::json!({"seq": 0, "method": "POST", "body": body}).to_string()
