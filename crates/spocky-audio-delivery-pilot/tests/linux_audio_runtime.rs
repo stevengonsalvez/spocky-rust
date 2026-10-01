@@ -141,3 +141,30 @@ fn exited_parent_reaps_linux_audio_adapter_descendant() {
     );
     cleanup(&root);
 }
+
+#[test]
+fn regrouped_descendant_cannot_hold_linux_audio_streams_past_deadline() {
+    let root = temp_directory("regrouped-descendant");
+    let child_pid = root.join("child.pid");
+    let script = format!(
+        "/usr/bin/setsid /bin/sh -c 'printf %s $$ > \"$1\"; sleep 3' sh '{}' & while [ ! -s '{}' ]; do sleep 0.01; done; exit 0",
+        child_pid.display(),
+        child_pid.display()
+    );
+    let started = Instant::now();
+    let error = ProcessCommand::new("/bin/sh")
+        .args(["-c", &script])
+        .timeout(Duration::from_millis(150))
+        .run()
+        .expect_err("regrouped descendant cannot retain streams past deadline");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    let pid = fs::read_to_string(&child_pid).expect("regrouped child pid is recorded");
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", pid.trim()])
+        .status()
+        .expect("exact regrouped child kill runs");
+    assert!(killed.success());
+    cleanup(&root);
+}

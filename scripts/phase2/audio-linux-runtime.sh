@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
+repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd -P)
 baseline=5de45e208690b0efc51c59a585ae9729325a9204
 image_digest=sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
 docker_image="rust@$image_digest"
@@ -56,6 +56,16 @@ case "/$output/" in
     ;;
 esac
 
+for owned_component in \
+  "$repository_root/evidence" \
+  "$repository_root/evidence/phase2" \
+  "$default_output"
+do
+  if [ -L "$owned_component" ]; then
+    printf 'owned evidence path must not be a symlink: %s\n' "$owned_component" >&2
+    exit 2
+  fi
+done
 mkdir -p "$default_output"
 default_output=$(CDPATH='' cd -- "$default_output" && pwd -P)
 if find "$default_output" -type l -print -quit | grep -q .; then
@@ -92,26 +102,43 @@ started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 cleanup_container() {
   cleanup_failed=0
-  if "$timeout_command" --kill-after=5 30 docker inspect "$container" >/dev/null 2>&1; then
+  if inspect_container; then
     if ! "$timeout_command" --kill-after=5 30 docker rm -f "$container" >/dev/null 2>&1; then
       cleanup_failed=1
     fi
   else
     inspect_status=$?
-    if [ "$inspect_status" -eq 124 ] || [ "$inspect_status" -eq 137 ]; then
+    if [ "$inspect_status" -ne 1 ]; then
       cleanup_failed=1
     fi
   fi
-  if "$timeout_command" --kill-after=5 30 docker inspect "$container" >/dev/null 2>&1; then
+  if inspect_container; then
     cleanup_failed=1
   else
     inspect_status=$?
-    if [ "$inspect_status" -eq 124 ] || [ "$inspect_status" -eq 137 ]; then
+    if [ "$inspect_status" -ne 1 ]; then
       cleanup_failed=1
     fi
   fi
   rm -f "$output/container.cid"
   [ "$cleanup_failed" -eq 0 ]
+}
+
+inspect_container() {
+  set +e
+  inspect_output=$("$timeout_command" --kill-after=5 30 docker inspect "$container" 2>&1)
+  inspect_status=$?
+  set -e
+  if [ "$inspect_status" -eq 0 ]; then
+    return 0
+  fi
+  if [ "$inspect_status" -eq 1 ] && \
+    printf '%s\n' "$inspect_output" | grep -Fi "no such object: $container" >/dev/null
+  then
+    return 1
+  fi
+  printf 'container inspection failed for %s: %s\n' "$container" "$inspect_output" >&2
+  return 2
 }
 
 cleanup_on_exit() {

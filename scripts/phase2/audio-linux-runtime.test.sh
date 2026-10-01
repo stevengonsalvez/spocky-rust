@@ -40,6 +40,8 @@ grep -F '"$timeout_command" --kill-after=5 30 docker inspect "$container"' "$run
 grep -F '"$timeout_command" --kill-after=5 30 docker rm -f "$container"' "$runner" >/dev/null
 grep -F 'container cleanup failed or left the exact container alive' "$runner" >/dev/null
 grep -F 'output must remain inside owned evidence root' "$runner" >/dev/null
+grep -F '[ -L "$owned_component" ]' "$runner" >/dev/null
+grep -F 'no such object: $container' "$runner" >/dev/null
 grep -F 'chown "$HOST_UID:$HOST_GID" /output/run/generated-playback.wav' "$runner" >/dev/null
 if grep -F 'chown -R' "$runner" >/dev/null; then
   printf '%s\n' 'recursive root ownership change remains in Linux audio runner' >&2

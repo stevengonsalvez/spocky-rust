@@ -118,6 +118,34 @@ fn process_adapter_reaps_descendants_after_parent_exits() {
     cleanup(&root);
 }
 
+#[cfg(unix)]
+#[test]
+fn process_adapter_bounds_streams_retained_by_regrouped_descendant() {
+    let root = temp_directory("process-regrouped-descendant");
+    let child_pid = root.join("child.pid");
+    let script = format!(
+        "/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); open(my $fh, q(>), $ARGV[0]) or die $!; print $fh $$; close $fh; sleep 3' '{}' & while [ ! -s '{}' ]; do sleep 0.01; done; exit 0",
+        child_pid.display(),
+        child_pid.display()
+    );
+    let started = Instant::now();
+    let error = ProcessCommand::new("/bin/sh")
+        .args(["-c", &script])
+        .timeout(Duration::from_millis(150))
+        .run()
+        .expect_err("regrouped descendant cannot retain streams past deadline");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    let pid = fs::read_to_string(&child_pid).expect("regrouped child pid is recorded");
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", pid.trim()])
+        .status()
+        .expect("exact regrouped child kill runs");
+    assert!(killed.success());
+    cleanup(&root);
+}
+
 #[test]
 fn pcm_runtime_writes_a_real_wav_that_the_host_audio_tool_parses() {
     let root = temp_directory("pcm");

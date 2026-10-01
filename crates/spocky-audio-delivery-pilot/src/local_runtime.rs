@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -105,16 +106,7 @@ impl ProcessCommand {
             if started.elapsed() >= self.timeout {
                 terminate_process_tree(&mut child)?;
                 let _ = child.wait();
-                let _ = join_stream(stdout_reader);
-                let _ = join_stream(stderr_reader);
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!(
-                        "process timed out after {} ms: {}",
-                        self.timeout.as_millis(),
-                        self.program.to_string_lossy()
-                    ),
-                ));
+                return Err(self.timeout_error());
             }
             thread::sleep(Duration::from_millis(10));
         };
@@ -122,26 +114,66 @@ impl ProcessCommand {
         #[cfg(unix)]
         let _ = terminate_process_group(child.id());
 
+        let deadline = started + self.timeout;
+        let stdout = receive_stream(&stdout_reader, deadline).map_err(|error| {
+            if error.kind() == io::ErrorKind::TimedOut {
+                self.timeout_error()
+            } else {
+                error
+            }
+        })?;
+        let stderr = receive_stream(&stderr_reader, deadline).map_err(|error| {
+            if error.kind() == io::ErrorKind::TimedOut {
+                self.timeout_error()
+            } else {
+                error
+            }
+        })?;
+
         Ok(ProcessResult {
             exit_code: status.code(),
-            stdout: join_stream(stdout_reader)?,
-            stderr: join_stream(stderr_reader)?,
+            stdout,
+            stderr,
         })
+    }
+
+    fn timeout_error(&self) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "process timed out after {} ms: {}",
+                self.timeout.as_millis(),
+                self.program.to_string_lossy()
+            ),
+        )
     }
 }
 
-fn read_stream(mut stream: impl Read + Send + 'static) -> thread::JoinHandle<io::Result<Vec<u8>>> {
+fn read_stream(mut stream: impl Read + Send + 'static) -> Receiver<io::Result<Vec<u8>>> {
+    let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let mut bytes = Vec::new();
-        stream.read_to_end(&mut bytes)?;
-        Ok(bytes)
-    })
+        let result = stream.read_to_end(&mut bytes).map(|_| bytes);
+        let _ = sender.send(result);
+    });
+    receiver
 }
 
-fn join_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
-    reader
-        .join()
-        .map_err(|_| io::Error::other("output reader thread panicked"))?
+fn receive_stream(
+    reader: &Receiver<io::Result<Vec<u8>>>,
+    deadline: Instant,
+) -> io::Result<Vec<u8>> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match reader.recv_timeout(remaining) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "output stream remained open past process deadline",
+        )),
+        Err(RecvTimeoutError::Disconnected) => {
+            Err(io::Error::other("output reader thread disconnected"))
+        }
+    }
 }
 
 #[cfg(unix)]
