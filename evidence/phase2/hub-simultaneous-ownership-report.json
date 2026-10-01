@@ -2,38 +2,63 @@
   "baseline": {
     "commit": "28f6c78833065fd282f9064f92a9aa61875dd359",
     "sourceSha256": "cf3b965451bd8cd9203f16118bdda8df80cec096b51d8d7f3e5b0456dc5f92e7",
-    "disposableSourceReadOnly": true
+    "sourceHashExact": true,
+    "sourceSpellingsExact": true,
+    "disposableSourceReadOnly": true,
+    "execution": "handwritten-lock-operation-model",
+    "pinnedDatabaseRuntimeExecuted": false
   },
   "candidatePausedBeforeOwner": {
+    "scope": "actual-candidate-process-paused-before-guard",
     "pause": {
       "event": "paused-before-owner-open"
     },
     "baselineOpened": true,
+    "ownerBeforeCandidateResume": {
+      "inode": 343386298,
+      "content": "{\"pid\":16705,\"token\":\"7f1697d7-8211-4f0a-a23e-0fbd00052a84\"}"
+    },
     "candidateRejected": {
       "error": "directory-in-use",
       "event": "open-rejected",
       "opened": false
     },
-    "candidateExit": {
+    "rejectedExit": {
       "code": 0,
       "signal": null
-    }
+    },
+    "ownerAfterCandidateExit": {
+      "inode": 343386298,
+      "content": "{\"pid\":16705,\"token\":\"7f1697d7-8211-4f0a-a23e-0fbd00052a84\"}"
+    },
+    "completedLiveOwnerPreserved": true
+  },
+  "actualCandidateAfterGuardUnitTest": {
+    "test": "directory_lock::tests::completed_legacy_owner_wins_while_candidate_is_paused_after_guard",
+    "assertion": "completed live owner inode and content preserved"
   },
   "baselinePausedAfterExclusiveCreate": {
+    "scope": "handwritten-pinned-operation-model",
     "emptyOwnerFileCreated": true,
     "candidateReady": {
       "event": "owner-ready",
       "opened": true,
       "owner": {
-        "pid": 69855,
+        "pid": 16711,
         "protocol": "os-file-lock-v1",
-        "token": "7b9faf23-5693-4cbb-b2e8-7ecc6df8a7a5"
+        "token": "3b3de87d-1bb0-4309-8d39-cb36c56e9de1"
       },
       "tableCount": 50
     },
     "baselineWriteCompleted": true,
-    "partialInode": 343366280,
-    "candidateInode": 343366283,
+    "partialIdentity": {
+      "inode": 343386300,
+      "content": "{\"pid\":16705,\"token\":\"c86a75be-8cae-4a7f-812f-f2811364d7cf\"}"
+    },
+    "candidateIdentity": {
+      "inode": 343386301,
+      "content": "{\"pid\":16711,\"token\":\"3b3de87d-1bb0-4309-8d39-cb36c56e9de1\",\"protocol\":\"os-file-lock-v1\"}"
+    },
     "distinctInodes": true,
     "visibleOwnerProtocol": "os-file-lock-v1",
     "bothProcessesLive": true,
@@ -45,9 +70,32 @@
       "signal": null
     }
   },
+  "completedLiveRecordStaleUnlinkToctou": {
+    "scope": "deterministic-handwritten-operation-model",
+    "candidateReadIdentity": {
+      "inode": 343386304,
+      "content": "{\"pid\":2147483647,\"token\":\"stale-inode-a\"}"
+    },
+    "liveBaselineIdentity": {
+      "inode": 343386305,
+      "content": "{\"pid\":16705,\"token\":\"beeb505e-2057-4fe6-acaa-7b8050784c7f\"}"
+    },
+    "replacementIdentity": {
+      "inode": 343386306,
+      "content": "{\"pid\":16748,\"token\":\"e883337b-8827-4773-a3f7-2d293f392aab\",\"protocol\":\"os-file-lock-v1\"}"
+    },
+    "allInodesDistinct": true,
+    "baselineOwnerWasLive": true,
+    "completedLiveRecordDeletedByModeledCandidate": true,
+    "bothProcessesLive": true
+  },
   "conclusion": {
     "exclusiveCandidateCreate": "implemented",
-    "pausedBaselineAfterCreate": "inherent-unresolved-race",
-    "reason": "pinned baseline treats an incomplete record as stale after bounded retries"
+    "parity": "not-claimed",
+    "residualExceptions": [
+      "paused-incomplete-writer",
+      "completed-live-record-stale-unlink-toctou"
+    ],
+    "mitigationBoundary": "identity recheck narrows but cannot make path unlink conditional and atomic"
   }
 }
