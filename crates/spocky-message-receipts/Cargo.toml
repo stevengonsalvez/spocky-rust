@@ -5,6 +5,17 @@ edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.94"
 
+[dependencies]
+libc = "0.2.189"
+sha2 = "0.10.9"
+spocky-contracts = { path = "../spocky-contracts" }
+spocky-store = { path = "../spocky-store" }
+tokio = { version = "1.53.1", features = ["sync", "rt"] }
+uuid = { version = "1.26.1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["sync", "rt", "macros"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 

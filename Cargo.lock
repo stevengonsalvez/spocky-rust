@@ -5583,6 +5583,14 @@ dependencies = [
 [[package]]
 name = "spocky-message-receipts"
 version = "0.1.0"
+dependencies = [
+ "libc",
+ "sha2 0.10.9",
+ "spocky-contracts",
+ "spocky-store",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "spocky-pglite-host"
