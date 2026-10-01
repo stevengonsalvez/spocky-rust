@@ -47,11 +47,24 @@ pub const DAEMON_VERSION: &str = "0.10.0";
 const PROTECTED_PORTS: [i64; 2] = [6767, 6768];
 
 /// The process inputs the daemon reads: environment, working directory, home.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DaemonEnv {
     vars: HashMap<String, String>,
     cwd: PathBuf,
     home_dir: Option<PathBuf>,
+}
+
+/// The environment can hold `PASEO_PASSWORD`: Debug shows names, never values.
+impl std::fmt::Debug for DaemonEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut names: Vec<&String> = self.vars.keys().collect();
+        names.sort();
+        f.debug_struct("DaemonEnv")
+            .field("var_names", &names)
+            .field("cwd", &self.cwd)
+            .field("home_dir", &self.home_dir)
+            .finish()
+    }
 }
 
 impl DaemonEnv {
@@ -282,10 +295,34 @@ pub fn start(
     backend: Arc<dyn SessionBackend>,
     logger: &Arc<dyn Logger>,
 ) -> Result<RunningDaemon, StartupError> {
+    start_with(env, backend, logger, &|home, patch| {
+        update_pid_lock(home, patch, None)
+    })
+}
+
+/// How the daemon publishes `listen` and `serverId` in `paseo.pid`.
+pub type LockPublisher<'a> = &'a dyn Fn(&Path, &PidLockPatch) -> Result<(), PidLockError>;
+
+/// [`start`] with the lock publication supplied, so a failure of that last step
+/// can be exercised.
+///
+/// # Errors
+///
+/// As [`start`].
+pub fn start_with(
+    env: &DaemonEnv,
+    backend: Arc<dyn SessionBackend>,
+    logger: &Arc<dyn Logger>,
+    publish: LockPublisher<'_>,
+) -> Result<RunningDaemon, StartupError> {
     let paseo_home = resolve_paseo_home(env);
     let persisted = load_persisted_config(&paseo_home, logger.as_ref())
         .map_err(|error| fail(error.to_string()))?;
 
+    // A password refuses the start, whether it comes from the config (already
+    // checked to be a bcrypt hash) or from the environment. `PASEO_PASSWORD` is
+    // trimmed and a blank value counts as unset, as in `resolveAuthConfig`. An
+    // empty `daemon.auth.password` never reaches here: the config load rejects it.
     let env_password = env
         .get("PASEO_PASSWORD")
         .map(js::trim)
@@ -314,6 +351,7 @@ pub fn start(
         desktop_managed,
         backend,
         logger,
+        publish,
     ) {
         Ok(daemon) => Ok(daemon),
         Err(error) => {
@@ -354,6 +392,7 @@ fn start_after_lock(
     desktop_managed: bool,
     backend: Arc<dyn SessionBackend>,
     logger: &Arc<dyn Logger>,
+    publish: LockPublisher<'_>,
 ) -> Result<RunningDaemon, StartupError> {
     let shutdown_requested = Arc::new(AtomicBool::new(false));
     let heartbeat_flag = Arc::clone(&shutdown_requested);
@@ -442,17 +481,11 @@ fn start_after_lock(
     server.set_listen(&listen, matches!(bound_target, ListenTarget::Tcp { .. }));
     logger.info(&[("listen", &listen)], "Server listening");
 
-    update_pid_lock(
-        paseo_home,
-        &PidLockPatch::Listening {
-            listen: listen.clone(),
-            server_id: server_id.as_str().to_owned(),
-        },
-        None,
-    )
-    .map_err(|error| fail(error.to_string()))?;
-
-    Ok(RunningDaemon {
+    let patch = PidLockPatch::Listening {
+        listen: listen.clone(),
+        server_id: server_id.as_str().to_owned(),
+    };
+    let daemon = RunningDaemon {
         server,
         listener: Some(listener),
         paseo_home: paseo_home.to_path_buf(),
@@ -462,7 +495,13 @@ fn start_after_lock(
         heartbeat: Some(heartbeat),
         shutdown_requested,
         logger: Arc::clone(logger),
-    })
+    };
+    if let Err(error) = publish(paseo_home, &patch) {
+        // Listening but unpublished: undo everything that was started.
+        daemon.stop();
+        return Err(fail(error.to_string()));
+    }
+    Ok(daemon)
 }
 
 impl RunningDaemon {
