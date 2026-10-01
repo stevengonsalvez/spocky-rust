@@ -113,6 +113,15 @@ The lead owns shared contracts, the root Cargo workspace, cross-cutting schemas,
 
 The Orca orchestration runtime was unavailable at execution start after one approved launch attempt. Runner-native goal and worker metadata are retained as routing evidence. This limitation does not prove an unobserved model assignment.
 
+Routing revision, 2026-10-01: Stevie directed that all sessions run in Claude,
+not Codex, from 2026-10-01 through 2026-10-03. This supersedes the Sol writer
+rule for that window only. A Claude lead (`claude-opus-5-5`) replaces the
+retired Sol lead and keeps the same ownership. A separate Claude coordinator
+launches writer lanes. Astra stays read-only and is not used in the window.
+Success criterion 3 requires Sol to author all fixes, so every Claude-authored
+commit in the window carries a recorded evidence limitation. Details live in
+`routing.revisions` in `porting/tasks.json`.
+
 ## Task states
 
 Tasks move through `ready`, `implementing`, `verifying`, `reviewing`, `integrating`, and `done`. A blocked task names its exact unmet dependency and evidence. The durable ledger is [`porting/tasks.json`](porting/tasks.json).
