@@ -1,0 +1,26 @@
+{
+  "note": "Regenerating each vector file with its generator under this Node version from these inputs reproduces it byte for byte (checked 2026-10-02).",
+  "node": "v22.20.0",
+  "paseoCommit": "5de45e208690b0efc51c59a585ae9729325a9204",
+  "vectors": {
+    "origin-vectors.json": {
+      "generator": "gen-origin-vectors.mjs",
+      "generatorSha256": "378a3990e00a42f9f3543b9a06ab4ce6d40f573d9b743838522bf0d6064f36c0",
+      "vectorsSha256": "2da506c7f9a591cdfb317671b352b5e07ea63220f1a4897638a495fcfa7b8ef1",
+      "source": {
+        "path": "packages/server/src/server/websocket-server.ts",
+        "sha256": "5f7258fdec652ea3378c8342a098d63367c26a2847b89ff8d60314eca6c14d6e"
+      }
+    },
+    "subprotocol-vectors.json": {
+      "generator": "gen-subprotocol-vectors.mjs",
+      "generatorSha256": "6af915c5ae7dfebb89f947504d25310889773e71fdfbd2f51da902f3dfe8b05d",
+      "vectorsSha256": "c49e64f9fa66634dc146ff3cd5e1e19a96d513b584461038c1aeca125cce58c7",
+      "source": {
+        "path": "node_modules/ws/lib/subprotocol.js",
+        "sha256": "be3f6323d6f549568577dcba9004c1479d95c65a7abb0fe0c582875b9fac0b7c",
+        "package": "ws 8.20.0"
+      }
+    }
+  }
+}
