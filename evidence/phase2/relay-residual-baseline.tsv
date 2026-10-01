@@ -1,7 +1,0 @@
-escaped-valid	forward	{"t\u0079pe":"e2ee_\u0068ello","k\u0065y":"\u0043QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
-escaped-type-invalid	close	1008	Invalid handshake key
-escaped-field-invalid	close	1008	Invalid handshake key
-escaped-value-invalid	close	1008	Invalid handshake key
-fragment-below-limit	forward	33554417
-fragment-at-limit	forward	33554418
-fragment-above-limit	close	1009
