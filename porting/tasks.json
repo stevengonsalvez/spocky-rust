@@ -613,7 +613,17 @@
           "branch": "phase2-pglite-rust-host",
           "delegation": "forbidden",
           "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3",
-          "permittedPaths": ["crates/spocky-pglite-host/", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"]
+          "permittedPaths": ["crates/spocky-pglite-host/", "Cargo.toml (own workspace member line only)", "Cargo.lock (entries resulting from that member)"],
+          "checkpoints": [
+            {
+              "date": "2026-10-01",
+              "sourceCommits": ["41b8a47", "e4a5d22"],
+              "integrationCommits": ["08b68ea (import probe)", "b3a8167 (lead harness-only classification)"],
+              "held": { "e4a5d22": "contract doc records an unconditional GO for Wasmtime 47.0.4" },
+              "review": { "reviewer": "read-only deep-reasoner subagent, Opus", "verdict": "GO-WITH-CONDITIONS, desktop only; evidence is an import inventory plus a compile-only spike; longjmp path never exercised; iOS needs Pulley; browser cannot run Wasmtime" },
+              "conditions": ["end-to-end spike: instantiate, initdb, SELECT 1, plpgsql exception block, close, reopen a Node-host data directory and diff names, sizes, modes, mtimes", "exercise SjLj path", "explicit max_wasm_stack and large-stack host thread", "Wasmtime cache feature for compile cost", "platform matrix in the contract", "record process-crash-only durability parity"]
+            }
+          ]
         }
       ],
       "blockedBy": null
@@ -691,6 +701,25 @@
           "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "INTEGRATE-WITH-FOLLOWUPS with one P1" },
           "heldFor": "P1 registry.rs:461 serde_json rejects lone-surrogate escapes that JSON.parse accepts; the registry loads empty and the next commit overwrites every record",
           "routedFindings": ["P2 records() drops initialize() load error", "P2 tie-break uses byte order, baseline uses localeCompare", "P2 missing per-registry archive helpers", "P3 updater id change appends instead of replacing at index", "P3 Date.parse lacks 8.64e15 ms range limit", "P3 expected zod output in registry_files.rs:133 is hand-written"]
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-01",
+          "writer": "Claude Opus 5.5 high, term_2006c99d",
+          "sourceCommits": ["7426787", "48c201b", "acc5609", "b8f84e7", "1ebb000", "a4a526f", "d627c66"],
+          "state": "blocked by review, not integrated",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus", "verdict": "BLOCK" },
+          "blockers": ["P1 normalize.rs replacement tokens drop shape and format, so distinct id shapes and time formats compare equal", "P1 normalize.rs hex64 shape normalizes any 64-hex run, hiding differing content hashes"],
+          "routedFindings": ["P2 no fixed SLICE_SHAPES table and no srv_ serverId shape", "P2 extracted accepts any class id", "P2 stub has no read timeout and dies on one accept error", "P2 build-original.sh npm ci --ignore-scripts may degrade the original runtime", "P3 stub malformed-request recording, checked_add, exact /v1/responses path, tautological 6767 test", "P3 build-original.sh signal exit, archive masking, untimed postinstall, cache race"]
+        },
+        {
+          "lane": "p3_daemon_transport",
+          "date": "2026-10-01",
+          "writer": "Claude Sonnet 5.5 high, term_e07d27f7",
+          "sourceCommits": ["5636eff", "752a76a", "5142090", "324006a", "dd2feec", "e6fe86e", "b1f33d0"],
+          "state": "held, not integrated: modules use base64, subtle, url, uuid without manifest dependencies and are not registered in lib.rs, so nothing compiles or tests",
+          "review": { "reviewer": "read-only code-reviewer subagent, Opus, security focus against websocket-server.ts, config.ts, and SECURITY.md", "verdict": "INTEGRATE-WITH-FOLLOWUPS once complete; no P0 or P1; no security regression versus baseline" },
+          "routedFindings": ["P2 server_id.rs non-UTF-8 read regenerates id; Node reads lossily", "P2 WS upgrade skips Host check when absent while HTTP rejects; pin both call rules", "P2 origin admission rule, 403 and 503 responses not yet ported", "P2 ws subprotocol header parsing not ported", "P3 zone-id charset, 309-digit port, duplicated trim, strip_prefix, password_set contract, server-id logs and permission repair tests, bare filename dirname", "private_files.rs needs cfg(unix) gate or recorded Windows gap", "local-credential.ts not ported"]
         }
       ],
       "revisions": [
