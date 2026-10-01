@@ -812,6 +812,15 @@
           "routedFindings": ["P2 zod strict toolPolicy ignores own __proto__ key; Rust rejects the record", "mixed-version test: pinned node 22.20.0 JSON.parse reads a Spocky-written 10k-deep record", "P3 must_use on remove, legacy AgentStore error mapping docs, Debug format in deep test, optional field-name asserts"]
         },
         {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-01",
+          "sourceRange": "80f08e8..dfdc063 (2 commits): G1 process safety and paired wall-clock evidence in gate-g1.md, live argv decoy test",
+          "integrationHead": "f952c01",
+          "review": "integration reviewer PASS (verdicts/p3_slice_harness-dfdc063.txt)",
+          "leadVerification": "gated: spocky-slice-harness 76/76, clippy -D warnings",
+          "followUps": ["P3 side.rs:2096 argv_decoy needs process_group(0)", "P3 gate-g1.md:100 name the argv decoy"]
+        },
+        {
           "batch": "v5-v7",
           "date": "2026-10-01",
           "integrations": {
