@@ -947,7 +947,21 @@
           "change": "Process slip recorded: lead commit aa36b46 contains both Cargo.toml and Cargo.lock, breaking the one-file-per-commit rule. A concurrent git index lock failed the Cargo.toml commit while the file stayed staged, so the next commit took both. Left in place rather than rewriting signed main history."
         }
       ],
-      "reviews": [], "repairs": [], "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
+      "reviews": [], "repairs": [], "trackedGaps": [
+        {
+          "date": "2026-10-01",
+          "source": "p3_session checkpoint 8 (agent-manager core, f9ab232..aeb550d)",
+          "gap": "Without the durable timeline store, the Rust AgentManager runs handleStreamEvent synchronously per event, so interleavings across agents within one microtask tick may differ from the baseline.",
+          "status": "tracked port gap, NOT an accepted divergence; closes when the durable timeline store lands and a cross-agent interleaving differential passes"
+        },
+        {
+          "date": "2026-10-01",
+          "source": "p3_session checkpoint 8",
+          "gap": "Agent-manager surfaces absent and not stubbed: plugin hooks, durable timeline store, tool catalog, subagents, resume, import, reload, close, archive, steer, replace, cancel, rewind, respondToPermission, setters, abort signal, flushForShutdown, logging.",
+          "status": "tracked; writer order close and cancel, then respondToPermission, then history hydration and resume"
+        }
+      ],
+      "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
       "blockedBy": null
     },
     {
