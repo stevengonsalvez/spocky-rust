@@ -730,7 +730,7 @@
       "model": "per writer lane under the 2026-10-01 routing revision", "effort": "per writer lane",
       "acceptanceCommands": [
         "SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node SPOCKY_PASEO_DIST=/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server cargo test --locked -p spocky-session -p spocky-store -p spocky-domain (revised 2026-10-01 at coordinator request; SPOCKY_ALLOW_SKIP must never be set in any gate; the dist is rebuilt by scripts/phase3/build-original.sh)",
-        "SPOCKY_REAL_CODEX=1 cargo test --locked -p spocky-provider-codex",
+        "SPOCKY_REAL_CODEX=1 cargo test --locked -p spocky-provider-codex -- --include-ignored (real-codex tests are #[ignore]d; without --include-ignored the gate runs none of them)",
         "cargo test --locked -p spocky-contracts -p spocky-daemon -p spocky-provider-codex -p spocky-slice-harness",
         "cargo clippy --locked -p spocky-contracts -p spocky-daemon -p spocky-session -p spocky-provider-codex -p spocky-slice-harness -p spocky-store -p spocky-domain --all-targets -- -D warnings",
         "cargo fmt --package spocky-contracts --package spocky-daemon --package spocky-session --package spocky-provider-codex --package spocky-slice-harness --package spocky-store --package spocky-domain -- --check",
