@@ -7,7 +7,7 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::js_value::js_text_utf16;
+use crate::js_value::{js_text, js_text_utf16};
 
 /// Returns `true` for the `WhiteSpace` and `LineTerminator` code points that
 /// ECMAScript `String.prototype.trim` strips.
@@ -45,6 +45,67 @@ pub fn js_trim(value: &str) -> &str {
 #[must_use]
 pub fn js_length(value: &str) -> usize {
     js_text_utf16(value).count()
+}
+
+/// A wire string as JavaScript text in the [`crate::js_value`] encoding,
+/// where a lone surrogate is held escaped behind `U+10FFFF`.
+///
+/// Strings parsed from frames are already JavaScript text. Rust text must
+/// enter through [`JsText::new`], which escapes a literal `U+10FFFF` so it
+/// cannot read as a lone surrogate. Contract values are written only by
+/// [`crate::frame::frame_text`], which turns the encoding back into
+/// `JSON.stringify` escapes; serializing them any other way writes the
+/// internal encoding.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct JsText(String);
+
+impl JsText {
+    /// JavaScript text for Rust text.
+    #[must_use]
+    pub fn new(text: &str) -> Self {
+        Self(js_text(text))
+    }
+
+    /// Wraps text that is already JavaScript text, such as a parsed string.
+    #[must_use]
+    pub fn from_js(text: String) -> Self {
+        Self(text)
+    }
+
+    /// The JavaScript text, in the `js_value` encoding.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<&str> for JsText {
+    fn from(text: &str) -> Self {
+        Self::new(text)
+    }
+}
+
+impl PartialEq<str> for JsText {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl Serialize for JsText {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for JsText {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::from_js)
+    }
 }
 
 /// `z.string().min(1)`: a string with at least one UTF-16 code unit.
@@ -159,7 +220,7 @@ impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for TrimmedString
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundedString, NonEmptyString, TrimmedString, js_length, js_trim};
+    use super::{BoundedString, JsText, NonEmptyString, TrimmedString, js_length, js_trim};
 
     #[test]
     fn trim_matches_ecmascript_not_unicode_white_space() {
@@ -167,6 +228,14 @@ mod tests {
         // U+0085 is Unicode White_Space but not ECMAScript WhiteSpace.
         assert_eq!(js_trim("\u{0085}a"), "\u{0085}a");
         assert_eq!("\u{0085}a".trim(), "a");
+    }
+
+    #[test]
+    fn rust_text_escapes_the_encoding_prefix() {
+        let text = JsText::new("a\u{10FFFF}\u{F0000}");
+        assert_eq!(js_length(text.as_str()), 5);
+        let written = crate::frame::frame_text(&text).unwrap();
+        assert_eq!(written, "\"a\u{10FFFF}\u{F0000}\"");
     }
 
     #[test]
