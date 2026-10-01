@@ -10,7 +10,6 @@ use serde_json::Value;
 pub mod agent_record;
 mod atomic;
 pub mod collate;
-pub mod js_json;
 pub mod js_value;
 pub mod path_compare;
 pub mod registry;
