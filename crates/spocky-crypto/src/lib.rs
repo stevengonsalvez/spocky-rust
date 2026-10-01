@@ -1,3 +1,4 @@
+pub mod base64_js;
 pub mod js_json;
 pub mod js_string;
 
