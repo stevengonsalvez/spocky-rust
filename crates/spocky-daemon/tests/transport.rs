@@ -41,6 +41,7 @@ struct Calls {
     failures: Mutex<Vec<(SocketId, ProtocolFailure)>>,
     detached: Mutex<Vec<SocketId>>,
     cleanups: AtomicUsize,
+    app_version_acks: AtomicUsize,
     /// Calls that reached a session after it was cleaned up.
     use_after_cleanup: AtomicUsize,
     sinks: Mutex<Vec<Arc<dyn SessionSink>>>,
@@ -51,6 +52,7 @@ struct Backend(Arc<Calls>);
 struct Handle {
     calls: Arc<Calls>,
     cleaned: std::sync::atomic::AtomicBool,
+    sink: Arc<dyn SessionSink>,
 }
 
 impl Handle {
@@ -72,7 +74,13 @@ impl SessionHandle for Handle {
         self.used();
         self.calls.capability_updates.fetch_add(1, Ordering::SeqCst);
     }
-    fn update_app_version(&self, _: &str) {}
+    fn update_app_version(&self, _: &str) {
+        // A backend may answer through the sink while it is told about a new
+        // app version; the sink takes the connection state lock.
+        self.sink
+            .send_to_connection(&json!({"type": "app_version_ack"}));
+        self.calls.app_version_acks.fetch_add(1, Ordering::SeqCst);
+    }
     fn handle_message(&self, message: Value, source: SocketId) {
         self.used();
         self.calls.messages.lock().unwrap().push((source, message));
@@ -96,8 +104,9 @@ impl SessionBackend for Backend {
             .lock()
             .unwrap()
             .push((open.client_id, open.client_capabilities));
-        self.0.sinks.lock().unwrap().push(open.sink);
+        self.0.sinks.lock().unwrap().push(Arc::clone(&open.sink));
         Arc::new(Handle {
+            sink: open.sink,
             calls: Arc::clone(&self.0),
             cleaned: std::sync::atomic::AtomicBool::new(false),
         })
@@ -964,4 +973,36 @@ fn a_hello_never_lands_on_a_session_that_is_being_cleaned_up() {
         0,
         "a session was used after cleanup"
     );
+}
+
+#[test]
+fn a_backend_may_send_while_it_is_told_a_new_app_version_on_resume() {
+    let mut cfg = config();
+    cfg.timeouts.reconnect_grace = Duration::from_secs(5);
+    let harness = start(cfg);
+    let mut first = harness.connect(&[]);
+    let mut hello_v1 = hello("versioned");
+    hello_v1["appVersion"] = json!("1.0.0");
+    send(&mut first, &hello_v1);
+    next_json(&mut first);
+    drop(first);
+    wait_for("detach", || {
+        !harness.calls.detached.lock().unwrap().is_empty()
+    });
+
+    let mut second = harness.connect(&[]);
+    let mut hello_v2 = hello("versioned");
+    hello_v2["appVersion"] = json!("2.0.0");
+    send(&mut second, &hello_v2);
+    // A deadlock would leave the hello unanswered and the read would time out.
+    // The ack goes to the sockets attached at that moment, and the new one is not
+    // attached yet, so only server_info reaches it.
+    assert_eq!(
+        next_json(&mut second)["message"]["payload"]["status"],
+        "server_info"
+    );
+    wait_for("the ack", || {
+        harness.calls.app_version_acks.load(Ordering::SeqCst) == 1
+    });
+    harness.finish();
 }
