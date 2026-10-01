@@ -13,12 +13,12 @@ pub use identity::durable_execution_id;
 pub use manual::{
     AuthOutcome, DispatchedRun, ManualDispatchError, ManualEvent, ManualHttpResponse,
     ManualParseFailure, ManualRunMatch, ManualRunPayload, ManualRunRejection, ManualRunResult,
-    ManualSource, ManualTriggerInput, PublicResponse, RunConfiguration, RunTrigger,
-    match_manual_run, parse_manual_payload, public_manual_run,
+    ManualTriggerInput, PublicResponse, RunConfiguration, RunTrigger, match_manual_run,
+    parse_manual_payload, public_manual_run,
 };
 pub use webhook::{
-    AcceptCall, AcceptFailure, GitHubWebhook, GitHubWebhookRequest, LifecycleCall,
-    MAX_WEBHOOK_BYTES, WebhookHttpResponse, github_signature, hash_signature,
+    AcceptCall, AcceptFailure, Acceptance, GitHubWebhook, GitHubWebhookRequest, LifecycleCall,
+    MAX_WEBHOOK_BYTES, WebhookBackend, WebhookHttpResponse, github_signature, hash_signature,
     verify_github_signature,
 };
 
@@ -91,6 +91,7 @@ pub struct Receipt {
     pub dropped_reason: Option<&'static str>,
     pub connection_id: Option<String>,
     pub resource_id: Option<String>,
+    pub received_at_ms: i64,
     project_id: String,
     configuration_revision_id: String,
 }
@@ -104,6 +105,20 @@ pub struct AcceptedRunInput {
     pub step_ids: Vec<String>,
     pub deadline_at_ms: u64,
     pub created_at_ms: u64,
+    /// Caller-chosen run ID; the baseline also accepts one and otherwise generates it.
+    pub run_id: Option<String>,
+    /// Caller-chosen step run IDs, one per step; generated when absent.
+    pub step_run_ids: Option<Vec<String>>,
+}
+
+/// One execution reservation request for a workflow step.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutionRequest {
+    pub step_id: String,
+    pub ordinal: usize,
+    pub started_at_ms: u64,
+    pub deadline_at_ms: u64,
+    pub idle_deadline_at_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,11 +146,13 @@ pub struct RunTransition {
 struct StepRun {
     id: String,
     step_id: String,
+    ordinal: usize,
     execution_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 struct Wakeup {
+    seq: u64,
     available_at_ms: u64,
     lease_expires_at_ms: Option<u64>,
 }
@@ -143,6 +160,8 @@ struct Wakeup {
 #[derive(Default)]
 pub struct TriggerStore {
     next_id: u64,
+    next_wakeup_seq: u64,
+    local_offset_ms: i64,
     projects: BTreeMap<String, (String, String)>,
     receipts: BTreeMap<String, Receipt>,
     receipt_by_delivery: BTreeMap<(String, String), String>,
@@ -167,7 +186,16 @@ impl TriggerStore {
         );
     }
 
+    /// Sets the host offset applied to `receivedAt` date-times written without an offset.
+    pub fn set_local_offset_minutes(&mut self, minutes: i32) {
+        self.local_offset_ms = i64::from(minutes) * 60_000;
+    }
+
     /// Handles one manual trigger request end to end: parse, persist, dispatch.
+    ///
+    /// `handler` is the started trigger handler, if any; without one the receipt is marked
+    /// dropped with `configuration_unavailable`. `now_ms` stands in for `new Date()` when the
+    /// request omits `receivedAt`.
     ///
     /// # Errors
     ///
@@ -175,10 +203,11 @@ impl TriggerStore {
     /// lets that error escape the request handler.
     pub fn handle_manual_request(
         &mut self,
-        source: &mut ManualSource,
+        handler: Option<&mut dyn FnMut(ManualEvent)>,
+        now_ms: i64,
         body: &[u8],
     ) -> Result<ManualHttpResponse, ManualDispatchError> {
-        let input = match parse_manual_payload(body) {
+        let input = match parse_manual_payload(body, self.local_offset_ms) {
             Ok(input) => input,
             Err(ManualParseFailure::InvalidJson) => {
                 return Ok(ManualHttpResponse {
@@ -193,19 +222,19 @@ impl TriggerStore {
                 });
             }
         };
-        let receipt = self.persist_manual(&input)?;
-        let delivery_id = input.delivery_id;
+        let receipt = self.persist_manual(&input, now_ms)?;
         // A replayed delivery re-enters the handler: run creation, not intake, is idempotent.
-        if source.handler_started() {
-            source.record(ManualEvent {
+        if let Some(handler) = handler {
+            handler(ManualEvent {
                 receipt_id: receipt.id.clone(),
                 organization_id: receipt.organization_id.clone(),
                 project_id: receipt.project_id.clone(),
                 configuration_revision_id: receipt.configuration_revision_id.clone(),
                 source: receipt.source.clone(),
-                delivery_id: delivery_id.clone(),
+                delivery_id: input.delivery_id.clone(),
                 connection_id: receipt.connection_id.clone(),
                 resource_id: receipt.resource_id.clone(),
+                received_at_ms: receipt.received_at_ms,
             });
         } else if let Some(stored) = self.receipts.get_mut(&receipt.id) {
             stored
@@ -214,13 +243,14 @@ impl TriggerStore {
         }
         Ok(ManualHttpResponse {
             status: 200,
-            body: manual::manual_accepted_body(&delivery_id),
+            body: manual::manual_accepted_body(&input.delivery_id),
         })
     }
 
     fn persist_manual(
         &mut self,
         input: &ManualTriggerInput,
+        now_ms: i64,
     ) -> Result<Receipt, ManualDispatchError> {
         let key = (input.organization_id.clone(), input.delivery_id.clone());
         if let Some(existing) = self
@@ -245,6 +275,7 @@ impl TriggerStore {
             dropped_reason: None,
             connection_id: input.connection_id.clone(),
             resource_id: input.resource_id.clone(),
+            received_at_ms: input.received_at_ms.unwrap_or(now_ms),
             project_id: input.project_id.clone(),
             configuration_revision_id: revision_id,
         };
@@ -273,7 +304,10 @@ impl TriggerStore {
                 created: false,
             };
         }
-        let run_id = self.allocate_id("run");
+        let run_id = input
+            .run_id
+            .clone()
+            .unwrap_or_else(|| self.allocate_id("run"));
         self.runs.insert(
             run_id.clone(),
             TriggerRun {
@@ -285,19 +319,25 @@ impl TriggerStore {
             },
         );
         self.run_by_branch.insert(branch, run_id.clone());
-        let steps = input
-            .step_ids
-            .iter()
-            .map(|step_id| StepRun {
-                id: self.allocate_id("step-run"),
+        let mut steps = Vec::new();
+        for (ordinal, step_id) in input.step_ids.iter().enumerate() {
+            let id = match input.step_run_ids.as_ref().and_then(|ids| ids.get(ordinal)) {
+                Some(id) => id.clone(),
+                None => self.allocate_id("step-run"),
+            };
+            steps.push(StepRun {
+                id,
                 step_id: step_id.clone(),
+                ordinal,
                 execution_id: None,
-            })
-            .collect();
+            });
+        }
         self.steps.insert(run_id.clone(), steps);
+        self.next_wakeup_seq += 1;
         self.wakeups.insert(
             run_id.clone(),
             Wakeup {
+                seq: self.next_wakeup_seq,
                 available_at_ms: input.created_at_ms,
                 lease_expires_at_ms: None,
             },
@@ -308,7 +348,8 @@ impl TriggerStore {
         }
     }
 
-    /// Claims the earliest available wakeup whose lease is absent or expired.
+    /// Claims the earliest available wakeup whose lease is absent or expired; ties go to the
+    /// wakeup created first.
     pub fn claim_wakeup(&mut self, now_ms: u64, lease_ms: u64) -> Option<WakeupLease> {
         let run_id = self
             .wakeups
@@ -319,7 +360,7 @@ impl TriggerStore {
                         .lease_expires_at_ms
                         .is_none_or(|expiry| expiry <= now_ms)
             })
-            .min_by_key(|(_, wakeup)| wakeup.available_at_ms)
+            .min_by_key(|(_, wakeup)| (wakeup.available_at_ms, wakeup.seq))
             .map(|(run_id, _)| run_id.clone())?;
         let wakeup = self.wakeups.get_mut(&run_id)?;
         let leased_before_claim = wakeup.lease_expires_at_ms.is_some();
@@ -341,19 +382,17 @@ impl TriggerStore {
         }
     }
 
-    /// Reserves the execution for a step; the ID is derived, so recovery reuses the record.
+    /// Reserves the execution for the step matching `stepId` and `ordinal`; the ID is derived, so
+    /// recovery reuses the record.
     pub fn reserve_execution(
         &mut self,
         run_id: &str,
-        step_id: &str,
-        started_at_ms: u64,
-        idle_deadline_at_ms: u64,
+        request: &ExecutionRequest,
     ) -> Option<ExecutionReservation> {
-        let step_index = self
-            .steps
-            .get(run_id)?
-            .iter()
-            .position(|step| step.step_id == step_id)?;
+        let step_index =
+            self.steps.get(run_id)?.iter().position(|step| {
+                step.step_id == request.step_id && step.ordinal == request.ordinal
+            })?;
         let step = self.steps.get(run_id)?.get(step_index)?.clone();
         if let Some(existing) = step
             .execution_id
@@ -366,9 +405,10 @@ impl TriggerStore {
         if run.status != "running" {
             return Some(ExecutionReservation::RunNotRunning);
         }
-        if run.deadline_at_ms <= started_at_ms {
+        if run.deadline_at_ms <= request.started_at_ms {
             return Some(ExecutionReservation::DeadlineElapsed);
         }
+        let deadline_at_ms = request.deadline_at_ms.min(run.deadline_at_ms);
         let execution = ExecutionRecord {
             id: durable_execution_id(
                 run_id,
@@ -379,7 +419,7 @@ impl TriggerStore {
             run_id: run_id.to_owned(),
             step_run_id: step.id,
             status: ExecutionStatus::Spawning,
-            idle_deadline_at_ms: Some(idle_deadline_at_ms.min(run.deadline_at_ms)),
+            idle_deadline_at_ms: Some(request.idle_deadline_at_ms.min(deadline_at_ms)),
             completed_at_ms: None,
         };
         self.steps
@@ -439,11 +479,11 @@ impl TriggerStore {
     }
 
     #[must_use]
-    pub fn step_run_id(&self, run_id: &str, step_id: &str) -> Option<&str> {
+    pub fn step_run_id(&self, run_id: &str, step_id: &str, ordinal: usize) -> Option<&str> {
         self.steps
             .get(run_id)?
             .iter()
-            .find(|step| step.step_id == step_id)
+            .find(|step| step.step_id == step_id && step.ordinal == ordinal)
             .map(|step| step.id.as_str())
     }
 
