@@ -204,6 +204,9 @@ enum Outbound {
 struct SocketEntry {
     queue: Sender<Outbound>,
     queued_bytes: Arc<AtomicUsize>,
+    /// Set when the socket must be dropped at once. The connection thread checks
+    /// it every pass, so it takes effect without draining the queue first.
+    terminate: Arc<AtomicBool>,
 }
 
 /// A client session and the sockets attached to it (`SessionConnection`).
@@ -267,15 +270,22 @@ impl Shared {
             Outbound::Text(text) => text.len(),
             _ => 0,
         };
-        let queued = entry.queued_bytes.fetch_add(bytes, Ordering::SeqCst) + bytes;
         let max_buffered = self.max_buffered_bytes.load(Ordering::SeqCst);
-        if queued > max_buffered {
+        // Check before counting, so a refused frame never inflates the total.
+        if entry
+            .queued_bytes
+            .load(Ordering::SeqCst)
+            .saturating_add(bytes)
+            > max_buffered
+        {
             self.deps.logger.warn(
                 &[("maxBufferedBytes", &max_buffered.to_string())],
                 "Closing physical WebSocket at outbound high-water mark",
             );
+            entry.terminate.store(true, Ordering::SeqCst);
             return entry.queue.send(Outbound::Terminate).is_ok();
         }
+        entry.queued_bytes.fetch_add(bytes, Ordering::SeqCst);
         entry.queue.send(outbound).is_ok()
     }
 
@@ -892,6 +902,7 @@ struct SocketTask {
     ws: WebSocket<Box<dyn Connection>>,
     queue: Receiver<Outbound>,
     queued_bytes: Arc<AtomicUsize>,
+    terminate: Arc<AtomicBool>,
     /// Bytes written to the library's buffer that a successful flush has not yet
     /// confirmed as handed to the kernel.
     unflushed: usize,
@@ -928,11 +939,13 @@ fn run_socket(
     let id = shared.next_socket.fetch_add(1, Ordering::SeqCst) + 1;
     let (tx, rx) = mpsc::channel();
     let queued_bytes = Arc::new(AtomicUsize::new(0));
+    let terminate = Arc::new(AtomicBool::new(false));
     lock(&shared.registry).sockets.insert(
         id,
         SocketEntry {
             queue: tx,
             queued_bytes: Arc::clone(&queued_bytes),
+            terminate: Arc::clone(&terminate),
         },
     );
     let remote_address = remote.map(|address| address.to_string());
@@ -954,6 +967,7 @@ fn run_socket(
         ws,
         queue: rx,
         queued_bytes,
+        terminate,
         unflushed: 0,
         identity,
         phase: Phase::Done,
@@ -1077,6 +1091,10 @@ impl SocketTask {
     /// Writes queued frames; `false` ends the connection.
     fn drain_queue(&mut self) -> bool {
         loop {
+            if self.terminate.load(Ordering::SeqCst) {
+                self.ws.get_mut().shutdown();
+                return false;
+            }
             match self.queue.try_recv() {
                 Ok(Outbound::Text(text)) => {
                     let bytes = text.len();
@@ -1087,7 +1105,10 @@ impl SocketTask {
                     self.unflushed += bytes;
                     match self.ws.write(Message::text(text)) {
                         Ok(()) => {}
-                        Err(WsError::Io(error)) if is_would_block(&error) => {}
+                        // The peer is not taking data. The frame is buffered; stop
+                        // here so reads, deadlines and the terminate flag get their
+                        // turn, and write the rest on a later pass.
+                        Err(WsError::Io(error)) if is_would_block(&error) => return true,
                         Err(WsError::WriteBufferFull(_)) => {
                             self.logger().warn(
                                 &self.identity.fields(),
