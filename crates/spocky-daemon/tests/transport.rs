@@ -1220,6 +1220,27 @@ fn a_lone_surrogate_leaves_as_a_json_escape() {
     harness.finish();
 }
 
+/// ws 8.20.0 `receiverOnError` closes with the status code and no reason.
+#[test]
+fn receiver_errors_close_with_the_code_and_an_empty_reason() {
+    let harness = start(config());
+    // A text frame of 100 MiB + 1 declared in the header; the body is never sent.
+    let oversized_length = (100_u64 * 1024 * 1024 + 1).to_be_bytes();
+    let mut oversized = vec![0x81, 0x80 | 127];
+    oversized.extend_from_slice(&oversized_length);
+    oversized.extend_from_slice(&[0, 0, 0, 0]);
+    // A text frame whose payload is not UTF-8.
+    let bad_utf8 = vec![0x81, 0x80 | 2, 0, 0, 0, 0, 0xC3, 0x28];
+    for (raw, expected) in [(oversized, 1009), (bad_utf8, 1007)] {
+        let mut ws = harness.connect(&[]);
+        send(&mut ws, &hello("receiver-error"));
+        next_json(&mut ws);
+        ws.get_mut().write_all(&raw).unwrap();
+        assert_eq!(next_close(&mut ws), (expected, String::new()));
+    }
+    harness.finish();
+}
+
 #[test]
 fn a_slow_session_open_holds_up_only_its_own_client() {
     let harness = start(config());
