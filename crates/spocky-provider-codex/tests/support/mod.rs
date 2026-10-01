@@ -27,15 +27,11 @@ pub const PINNED_CODEX_PATH: &str = "/usr/local/Caskroom/codex/0.159.0/bin/codex
 pub const PINNED_CODEX_SHA256: &str =
     "1ad71e5ed117114f9d04cdd8d5dd411515b5ab7ebc725b8ca2f484695d71c838";
 
-/// The pinned Codex binary when `SPOCKY_REAL_CODEX=1`, verified by path,
-/// SHA-256, and version. Without the variable the real-Codex tests skip and
-/// say so; every lane gate sets it, so a skip is never gate evidence.
-pub fn real_codex() -> Option<String> {
+/// The pinned Codex binary, verified by path, SHA-256, and version. Panics
+/// when it is missing or different, so a real-Codex test cannot pass on
+/// another binary.
+pub fn real_codex() -> String {
     static VERIFIED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    if std::env::var("SPOCKY_REAL_CODEX").as_deref() != Ok("1") {
-        eprintln!("SKIPPED real-Codex test: set SPOCKY_REAL_CODEX=1 to run it");
-        return None;
-    }
     VERIFIED.get_or_init(|| {
         let digest = std::process::Command::new("shasum")
             .args(["-a", "256", PINNED_CODEX_PATH])
@@ -56,7 +52,54 @@ pub fn real_codex() -> Option<String> {
             PINNED_CODEX_VERSION
         );
     });
-    Some(PINNED_CODEX_PATH.to_owned())
+    PINNED_CODEX_PATH.to_owned()
+}
+
+/// Seatbelt profile for Codex in tests: every outbound connection except
+/// loopback and Unix sockets is denied.
+const LOOPBACK_ONLY_PROFILE: &str = "(version 1) (allow default) (deny network-outbound) \
+(allow network-outbound (remote ip \"localhost:*\")) (allow network-outbound (remote unix-socket))";
+
+/// Records every connection to the HTTP proxy all real-Codex children are
+/// pointed at. Anything that reaches it tried to leave loopback.
+struct EgressGuard {
+    url: String,
+    attempts: Arc<Mutex<Vec<String>>>,
+}
+
+fn egress_guard() -> &'static EgressGuard {
+    static GUARD: std::sync::OnceLock<EgressGuard> = std::sync::OnceLock::new();
+    GUARD.get_or_init(|| {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind egress guard");
+        let port = listener.local_addr().expect("guard addr").port();
+        assert!(port != 6767 && port != 6768);
+        let attempts = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&attempts);
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut first_line = String::new();
+                let mut reader = BufReader::new(&stream);
+                let _ = reader.read_line(&mut first_line);
+                log.lock().unwrap().push(first_line.trim().to_owned());
+                let _ = (&stream).write_all(
+                    b"HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
+            }
+        });
+        EgressGuard {
+            url: format!("http://127.0.0.1:{port}"),
+            attempts,
+        }
+    })
+}
+
+/// Fails the test if any Codex child tried to reach a non-loopback host.
+pub fn assert_no_egress() {
+    let attempts = egress_guard().attempts.lock().unwrap().clone();
+    assert!(
+        attempts.is_empty(),
+        "non-loopback egress attempted: {attempts:?}"
+    );
 }
 
 /// One scripted reply to a `POST /v1/responses`.
@@ -137,6 +180,9 @@ impl ResponsesStub {
 impl Drop for ResponsesStub {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
+        if !thread::panicking() {
+            assert_no_egress();
+        }
     }
 }
 
@@ -295,19 +341,78 @@ pub fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// `CODEX_HOME/config.toml` for hermetic runs: the stub is the default model
+/// provider (so `model/list`, `config/read`, and background calls never use
+/// the built-in `openai` provider), and analytics, update checks, apps, and
+/// plugins, which otherwise reach chatgpt.com and github.com, are off.
+fn write_hermetic_config(root: &DisposableRoot, stub: &ResponsesStub) {
+    let config = format!(
+        "model_provider = \"codex-stub\"\ncheck_for_update_on_startup = false\n\n\
+[model_providers.codex-stub]\nname = \"Codex Stub\"\nbase_url = \"{}/v1\"\n\
+wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nrequires_openai_auth = false\n\n\
+[analytics]\nenabled = false\n\n\
+[features]\napps = false\nplugins = false\nremote_plugin = false\nplugin_sharing = false\ntool_suggest = false\n",
+        stub.base_url()
+    );
+    std::fs::write(root.join("codex").join("config.toml"), config).expect("write config.toml");
+}
+
+/// A launcher that runs `codex` under the loopback-only seatbelt profile.
+fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin dir");
+    let launcher = bin.join("codex");
+    std::fs::write(
+        &launcher,
+        format!(
+            "#!/bin/sh\nexec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n"
+        ),
+    )
+    .expect("write launcher");
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&launcher)
+        .status()
+        .expect("chmod launcher");
+    path_string(&launcher)
+}
+
 /// Provider wired the way the slice harness configures the daemon: an
 /// `extends: "codex"` profile whose env points Codex at the stub, launching
-/// the pinned binary by absolute path.
+/// the pinned binary by absolute path. Codex runs hermetically: config file
+/// above, loopback-only seatbelt, and every proxy variable aimed at the
+/// egress guard.
 pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -> CodexProvider {
+    write_hermetic_config(root, stub);
+    let launcher = loopback_only_launcher(root, codex);
     let home = path_string(&root.join("home"));
-    let base_env: Vec<(OsString, OsString)> = vec![
+    let guard = egress_guard().url.clone();
+    let mut base_env: Vec<(OsString, OsString)> = vec![
         (
             OsString::from("PATH"),
             std::env::var_os("PATH").unwrap_or_default(),
         ),
         (OsString::from("HOME"), OsString::from(&home)),
         (OsString::from("USERPROFILE"), OsString::from(&home)),
+        (
+            OsString::from("NO_PROXY"),
+            OsString::from("127.0.0.1,localhost"),
+        ),
+        (
+            OsString::from("no_proxy"),
+            OsString::from("127.0.0.1,localhost"),
+        ),
     ];
+    for key in [
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    ] {
+        base_env.push((OsString::from(key), OsString::from(&guard)));
+    }
     let env = [
         ("CODEX_HOME".to_owned(), path_string(&root.join("codex"))),
         ("OPENAI_API_KEY".to_owned(), "test-key".to_owned()),
@@ -318,7 +423,7 @@ pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -
     CodexProvider::new(
         Some(ProviderRuntimeSettings {
             command: Some(ProviderCommand::Replace {
-                argv: vec![codex.to_owned()],
+                argv: vec![launcher],
             }),
             env: Some(env),
         }),
