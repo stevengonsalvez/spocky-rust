@@ -6,18 +6,25 @@
 //!
 //! - inbound: Rust accepts exactly when the daemon's zod parse accepts, and
 //!   writes byte-for-byte what zod outputs (key order, defaults, stripping);
-//! - outbound: Rust accepts exactly when the client's zod-aot validator
-//!   accepts, the validator returns the daemon text unchanged, and Rust
-//!   writes the same bytes back.
+//! - outbound: the pinned client's zod-aot validator accepts the daemon text
+//!   and returns it unchanged, and the Rust value the Spocky daemon would emit
+//!   writes exactly those bytes. Outbound types are emit-only.
 
 use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
 use spocky_contracts::frame::{WsInbound, WsOutbound, frame_text, parse_frame};
+use spocky_contracts::number::Int;
+use spocky_contracts::session::{SessionOutbound, StatusPayload};
+use spocky_contracts::ws::{
+    DaemonPermission, HelloRejected, HelloRejectedReason, ServerCapabilities,
+    ServerCapabilityState, ServerFeatureGates, ServerFeatures, ServerId, ServerInfo,
+    ServerVoiceCapabilities, WS_PROTOCOL_VERSION, WsControlOutbound,
+};
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 69;
+const EXPECTED_CASES: usize = 82;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
@@ -56,25 +63,85 @@ fn check_inbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>
     }
 }
 
+fn server_info(gates: ServerFeatureGates, capabilities: Option<ServerCapabilities>) -> WsOutbound {
+    let info = ServerInfo {
+        protocol_version: Int::new(WS_PROTOCOL_VERSION).unwrap(),
+        server_id: ServerId::new("srv_golden").unwrap(),
+        hostname: "golden-host".to_owned(),
+        version: "0.10.0".to_owned(),
+        permissions: DaemonPermission::ALL.to_vec(),
+        desktop_managed: gates.desktop_managed,
+        capabilities,
+        features: ServerFeatures::advertised(gates),
+    };
+    WsOutbound::Session(Box::new(SessionOutbound::Status {
+        payload: StatusPayload::ServerInfo(Box::new(info)),
+    }))
+}
+
+const ALL_GATES_ON: ServerFeatureGates = ServerFeatureGates {
+    workspace_labels: true,
+    daemon_status_rpc: true,
+    relay_config: true,
+    desktop_managed: false,
+};
+
+/// The Rust value the Spocky daemon emits for each outbound golden case.
+fn outbound_frame(id: &str) -> Option<WsOutbound> {
+    let state = |enabled: bool, reason: &str| ServerCapabilityState {
+        enabled,
+        reason: reason.to_owned(),
+    };
+    Some(match id {
+        "ws.pong" => WsOutbound::Control(WsControlOutbound::Pong),
+        "ws.hello_rejected.password_required" => {
+            WsOutbound::Control(WsControlOutbound::HelloRejected(HelloRejected::new(
+                HelloRejectedReason::PasswordRequired,
+            )))
+        }
+        "ws.hello_rejected.incompatible_protocol" => {
+            WsOutbound::Control(WsControlOutbound::HelloRejected(HelloRejected::new(
+                HelloRejectedReason::IncompatibleProtocol,
+            )))
+        }
+        "ws.server_info.default" => server_info(ALL_GATES_ON, None),
+        "ws.server_info.desktop_managed_ungated" => server_info(
+            ServerFeatureGates {
+                workspace_labels: false,
+                daemon_status_rpc: false,
+                relay_config: false,
+                desktop_managed: true,
+            },
+            None,
+        ),
+        "ws.server_info.voice_capabilities" => server_info(
+            ALL_GATES_ON,
+            Some(ServerCapabilities {
+                voice: ServerVoiceCapabilities {
+                    dictation: state(true, ""),
+                    voice: state(false, "Voice is disabled"),
+                },
+            }),
+        ),
+        _ => return None,
+    })
+}
+
 fn check_outbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>) {
-    let accepted = flag(case, "/aot/success");
-    if accepted && text(case, "/aot/output") != input {
+    if !flag(case, "/aot/success") {
+        failures.push(format!("{id}: the pinned client rejects this daemon frame"));
+        return;
+    }
+    if text(case, "/aot/output") != input {
         failures.push(format!("{id}: client validator changed the daemon text"));
     }
-    match (parse_frame::<WsOutbound>(input), accepted) {
-        (Ok(frame), true) => {
-            let written = frame_text(&frame).unwrap();
-            if written != input {
-                failures.push(format!("{id}: wrote\n  {written}\ndaemon\n  {input}"));
-            }
-        }
-        (Err(_), false) => {}
-        (Ok(frame), false) => {
-            failures.push(format!("{id}: client rejects, Rust accepted {frame:?}"));
-        }
-        (Err(error), true) => {
-            failures.push(format!("{id}: client accepts, Rust rejected: {error}"));
-        }
+    let Some(frame) = outbound_frame(id) else {
+        failures.push(format!("{id}: no Rust value for this outbound case"));
+        return;
+    };
+    let written = frame_text(&frame).unwrap();
+    if written != input {
+        failures.push(format!("{id}: wrote\n  {written}\ndaemon\n  {input}"));
     }
 }
 
@@ -86,6 +153,10 @@ fn fixture_provenance_is_pinned() {
         "5de45e208690b0efc51c59a585ae9729325a9204"
     );
     assert_eq!(text(&fixture, "/provenance/node"), "v22.20.0");
+    assert_eq!(
+        text(&fixture, "/provenance/nodeBinarySha256"),
+        "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931"
+    );
     assert_eq!(text(&fixture, "/provenance/zod"), "4.4.3");
     assert_eq!(text(&fixture, "/provenance/zodAot"), "0.20.4");
 }
