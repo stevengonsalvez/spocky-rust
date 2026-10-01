@@ -6,10 +6,6 @@
 //! JavaScript source: node lookup goes through a name table first, every
 //! filesystem decides its own node and stream operations, and errors carry
 //! Emscripten errno values.
-#![allow(
-    clippy::decimal_bitwise_operands,
-    reason = "flag and mode constants keep the decimal literals of the pinned glue"
-)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -822,9 +818,9 @@ impl Fs {
             return 0;
         }
         let mode = self.node(id).mode;
-        if (permission.contains('r') && mode & 292 == 0)
-            || (permission.contains('w') && mode & 146 == 0)
-            || (permission.contains('x') && mode & 73 == 0)
+        if (permission.contains('r') && mode & 0o444 == 0)
+            || (permission.contains('w') && mode & 0o222 == 0)
+            || (permission.contains('x') && mode & 0o111 == 0)
         {
             EACCES
         } else {
@@ -2683,10 +2679,10 @@ impl Fs {
         let path = path_join2(parent, name);
         let mut mode = 0;
         if readable {
-            mode |= 365;
+            mode |= 0o555;
         }
         if writable {
-            mode |= 146;
+            mode |= 0o222;
         }
         let dev = makedev(self.create_device_major, 0);
         self.create_device_major += 1;
@@ -2797,9 +2793,9 @@ impl Fs {
 
     /// `FS.createDataFile(path, null, data, true, true, true)`.
     pub fn create_data_file(&mut self, path: &str, data: &[u8]) -> FsResult<()> {
-        let mode = 365 | 146;
+        let mode = 0o555 | 0o222;
         let node = self.create(path, mode)?;
-        self.chmod_node(node, mode | 146)?;
+        self.chmod_node(node, mode | 0o222)?;
         let fd = self.open_node(node, 577)?;
         self.write(fd, data, Some(0))?;
         self.close(fd)?;
@@ -2918,7 +2914,7 @@ impl Fs {
 
     /// `SOCKFS.createSocket` up to the stream; no peer is ever created.
     pub fn create_socket(&mut self, kind: i32, protocol: i32) -> FsResult<i32> {
-        let kind = kind & !526_337;
+        let kind = kind & !0x8_0801;
         let stream_socket = kind == 1;
         if stream_socket && protocol != 0 && protocol != 6 {
             return errno(EPROTONOSUPPORT);
@@ -3175,7 +3171,10 @@ pub fn utf8_array_to_string(bytes: &[u8]) -> String {
 fn host_time_ms(seconds: i64, nanoseconds: i64) -> f64 {
     let total_ms = i128::from(seconds) * 1000 + i128::from(nanoseconds) / 1_000_000;
     // Precision: timestamps are within +/- 2^53 milliseconds.
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "Node keeps stat times as Number milliseconds; host timestamps are within 2^53 ms"
+    )]
     let value = total_ms as f64;
     value
 }
