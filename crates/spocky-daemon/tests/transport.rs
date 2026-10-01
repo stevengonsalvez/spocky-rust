@@ -14,7 +14,7 @@ use spocky_contracts::js_value::js_text_from_utf16;
 use spocky_contracts::ws::{DaemonPermission, ServerId};
 use spocky_daemon::admission::PasswordVerifier;
 use spocky_daemon::hostnames::Hostnames;
-use spocky_daemon::log::NullLogger;
+use spocky_daemon::log::{Logger, NullLogger};
 use spocky_daemon::server::{ListenHandle, Server, ServerConfig, ServerDeps, Timeouts};
 use spocky_daemon::session_api::{
     ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SessionSink, SocketId,
@@ -155,6 +155,10 @@ fn config() -> ServerConfig {
 }
 
 fn start(config: ServerConfig) -> Harness {
+    start_with_logger(config, Arc::new(NullLogger))
+}
+
+fn start_with_logger(config: ServerConfig, logger: Arc<dyn Logger>) -> Harness {
     let calls = Arc::new(Calls::default());
     let server = Server::new(
         config,
@@ -162,7 +166,7 @@ fn start(config: ServerConfig) -> Harness {
             backend: Arc::new(Backend(Arc::clone(&calls))),
             verifier: Arc::new(Exact),
             local_credential: Arc::new(|| Some(LOCAL.to_owned())),
-            logger: Arc::new(NullLogger),
+            logger,
         },
     );
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1238,6 +1242,73 @@ fn receiver_errors_close_with_the_code_and_an_empty_reason() {
         ws.get_mut().write_all(&raw).unwrap();
         assert_eq!(next_close(&mut ws), (expected, String::new()));
     }
+    harness.finish();
+}
+
+/// Fields and message of one warning.
+type Record = (Vec<(String, String)>, String);
+
+#[derive(Default)]
+struct Records(Mutex<Vec<Record>>);
+
+impl Logger for Records {
+    fn info(&self, _: &[(&str, &str)], _: &str) {}
+    fn warn(&self, fields: &[(&str, &str)], message: &str) {
+        let fields = fields
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect();
+        self.0.lock().unwrap().push((fields, message.to_owned()));
+    }
+    fn error(&self, _: &[(&str, &str)], _: &str) {}
+}
+
+/// `websocket-server.ts` logs the request metadata with the cause of a 403.
+#[test]
+fn a_rejected_upgrade_logs_the_baseline_message_and_request_metadata() {
+    let records = Arc::new(Records::default());
+    let mut cfg = config();
+    cfg.hostnames = Some(Hostnames::Patterns(vec![]));
+    let harness = start_with_logger(cfg, Arc::clone(&records) as Arc<dyn Logger>);
+    let request = |headers: &str| {
+        format!(
+            "GET /ws HTTP/1.1\r\n{headers}Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        )
+    };
+    let host = format!("127.0.0.1:{}", harness.port);
+    assert!(
+        harness
+            .raw(&request("Host: evil.example\r\nUser-Agent: probe/1\r\n"))
+            .starts_with("HTTP/1.1 403")
+    );
+    assert!(
+        harness
+            .raw(&request(&format!(
+                "Host: {host}\r\nOrigin: http://evil.example\r\n"
+            )))
+            .starts_with("HTTP/1.1 403")
+    );
+    let records = records.0.lock().unwrap().clone();
+    assert_eq!(records.len(), 2);
+    let remote = records[0].0.last().unwrap().clone();
+    assert_eq!(remote.0, "remoteAddress");
+    assert!(remote.1.contains("127.0.0.1"), "{remote:?}");
+    assert_eq!(records[0].1, "Rejected connection from disallowed host");
+    assert_eq!(
+        &records[0].0[..2],
+        &[
+            ("host".to_owned(), "evil.example".to_owned()),
+            ("userAgent".to_owned(), "probe/1".to_owned()),
+        ]
+    );
+    assert_eq!(records[1].1, "Rejected connection from origin");
+    assert_eq!(
+        &records[1].0[..2],
+        &[
+            ("host".to_owned(), host),
+            ("origin".to_owned(), "http://evil.example".to_owned()),
+        ]
+    );
     harness.finish();
 }
 
