@@ -583,11 +583,12 @@ pub trait AgentClient: Send + Sync {
         launch_context: Option<AgentLaunchContext>,
         options: Option<AgentResumeSessionOptions>,
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>>;
-    /// `getCatalogCacheKey?(options)`.
+    /// `getCatalogCacheKey?(options)`. The snapshot manager calls it
+    /// synchronously when a load starts, so the future owns its inputs.
     fn get_catalog_cache_key(
         &self,
         _options: &FetchCatalogOptions,
-    ) -> Option<BoxFuture<'_, AgentResult<Option<String>>>> {
+    ) -> Option<BoxFuture<'static, AgentResult<Option<String>>>> {
         None
     }
     /// `fetchCatalog(options, context)`, resolving a `ProviderCatalog`
