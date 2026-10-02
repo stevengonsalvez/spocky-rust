@@ -581,22 +581,22 @@ const PINNED_NODE_SHA256: &str = "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f9
 /// Bound on the pinned client's G1 sequence.
 const PINNED_SEQUENCE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Runs `tests/support/pinned_g1_probes.mjs`: the pinned Paseo
-/// `CodexAppServerAgentClient` (from `SPOCKY_PASEO_DIST`, run by the
-/// `SPOCKY_PINNED_NODE` binary) through the G1 launch sequence with the same
-/// launcher, env, and stub as [`stub_provider`], so every Codex it starts
-/// runs under the loopback-only seatbelt. Node itself is not wrapped: a
-/// seatbelt cannot apply another one, so the launcher's would fail. It gets
-/// the hermetic env with proxies aimed at the egress guard, is bounded by
-/// `PINNED_SEQUENCE_TIMEOUT` and killed by its own pid on overrun, and the
-/// guard is checked afterwards. Phase markers and launches land in the
-/// root's [`CODEX_ARGV_LOG`].
-pub fn run_pinned_g1_sequence(root: &DisposableRoot, stub: &ResponsesStub, model: &str) {
+/// The pinned Node binary (`SPOCKY_PINNED_NODE`, digest-checked) and the
+/// pinned `codex-app-server-agent.js` under `SPOCKY_PASEO_DIST`.
+pub struct PinnedPaseo {
+    pub node: PathBuf,
+    pub module: PathBuf,
+}
+
+/// [`PinnedPaseo`] from the environment. Panics when either variable is
+/// unset or the node digest differs, so a pinned differential cannot pass
+/// without the pinned build.
+pub fn pinned_paseo() -> PinnedPaseo {
     let var = |name: &str| {
         std::env::var_os(name)
             .unwrap_or_else(|| panic!("{name} is required for the pinned differential"))
     };
-    let node = var("SPOCKY_PINNED_NODE");
+    let node = PathBuf::from(var("SPOCKY_PINNED_NODE"));
     let digest = std::process::Command::new("shasum")
         .args(["-a", "256"])
         .arg(&node)
@@ -618,6 +618,21 @@ pub fn run_pinned_g1_sequence(root: &DisposableRoot, stub: &ResponsesStub, model
         })
         .find(|module| module.is_file())
         .expect("pinned codex-app-server-agent.js under SPOCKY_PASEO_DIST");
+    PinnedPaseo { node, module }
+}
+
+/// Runs `tests/support/pinned_g1_probes.mjs`: the pinned Paseo
+/// `CodexAppServerAgentClient` (from `SPOCKY_PASEO_DIST`, run by the
+/// `SPOCKY_PINNED_NODE` binary) through the G1 launch sequence with the same
+/// launcher, env, and stub as [`stub_provider`], so every Codex it starts
+/// runs under the loopback-only seatbelt. Node itself is not wrapped: a
+/// seatbelt cannot apply another one, so the launcher's would fail. It gets
+/// the hermetic env with proxies aimed at the egress guard, is bounded by
+/// `PINNED_SEQUENCE_TIMEOUT` and killed by its own pid on overrun, and the
+/// guard is checked afterwards. Phase markers and launches land in the
+/// root's [`CODEX_ARGV_LOG`].
+pub fn run_pinned_g1_sequence(root: &DisposableRoot, stub: &ResponsesStub, model: &str) {
+    let PinnedPaseo { node, module } = pinned_paseo();
     let driver = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/pinned_g1_probes.mjs");
     let mut child = std::process::Command::new(&node)
         .arg(&driver)
