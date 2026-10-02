@@ -200,7 +200,7 @@ class Conn {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function run(port, steps) {
+async function run(port, steps, settle = 500) {
   const conns = new Map();
   for (const step of steps) {
     const [action, name, ...args] = step;
@@ -230,7 +230,7 @@ async function run(port, steps) {
     }
     await sleep(250);
   }
-  await sleep(500);
+  await sleep(settle);
   const events = {};
   for (const [name, conn] of conns) {
     // Whether the socket was closed before this script closed it.
@@ -250,6 +250,10 @@ const oversizedHeader = (() => {
   return header.toString("hex");
 })();
 
+// The original checks a password with an asynchronous bcrypt compare, so a frame
+// sent right after such a hello reaches it while the hello is still pending and
+// is answered as a message before hello. The cases that follow a password hello
+// with a frame wait for the compare to finish first.
 function cases() {
   const open = [
     ["hello_then_ping_pong_and_recording_state", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", '{"type":"ping"}'], ["text", "a", '{"type":"recording_state","isRecording":true}'], ["text", "a", '{"type":"ping"}']]],
@@ -294,7 +298,7 @@ function cases() {
     ["hello_without_auth", [["connect", "a"], ["text", "a", hello("c1")]]],
     ["hello_without_auth_with_rejection_capability", [["connect", "a"], ["text", "a", hello("c1", { capabilities: { hello_rejection: true } })]]],
     ["hello_wrong_password", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "wrong" } })]]],
-    ["hello_right_password", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "secret" } })], ["text", "a", '{"type":"ping"}']]],
+    ["hello_right_password", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "secret" } })], ["wait", 1500], ["text", "a", '{"type":"ping"}']]],
     ["hello_local_credential_kind_without_credential", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "localCredential", token: "x".repeat(43) } })]]],
     ["hello_bad_auth_shape", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "magic" } })]]],
     ["protocol_mismatch_without_auth", [["connect", "a"], ["text", "a", hello("c1", { protocolVersion: 2 })]]],
@@ -332,7 +336,8 @@ async function main() {
     const { open: openCases, secured: securedCases } = cases();
     const out = [];
     for (const [name, steps] of openCases) out.push({ name, secure: false, steps, events: await run(open.port, steps) });
-    for (const [name, steps] of securedCases) out.push({ name, secure: true, steps, events: await run(secured.port, steps) });
+    // The bcrypt compare of a password hello can take well over a second under load.
+    for (const [name, steps] of securedCases) out.push({ name, secure: true, steps, events: await run(secured.port, steps, 3000) });
     process.stdout.write(JSON.stringify({
       node: process.version,
       original: path.basename(root),
