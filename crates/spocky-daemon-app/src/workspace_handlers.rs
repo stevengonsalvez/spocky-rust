@@ -383,7 +383,7 @@ pub fn validate_completed(slot: ServicesSlot) -> ValidateCompleted {
 }
 
 /// `creationUpdate(snapshot)` sent to the requesting socket.
-fn creation_observer(emit: &Emit) -> Observer {
+pub(crate) fn creation_observer(emit: &Emit) -> Observer {
     let emit = Arc::clone(emit);
     Arc::new(move |snapshot: &JsValue| {
         let kind = match snapshot.get("kind").and_then(JsValue::as_str) {
