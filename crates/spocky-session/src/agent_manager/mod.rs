@@ -35,7 +35,7 @@ use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
 pub use archive::{AgentArchivedCallback, DetachedAgent, LogWarn, UnarchiveUpdates};
-pub use create::{CreateAgentOptions, ResumeAgentOptions};
+pub use create::{CreateAgentOptions, ImportProviderSessionRequest, ResumeAgentOptions};
 pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
 pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgentResult};
