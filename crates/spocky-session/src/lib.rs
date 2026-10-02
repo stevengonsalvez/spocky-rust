@@ -24,6 +24,7 @@ pub mod provider_catalog;
 pub mod provider_snapshot_manager;
 pub mod provider_subagents;
 pub mod provisioning;
+pub mod rewind;
 pub mod runtime_mcp_config;
 pub mod stream_coalescer;
 pub mod text;
