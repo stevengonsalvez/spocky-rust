@@ -684,6 +684,174 @@ impl AgentManager {
     }
 }
 
+/// The fallback message of `waitForAgentRunStart`'s abort error.
+const WAIT_START_ABORTED: &str = "wait_for_agent_start aborted";
+
+/// One `waitForAgentRunStart` subscription.
+pub(crate) struct RunStartWaiter {
+    id: u64,
+    agent_id: String,
+    done: oneshot::Sender<Result<(), AgentError>>,
+}
+
+/// The foreground run's start (`runs.getPendingRun(agentId)?.start`).
+fn pending_start<'a>(state: &'a State, agent_id: &str) -> Option<&'a RunStart> {
+    match state.runs.get(agent_id) {
+        Some(TrackedRun::Foreground { start, .. }) => Some(start),
+        _ => None,
+    }
+}
+
+/// `checkCurrentState()` of `waitForAgentRunStart`: the outcome once
+/// decided, `None` while the run has yet to start.
+fn run_start_outcome(state: &State, agent_id: &str) -> Option<Result<(), AgentError>> {
+    let Some(agent) = state.agent(agent_id) else {
+        return Some(Err(AgentError::new(format!("Agent {agent_id} not found"))));
+    };
+    let snapshot = &agent.snapshot;
+    let pending = pending_start(state, agent_id);
+    if (snapshot.lifecycle == AgentLifecycle::Running
+        || matches!(pending, Some(RunStart::Started(_))))
+        && !snapshot.pending_replacement
+    {
+        return Some(Ok(()));
+    }
+    if let Some(RunStart::Failed(error)) = pending {
+        return Some(Err(AgentError::new(error.clone())));
+    }
+    if snapshot.lifecycle == AgentLifecycle::Error && pending.is_none() {
+        return Some(Err(AgentError::new(
+            snapshot
+                .last_error
+                .clone()
+                .unwrap_or_else(|| format!("Agent {agent_id} failed to start")),
+        )));
+    }
+    if pending.is_none()
+        && snapshot.active_foreground_turn_id.is_none()
+        && !snapshot.pending_replacement
+    {
+        return Some(Err(AgentError::new(format!(
+            "Agent {agent_id} run finished before starting"
+        ))));
+    }
+    None
+}
+
+/// Removes its waiter when the wait ends, however it ends.
+struct RunStartGuard<'a> {
+    manager: &'a AgentManager,
+    id: u64,
+}
+
+impl Drop for RunStartGuard<'_> {
+    fn drop(&mut self) {
+        self.manager
+            .inner
+            .run_start_waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|waiter| waiter.id != self.id);
+    }
+}
+
+impl AgentManager {
+    /// Settles the run-start waiters of `agent_id` as an `agent_state` for
+    /// it is dispatched, against the state at that moment.
+    pub(crate) fn settle_run_start_waiters(&self, state: &State, agent_id: &str) {
+        let mut waiters = self
+            .inner
+            .run_start_waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !waiters.iter().any(|waiter| waiter.agent_id == agent_id) {
+            return;
+        }
+        let Some(outcome) = run_start_outcome(state, agent_id) else {
+            return;
+        };
+        let mut index = 0;
+        while index < waiters.len() {
+            if waiters[index].agent_id == agent_id {
+                let waiter = waiters.remove(index);
+                let _ = waiter.done.send(outcome.clone());
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    /// `waitForAgentRunStart(agentId, { signal })`: resolves once the
+    /// agent's pending foreground run has started.
+    ///
+    /// # Errors
+    ///
+    /// The baseline's errors: an unknown agent, no pending run, a run that
+    /// failed or finished before starting, an agent in error, a malformed
+    /// agent id at subscription, and an `AbortError` when `signal` aborts.
+    pub async fn wait_for_agent_run_start(
+        &self,
+        agent_id: &str,
+        signal: Option<AbortSignal>,
+    ) -> Result<(), AgentError> {
+        let (id, done) = {
+            let state = self.lock();
+            let Some(agent) = state.agent(agent_id) else {
+                return Err(AgentError::new(format!("Agent {agent_id} not found")));
+            };
+            let snapshot = &agent.snapshot;
+            let pending = pending_start(&state, agent_id);
+            if (snapshot.lifecycle == AgentLifecycle::Running
+                || matches!(pending, Some(RunStart::Started(_))))
+                && !snapshot.pending_replacement
+            {
+                return Ok(());
+            }
+            if snapshot.active_foreground_turn_id.is_none()
+                && pending.is_none()
+                && !snapshot.pending_replacement
+            {
+                return Err(AgentError::new(format!(
+                    "Agent {agent_id} has no pending run"
+                )));
+            }
+            if let Some(signal) = signal.as_ref().filter(|signal| signal.aborted()) {
+                return Err(abort_error(signal, WAIT_START_ABORTED));
+            }
+            super::validate_agent_id(agent_id, "subscribe")?;
+            if let Some(outcome) = run_start_outcome(&state, agent_id) {
+                return outcome;
+            }
+            let id = {
+                let mut state = state;
+                state.next_token += 1;
+                state.next_token
+            };
+            let (done_tx, done) = oneshot::channel();
+            self.inner
+                .run_start_waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(RunStartWaiter {
+                    id,
+                    agent_id: agent_id.to_owned(),
+                    done: done_tx,
+                });
+            (id, done)
+        };
+        let _guard = RunStartGuard { manager: self, id };
+        let outcome = match &signal {
+            Some(signal) => tokio::select! {
+                biased;
+                outcome = done => outcome,
+                () = signal.wait() => return Err(abort_error(signal, WAIT_START_ABORTED)),
+            },
+            None => done.await,
+        };
+        outcome.unwrap_or_else(|_| Err(AgentError::new(format!("Agent {agent_id} not found"))))
+    }
+}
+
 /// The subscriber state of one `waitForAgentEvent`.
 struct WaitWatch {
     status: AgentLifecycle,

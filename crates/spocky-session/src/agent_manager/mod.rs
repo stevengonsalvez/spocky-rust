@@ -365,6 +365,9 @@ pub(crate) struct Inner {
     /// Signalled when an agent's session event queue empties.
     pub(crate) drain_idle: Notify,
     pub(crate) interrupt_session_ms: u64,
+    /// `waitForAgentRunStart` subscribers, settled as each `agent_state`
+    /// is dispatched.
+    pub(crate) run_start_waiters: Mutex<Vec<run::RunStartWaiter>>,
 }
 
 /// `AgentManager`. Cloning shares the manager.
@@ -476,6 +479,7 @@ impl AgentManager {
                 interrupt_session_ms: options
                     .rescue_interrupt_session_ms
                     .unwrap_or(lifecycle::INTERRUPT_SESSION_TIMEOUT_MS),
+                run_start_waiters: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -543,6 +547,9 @@ impl AgentManager {
             })
             .map(|subscriber| Arc::clone(&subscriber.callback))
             .collect();
+        if let AgentManagerEvent::AgentState(agent) = &event {
+            self.settle_run_start_waiters(state, &agent.id);
+        }
         if !callbacks.is_empty() {
             self.send_batch(DispatchBatch::Event(callbacks, Arc::new(event)));
         }
