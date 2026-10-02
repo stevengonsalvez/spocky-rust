@@ -1391,6 +1391,19 @@
       "routingLimitation": "Claude-authored under the 2026-10-01 routing revision; not Sol-authored for success criterion 3"
     },
     {
+      "id": "zod_consolidation",
+      "capabilities": ["single zod port: input judging, issue reporting and output order"],
+      "dependencies": ["p3_session requests 25 and 26 (zod_output.rs, generated creation_schema.rs) landed on main", "G1 passed"],
+      "priority": 3,
+      "state": "blocked: starts right after G1 (coordinator decision 2026-10-02)",
+      "owner": "p3_session moves its zod code; p3_contracts owns the destination",
+      "copies": ["crates/spocky-contracts/src/zod.rs and zod_schemas.rs (issue engine, inbound schemas)", "crates/spocky-session zod_output.rs (zod output-order port) and generated creation_schema.rs"],
+      "scope": "Move zod_output and the generated schemas into spocky-contracts beside zod.rs, switch spocky-session to them, delete the session copies, keep every differential green.",
+      "openGap": "OPEN, not an accepted exception: corrupt creation receipt error text is 'Invalid input at [path]' where the baseline reports the ZodError issue list; closes when the receipt check uses the contracts zod issue engine after the move",
+      "acceptance": "No zod port code outside crates/spocky-contracts; corrupt-receipt text matches the baseline ZodError issue list in a node differential; cargo check --locked --workspace --all-targets green",
+      "recordedBy": "Claude lead, 2026-10-02, coordinator decision on session requests 25 and 26"
+    },
+    {
       "id": "js_helpers_consolidation",
       "capabilities": ["shared JS semantics (truthiness, spread, String, JsTypeError, strict_equals, UTF-16 strings, JSON.parse acceptance)"],
       "dependencies": ["p3_contracts resend with crates/spocky-contracts/src/js.rs landed on main"],
