@@ -246,6 +246,8 @@
       "decisions": ["2026-10-02 coordinator, G1 blocker: p3_g1_wiring ports the create.ts and session.ts glue plus workspace.create and fetch_workspaces in spocky-daemon-app, with a seam for resolveCreateConfig, which p3_session provides through its provider-snapshot-manager port"],
       "g1Interim": "2026-10-02 coordinator: codex_agent.rs passes the refresh signal through with an INTERIM first-fetch-unsignalled rule until p3_session confirms the pinned refresh signal; G1 must NOT be marked passed while this interim is in. RESOLVED in principle 2026-10-02: p3_session proved from source that the pinned unsignalled codex catalog comes from AgentManager.normalizeConfig calling resolveDefaultModelId with no fetchCatalog context (agent-manager.ts:5127-5134), and every snapshot-manager refresh passes a signal; wiring replaces the interim counter with context.is_some(), no session seam change. The hold lifts when that wiring commit lands on main. LIFTED 2026-10-02: 06f55a49 landed directly by coordinator decision as b8c2516a (fetch_catalog_signalled(None, context.is_some())); gated: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
       "openPortGaps": [
+        "OPEN, not blocking G2 (2026-10-02): pinned emits wait_for_finish_response before the agent_update from the same state change, and spocky sometimes emits the update first; to be made exact after the reset with a reply-first barrier",
+        "OPEN, not blocking G2 (2026-10-02): server_info.features.workspaceLabels is true in pinned and absent in spocky, hard-coded off at spocky-daemon daemon.rs:436 because the workspace-labels service is unported",
         "P5 OPEN (2026-10-02): forwardLiveAgent and agent_update fan-out frames are not emitted; the pinned CLI ignores them, so G1 is unaffected, but the wire differs from the original"
       ],
       "postG1Seams": [
@@ -1093,6 +1095,17 @@
           "followUps": ["P3 move stop_agents inside the transport force-exit window", "P3 test a timed-out agent close"]
         },
         {
+          "lane": "p3_session, p3_provider_codex, p3_g1_wiring (G2 batch)",
+          "date": "2026-10-02",
+          "sourceRange": "session a6d7d3b4..6f4a41a7 (3: flush_for_shutdown, request 27), codex 6ad46517..1c53edc5 (6: G2 approval mapping, recorded real codex 0.159 approval replay 4/4 identical, close-time cancel fix), wiring 17276ff8..75878b73 (3: G2 dispatch and fan-out)",
+          "integrationHead": "1346c719",
+          "review": "integration reviewer PASS for all three ranges",
+          "notLanded": "session 8d64751e and 2bb2ce51 (context-presence test logging) sit under the session range but were not reviewed; the 3 reviewed commits applied cleanly without them",
+          "leadVerification": "gated: spocky-provider-codex with SPOCKY_REAL_CODEX=1 --include-ignored plus pinned node 22.20.0 and dist; spocky-session plus spocky-daemon-app --test-threads=1; clippy -D warnings for all three; fmt check; spocky-daemon bin build; cargo check --workspace --all-targets",
+          "openForG2": ["P2 frame-level original-versus-Rust differential for cancel and permission responses (wiring writing it)", "P2 followUpPrompt fails loudly; kept out of G2 scenarios", "P2 set_subscription not ported; the G2 run shows whether the pinned client's modern or legacy choice from advertised features matters"],
+          "followUps": ["P3s go to their writers after G2"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
@@ -1252,6 +1265,22 @@
           "date": "2026-10-01",
           "authority": "Claude lead",
           "change": "Process slip recorded: lead commit aa36b46 contains both Cargo.toml and Cargo.lock, breaking the one-file-per-commit rule. A concurrent git index lock failed the Cargo.toml commit while the file stayed staged, so the next commit took both. Left in place rather than rewriting signed main history."
+        }
+      ],
+      "approvedNormalizations": [
+        {
+          "date": "2026-10-02",
+          "gate": "G2",
+          "class": "codex-wall-time (clock)",
+          "scope": "the measured 'Wall time N.N seconds' that codex writes into tool output, only inside stub request bodies; the count and positions must match",
+          "approvedBy": "coordinator"
+        },
+        {
+          "date": "2026-10-02",
+          "gate": "G2",
+          "class": "send-receipt-key (generated id)",
+          "scope": "file name agent-requests/<sha256(['send',agentId,messageId])>.json where messageId is a client-side randomUUID; files are paired by exact content fingerprint and only the name is masked; name derivation is proven separately by the receipts differential",
+          "approvedBy": "coordinator"
         }
       ],
       "gateRuns": [
