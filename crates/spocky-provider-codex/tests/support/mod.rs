@@ -1089,7 +1089,10 @@ const REPLAY_MODEL: &str = "gpt-6-astra";
 pub fn replay_differential(fixture: &str, scenario: &str, prompt: &str, action: &str) {
     assert_fixture_digest(fixture);
     let pinned = pinned_paseo();
-    let root = DisposableRoot::new(&format!("g2-{scenario}"));
+    let root = DisposableRoot::new(&format!(
+        "{}-{scenario}",
+        fixture.trim_end_matches(".json").replace('_', "-")
+    ));
     let rust_log = root.join("rust-client.jsonl");
     let pinned_log = root.join("pinned-client.jsonl");
     let rust = rust_run(
