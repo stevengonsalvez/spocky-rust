@@ -174,7 +174,10 @@
       "paths": ["crates/spocky-provider-codex/"],
       "acceptanceEnv": "2026-10-02: acceptance tests need SPOCKY_PINNED_NODE (node 22.20.0) and SPOCKY_PASEO_DIST (pinned dist) for the approval replay differential, plus SPOCKY_REAL_CODEX=1 --include-ignored under the sandbox for real codex tests",
       "openPortGaps": [
-        "OPEN, after G2 (2026-10-02): codex fileChange apply_patch emits a timeline tool_call before the patch permission_requested in the pinned client; about 300 TS lines not ported",
+        "OPEN, after G2 (2026-10-02): codex fileChange apply_patch emits a timeline tool_call before the patch permission_requested in the pinned client; about 300 TS lines not ported. PARTIAL: the fileChange mapper landed with 0eaff135..55cf3077 (oracle is a pinned copy with only import rewrites plus an export line)",
+        "OPEN (2026-10-02): edit-detail seam for codex file edits waits for a contracts tool_detail type",
+        "OPEN (2026-10-02): the pinned 12,000-unit diff truncation is not ported",
+        "OPEN (2026-10-02): the legacy patch_apply path is not ported yet (codex lane porting it now)",
         "OPEN, not on G1, must be ported before P5 (2026-10-02): pinned codex implements resolveDefaultModeId (a fresh probe with a signal, the memo without one); the provider at ae2f8904 exposes no auto-review entry point for it, so the spocky-daemon-app adapter seam returns None"
       ],
       "delegation": "forbidden",
@@ -213,7 +216,9 @@
           "config_file.rs:136 config refusal: the baseline refuses unknown keys (\"Unrecognized key: \\\"bogus\\\"\"), invalid allowedHosts entries beside valid hostnames, joins every zod issue, and reports V8 JSON.parse text; the daemon loads such config and reports the first issue with serde text. Needs a persisted-config zod schema from spocky-contracts and a differential against pinned persisted-config.js",
           "pid_lock.rs:286 io read failure text lacks node's \"Error: <CODE>: <description>, open '<path>'\"; daemon writer is wiring spocky-store FsError",
           "tests/fixtures/gen-express-vectors.cjs:17 express vectors run real express 4.22.1 through a hand-copied middleware chain, not the pinned bootstrap.ts app; framing parity is proven, route and host-allowlist parity need the real-original probe the daemon writer is building",
-          "carried prior P2/P3 not rechecked individually: HEAD 404 body, conditional GET, routing case and slash, logging records, transport differential, iso_time, cwd test, js.rs copy, vectors provenance"
+          "P2 OPEN (2026-10-02, c0df17b0): server_info capabilities are ported only for speech switched off in config; with dictation or voice on, the baseline reports the speech runtime's readiness (models, download state), which spocky lacks, so capabilities are omitted",
+        "P3 (2026-10-02): a live PID lock held by another host is not covered by tests",
+        "carried prior P2/P3 not rechecked individually: HEAD 404 body, conditional GET, routing case and slash, logging records, transport differential, iso_time, cwd test, js.rs copy, vectors provenance"
         ]
       },
       "delegation": "forbidden",
@@ -247,7 +252,7 @@
       "g1Interim": "2026-10-02 coordinator: codex_agent.rs passes the refresh signal through with an INTERIM first-fetch-unsignalled rule until p3_session confirms the pinned refresh signal; G1 must NOT be marked passed while this interim is in. RESOLVED in principle 2026-10-02: p3_session proved from source that the pinned unsignalled codex catalog comes from AgentManager.normalizeConfig calling resolveDefaultModelId with no fetchCatalog context (agent-manager.ts:5127-5134), and every snapshot-manager refresh passes a signal; wiring replaces the interim counter with context.is_some(), no session seam change. The hold lifts when that wiring commit lands on main. LIFTED 2026-10-02: 06f55a49 landed directly by coordinator decision as b8c2516a (fetch_catalog_signalled(None, context.is_some())); gated: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
       "openPortGaps": [
         "OPEN, not blocking G2 (2026-10-02): pinned emits wait_for_finish_response before the agent_update from the same state change, and spocky sometimes emits the update first; to be made exact after the reset with a reply-first barrier",
-        "SERVER-INFO-CAPABILITIES, OPEN (2026-10-02): spocky server_info has no capabilities object ({voice: {dictation, voice} with disabled reasons}) because spocky-daemon daemon.rs:440 hard-codes None; found by the raw-JSON wire compare. After the reset: p3_daemon_transport plus p3_g1_wiring, with the cross-crate seam owned by the lead",
+        "SERVER-INFO-CAPABILITIES, OPEN (2026-10-02): spocky server_info has no capabilities object ({voice: {dictation, voice} with disabled reasons}) because spocky-daemon daemon.rs:440 hard-codes None; found by the raw-JSON wire compare. After the reset: p3_daemon_transport plus p3_g1_wiring, with the cross-crate seam owned by the lead. PARTIAL 2026-10-02: p3_daemon_transport 0d2349b1 sends the capabilities when speech is switched off in config (the G-gate homes); the speech-on case stays OPEN as a P2 on p3_daemon_transport",
         "OPEN, not blocking G2 (2026-10-02): server_info.features.workspaceLabels is true in pinned and absent in spocky, hard-coded off at spocky-daemon daemon.rs:436 because the workspace-labels service is unported",
         "P5 OPEN (2026-10-02): forwardLiveAgent and agent_update fan-out frames are not emitted; the pinned CLI ignores them, so G1 is unaffected, but the wire differs from the original"
       ],
@@ -1261,6 +1266,25 @@
           "followUp": "coordinator triggers a G3 rerun on 90881646"
         },
         {
+          "lane": "batch (p3_daemon_transport, p3_contracts, p3_provider_codex, p3_session)",
+          "date": "2026-10-02",
+          "integrationHead": "9c970ddd",
+          "sourceRanges": [
+            "p3_daemon_transport ac645bef..c0df17b0 (28; reviewer 1 PASS, verdicts/p3_daemon_transport-c0df17b0.txt): node fs error text via spocky-store, old-state home, config, hello and http differentials, speech-off server_info capabilities, daemon js.rs on the contracts trim helpers",
+            "p3_contracts 8e8aae70..ac62ff32 (6; reviewer 2 PASS, verdicts/p3_contracts-ac62ff32.txt): corrupt creation receipt reports the ZodError issue list; widened paths crates/spocky-session creation.rs and its tests",
+            "p3_contracts ac62ff32..2223d54c (2; reviewer 2 PASS, verdicts/p3_contracts-2223d54c.txt): G4 step 4 receipts old-home both ways, ReceiptSchema on the contracts engine; widened path crates/spocky-message-receipts",
+            "p3_provider_codex b605d910..6d977a4a (15; reviewer 1 PASS, verdicts/p3_provider_codex-6d977a4a.txt): abort signal, provenance, raw events",
+            "p3_provider_codex 0eaff135..55cf3077 (4; reviewer 2 PASS, verdicts/p3_provider_codex-55cf3077.txt): codex fileChange mapper",
+            "p3_session 07a236ac..afe1034d (12; reviewer 1 PASS on 1bec90cb..70229837, verdicts/p3_session-70229837.txt): archive and unarchive, warn log, libuv sort, registries old-home, store flake fix; the lead picked the pre-rebase ids 1bec90cb..70229837 minus bfd1cfdb, patch-identical to the rebased range; bfd1cfdb (ledger edit) skipped and its two gaps recorded by the lead"
+          ],
+          "leadChanges": ["daemon.rs conflict between the stop-hook seam and 0d2349b1 resolved keeping both: speech_capabilities functions and the start_after_lock allow"],
+          "leadVerification": "gated: spocky-provider-codex with SPOCKY_REAL_CODEX=1 --include-ignored (sandboxed); spocky-daemon, daemon-app, contracts, session, store and message-receipts tests --test-threads=1 --include-ignored, skipping only daemon-app full_access_turn_runs_through_the_seam (SPOCKY_REAL_CODEX stays unset there); 583 passed; clippy -D warnings for all 7 crates, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "closes": ["zod_consolidation corrupt-receipt text gap (8e8aae70..ac62ff32)"],
+          "newEdge": "spocky-daemon -> spocky-store (node fs error text), recorded in porting/crate-ownership.md",
+          "incidents": ["first gate failed on a full disk (No space left on device); lead removed its own lead target incremental cache and re-gated with CARGO_INCREMENTAL=0", "two Orca restarts (20:46, 20:52) killed the re-gates; the last gate passed but the merge hit a stale 0-byte .git/index.lock from 20:29 held by no process; removed and merged"],
+          "followUps": ["P3 every gate script must pass --include-ignored for the pinned differentials (no scripts/phase3 gate script does yet)", "P3 jiff and node tzdata pairing noted for provider-claude (next batch)"]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1568,6 +1592,23 @@
           "gap": "startTurn outputSchema: the baseline sends normalizeCodexOutputSchema(outputSchema) to codex (codex-app-server-agent.ts:4165); the Rust codex adapter rejects a truthy outputSchema.",
           "owner": "p3_g1_wiring ports normalizeCodexOutputSchema in its codex adapter (coordinator decision 2026-10-01; no provider_codex change)",
           "status": "tracked parity gap, fix routed with the p3_g1_wiring BLOCK resend"
+        },
+        {
+          "date": "2026-10-02",
+          "source": "p3_session archive and unarchive (af79972e..cdbbb086, reviewer P3); recorded by the lead, writer commit bfd1cfdb skipped because it edited the ledger",
+          "id": "ARCHIVE-PLUGIN-EMIT",
+          "gap": "agent.archived plugin hook not emitted: pinned persistArchivedRecord (agent-manager.ts:1846-1859) emits pluginLifecycle agent.archived with describeHookAgent(archivedRecord) and archivedAt when a non-internal record is archived for the first time. The Rust manager has no plugin runtime to deliver it to, so archive_agent, archive_snapshot and the child cascade skip it.",
+          "status": "OPEN deviation, unobservable without the plugin runtime; restore when the plugin runtime lands",
+          "seam": "on_agent_archived (the separate onAgentArchived callback, ported) stays; the plugin emit joins create's plugin_lifecycle flag when the plugin runtime exists",
+          "closingCondition": "a differential with a plugin runtime attached compares the agent.archived payload with node"
+        },
+        {
+          "date": "2026-10-02",
+          "source": "p3_session old-home loading (cdbbb086, reviewer P3); recorded by the lead",
+          "id": "READDIR-WINDOWS",
+          "gap": "Directory scan order on Windows: libuv sorts uv_fs_scandir results with strcmp on Unix (uv__fs_scandir_sort, src/unix/fs.c in libuv 1.51.0, node v22.20.0), which the Rust scan matches as a raw byte sort; libuv's Windows fs__scandir does not sort, so node's order there is the file system's. The Rust scan keeps the Unix order on Windows. Matters only for duplicate record ids across project directories and list order.",
+          "status": "OPEN platform gap, not on the macOS or Linux gates",
+          "closingCondition": "a Windows qualification run compares list order and the duplicate-id winner with node"
         }
       ],
       "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
@@ -1782,7 +1823,7 @@
       "capabilities": ["single zod port: input judging, issue reporting and output order"],
       "dependencies": ["p3_session requests 25 and 26 (zod_output.rs, generated creation_schema.rs) landed on main", "G1 passed"],
       "priority": 3,
-      "state": "code moved 2026-10-02 (p3_contracts d6721b46..8e8aae70): zod_output and creation_schema now live in spocky-contracts; the corrupt-receipt text gap stays OPEN until a node differential shows the receipt check reporting the ZodError issue list",
+      "state": "DONE 2026-10-02: code moved (d6721b46..8e8aae70) and the corrupt-receipt ZodError text ported with a node differential (8e8aae70..ac62ff32, landed in 9c970ddd)",
       "owner": "p3_session moves its zod code; p3_contracts owns the destination",
       "copies": ["crates/spocky-contracts/src/zod.rs and zod_schemas.rs (issue engine, inbound schemas)", "crates/spocky-session zod_output.rs (zod output-order port) and generated creation_schema.rs"],
       "scope": "Move zod_output and the generated schemas into spocky-contracts beside zod.rs, switch spocky-session to them, delete the session copies, keep every differential green.",
