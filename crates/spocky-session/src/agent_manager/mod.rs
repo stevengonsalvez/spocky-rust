@@ -361,6 +361,10 @@ pub(crate) struct Inner {
     pub(crate) mcp_auth_token: Option<String>,
     pub(crate) resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
     background_tasks: AtomicUsize,
+    /// `agentRegistrationTasks`: in-flight `createAgent` and
+    /// `resumeAgentFromPersistence` registrations.
+    registration_tasks: AtomicUsize,
+    /// Signalled when background work or registrations may have drained.
     background_idle: Notify,
     /// Signalled when an agent's session event queue empties.
     pub(crate) drain_idle: Notify,
@@ -368,6 +372,18 @@ pub(crate) struct Inner {
     /// `waitForAgentRunStart` subscribers, settled as each `agent_state`
     /// is dispatched.
     pub(crate) run_start_waiters: Mutex<Vec<run::RunStartWaiter>>,
+}
+
+/// An in-flight agent registration; see
+/// [`AgentManager::track_agent_registration`].
+pub(crate) struct RegistrationGuard(Arc<Inner>);
+
+impl Drop for RegistrationGuard {
+    fn drop(&mut self) {
+        if self.0.registration_tasks.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.background_idle.notify_waiters();
+        }
+    }
 }
 
 /// `AgentManager`. Cloning shares the manager.
@@ -474,6 +490,7 @@ impl AgentManager {
                 mcp_auth_token: options.mcp_auth_token,
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
                 background_tasks: AtomicUsize::new(0),
+                registration_tasks: AtomicUsize::new(0),
                 background_idle: Notify::new(),
                 drain_idle: Notify::new(),
                 interrupt_session_ms: options
@@ -857,6 +874,30 @@ impl AgentManager {
                 inner.background_idle.notify_waiters();
             }
         });
+    }
+
+    /// `trackAgentRegistrationOperation`: the registration counts as in
+    /// flight until the returned guard drops.
+    pub(crate) fn track_agent_registration(&self) -> RegistrationGuard {
+        self.inner.registration_tasks.fetch_add(1, Ordering::SeqCst);
+        RegistrationGuard(Arc::clone(&self.inner))
+    }
+
+    /// `flushForShutdown()`: as [`Self::flush`], and also waits for agent
+    /// registrations that crossed the shutdown barrier, which own provider
+    /// sessions until they install or close them.
+    pub async fn flush_for_shutdown(&self) {
+        self.flush_coalescer_all();
+        loop {
+            let idle = self.inner.background_idle.notified();
+            if self.inner.background_tasks.load(Ordering::SeqCst) == 0
+                && self.inner.registration_tasks.load(Ordering::SeqCst) == 0
+            {
+                break;
+            }
+            idle.await;
+        }
+        self.dispatched().await;
     }
 
     /// `flush()`: flushes coalesced stream chunks, then waits for background

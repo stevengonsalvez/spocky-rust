@@ -174,6 +174,7 @@ impl AgentManager {
         agent_id: Option<String>,
         options: CreateAgentOptions,
     ) -> Result<ManagedAgentSnapshot, AgentError> {
+        let _registration = self.track_agent_registration();
         self.assert_accepting_agent_registrations()?;
         let resolved_agent_id = validate_agent_id(
             &agent_id.unwrap_or_else(|| (self.inner.id_factory)()),
@@ -256,6 +257,7 @@ impl AgentManager {
             &agent_id.unwrap_or_else(|| (self.inner.id_factory)()),
             "resumeAgentFromPersistence",
         )?;
+        let _registration = self.track_agent_registration();
         let lane = Self::lane(&mut self.lock().lifecycle_lanes, &resolved_agent_id);
         let _turn = lane.lock().await;
         self.resume_agent_from_persistence_internal(
