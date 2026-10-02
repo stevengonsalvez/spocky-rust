@@ -201,7 +201,7 @@ async fn resolve_intent(services: &Services, request: &JsObject) -> Result<Inten
 /// out-of-band intercept, else a run drained in the background. `true` is
 /// the `turn_started` disposition. With `replace_running`, an in-flight run
 /// would be replaced (`replaceAgentRun`), which is not ported and fails.
-pub(crate) fn start_agent_run(
+pub(crate) async fn start_agent_run(
     manager: &Arc<AgentManager>,
     agent_id: &str,
     prompt: AgentPromptInput,
@@ -213,6 +213,12 @@ pub(crate) fn start_agent_run(
         .map_err(|error| error.message)?
     {
         return Ok(false);
+    }
+    // The baseline settles the run before it notifies subscribers, so a send
+    // that follows a finished wait never meets the run it ended; here the
+    // run's last state change may still be dispatching.
+    if replace_running && manager.has_in_flight_run(agent_id) {
+        manager.dispatched().await;
     }
     if replace_running && manager.has_in_flight_run(agent_id) {
         return Err(
@@ -259,7 +265,7 @@ async fn start_initial_prompt(
     run_options: Option<AgentRunOptions>,
 ) -> Result<ManagedAgentSnapshot, String> {
     let agent_id = snapshot.id.as_str();
-    if start_agent_run(manager, agent_id, prompt, run_options, false)? {
+    if start_agent_run(manager, agent_id, prompt, run_options, false).await? {
         wait_for_run_start(manager, agent_id, None).await?;
     }
     Ok(manager

@@ -115,7 +115,9 @@ async fn send_prompt(delivery: &SendDelivery) -> Result<(), String> {
         delivery.prompt.clone(),
         run_options,
         true,
-    )? {
+    )
+    .await?
+    {
         wait_for_run_start(manager, agent_id, Some(context.request_signal.clone())).await?;
     }
     Ok(())
