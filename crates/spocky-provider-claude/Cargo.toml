@@ -6,6 +6,7 @@ license = "Apache-2.0"
 rust-version = "1.94"
 
 [dependencies]
+jiff = "0.2"
 sha1 = "0.10.7"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
