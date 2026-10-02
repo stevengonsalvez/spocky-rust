@@ -1339,6 +1339,24 @@
           "followUps": ["P3 the tzdb guard allows a one-release gap between the host and node's ICU tzdata, and one release can still move a transition in some zones"]
         },
         {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-03",
+          "sourceRange": "2d95c778..d1992f25 (7; reviewer 1 PASS, verdicts/p3_provider_codex-d1992f25.txt): CodexProviderOptionsSchema and parsed-output key order; the rebased ids are 3e292477..c1d22fc2, identical content",
+          "integrationHead": "3daf9b53",
+          "leadVerification": "gated after cargo clean -p: spocky-provider-codex with SPOCKY_REAL_CODEX=1 --include-ignored (sandboxed) plus spocky-daemon-app --include-ignored (skipping only its real-codex test), 217 passed; clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_daemon_transport and p3_contracts",
+          "date": "2026-10-03",
+          "sourceRanges": [
+            "p3_daemon_transport 94b616f1..e4b46e0f on p3-daemon-listening (3; reviewer PASS, verdicts/p3_daemon_transport-e4b46e0f.txt): SessionBackend::listening(&ListenTarget), a default no-op hook called once after bind and before the lock is published, for the agent MCP base url; lead seam review: same pattern as the stop hook, no other backend changes",
+            "p3_contracts 0de041f6..596e2c5b (6; reviewer PASS, verdicts/p3_contracts-596e2c5b.txt): canonical JS text equality and JsRecord keys"
+          ],
+          "integrationHead": "18cf6f0b",
+          "leadVerification": "gated after cargo clean -p: spocky-daemon, spocky-daemon-app and spocky-contracts tests --test-threads=1 --include-ignored (skipping only the daemon-app real-codex test), 336 passed; clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "unblocks": "p3_g1_wiring MCP half: agent MCP base url from the bound port (closes the earlier P3 about the configured port)"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1617,6 +1635,19 @@
             "SESSION-INTERLEAVE cross-agent same-tick ordering",
             "unarchive not ported: archived agents error before loading"
           ]
+        },
+        {
+          "gate": "G1 and G2 regression",
+          "date": "2026-10-02",
+          "mainHead": "f0e2645b (wiring reply barrier rework, session replaceAgentRun, harness G4 fixtures, provider-claude)",
+          "runs": [
+            "G1 g1-20261002T214401Z-f0e2645b: parity PASS, 82 rules, 0 differences, 0 inversions; verdict.json SHA-256 abdd863fffb1efd3ddc89a3ea7433c48cbfbe57d90b09d90c1bda3a186afca3a",
+            "G2 g2-20261002T215833Z-f0e2645b: parity PASS, 193 rules, 0 differences, 0 inversions; verdict.json SHA-256 d43aecf0bdb40284d9841eb1b6f26f29c733a317f68d064d0c26508a89ef5c40"
+          ],
+          "rules": "generated_id, temporary_path and wall_clock only",
+          "verification": "coordinator verified both runs; lead recomputed both parity verdict.json SHA-256s from the evidence (match, pass true, empty differing.txt)",
+          "status": "G1 and G2 REGRESSION-VERIFIED on f0e2645b",
+          "g3": "self-check passed; parity hit the 1800 s cap under load and wrote no verdict; rerunning with a 3600 s cap"
         }
       ],
       "reviews": [], "repairs": [], "trackedGaps": [
