@@ -1,9 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use spocky_store::{AgentStore, StoredAgentRecord};
+
+static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct TestDir(PathBuf);
 
@@ -13,8 +16,11 @@ impl TestDir {
             .duration_since(UNIX_EPOCH)
             .expect("clock must be after Unix epoch")
             .as_nanos();
+        // The clock ticks in microseconds on macOS, so parallel tests can read
+        // the same nanosecond value; the counter keeps their directories apart.
+        let serial = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "spocky-store-baseline-roundtrip-{}-{nonce}",
+            "spocky-store-baseline-roundtrip-{}-{nonce}-{serial}",
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("create disposable store directory");
