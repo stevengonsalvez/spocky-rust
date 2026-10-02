@@ -9,7 +9,7 @@ use spocky_contracts::js_value::{JsValue, parse, stringify};
 use spocky_provider_claude::subagents::live_source::ClaudeTaskProtocolSource;
 use spocky_provider_claude::subagents::observation::fold_subagent_observations;
 use spocky_provider_claude::subagents::presentation::{
-    PresentationFacts, build_claude_subagent_subtitle,
+    PresentationFacts, build_claude_subagent_subtitle, js_round,
 };
 use spocky_provider_claude::subagents::workflow_output::{
     format_claude_workflow_result, parse_claude_workflow_result,
@@ -121,6 +121,28 @@ const OPS: &str = r#"[
   {"call":"observe","message":{"type":"user","subtype":"task_started"}},
   {"call":"query"}
  ]},
+ {"op":"round","value":"-0.5"},
+ {"op":"round","value":"-0.4999999999999999"},
+ {"op":"round","value":"-0.1"},
+ {"op":"round","value":"-0"},
+ {"op":"round","value":"0"},
+ {"op":"round","value":"0.1"},
+ {"op":"round","value":"0.49999999999999994"},
+ {"op":"round","value":"0.5"},
+ {"op":"round","value":"0.5000000000000001"},
+ {"op":"round","value":"1.5"},
+ {"op":"round","value":"2.5"},
+ {"op":"round","value":"-1.5"},
+ {"op":"round","value":"-2.5"},
+ {"op":"round","value":"-0.5000000000000001"},
+ {"op":"round","value":"1e21"},
+ {"op":"round","value":"-1e21"},
+ {"op":"round","value":"4503599627370497"},
+ {"op":"round","value":"-4503599627370497"},
+ {"op":"round","value":"9007199254740991"},
+ {"op":"round","value":"-9007199254740991"},
+ {"op":"round","value":"1e-300"},
+ {"op":"round","value":"-1e-300"},
  {"op":"timestamp","value":"2026-10-01T10:00:00Z"},
  {"op":"timestamp","value":"2026-13-01T10:00:00Z"},
  {"op":"timestamp","value":1700000000},
@@ -268,6 +290,12 @@ for (const op of JSON.parse(opsJson)) {
     case "timestamp":
       put(normalizeProviderReplayTimestamp(op.value));
       break;
+    case "round": {
+      // A string: JSON.stringify writes -0 as 0.
+      const rounded = Math.round(Number(op.value));
+      out.push(Object.is(rounded, -0) ? "-0" : String(rounded));
+      break;
+    }
   }
 }
 process.stdout.write(out.join("\n") + "\n");
@@ -439,6 +467,18 @@ fn rust_output() -> String {
             Some("workflowParse") => out.push(line(&opt_string(parse_claude_workflow_result(
                 get_str(op, "contents").unwrap_or_default(),
             )))),
+            Some("round") => {
+                // A string: `stringify` writes -0 as 0, which would hide the sign.
+                let value: f64 = get_str(op, "value")
+                    .and_then(|text| text.parse().ok())
+                    .unwrap_or(f64::NAN);
+                let rounded = js_round(value);
+                out.push(if rounded.to_bits() == (-0.0_f64).to_bits() {
+                    "-0".to_owned()
+                } else {
+                    spocky_contracts::js::js_string(Some(&JsValue::Number(rounded)))
+                });
+            }
             Some("live") => live(op, &mut out),
             _ => out.push(line(
                 &normalize_replay_timestamp(op.get("value")).map_or(JsValue::Null, JsValue::String),
