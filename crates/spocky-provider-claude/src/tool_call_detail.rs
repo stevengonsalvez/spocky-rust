@@ -947,6 +947,7 @@ fn glob_output(value: &JsValue) -> Option<JsObject> {
 }
 
 /// A passthrough object with its shape keys moved first, as zod writes it.
+/// zod 4.4.3 drops an own `__proto__` key instead of copying it.
 fn passthrough(record: &JsObject, shape: &[&str]) -> JsValue {
     let mut out = JsObject::new();
     for key in shape {
@@ -955,7 +956,7 @@ fn passthrough(record: &JsObject, shape: &[&str]) -> JsValue {
         }
     }
     for (key, value) in record.iter() {
-        if !shape.contains(&key) {
+        if key != spocky_contracts::json::PROTO_KEY && !shape.contains(&key) {
             out.insert(key, value.clone());
         }
     }
