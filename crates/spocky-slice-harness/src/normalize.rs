@@ -724,9 +724,11 @@ fn wall_time_class(
 }
 
 /// Every `"created": "<age>"` the pinned CLI printed, in scan order with
-/// repeats, where `<age>` is exactly `just now` or `<digits> <unit> ago` with
-/// `<unit>` one of second(s), minute(s), hour(s), day(s) (the CLI prints
-/// plurals even for 1).
+/// repeats, where `<age>` is exactly what the pinned `relativeTime`
+/// (`packages/cli/src/commands/agent/ls.ts:38-47`) prints: `just now`,
+/// `<digits> minutes ago`, `<digits> hours ago` or `<digits> days ago`. It is
+/// always plural, even for 1, and never counts seconds, so `1 minute ago`,
+/// `5 seconds ago` and every other rendering stay unmasked.
 #[must_use]
 pub fn relative_ages(texts: &[&str]) -> Vec<String> {
     const KEY: &str = "\"created\": \"";
@@ -744,17 +746,7 @@ pub fn relative_ages(texts: &[&str]) -> Vec<String> {
                     counted.split_once(' ').is_some_and(|(count, unit)| {
                         !count.is_empty()
                             && count.bytes().all(|byte| byte.is_ascii_digit())
-                            && matches!(
-                                unit,
-                                "second"
-                                    | "seconds"
-                                    | "minute"
-                                    | "minutes"
-                                    | "hour"
-                                    | "hours"
-                                    | "day"
-                                    | "days"
-                            )
+                            && matches!(unit, "minutes" | "hours" | "days")
                     })
                 });
             if is_age {
@@ -2154,20 +2146,26 @@ mod tests {
 
     #[test]
     fn relative_age_matches_only_the_exact_renderings() {
-        let text = r#"{"created": "just now"} {"created": "1 minutes ago"} {"created": "5 seconds ago"}
-            {"created": "2 hour ago"} {"created": "3 days ago"} {"created": "yesterday"}
-            {"created": "3 weeks ago"} {"created": " 3 days ago"} {"created": "just now!"}
-            {"created":"just now"} {"created": "x minutes ago"} {"created": "7  hours ago"}"#;
+        // The four pinned renderings, plural even for 1.
+        let pinned = r#"{"created": "just now"} {"created": "1 minutes ago"}
+            {"created": "12 hours ago"} {"created": "3 days ago"}"#;
         assert_eq!(
-            relative_ages(&[text]),
+            relative_ages(&[pinned]),
             [
                 r#""created": "just now""#,
                 r#""created": "1 minutes ago""#,
-                r#""created": "5 seconds ago""#,
-                r#""created": "2 hour ago""#,
+                r#""created": "12 hours ago""#,
                 r#""created": "3 days ago""#,
             ]
         );
+        // Everything else is not masked: seconds, singular forms, other units,
+        // padding, other keys and malformed counts.
+        let other = r#"{"created": "5 seconds ago"} {"created": "1 second ago"}
+            {"created": "1 minute ago"} {"created": "2 hour ago"} {"created": "1 day ago"}
+            {"created": "yesterday"} {"created": "3 weeks ago"} {"created": " 3 days ago"}
+            {"created": "just now!"} {"created":"just now"} {"created": "x minutes ago"}
+            {"created": "7  hours ago"} {"created": "-1 days ago"} {"created": "1.5 hours ago"}"#;
+        assert!(relative_ages(&[other]).is_empty());
     }
 
     fn listing(age: &str) -> String {
