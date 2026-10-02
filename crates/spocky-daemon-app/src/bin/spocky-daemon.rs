@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
 use spocky_daemon::daemon::{DaemonEnv, resolve_paseo_home};
@@ -18,10 +18,12 @@ use spocky_daemon_app::bootstrap::{ensure_schedule_store_dir, materialize_openco
 use spocky_daemon_app::codex_agent::CodexAgentClient;
 use spocky_daemon_app::provider::codex_runtime_settings;
 use spocky_daemon_app::session::{DaemonBackend, Services};
+use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions, ProviderDefinition};
 use spocky_session::agent_sdk::AgentClient;
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::checkout::CheckoutContext;
+use spocky_session::creation::CreationService;
 use spocky_session::provisioning::WorkspaceProvisioning;
 use spocky_store::registry::{ProjectRegistry, WorkspaceRegistry};
 use tokio::sync::Mutex;
@@ -120,6 +122,7 @@ fn main() -> ExitCode {
     let paseo_home = resolve_paseo_home(&env);
     let persisted = persisted_config(&paseo_home);
     let home = std::env::var("HOME").unwrap_or_default();
+    let home_dir = home.clone();
     // The transport reads the same file at startup; resolving it first lets
     // workspace provisioning key projects by this daemon's id.
     let server_id = get_or_create_server_id(
@@ -163,7 +166,7 @@ fn main() -> ExitCode {
         checkout: CheckoutContext {
             paseo_home: paseo_home.to_string_lossy().into_owned(),
             worktrees_root: worktrees_root(&paseo_home, &persisted, &home),
-            home,
+            home: home.clone(),
         },
         on_workspace_created: None,
     });
@@ -179,12 +182,18 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let backend = Arc::new(DaemonBackend::new(Arc::new(Services {
+    let slot: ServicesSlot = Arc::new(OnceLock::new());
+    let creation = CreationService::new(&paseo_home, Some(validate_completed(Arc::clone(&slot))));
+    let services = Arc::new(Services {
         runtime: runtime.handle().clone(),
         manager,
         storage,
         provisioning,
+        creation,
         paseo_home,
-    })));
+        home: home_dir,
+    });
+    let _ = slot.set(Arc::downgrade(&services));
+    let backend = Arc::new(DaemonBackend::new(services));
     run(backend)
 }

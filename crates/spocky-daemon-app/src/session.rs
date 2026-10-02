@@ -32,6 +32,7 @@ use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::clock::random_uuid;
+use spocky_session::creation::CreationService;
 use spocky_session::provisioning::WorkspaceProvisioning;
 use spocky_session::timeline::{FetchDirection, TimelineCursor};
 use spocky_store::registry::{
@@ -40,11 +41,12 @@ use spocky_store::registry::{
 };
 
 use crate::agent_directory::{
-    CursorError, checkout_from_persisted_workspace_placement, compare, compare_with_cursor,
-    decode_cursor, encode_cursor, matches_agent_updates_filter, normalize_sort,
+    AGENTS, CursorError, agent_sort, checkout_from_persisted_workspace_placement, compare,
+    compare_with_cursor, decode_cursor, encode_cursor, matches_agent_updates_filter,
 };
 use crate::authorization::SessionAuthorization;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
+use crate::workspace_handlers::{fetch_workspaces, workspace_create};
 
 /// `LEGACY_PROVIDER_IDS`: providers every client may see.
 const LEGACY_PROVIDER_IDS: [&str; 3] = ["claude", "codex", "opencode"];
@@ -56,7 +58,10 @@ pub struct Services {
     pub manager: Arc<AgentManager>,
     pub storage: Arc<AgentStorage>,
     pub provisioning: Arc<WorkspaceProvisioning>,
+    pub creation: CreationService,
     pub paseo_home: PathBuf,
+    /// `os.homedir()`, for tilde expansion.
+    pub home: String,
 }
 
 /// The production [`SessionBackend`].
@@ -190,8 +195,8 @@ impl SessionHandle for DaemonSession {
 
 /// What one request's handler can reach: the shared services and the
 /// session's client capabilities and app version when the request arrived.
-struct RequestContext {
-    services: Arc<Services>,
+pub(crate) struct RequestContext {
+    pub(crate) services: Arc<Services>,
     capabilities: Option<Value>,
     app_version: Option<String>,
 }
@@ -252,6 +257,14 @@ async fn route(
             Ok(())
         }
         SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
+        SessionInbound::WorkspaceCreate(request) => {
+            workspace_create(&context, *request, &emit).await;
+            Ok(())
+        }
+        SessionInbound::FetchWorkspaces(request) => {
+            fetch_workspaces(&context, request, &emit).await;
+            Ok(())
+        }
         SessionInbound::WaitForFinish(request) => wait_for_finish(&context, request, &emit).await,
         SessionInbound::FetchAgentTimeline(request) => {
             fetch_agent_timeline(&context, request, &emit).await;
@@ -264,11 +277,11 @@ async fn route(
     }
 }
 
-fn js_text(value: &JsText) -> JsValue {
+pub(crate) fn js_text(value: &JsText) -> JsValue {
     JsValue::String(value.as_str().to_owned())
 }
 
-fn to_frame(value: JsValue) -> Value {
+pub(crate) fn to_frame(value: JsValue) -> Value {
     serde_json::to_value(JsonValue(value)).expect("payload objects serialize to JSON")
 }
 
@@ -438,7 +451,7 @@ async fn list_fetch_agents_entries(
     request: &FetchAgentsRequest,
 ) -> Result<JsObject, (String, &'static str)> {
     let failed = |message: String| (message, "fetch_agents_failed");
-    let sort = normalize_sort(request.sort.as_deref());
+    let sort = AGENTS.normalize_sort(&agent_sort(request.sort.as_deref()));
     let mut agents = list_agent_payloads(context, request)
         .await
         .map_err(failed)?;
@@ -454,12 +467,12 @@ async fn list_fetch_agents_entries(
     if active {
         agents.retain(|agent| !truthy_text(agent, "archivedAt") && placement(agent).is_some());
     }
-    agents.sort_by(|left, right| compare(left, right, &sort));
+    agents.sort_by(|left, right| compare(&AGENTS, left, right, &sort));
     let cursor_token = request.page.as_ref().and_then(|page| page.cursor.as_ref());
     if let Some(token) = cursor_token {
-        let cursor = decode_cursor(token.as_str(), &sort)
+        let cursor = decode_cursor(&AGENTS, token.as_str(), &sort)
             .map_err(|CursorError(message)| (message, "invalid_cursor"))?;
-        agents.retain(|agent| compare_with_cursor(agent, &cursor, &sort) > 0);
+        agents.retain(|agent| compare_with_cursor(&AGENTS, agent, &cursor, &sort) > 0);
     }
     let limit = request
         .page
@@ -480,7 +493,7 @@ async fn list_fetch_agents_entries(
     let has_more = matched.len() > limit;
     matched.truncate(limit);
     let next_cursor = match matched.last() {
-        Some((agent, _)) if has_more => JsValue::String(encode_cursor(agent, &sort)),
+        Some((agent, _)) if has_more => JsValue::String(encode_cursor(&AGENTS, agent, &sort)),
         _ => JsValue::Null,
     };
     let entries = matched
@@ -552,7 +565,7 @@ async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emi
 const STORED_PAYLOAD_NOT_PORTED: &str =
     "Stored agent payloads are not ported in spocky-daemon-app yet";
 
-fn frame(kind: &str, payload: JsObject) -> Value {
+pub(crate) fn frame(kind: &str, payload: JsObject) -> Value {
     let mut frame = JsObject::new();
     frame.insert("type", JsValue::String(kind.to_owned()));
     frame.insert("payload", JsValue::Object(payload));

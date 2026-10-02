@@ -17,8 +17,25 @@ use spocky_store::collate::locale_compare;
 use spocky_store::registry::{PersistedWorkspaceRecord, WorkspaceKind};
 use spocky_store::time::parse_iso_millis;
 
-/// `FETCH_AGENTS_SORT_KEYS`.
-const SORT_KEYS: [&str; 4] = ["status_priority", "created_at", "updated_at", "title"];
+/// A `SortablePager` configuration: the cursor label, the valid sort keys,
+/// the default sort, and `getSortValue`. Items are keyed by their `id`.
+pub struct Pager {
+    pub label: &'static str,
+    pub keys: &'static [&'static str],
+    pub default_sort: SortSpec,
+    pub value: fn(&JsValue, &str) -> SortValue,
+}
+
+/// The agents pager (`FETCH_AGENTS_SORT_KEYS`, `updated_at desc`).
+pub const AGENTS: Pager = Pager {
+    label: "fetch_agents",
+    keys: &["status_priority", "created_at", "updated_at", "title"],
+    default_sort: SortSpec {
+        key: "updated_at",
+        ascending: false,
+    },
+    value: sort_value,
+};
 
 /// `SortSpec` with the wire key and direction text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,29 +65,35 @@ fn key_text(key: AgentSortKey) -> &'static str {
     }
 }
 
-/// `normalizeSort`: the default `updated_at desc` when empty, else the
-/// request's entries with repeated keys dropped.
+/// The request's agent sort as specs.
 #[must_use]
-pub fn normalize_sort(sort: Option<&[AgentSort]>) -> Vec<SortSpec> {
-    let default = vec![SortSpec {
-        key: "updated_at",
-        ascending: false,
-    }];
-    let Some(sort) = sort.filter(|sort| !sort.is_empty()) else {
-        return default;
-    };
-    let mut deduped: Vec<SortSpec> = Vec::new();
-    for entry in sort {
-        let key = key_text(entry.key);
-        if deduped.iter().any(|spec| spec.key == key) {
-            continue;
-        }
-        deduped.push(SortSpec {
-            key,
+pub fn agent_sort(sort: Option<&[AgentSort]>) -> Vec<SortSpec> {
+    sort.unwrap_or_default()
+        .iter()
+        .map(|entry| SortSpec {
+            key: key_text(entry.key),
             ascending: matches!(entry.direction, SortDirection::Asc),
-        });
+        })
+        .collect()
+}
+
+impl Pager {
+    /// `normalizeSort`: the default sort when empty, else the request's
+    /// entries with repeated keys dropped.
+    #[must_use]
+    pub fn normalize_sort(&self, sort: &[SortSpec]) -> Vec<SortSpec> {
+        let mut deduped: Vec<SortSpec> = Vec::new();
+        for spec in sort {
+            if !deduped.iter().any(|seen| seen.key == spec.key) {
+                deduped.push(*spec);
+            }
+        }
+        if deduped.is_empty() {
+            vec![self.default_sort]
+        } else {
+            deduped
+        }
     }
-    deduped
 }
 
 fn text_field<'a>(agent: &'a JsValue, key: &str) -> Option<&'a str> {
@@ -175,9 +198,12 @@ fn directed(base: i32, spec: SortSpec) -> i32 {
 
 /// `compare(left, right, sort)`: the specs in order, then id.
 #[must_use]
-pub fn compare(left: &JsValue, right: &JsValue, sort: &[SortSpec]) -> Ordering {
+pub fn compare(pager: &Pager, left: &JsValue, right: &JsValue, sort: &[SortSpec]) -> Ordering {
     for spec in sort {
-        let base = compare_values(&sort_value(left, spec.key), &sort_value(right, spec.key));
+        let base = compare_values(
+            &(pager.value)(left, spec.key),
+            &(pager.value)(right, spec.key),
+        );
         if base != 0 {
             return directed(base, *spec).cmp(&0);
         }
@@ -194,14 +220,19 @@ pub struct Cursor {
 
 /// `compareWithCursor(item, cursor, sort)`.
 #[must_use]
-pub fn compare_with_cursor(agent: &JsValue, cursor: &Cursor, sort: &[SortSpec]) -> i32 {
+pub fn compare_with_cursor(
+    pager: &Pager,
+    agent: &JsValue,
+    cursor: &Cursor,
+    sort: &[SortSpec],
+) -> i32 {
     for spec in sort {
         let right = cursor
             .values
             .iter()
             .find(|(key, _)| key == spec.key)
             .map_or(SortValue::Null, |(_, value)| value.clone());
-        let base = compare_values(&sort_value(agent, spec.key), &right);
+        let base = compare_values(&(pager.value)(agent, spec.key), &right);
         if base != 0 {
             return directed(base, *spec);
         }
@@ -219,7 +250,7 @@ fn sort_value_js(value: &SortValue) -> JsValue {
 
 /// `encodeCursor`: base64url of `JSON.stringify({ sort, values, id })`.
 #[must_use]
-pub fn encode_cursor(agent: &JsValue, sort: &[SortSpec]) -> String {
+pub fn encode_cursor(pager: &Pager, agent: &JsValue, sort: &[SortSpec]) -> String {
     let mut sort_list = Vec::new();
     let mut values = JsObject::new();
     for spec in sort {
@@ -230,7 +261,7 @@ pub fn encode_cursor(agent: &JsValue, sort: &[SortSpec]) -> String {
             JsValue::String(if spec.ascending { "asc" } else { "desc" }.to_owned()),
         );
         sort_list.push(JsValue::Object(entry));
-        values.insert(spec.key, sort_value_js(&sort_value(agent, spec.key)));
+        values.insert(spec.key, sort_value_js(&(pager.value)(agent, spec.key)));
     }
     let mut payload = JsObject::new();
     payload.insert("sort", JsValue::Array(sort_list));
@@ -240,14 +271,15 @@ pub fn encode_cursor(agent: &JsValue, sort: &[SortSpec]) -> String {
     URL_SAFE_NO_PAD.encode(spocky_contracts::json::js_wire_text(&text))
 }
 
-/// `decodeCursor(token, sort, FETCH_AGENTS_SORT_KEYS, "fetch_agents")`.
+/// `decodeCursor(token, sort, validKeys, label)`.
 ///
 /// # Errors
 ///
-/// `Invalid fetch_agents cursor` for an undecodable or malformed token, and
-/// `fetch_agents cursor does not match current sort` for another sort.
-pub fn decode_cursor(token: &str, sort: &[SortSpec]) -> Result<Cursor, CursorError> {
-    let invalid = || CursorError("Invalid fetch_agents cursor".to_owned());
+/// `Invalid <label> cursor` for an undecodable or malformed token, and
+/// `<label> cursor does not match current sort` for another sort.
+pub fn decode_cursor(pager: &Pager, token: &str, sort: &[SortSpec]) -> Result<Cursor, CursorError> {
+    let label = pager.label;
+    let invalid = || CursorError(format!("Invalid {label} cursor"));
     // `Buffer.from(token, "base64url")` ignores padding and stops at the
     // first character outside the alphabet.
     let alphabet = |c: &char| c.is_ascii_alphanumeric() || *c == '-' || *c == '_';
@@ -285,7 +317,7 @@ pub fn decode_cursor(token: &str, sort: &[SortSpec]) -> Result<Cursor, CursorErr
         else {
             return Err(invalid());
         };
-        if !SORT_KEYS.contains(&key.as_str()) || (direction != "asc" && direction != "desc") {
+        if !pager.keys.contains(&key.as_str()) || (direction != "asc" && direction != "desc") {
             return Err(invalid());
         }
         cursor_sort.push((key.clone(), direction == "asc"));
@@ -296,9 +328,9 @@ pub fn decode_cursor(token: &str, sort: &[SortSpec]) -> Result<Cursor, CursorErr
             .zip(sort)
             .all(|((key, ascending), spec)| key == spec.key && *ascending == spec.ascending);
     if !matches {
-        return Err(CursorError(
-            "fetch_agents cursor does not match current sort".to_owned(),
-        ));
+        return Err(CursorError(format!(
+            "{label} cursor does not match current sort"
+        )));
     }
     Ok(Cursor {
         values,
@@ -475,34 +507,34 @@ mod tests {
 
     #[test]
     fn default_sort_is_updated_desc_then_id() {
-        let sort = normalize_sort(None);
+        let sort = AGENTS.normalize_sort(&agent_sort(None));
         let older = agent(r#"{"id":"b","updatedAt":"2026-10-01T00:00:00.000Z"}"#);
         let newer = agent(r#"{"id":"a","updatedAt":"2026-10-02T00:00:00.000Z"}"#);
-        assert_eq!(compare(&newer, &older, &sort), Ordering::Less);
+        assert_eq!(compare(&AGENTS, &newer, &older, &sort), Ordering::Less);
         let tie = agent(r#"{"id":"c","updatedAt":"2026-10-02T00:00:00.000Z"}"#);
-        assert_eq!(compare(&newer, &tie, &sort), Ordering::Less);
+        assert_eq!(compare(&AGENTS, &newer, &tie, &sort), Ordering::Less);
     }
 
     #[test]
     fn cursor_round_trips_and_rejects_another_sort() {
-        let sort = normalize_sort(None);
+        let sort = AGENTS.normalize_sort(&agent_sort(None));
         let item = agent(r#"{"id":"a","updatedAt":"2026-10-02T00:00:00.000Z"}"#);
-        let token = encode_cursor(&item, &sort);
-        let decoded = decode_cursor(&token, &sort).expect("cursor");
+        let token = encode_cursor(&AGENTS, &item, &sort);
+        let decoded = decode_cursor(&AGENTS, &token, &sort).expect("cursor");
         assert_eq!(decoded.id, "a");
-        assert_eq!(compare_with_cursor(&item, &decoded, &sort), 0);
+        assert_eq!(compare_with_cursor(&AGENTS, &item, &decoded, &sort), 0);
         let other = [SortSpec {
             key: "title",
             ascending: true,
         }];
         assert_eq!(
-            decode_cursor(&token, &other),
+            decode_cursor(&AGENTS, &token, &other),
             Err(CursorError(
                 "fetch_agents cursor does not match current sort".to_owned()
             ))
         );
         assert_eq!(
-            decode_cursor("@@@", &sort),
+            decode_cursor(&AGENTS, "@@@", &sort),
             Err(CursorError("Invalid fetch_agents cursor".to_owned()))
         );
     }
