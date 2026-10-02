@@ -20,7 +20,7 @@ fn outcome<T>(result: Result<T, String>, value: impl FnOnce(T) -> Value) -> Valu
     }
 }
 
-fn rust_run(root: &DisposableRoot, path_dir: &Path) -> Value {
+fn rust_run(root: &DisposableRoot, path_dir: &Path) -> String {
     let provider = CodexProvider::new(
         None,
         None,
@@ -51,9 +51,10 @@ fn rust_run(root: &DisposableRoot, path_dir: &Path) -> Value {
             |catalog| catalog,
         ),
     })
+    .to_string()
 }
 
-fn pinned_run(root: &DisposableRoot, path_dir: &Path) -> Value {
+fn pinned_run(root: &DisposableRoot, path_dir: &Path) -> String {
     let pinned = support::pinned_paseo();
     let mut child = Command::new(&pinned.node)
         .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/pinned_missing_codex.mjs"))
@@ -83,7 +84,7 @@ fn pinned_run(root: &DisposableRoot, path_dir: &Path) -> Value {
         "pinned run failed: {stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_str(stdout.trim()).expect("pinned run JSON")
+    stdout.trim().to_owned()
 }
 
 #[test]
@@ -95,14 +96,12 @@ fn missing_codex_matches_pinned() {
     std::fs::create_dir_all(&path_dir).expect("empty path dir");
     let rust = rust_run(&root, &path_dir);
     let pinned = pinned_run(&root, &path_dir);
+    // Compared as text, with no parse and re-serialize in between.
+    assert_eq!(rust, pinned, "missing-codex behavior differs from pinned");
+    let parsed: Value = serde_json::from_str(&rust).expect("rust run JSON");
+    assert_eq!(parsed["available"], json!({"value": false}));
     assert_eq!(
-        serde_json::to_string(&rust).unwrap(),
-        serde_json::to_string(&pinned).unwrap(),
-        "missing-codex behavior differs from pinned"
-    );
-    assert_eq!(rust["available"], json!({"value": false}));
-    assert_eq!(
-        rust["create"]["error"],
+        parsed["create"]["error"],
         json!(spocky_provider_codex::launch::CODEX_NOT_FOUND_MESSAGE)
     );
 }
