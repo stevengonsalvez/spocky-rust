@@ -513,14 +513,18 @@ impl AgentClient for CodexAgentClient {
     fn fetch_catalog(
         &self,
         _options: FetchCatalogOptions,
-        _context: Option<Arc<dyn ProviderRefreshContext>>,
+        context: Option<Arc<dyn ProviderRefreshContext>>,
     ) -> BoxFuture<'_, AgentResult<JsValue>> {
         let provider = Arc::clone(&self.provider);
+        // `context?.signal`: snapshot refreshes always carry one, while
+        // `resolveDefaultModelId` fetches with no context and so fills the
+        // auto-review memo that session creation reuses.
+        let signal_present = context.is_some();
         // ponytail: the refresh signal does not reach the app-server; the
         // provider takes a deadline instead. Map signal to deadline if the
         // snapshot manager needs abort.
         Box::pin(async move {
-            blocking(move || provider.fetch_catalog(None))
+            blocking(move || provider.fetch_catalog_signalled(None, signal_present))
                 .await
                 .map(|catalog| to_js(&catalog))
         })
