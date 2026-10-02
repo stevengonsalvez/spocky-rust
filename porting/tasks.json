@@ -1033,6 +1033,16 @@
           "pathsAccepted": "evidence/phase3/session-interleave-gap.md concurrent-load case, already a session lane path; the case stays OPEN under SESSION-INTERLEAVE"
         },
         {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "7b0b7b9f..54c596ce (18 commits): full G1 dispatch: agent.create glue, workspace.create, fetch_workspaces, agent_update fan-out, provider routing, codex host catalog key, agent-update differential",
+          "integrationHead": "0562de12",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-54c596ce.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets, cargo build -p spocky-daemon-app --bin spocky-daemon",
+          "trackedPostG1": ["P2 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline", "P2 unported agent.create and fetch_workspaces paths (fail loud)"],
+          "followUps": ["P3 agent-update-differential.sh: exit trap, egress assert, gtimeout", "P3 evidence/phase3/g1-wiring.md: raw digests"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
