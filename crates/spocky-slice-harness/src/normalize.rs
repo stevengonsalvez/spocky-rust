@@ -14,9 +14,11 @@
 //! | `daemon-listen`, `stub-listen` | generated id | `127.0.0.1:<port>` of the daemon and the Responses stub |
 //! | `sha256-of-<preimage>` | generated id | a digest verified to equal `sha256` of an exact preimage the gate sent (creation fingerprints) |
 //! | `sha256-<kind>-of-<id class>` | generated id | a digest verified to equal `sha256(JSON.stringify([kind, id]))` of a paired generated id |
+//! | `send-receipt-key-<n>` | generated id | the file name of a Paseo send receipt `agent-requests/<key>.json`, paired by its exact content fingerprint |
 //! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
 //! | `wall-clock-<format>-<n>` | wall clock | the n-th group of instants of one format inside the run window, paired by occurrence position; a group may merge distinct literals only within the format's resolution (same millisecond for `iso-frac3` and `epoch-ms`) |
+//! | `codex-wall-time` | wall clock | Codex's measured tool cell duration `Wall time <d+>.<d> seconds`, applied only in Responses stub request bodies (`stub/<nnn>`) |
 //!
 //! A class whose left and right values are identical emits no rule: the value
 //! is not generated per run and must match exactly.
@@ -24,8 +26,9 @@
 //! Discovery fails, which fails the gate, when the sides differ in generated
 //! id count, in the shape at any pairing position, in which derived digests
 //! or short prefixes exist, in wall-clock occurrence count or equality
-//! structure per format, or in which extracted secrets exist. Any other 64-hex value (for example a content
-//! hash) is never normalized and must match exactly. Wall-clock values outside
+//! structure per format, in Codex wall time count, in send receipt
+//! fingerprints, or in which extracted secrets exist. Any other 64-hex value
+//! (for example a content hash) is never normalized and must match exactly. Wall-clock values outside
 //! the run window (for example fixed fixture dates) also stay literal.
 
 use serde_json::Value;
@@ -524,6 +527,7 @@ fn wall_clock_classes(
             reason: "wall-clock instant inside the run window, paired by position; merges only within the format's resolution".into(),
             left: left_values.iter().map(|instant| instant.value.clone()).collect(),
             right: right_values.iter().map(|instant| instant.value.clone()).collect(),
+            scope: Scope::Every,
         });
     }
     Ok(classes)
@@ -660,6 +664,169 @@ fn quoted_short(uuid: &str) -> String {
     format!("\"{}\"", &uuid[..7])
 }
 
+const WALL_TIME_PREFIX: &str = "Wall time ";
+const WALL_TIME_SUFFIX: &str = " seconds";
+
+/// Every `Wall time \d+\.\d seconds` occurrence, in scan order with repeats.
+/// Codex prints this measured duration of a code mode cell in the tool output
+/// it sends back to the Responses API.
+#[must_use]
+pub fn wall_times(texts: &[&str]) -> Vec<String> {
+    let mut found = Vec::new();
+    for text in texts {
+        let mut rest = *text;
+        while let Some(at) = rest.find(WALL_TIME_PREFIX) {
+            let after = &rest[at + WALL_TIME_PREFIX.len()..];
+            let whole = after.bytes().take_while(u8::is_ascii_digit).count();
+            let tail = &after[whole..];
+            let matched = whole > 0
+                && tail.as_bytes().first() == Some(&b'.')
+                && tail.as_bytes().get(1).is_some_and(u8::is_ascii_digit)
+                && tail[2..].starts_with(WALL_TIME_SUFFIX);
+            if matched {
+                let end = at + WALL_TIME_PREFIX.len() + whole + 2 + WALL_TIME_SUFFIX.len();
+                found.push(rest[at..end].to_owned());
+                rest = &rest[end..];
+            } else {
+                rest = after;
+            }
+        }
+    }
+    found
+}
+
+/// One class for every Codex wall time, applied only in stub request bodies.
+/// Discovery counts occurrences in every text, so a one-sided occurrence
+/// anywhere fails; the comparison then checks the count and position of the
+/// replaced tokens in each stub request body.
+fn wall_time_class(
+    left: &SideInput<'_>,
+    right: &SideInput<'_>,
+) -> Result<Option<ValueClass>, String> {
+    let (left_times, right_times) = (wall_times(&left.texts), wall_times(&right.texts));
+    if left_times.len() != right_times.len() {
+        return Err(format!(
+            "codex wall time occurrence count differs: left {} right {}",
+            left_times.len(),
+            right_times.len()
+        ));
+    }
+    Ok((!left_times.is_empty()).then(|| ValueClass {
+        id: "codex-wall-time".into(),
+        category: NormalizationCategory::WallClock,
+        reason: "Codex measured tool cell duration in a stub request body".into(),
+        left: left_times,
+        right: right_times,
+        scope: Scope::StubRequests,
+    }))
+}
+
+/// The key of a Paseo send receipt path `<dir>/agent-requests/<key>.json`,
+/// where the key is 64 lower hex.
+///
+/// At the pinned commit only `MessageReceipts` writes this directory
+/// (message-receipts/index.ts:27, key `sha256(JSON.stringify(["send",
+/// agentId, messageId]))`); creation only reads legacy receipts there
+/// (creation/index.ts:219-221). The `messageId` is a client
+/// `crypto.randomUUID()` (daemon-client.ts:3444) that no captured artifact
+/// holds, so the gate cannot verify the key. The receipts differential
+/// (lane `p3_message_receipts`, `crates/spocky-message-receipts` tests) proves
+/// the key derivation byte for byte against the pinned daemon with fixed
+/// message ids, so masking the key here hides no derivation difference.
+#[must_use]
+pub fn receipt_key(path: &str) -> Option<&str> {
+    let (directory, file) = path.rsplit_once('/')?;
+    let key = file.strip_suffix(".json")?;
+    (directory.rsplit('/').next() == Some("agent-requests")
+        && key.len() == 64
+        && key.bytes().all(|byte| Alphabet::LowerHex.contains(byte)))
+    .then_some(key)
+}
+
+/// Send receipts among state texts (`<path>\n<content>`), as (key, fingerprint).
+fn send_receipts(texts: &[&str]) -> Result<Vec<(String, String)>, String> {
+    let mut receipts = Vec::new();
+    for text in texts {
+        let Some((path, content)) = text.split_once('\n') else {
+            continue;
+        };
+        let Some(key) = receipt_key(path) else {
+            continue;
+        };
+        let fingerprint = serde_json::from_str::<Value>(content)
+            .ok()
+            .and_then(|json| json.get("fingerprint")?.as_str().map(str::to_owned))
+            .ok_or_else(|| format!("send receipt {path} has no fingerprint"))?;
+        receipts.push((key.to_owned(), fingerprint));
+    }
+    Ok(receipts)
+}
+
+/// Pairs send receipt keys by their exact content fingerprint. Discovery
+/// fails unless both sides hold the same set of distinct fingerprints, so a
+/// receipt on one side only, or with different content, is never paired.
+fn receipt_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Result<Vec<ValueClass>, String> {
+    let (left_receipts, right_receipts) =
+        (send_receipts(&left.texts)?, send_receipts(&right.texts)?);
+    let fingerprints = |receipts: &[(String, String)]| {
+        let mut sorted: Vec<String> = receipts.iter().map(|(_, print)| print.clone()).collect();
+        sorted.sort_unstable();
+        sorted
+    };
+    let left_prints = fingerprints(&left_receipts);
+    if left_prints != fingerprints(&right_receipts) {
+        return Err(format!(
+            "send receipt fingerprints differ: left {} right {}",
+            left_receipts.len(),
+            right_receipts.len()
+        ));
+    }
+    if left_prints.windows(2).any(|window| window[0] == window[1]) {
+        return Err("two send receipts share a fingerprint".into());
+    }
+    Ok(left_receipts
+        .iter()
+        .filter_map(|(left_key, print)| {
+            let (right_key, _) = right_receipts.iter().find(|(_, other)| other == print)?;
+            Some((left_key, right_key))
+        })
+        .enumerate()
+        .map(|(index, (left_key, right_key))| {
+            pair(
+                &format!("send-receipt-key-{}", index + 1),
+                NormalizationCategory::GeneratedId,
+                "send receipt file name over a client random message id, paired by exact content fingerprint",
+                left_key.clone(),
+                right_key.clone(),
+            )
+        })
+        .collect())
+}
+
+/// The targets a value class may be applied in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every compared text.
+    Every,
+    /// Only Responses stub request bodies, the `stub/<nnn>` artifacts.
+    StubRequests,
+}
+
+impl Scope {
+    fn admits(self, target: &NormalizationTarget) -> bool {
+        match self {
+            Self::Every => true,
+            Self::StubRequests => matches!(
+                target,
+                NormalizationTarget::Artifact(name)
+                    if name.strip_prefix("stub/").is_some_and(|number| {
+                        !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+            ),
+        }
+    }
+}
+
 /// One value class with the exact literals to replace on each side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueClass {
@@ -668,6 +835,7 @@ pub struct ValueClass {
     pub reason: String,
     pub left: Vec<String>,
     pub right: Vec<String>,
+    pub scope: Scope,
 }
 
 /// One side's inputs to rule discovery.
@@ -696,6 +864,7 @@ fn pair(
         reason: reason.into(),
         left: vec![left],
         right: vec![right],
+        scope: Scope::Every,
     }
 }
 
@@ -895,6 +1064,7 @@ pub fn value_classes(
 ) -> Result<Vec<ValueClass>, String> {
     let mut classes = fixed_classes(left, right)?;
     classes.extend(preimage_classes(left, right)?);
+    classes.extend(receipt_classes(left, right)?);
     let [digests, ids, shorts] = id_classes(left, right, shapes)?;
     classes.extend(digests);
     classes.extend(ids);
@@ -916,6 +1086,7 @@ pub fn value_classes(
             &of_format(&right_clock, format),
         )?);
     }
+    classes.extend(wall_time_class(left, right)?);
     Ok(classes)
 }
 
@@ -1022,7 +1193,7 @@ pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<N
             continue;
         }
         let token = format!("{{{{{:?}:{}}}}}", class.category, class.id);
-        for target in &targets {
+        for target in targets.iter().filter(|target| class.scope.admits(target)) {
             let key = target_key(target);
             // A rule only where the class occurs on BOTH sides of this target.
             // A value on one side only stays raw and shows as a content
@@ -1614,5 +1785,120 @@ mod tests {
                 vec![UUID_A.to_owned(), UUID_B.to_owned()]
             )]
         );
+    }
+
+    #[test]
+    fn wall_time_matches_only_the_exact_form() {
+        let text = "Wall time 3.4 seconds\nWall time 12.0 seconds Wall time 3 seconds \
+                    Wall time 3.45 seconds Wall time .4 seconds Wall time 3.4 second";
+        assert_eq!(
+            wall_times(&[text]),
+            vec!["Wall time 3.4 seconds", "Wall time 12.0 seconds"]
+        );
+    }
+
+    #[test]
+    fn codex_wall_time_normalizes_only_in_stub_requests() {
+        let body =
+            |time: &str| format!(r#"{{"output":"Script completed\nWall time {time} seconds"}}"#);
+        let left = vec![artifact("stub/001", body("3.4"))];
+        let right = vec![artifact("stub/001", body("3.9"))];
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        let left = vec![artifact("step-01-logs/stdout", body("3.4"))];
+        let right = vec![artifact("step-01-logs/stdout", body("3.9"))];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn one_sided_codex_wall_time_fails_discovery() {
+        let left = vec![artifact("stub/001", "Wall time 3.4 seconds".into())];
+        let right = vec![artifact("stub/001", "no timing".into())];
+        assert!(equivalent(&left, &right).is_err());
+    }
+
+    #[test]
+    fn extra_codex_wall_time_in_one_body_still_differs() {
+        let left = vec![
+            artifact(
+                "stub/001",
+                "Wall time 3.4 seconds Wall time 5.0 seconds".into(),
+            ),
+            artifact("stub/002", "none".into()),
+        ];
+        let right = vec![
+            artifact("stub/001", "Wall time 3.9 seconds".into()),
+            artifact("stub/002", "none Wall time 7.5 seconds".into()),
+        ];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    fn receipt(name: &str, key: &str, fingerprint: &str) -> Text {
+        artifact(
+            name,
+            format!(
+                "paseo-home/agent-requests/{key}.json\n{{\"fingerprint\":\"{fingerprint}\",\"state\":\"completed\"}}"
+            ),
+        )
+    }
+
+    #[test]
+    fn receipt_key_is_only_an_agent_requests_hex64_name() {
+        let key = sha256_hex("k");
+        assert_eq!(
+            receipt_key(&format!("paseo-home/agent-requests/{key}.json")),
+            Some(key.as_str())
+        );
+        assert_eq!(
+            receipt_key(&format!("paseo-home/creations/{key}.json")),
+            None
+        );
+        assert_eq!(receipt_key(&format!("agent-requests/{key}.txt")), None);
+        assert_eq!(
+            receipt_key(&format!("agent-requests/{}.json", &key[1..])),
+            None
+        );
+        let upper = key.to_uppercase();
+        assert_eq!(receipt_key(&format!("agent-requests/{upper}.json")), None);
+    }
+
+    #[test]
+    fn send_receipt_keys_pair_by_exact_fingerprint() {
+        let (one_print, two_print) = (sha256_hex("f1"), sha256_hex("f2"));
+        let left = vec![
+            receipt("r1", &sha256_hex("k1"), &one_print),
+            receipt("r2", &sha256_hex("k2"), &two_print),
+        ];
+        let right = vec![
+            receipt("r1", &sha256_hex("k3"), &one_print),
+            receipt("r2", &sha256_hex("k4"), &two_print),
+        ];
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // Right lists the receipts in the other order: keys still pair by
+        // fingerprint, so each artifact keeps its content difference.
+        let swapped = vec![
+            receipt("r1", &sha256_hex("k4"), &two_print),
+            receipt("r2", &sha256_hex("k3"), &one_print),
+        ];
+        assert_eq!(equivalent(&left, &swapped), Ok(false));
+    }
+
+    #[test]
+    fn send_receipt_on_one_side_only_fails_discovery() {
+        let print = sha256_hex("f1");
+        let left = vec![
+            receipt("r1", &sha256_hex("k1"), &print),
+            receipt("r2", &sha256_hex("k2"), &sha256_hex("f2")),
+        ];
+        let right = vec![receipt("r1", &sha256_hex("k3"), &print)];
+        let error = equivalent(&left, &right).unwrap_err();
+        assert!(
+            error.contains("send receipt fingerprints differ"),
+            "{error}"
+        );
+        let changed = vec![
+            receipt("r1", &sha256_hex("k3"), &print),
+            receipt("r2", &sha256_hex("k4"), &sha256_hex("f3")),
+        ];
+        assert!(equivalent(&left, &changed).is_err());
     }
 }
