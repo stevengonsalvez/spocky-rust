@@ -7,7 +7,10 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+
+const { provenance } = createRequire(import.meta.url)("./generator-support.cjs");
 
 const root = process.argv[2];
 const module = await import(
@@ -65,4 +68,4 @@ for (const [name, text] of cases) {
   rmSync(home, { recursive: true, force: true });
   out.push({ name, text, ...result });
 }
-process.stdout.write(JSON.stringify({ node: process.version, original: path.basename(root), cases: out }, null, 1));
+process.stdout.write(JSON.stringify({ node: process.version, original: path.basename(root), provenance: provenance(root, ["packages/server/dist/server/server/persisted-config.js"]), cases: out }, null, 1));
