@@ -1155,6 +1155,16 @@
           "followUps": ["P3 generator renumbers SHARED_<n> constants, adding diff noise to regenerated zod_schemas.rs"]
         },
         {
+          "lane": "p3_contracts",
+          "date": "2026-10-02",
+          "sourceRange": "0f5756b2..b316ee9f (9 commits, G3-2): url dependency (manifest and lock atomic), persisted config zod schemas generated from the pinned dist, zod refinements, record keys and url checks, check_config_text(path, raw) -> Result<JsValue, ConfigRefusal>, returned-config goldens",
+          "integrationHead": "378a40a4",
+          "review": "integration reviewer PASS (verdicts/p3_contracts-b316ee9f.txt) after the held 628c8c00 range: returned-config goldens byte-exact across 176 cases, both migration mutants now fail",
+          "generatorCheck": "2026-10-02 lead: disposable paseo-rewrite clone at 5de45e208690b0efc51c59a585ae9729325a9204 with the slice-harness dist: contracts-zod.mjs --server-dist --check reports zod_schemas.rs and config_schema.rs current; contracts-capture.mjs --check matches all 176 cases",
+          "leadVerification": "gated: spocky-contracts 55 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "unblocks": "p3_daemon_transport openPortGaps config_file.rs config refusal (needs check_config_text; after the reset)"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
