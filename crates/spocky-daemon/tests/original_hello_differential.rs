@@ -83,8 +83,19 @@ fn server_info_matches_the_original_byte_for_byte() {
                 .to_owned()
         })
         .unwrap();
+    // Only the `hostname` field's value differs; nothing else in the frame is rewritten.
+    let local_field = format!("\"hostname\":{}", serde_json::to_string(&local).unwrap());
+    let original_field = format!(
+        "\"hostname\":{}",
+        serde_json::to_string(&original_host).unwrap()
+    );
     assert_eq!(
-        frame.as_str().replace(&local, &original_host),
+        frame.as_str().matches(&local_field).count(),
+        1,
+        "hostname field"
+    );
+    assert_eq!(
+        frame.as_str().replacen(&local_field, &original_field, 1),
         expected,
         "server_info frame (DWLABEL-001 aside)"
     );
