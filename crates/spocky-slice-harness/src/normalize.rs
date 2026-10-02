@@ -38,6 +38,12 @@ use spocky_differential::{NormalizationCategory, NormalizationRule, Normalizatio
 
 const OWNER: &str = "p3_slice_harness";
 
+/// The client every side runs: the unchanged pinned Paseo CLI. Classes that
+/// depend on the CLI's own rendering (`cli-relative-age`) apply only when both
+/// sides recorded this identity; a Spocky CLI would need that rendering
+/// proved separately with a fixed clock.
+pub const PINNED_CLIENT: &str = "pinned-paseo-cli";
+
 /// Secret classes the harness may read from known files. No other class id is
 /// accepted for extracted values.
 pub const EXTRACTED_CLASSES: [&str; 3] =
@@ -53,6 +59,8 @@ pub struct SideFacts {
     /// Inclusive wall-clock window of the run, in Unix milliseconds.
     pub window_start_ms: u64,
     pub window_end_ms: u64,
+    /// The client this side ran, [`PINNED_CLIENT`] for every gate today.
+    pub client: String,
 }
 
 /// A text artifact or state file, addressed the way `spocky-differential` targets it.
@@ -767,6 +775,11 @@ fn relative_age_class(
     left: &SideInput<'_>,
     right: &SideInput<'_>,
 ) -> Result<Option<ValueClass>, String> {
+    // The age text is the pinned CLI's rendering. Without that identity on
+    // both sides there is no class: the ages stay raw and differ.
+    if left.facts.client != PINNED_CLIENT || right.facts.client != PINNED_CLIENT {
+        return Ok(None);
+    }
     let (left_ages, right_ages) = (relative_ages(&left.texts), relative_ages(&right.texts));
     if left_ages.len() != right_ages.len() {
         return Err(format!(
@@ -1397,6 +1410,7 @@ mod tests {
 
     fn facts(root: &str, daemon_port: u16, stub_port: u16) -> SideFacts {
         SideFacts {
+            client: PINNED_CLIENT.to_owned(),
             root: root.into(),
             daemon_port,
             stub_port,
@@ -2188,6 +2202,32 @@ mod tests {
             listing("1 minutes ago").replace("error", "idle"),
         )];
         assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn relative_age_applies_only_to_the_pinned_client_on_both_sides() {
+        let left = vec![artifact("step-04-ls/stdout", listing("just now"))];
+        let right = vec![artifact("step-04-ls/stdout", listing("1 minutes ago"))];
+        let classes = |left_client: &str, right_client: &str| {
+            let mut left_facts = facts("/private/tmp/spocky-p3-g1-0000000000a", 41001, 42001);
+            let mut right_facts = facts("/private/tmp/spocky-p3-g1-0000000000b", 41002, 42002);
+            left_facts.client = left_client.into();
+            right_facts.client = right_client.into();
+            value_classes(
+                &input(&left_facts, &left, Vec::new()),
+                &input(&right_facts, &right, Vec::new()),
+                &SLICE_SHAPES,
+            )
+            .unwrap()
+            .into_iter()
+            .any(|class| class.id == "cli-relative-age")
+        };
+        assert!(classes(PINNED_CLIENT, PINNED_CLIENT));
+        // A side that did not run the pinned CLI gets no class, so its age
+        // text stays raw and the comparison reports it.
+        assert!(!classes(PINNED_CLIENT, "spocky-cli"));
+        assert!(!classes("spocky-cli", PINNED_CLIENT));
+        assert!(!classes("spocky-cli", "spocky-cli"));
     }
 
     #[test]

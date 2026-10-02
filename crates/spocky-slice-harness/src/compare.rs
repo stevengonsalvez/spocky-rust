@@ -254,6 +254,7 @@ fn facts(side: &SideRun) -> SideFacts {
         stub_port: side.stub_port,
         window_start_ms: side.window_start_ms,
         window_end_ms: side.window_end_ms,
+        client: side.client.clone(),
     }
 }
 
@@ -580,6 +581,7 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::normalize::PINNED_CLIENT;
     use crate::side::{Check, DaemonKind, HomeOrigin, StepSpec};
     use crate::stub::Script;
 
@@ -657,6 +659,7 @@ mod tests {
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
             codex_order: Vec::new(),
+            client: PINNED_CLIENT.to_owned(),
         }
     }
 

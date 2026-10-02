@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::normalize::PINNED_CLIENT;
 use crate::stub::{FORBIDDEN_PORTS, RecordedRequest, Script};
 
 /// Prefix of every disposable root and tmux session the harness owns.
@@ -313,6 +314,8 @@ pub struct SideRun {
     /// Codex invocations in shim arrival order, labelled by argv and
     /// occurrence (see [`arrival_labels`]), for the partial-order check.
     pub codex_order: Vec<String>,
+    /// The client every step ran: [`PINNED_CLIENT`].
+    pub client: String,
 }
 
 fn now_ms() -> u64 {
@@ -1844,6 +1847,7 @@ fn run_in_layout(
         harness_errors: errors,
         observed_pids: pids,
         codex_order,
+        client: PINNED_CLIENT.to_owned(),
     };
     write_raw(&side, &side_evidence);
     Ok(side)
@@ -2639,6 +2643,7 @@ mod tests {
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
             codex_order: Vec::new(),
+            client: PINNED_CLIENT.to_owned(),
         }
     }
 
