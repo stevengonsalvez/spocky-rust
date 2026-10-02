@@ -19,6 +19,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
+use spocky_contracts::js::truthy;
+use spocky_contracts::js_value::{self, JsValue};
 use spocky_contracts::text::js_trim;
 
 /// Paseo `DEFAULT_TIMEOUT_MS`: 14 days.
@@ -452,15 +454,15 @@ fn rpc_error(error: &Value) -> ClientError {
     }
 }
 
-/// JavaScript truthiness for a parsed JSON value.
+/// A parsed JSON value as the contracts crate's JavaScript value, which its
+/// `js` operators work on. Keys keep the value's order.
+pub(crate) fn to_js_value(value: &Value) -> JsValue {
+    js_value::parse(&value.to_string()).expect("serde_json writes JSON")
+}
+
+/// JavaScript truthiness for a parsed JSON value (`spocky_contracts::js`).
 pub(crate) fn js_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
+    truthy(Some(&to_js_value(value)))
 }
 
 /// Owns the child's stdin: writes queued lines in order, ignoring write
@@ -859,5 +861,10 @@ mod tests {
         assert!(!js_truthy(&serde_json::json!("")));
         assert!(js_truthy(&serde_json::json!({})));
         assert!(js_truthy(&serde_json::json!("x")));
+        assert!(js_truthy(&serde_json::json!([])));
+        assert!(js_truthy(&serde_json::json!(-1.5)));
+        assert!(!js_truthy(&serde_json::json!(0.0)));
+        assert!(!js_truthy(&serde_json::json!(false)));
+        assert!(js_truthy(&serde_json::json!(true)));
     }
 }
