@@ -308,6 +308,81 @@ pub struct Verdict {
     pub compared: bool,
     /// `compared`, or `skipped: <reason>` when discovery or comparison failed.
     pub comparison: String,
+    /// `not applied`, or how many original references and stable codex
+    /// invocation pairs the right side was checked against.
+    pub order_check: String,
+    /// Stable codex invocation pairs the right side inverted. Any entry fails.
+    pub order_inversions: Vec<String>,
+}
+
+/// Fewest original observations a stable codex order is derived from.
+pub const MIN_ORDER_REFERENCES: usize = 3;
+
+/// Codex invocation label pairs `(before, after)` whose relative order every
+/// reference observation agrees on. Only labels present in every reference
+/// are considered; labels are unique within one observation.
+#[must_use]
+pub fn stable_pairs(references: &[&[String]]) -> Vec<(String, String)> {
+    let Some((first, rest)) = references.split_first() else {
+        return Vec::new();
+    };
+    let position = |order: &[String], label: &String| order.iter().position(|known| known == label);
+    let common: Vec<&String> = first
+        .iter()
+        .filter(|label| rest.iter().all(|order| order.contains(label)))
+        .collect();
+    let mut pairs = Vec::new();
+    for (index, before) in common.iter().enumerate() {
+        for after in &common[index + 1..] {
+            let agreed = rest
+                .iter()
+                .all(|order| position(order, before) < position(order, after));
+            if agreed {
+                pairs.push(((*before).clone(), (*after).clone()));
+            }
+        }
+    }
+    pairs
+}
+
+impl Verdict {
+    /// Checks the right side's codex invocation order against the stable
+    /// pairs of `references` (original observations) and fails the verdict
+    /// on any inversion. Fewer than [`MIN_ORDER_REFERENCES`] references is a
+    /// harness error, never a silent skip.
+    pub fn apply_order_check(&mut self, references: &[&[String]], observed: &[String]) {
+        if references.len() < MIN_ORDER_REFERENCES {
+            self.harness_errors.push(format!(
+                "codex order check needs {MIN_ORDER_REFERENCES} original observations, got {}",
+                references.len()
+            ));
+            self.pass = false;
+            return;
+        }
+        let pairs = stable_pairs(references);
+        let position = |label: &String| observed.iter().position(|known| known == label);
+        self.order_inversions = pairs
+            .iter()
+            .filter(|(before, after)| {
+                matches!((position(before), position(after)), (Some(a), Some(b)) if b < a)
+            })
+            .map(|(before, after)| {
+                format!(
+                    "codex {before} ran before {after} in all {} originals, after it on the {} side",
+                    references.len(),
+                    self.right
+                )
+            })
+            .collect();
+        self.order_check = format!(
+            "applied: {} original references, {} stable pairs",
+            references.len(),
+            pairs.len()
+        );
+        if !self.order_inversions.is_empty() {
+            self.pass = false;
+        }
+    }
 }
 
 /// Comparison output: the verdict and, when comparison ran, the manifest.
@@ -458,6 +533,8 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
             transforms: transforms.clone(),
             compared,
             comparison,
+            order_check: "not applied".into(),
+            order_inversions: Vec::new(),
         },
         manifest,
         rules,
@@ -574,6 +651,7 @@ mod tests {
             survivors: Vec::new(),
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
+            codex_order: Vec::new(),
         }
     }
 
@@ -965,5 +1043,56 @@ mod tests {
         ] {
             assert_eq!(canonical_client_metadata(raw), raw);
         }
+    }
+
+    fn order(labels: &[&str]) -> Vec<String> {
+        labels.iter().map(|label| (*label).to_owned()).collect()
+    }
+
+    #[test]
+    fn stable_pairs_keep_only_orders_every_original_agrees_on() {
+        let one = order(&["--version#1", "app-server#1", "goals#1", "--version#2"]);
+        let two = order(&["--version#1", "app-server#1", "--version#2", "goals#1"]);
+        let three = order(&["--version#1", "app-server#1", "goals#1", "--version#2"]);
+        let pairs = stable_pairs(&[&one, &two, &three]);
+        assert!(pairs.contains(&("app-server#1".into(), "goals#1".into())));
+        assert!(pairs.contains(&("--version#1".into(), "--version#2".into())));
+        // goals and the second --version swap between originals: not stable.
+        assert!(!pairs.contains(&("goals#1".into(), "--version#2".into())));
+        assert!(!pairs.contains(&("--version#2".into(), "goals#1".into())));
+    }
+
+    #[test]
+    fn order_check_fails_an_inverted_stable_pair_only() {
+        let (left, right) = pair();
+        let mut verdict = compare_sides(&gate_with(Vec::new()), &left, &right).verdict;
+        assert!(verdict.pass);
+        let original = order(&["--version#1", "app-server#1", "goals#1", "--version#2"]);
+        let racy = order(&["--version#1", "app-server#1", "--version#2", "goals#1"]);
+        let references: [&[String]; 3] = [&original, &racy, &original];
+        let mut kept = verdict.clone();
+        kept.apply_order_check(&references, &racy);
+        assert!(kept.pass, "{:?}", kept.order_inversions);
+        assert!(
+            kept.order_check
+                .starts_with("applied: 3 original references")
+        );
+        verdict.apply_order_check(
+            &references,
+            &order(&["--version#1", "goals#1", "app-server#1", "--version#2"]),
+        );
+        assert!(!verdict.pass);
+        assert_eq!(verdict.order_inversions.len(), 1);
+        assert!(verdict.order_inversions[0].contains("app-server#1 ran before goals#1"));
+    }
+
+    #[test]
+    fn order_check_without_three_originals_fails_closed() {
+        let (left, right) = pair();
+        let mut verdict = compare_sides(&gate_with(Vec::new()), &left, &right).verdict;
+        let original = order(&["app-server#1"]);
+        verdict.apply_order_check(&[&original, &original], &original);
+        assert!(!verdict.pass);
+        assert!(verdict.harness_errors[0].contains("needs 3 original observations"));
     }
 }

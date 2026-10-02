@@ -254,6 +254,9 @@ pub struct SideRun {
     /// Every PID observed on this side (daemon tree, CLI steps, codex
     /// invocations, root-path scans); used for the egress check.
     pub observed_pids: Vec<u32>,
+    /// Codex invocations in shim arrival order, labelled by argv and
+    /// occurrence (see [`arrival_labels`]), for the partial-order check.
+    pub codex_order: Vec<String>,
 }
 
 fn now_ms() -> u64 {
@@ -1078,6 +1081,45 @@ fn codex_invocations(layout: &Layout) -> io::Result<Vec<CapturedFile>> {
     Ok(invocations)
 }
 
+/// Labels invocations, given as (shim arrival number, argv lines), in
+/// arrival order: the argv joined by spaces plus `#k` for the k-th
+/// invocation with that argv, for example `app-server#2`.
+#[must_use]
+pub fn arrival_labels(mut invocations: Vec<(u32, String)>) -> Vec<String> {
+    invocations.sort_by_key(|(arrival, _)| *arrival);
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    invocations
+        .into_iter()
+        .map(|(_, argv)| {
+            let argv = argv.lines().collect::<Vec<_>>().join(" ");
+            let count = if let Some((_, count)) = seen.iter_mut().find(|(known, _)| *known == argv)
+            {
+                *count += 1;
+                *count
+            } else {
+                seen.push((argv.clone(), 1));
+                1
+            };
+            format!("{argv}#{count}")
+        })
+        .collect()
+}
+
+/// Codex invocation labels in arrival order. The shim numbers each
+/// `codex-io/<n>` directory with an atomic `mkdir`, so `n` is arrival order.
+fn codex_order(layout: &Layout) -> io::Result<Vec<String>> {
+    let mut invocations = Vec::new();
+    for entry in fs::read_dir(layout.path("codex-io"))? {
+        let directory = entry?.path();
+        let arrival = directory
+            .file_name()
+            .and_then(|name| name.to_str()?.parse::<u32>().ok())
+            .ok_or_else(|| io::Error::other(format!("codex-io entry {}", directory.display())))?;
+        invocations.push((arrival, fs::read_to_string(directory.join("argv"))?));
+    }
+    Ok(arrival_labels(invocations))
+}
+
 fn is_daemon_log(path: &str) -> bool {
     path.strip_prefix("paseo-home/")
         .is_some_and(|name| name.starts_with("daemon.log"))
@@ -1520,6 +1562,10 @@ fn run_in_layout(
     }
     let (state, uncompared) = capture_files(layout, &mut errors);
     let extracted = extract_secrets(&state);
+    let codex_order = codex_order(layout).unwrap_or_else(|error| {
+        errors.push(format!("codex arrival order: {error}"));
+        Vec::new()
+    });
     let side = SideRun {
         kind,
         root: layout.text(""),
@@ -1545,6 +1591,7 @@ fn run_in_layout(
         survivors,
         harness_errors: errors,
         observed_pids: pids,
+        codex_order,
     };
     write_raw(&side, &side_evidence);
     Ok(side)
@@ -2253,7 +2300,27 @@ mod tests {
             survivors: Vec::new(),
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
+            codex_order: Vec::new(),
         }
+    }
+
+    #[test]
+    fn arrival_labels_follow_shim_numbers_and_count_repeats() {
+        let labels = arrival_labels(vec![
+            (10, "app-server\n--enable\ngoals\n".into()),
+            (2, "--version\n".into()),
+            (7, "app-server\n".into()),
+            (1, "--version\n".into()),
+        ]);
+        assert_eq!(
+            labels,
+            [
+                "--version#1",
+                "--version#2",
+                "app-server#1",
+                "app-server --enable goals#1"
+            ]
+        );
     }
 
     #[test]
