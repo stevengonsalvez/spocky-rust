@@ -172,7 +172,9 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-provider-codex",
       "paths": ["crates/spocky-provider-codex/"],
+      "acceptanceEnv": "2026-10-02: acceptance tests need SPOCKY_PINNED_NODE (node 22.20.0) and SPOCKY_PASEO_DIST (pinned dist) for the approval replay differential, plus SPOCKY_REAL_CODEX=1 --include-ignored under the sandbox for real codex tests",
       "openPortGaps": [
+        "OPEN, after G2 (2026-10-02): codex fileChange apply_patch emits a timeline tool_call before the patch permission_requested in the pinned client; about 300 TS lines not ported",
         "OPEN, not on G1, must be ported before P5 (2026-10-02): pinned codex implements resolveDefaultModeId (a fresh probe with a signal, the memo without one); the provider at ae2f8904 exposes no auto-review entry point for it, so the spocky-daemon-app adapter seam returns None"
       ],
       "delegation": "forbidden",
