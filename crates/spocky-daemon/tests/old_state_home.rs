@@ -20,6 +20,7 @@ fn fixture() -> Value {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-home-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
+    common::assert_fixture_provenance(&fixture);
     fixture
 }
 
