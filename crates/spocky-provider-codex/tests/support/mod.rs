@@ -1033,21 +1033,26 @@ fn pinned_run(
     stdout.trim().to_owned()
 }
 
-/// `Ok` when `sums` (the text of `SHA256SUMS`) lists `fixture` with the
-/// digest `actual`.
-pub fn check_fixture_digest(sums: &str, fixture: &str, actual: &str) -> Result<(), String> {
+/// `Ok` when `sums` (the text of the digest file `sums_name`) lists `name`
+/// with the digest `actual`.
+pub fn check_digest(sums_name: &str, sums: &str, name: &str, actual: &str) -> Result<(), String> {
     let listed = sums
         .lines()
         .find_map(|line| {
-            let (digest, name) = line.split_once("  ")?;
-            (name == fixture).then_some(digest)
+            let (digest, listed_name) = line.split_once("  ")?;
+            (listed_name == name).then_some(digest)
         })
-        .ok_or_else(|| format!("{fixture} is not listed in tests/fixtures/SHA256SUMS"))?;
+        .ok_or_else(|| format!("{name} is not listed in tests/fixtures/{sums_name}"))?;
     if listed == actual {
         Ok(())
     } else {
-        Err(format!("{fixture} differs from its SHA256SUMS digest"))
+        Err(format!("{name} differs from its {sums_name} digest"))
     }
+}
+
+/// [`check_digest`] against `SHA256SUMS`, the replay fixtures' digests.
+pub fn check_fixture_digest(sums: &str, fixture: &str, actual: &str) -> Result<(), String> {
+    check_digest("SHA256SUMS", sums, fixture, actual)
 }
 
 /// SHA-256 of `path`, from `shasum -a 256`.
@@ -1072,6 +1077,28 @@ pub fn assert_fixture_digest(fixture: &str) {
     let actual = sha256_of(&crate_path(&format!("tests/fixtures/{fixture}")));
     if let Err(problem) = check_fixture_digest(&sums, fixture, &actual) {
         panic!("{problem}");
+    }
+}
+
+impl PinnedPaseo {
+    /// The pinned `agent/providers` directory.
+    pub fn providers_dir(&self) -> &Path {
+        self.module.parent().expect("agent providers dir")
+    }
+
+    /// `relative` (under [`Self::providers_dir`]) after checking its SHA-256
+    /// against `tests/fixtures/ORACLE_SHA256SUMS`. The corpus differentials
+    /// copy these files and run the copies as their oracle, so a changed or
+    /// unlisted file must stop the test before anything is copied.
+    pub fn verified_oracle(&self, relative: &str) -> PathBuf {
+        let sums = std::fs::read_to_string(crate_path("tests/fixtures/ORACLE_SHA256SUMS"))
+            .expect("tests/fixtures/ORACLE_SHA256SUMS");
+        let path = self.providers_dir().join(relative);
+        if let Err(problem) = check_digest("ORACLE_SHA256SUMS", &sums, relative, &sha256_of(&path))
+        {
+            panic!("{problem}");
+        }
+        path
     }
 }
 
