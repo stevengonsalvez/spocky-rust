@@ -156,7 +156,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("scope", Schema::Optional(Box::new(Schema::Enum(&["active"])))),
                                     ("filter", Schema::Optional(Box::new(Schema::Object(
                                         vec![
-                                            ("labels", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))),
+                                            ("labels", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                                             ("projectKeys", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
                                             ("statuses", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Enum(&["initializing", "idle", "running", "error", "closed"])))))),
                                             ("includeArchived", Schema::Optional(Box::new(Schema::Boolean))),
@@ -379,7 +379,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("provider", Schema::Lazy(|| &SHARED_5)),
                                             ("sessionId", Schema::String(vec![])),
                                             ("nativeHandle", Schema::Optional(Box::new(Schema::String(vec![])))),
-                                            ("metadata", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Unknown))))),
+                                            ("metadata", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))),
                                         ],
                                         UnknownKeys::Allow,
                                     )))),
@@ -492,8 +492,8 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                         JsValue::String("allow".to_owned()),
                                                     ])),
                                                     ("selectedActionId", Schema::Optional(Box::new(Schema::String(vec![])))),
-                                                    ("updatedInput", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Unknown))))),
-                                                    ("updatedPermissions", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Record(Box::new(Schema::Unknown))))))),
+                                                    ("updatedInput", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))),
+                                                    ("updatedPermissions", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))))),
                                                 ],
                                                 UnknownKeys::Allow,
                                             )),
@@ -567,6 +567,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                     format: "regex",
                     pattern: "/^wks_[a-f0-9]{16}$/",
                     test: crate::id::is_workspace_id,
+                    message: None,
                 },
                                     ])))),
                                     ("agent", Schema::Optional(Box::new(Schema::Object(
@@ -812,7 +813,7 @@ static SHARED_9: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_10: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Unknown))))
+    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))
 });
 
 static SHARED_11: LazyLock<Schema> = LazyLock::new(|| {
@@ -830,12 +831,12 @@ static SHARED_13: LazyLock<Schema> = LazyLock::new(|| {
         Schema::Boolean,
         Schema::Null,
         Schema::Array(Box::new(Schema::Lazy(|| &SHARED_13))),
-        Schema::Record(Box::new(Schema::Lazy(|| &SHARED_13))),
+        Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Lazy(|| &SHARED_13))),
     ])
 });
 
 static SHARED_12: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Lazy(|| &SHARED_13)))))
+    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Lazy(|| &SHARED_13)))))
 });
 
 static SHARED_14: LazyLock<Schema> = LazyLock::new(|| {
@@ -867,7 +868,7 @@ static SHARED_15: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Discriminated(
+    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Discriminated(
         "type",
         vec![
             ("stdio", Schema::Object(
@@ -877,7 +878,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                     ])),
                     ("command", Schema::String(vec![])),
                     ("args", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
-                    ("env", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))),
+                    ("env", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
                 UnknownKeys::Allow,
@@ -888,7 +889,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                         JsValue::String("http".to_owned()),
                     ])),
                     ("url", Schema::String(vec![])),
-                    ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))),
+                    ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
                 UnknownKeys::Allow,
@@ -899,7 +900,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                         JsValue::String("sse".to_owned()),
                     ])),
                     ("url", Schema::String(vec![])),
-                    ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))),
+                    ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
                 UnknownKeys::Allow,
@@ -928,7 +929,7 @@ static SHARED_4: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_17: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))
+    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))
 });
 
 static SHARED_18: LazyLock<Schema> = LazyLock::new(|| {
@@ -952,7 +953,7 @@ static SHARED_22: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_23: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::Unknown))))
+    Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))
 });
 
 static SHARED_24: LazyLock<Schema> = LazyLock::new(|| {
@@ -1048,7 +1049,7 @@ static SHARED_28: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_29: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Default(Box::new(Schema::Record(Box::new(Schema::String(vec![])))))
+    Schema::Default(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))
 });
 
 static SHARED_30: LazyLock<Schema> = LazyLock::new(|| {
@@ -1243,6 +1244,7 @@ static SHARED_33: LazyLock<Schema> = LazyLock::new(|| {
     format: "uuid",
     pattern: "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/",
     test: crate::id::is_zod_uuid,
+    message: None,
 },
     ])))
 });

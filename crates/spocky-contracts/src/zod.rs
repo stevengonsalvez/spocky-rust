@@ -42,6 +42,8 @@ struct Issue {
     continues: Option<bool>,
     /// `util.parsedType(issue.input)`, for `invalid_type` messages.
     received: &'static str,
+    /// The message a check's error map gives, ahead of the locale.
+    error: Option<&'static str>,
 }
 
 const PATH: &str = "path";
@@ -76,6 +78,7 @@ impl Issue {
             path: None,
             continues: None,
             received: parsed_type(input),
+            error: None,
         }
     }
 
@@ -84,9 +87,18 @@ impl Issue {
         self
     }
 
-    fn with_path(mut self, segment: Segment) -> Self {
+    fn with_path(self, segment: Segment) -> Self {
+        self.with_segments(vec![segment])
+    }
+
+    fn with_segments(mut self, segments: Vec<Segment>) -> Self {
         self.fields.push((PATH, JsValue::Null));
-        self.path = Some(vec![segment]);
+        self.path = Some(segments);
+        self
+    }
+
+    const fn with_error(mut self, error: Option<&'static str>) -> Self {
+        self.error = error;
         self
     }
 
@@ -147,6 +159,9 @@ impl Issue {
         {
             return message.to_owned();
         }
+        if let Some(error) = self.error {
+            return error.to_owned();
+        }
         match self.str_field("code") {
             "invalid_type" => {
                 let received = if self.received == "nan" {
@@ -181,8 +196,10 @@ impl Issue {
                     self.str_field("pattern")
                 ),
                 "uuid" => "Invalid UUID".to_owned(),
+                "url" => "Invalid URL".to_owned(),
                 other => format!("Invalid {other}"),
             },
+            "invalid_key" => format!("Invalid key in {}", self.str_field("origin")),
             "unrecognized_keys" => {
                 let keys = self.values_field("keys");
                 let plural = if keys.len() > 1 { "s" } else { "" };
@@ -238,11 +255,13 @@ fn path_value(path: &[Segment]) -> JsValue {
     )
 }
 
-/// `util.stringifyPrimitive` for the strings and booleans these schemas list.
+/// `util.stringifyPrimitive` for the strings, booleans, and finite numbers
+/// these schemas list.
 fn stringify_primitive(value: &JsValue) -> String {
     match value {
         JsValue::String(value) => format!("\"{value}\""),
         JsValue::Bool(flag) => flag.to_string(),
+        JsValue::Number(number) => js_number(*number),
         _ => String::new(),
     }
 }
@@ -346,13 +365,52 @@ pub enum StringCheck {
     Min(usize),
     /// `.max(n)`, on `.length`.
     Max(usize),
+    /// `.toLowerCase()`, an `overwrite` check.
+    Lower,
     /// A `string_format` check: `.regex()` (format `regex`) or `z.uuid()`.
-    /// `pattern` is `RegExp.prototype.toString()`; `test` is its Rust form.
+    /// `pattern` is `RegExp.prototype.toString()`; `test` is its Rust form;
+    /// `message` is the check's own error message, if any.
     Format {
         format: &'static str,
         pattern: &'static str,
         test: fn(&str) -> bool,
+        message: Option<&'static str>,
     },
+    /// `z.url()`: `new URL(input.trim())` must not throw; the value becomes
+    /// the trimmed input.
+    Url,
+}
+
+/// A check on any schema, run after it parses (`runChecks`).
+#[derive(Debug, Clone, Copy)]
+pub enum Refinement {
+    /// `.min(n)` on `.length`, as `z.array().min(n)` uses.
+    MinLength(usize),
+    /// `.refine(test, message)`: a `custom` issue when `test` fails.
+    Refine {
+        test: fn(&JsValue) -> bool,
+        message: &'static str,
+    },
+    /// `.superRefine(fn)`: the issues `fn` adds through `ctx.addIssue`.
+    SuperRefine(fn(&JsValue) -> Vec<CustomIssue>),
+}
+
+/// An issue a `.superRefine()` adds: `{ code: "custom", path, message }`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomIssue {
+    pub path: Vec<String>,
+    pub message: String,
+}
+
+/// What a value-producing transform does.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mapped {
+    /// Returns its input.
+    Same,
+    /// Returns a new value, which the rest of the pipe validates.
+    Value(JsValue),
+    /// Throws an error with this message out of `safeParse`.
+    Throws(String),
 }
 
 /// A check on `z.number()`, in the order zod runs them.
@@ -385,6 +443,9 @@ pub enum Transform {
     /// `BrowserAutomationHostCapabilitySchema.supportedCommands`: a custom
     /// issue when no known command name is listed.
     BrowserHostCommands,
+    /// A transform that adds no issue but whose output the pipe validates
+    /// next, such as a `z.preprocess()` step.
+    Map(fn(&JsValue) -> Mapped),
 }
 
 /// The zod schema kinds the inbound schemas reach.
@@ -399,8 +460,10 @@ pub enum Schema {
     Enum(&'static [&'static str]),
     Array(Box<Schema>),
     Object(Vec<(&'static str, Schema)>, UnknownKeys),
-    /// `z.record(z.string(), value)`.
-    Record(Box<Schema>),
+    /// `z.record(key, value)` with a string key schema.
+    Record(Box<Schema>, Box<Schema>),
+    /// A schema with checks on its parsed value.
+    Refined(Box<Schema>, Vec<Refinement>),
     Union(Vec<Schema>),
     /// `z.discriminatedUnion(key, options)`, keyed by each option's
     /// discriminator value.
@@ -499,6 +562,8 @@ struct Context {
     lazy_depth: usize,
     /// `LAZY_DEPTH_LIMIT` was reached.
     too_deep: bool,
+    /// A transform threw this message out of `safeParse`.
+    thrown: Option<String>,
 }
 
 fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> Payload<'a> {
@@ -544,7 +609,12 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
         }
         Schema::Array(element) => run_array(&mut payload, element, context),
         Schema::Object(shape, unknown) => run_object(&mut payload, shape, *unknown, context),
-        Schema::Record(value) => run_record(&mut payload, value, context),
+        Schema::Record(key, value) => run_record(&mut payload, key, value, context),
+        Schema::Refined(inner, refinements) => {
+            let mut result = run(inner, payload, context);
+            run_refinements(&mut result, refinements);
+            return result;
+        }
         Schema::Union(options) => return run_union(payload, options, context),
         Schema::Discriminated(key, options) => {
             return run_discriminated(payload, key, options, context);
@@ -580,7 +650,7 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
             }
             return run(output, left, context);
         }
-        Schema::Transform(transform) => run_transform(&mut payload, *transform),
+        Schema::Transform(transform) => run_transform(&mut payload, *transform, context),
         Schema::Lazy(target) => {
             if context.lazy_depth >= LAZY_DEPTH_LIMIT {
                 context.too_deep = true;
@@ -597,8 +667,16 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
 }
 
 /// A transform's added issues; `fallback` marks the value as produced.
-fn run_transform(payload: &mut Payload<'_>, transform: Transform) {
-    if let Transform::BrowserHostCommands = transform
+fn run_transform(payload: &mut Payload<'_>, transform: Transform, context: &mut Context) {
+    if let Transform::Map(map) = transform {
+        match map(&payload.value) {
+            Mapped::Same => {}
+            Mapped::Value(value) => payload.value = Cow::Owned(value),
+            Mapped::Throws(message) => {
+                context.thrown.get_or_insert(message);
+            }
+        }
+    } else if let Transform::BrowserHostCommands = transform
         && !payload
             .value
             .as_array()
@@ -621,6 +699,36 @@ fn run_transform(payload: &mut Payload<'_>, transform: Transform) {
     payload.fallback = true;
 }
 
+/// A `.min()` or `.max()` length check's issue, when its `when` lets it
+/// run on `value` (it has a `length`) and the length is out of bounds.
+fn length_issue(value: &JsValue, bound: usize, minimum: bool) -> Option<Issue> {
+    let (length, origin) = lengthable(value)?;
+    #[allow(clippy::cast_precision_loss)]
+    let bound = bound as f64;
+    // `length >= minimum` and `length <= maximum` are false for NaN.
+    let ok = if minimum {
+        length >= bound
+    } else {
+        length <= bound
+    };
+    if ok {
+        return None;
+    }
+    let (code, key) = if minimum {
+        ("too_small", "minimum")
+    } else {
+        ("too_big", "maximum")
+    };
+    Some(
+        Issue::new(value)
+            .field("origin", text(origin))
+            .field("code", text(code))
+            .field(key, JsValue::Number(bound))
+            .field("inclusive", JsValue::Bool(true))
+            .continuing(true),
+    )
+}
+
 /// `runChecks` for string checks: a length check has a `when`, so it still
 /// runs after a non-aborting issue, on any value with a `length`.
 fn run_string_checks(payload: &mut Payload<'_>, checks: &[StringCheck]) {
@@ -632,30 +740,8 @@ fn run_string_checks(payload: &mut Payload<'_>, checks: &[StringCheck]) {
                 if payload.explicitly_aborted() {
                     continue;
                 }
-                let Some((length, origin)) = lengthable(&payload.value) else {
-                    continue;
-                };
-                #[allow(clippy::cast_precision_loss)]
-                let bound = bound as f64;
                 let minimum = matches!(check, StringCheck::Min(_));
-                // `length >= minimum` and `length <= maximum` are false for NaN.
-                let ok = if minimum {
-                    length >= bound
-                } else {
-                    length <= bound
-                };
-                if !ok {
-                    let (code, key) = if minimum {
-                        ("too_small", "minimum")
-                    } else {
-                        ("too_big", "maximum")
-                    };
-                    let issue = Issue::new(&payload.value)
-                        .field("origin", text(origin))
-                        .field("code", text(code))
-                        .field(key, JsValue::Number(bound))
-                        .field("inclusive", JsValue::Bool(true))
-                        .continuing(true);
+                if let Some(issue) = length_issue(&payload.value, bound, minimum) {
                     payload.issues.push(issue);
                 }
             }
@@ -665,10 +751,16 @@ fn run_string_checks(payload: &mut Payload<'_>, checks: &[StringCheck]) {
                     payload.value = Cow::Owned(text(js_trim(value)));
                 }
             }
+            StringCheck::Lower => {
+                if let JsValue::String(value) = &*payload.value {
+                    payload.value = Cow::Owned(JsValue::String(value.to_lowercase()));
+                }
+            }
             StringCheck::Format {
                 format,
                 pattern,
                 test,
+                message,
             } => {
                 if !test(payload.value.as_str().unwrap_or("")) {
                     let issue = Issue::new(&payload.value)
@@ -676,6 +768,19 @@ fn run_string_checks(payload: &mut Payload<'_>, checks: &[StringCheck]) {
                         .field("code", text("invalid_format"))
                         .field("format", text(format))
                         .field("pattern", text(pattern))
+                        .continuing(true)
+                        .with_error(message);
+                    payload.issues.push(issue);
+                }
+            }
+            StringCheck::Url => {
+                let trimmed = js_trim(payload.value.as_str().unwrap_or("")).to_owned();
+                if url::Url::parse(&trimmed).is_ok() {
+                    payload.value = Cow::Owned(JsValue::String(trimmed));
+                } else {
+                    let issue = Issue::new(&payload.value)
+                        .field("code", text("invalid_format"))
+                        .field("format", text("url"))
                         .continuing(true);
                     payload.issues.push(issue);
                 }
@@ -845,15 +950,28 @@ fn run_object(
     payload.issues.extend(issues);
 }
 
-fn run_record(payload: &mut Payload<'_>, value: &Schema, context: &mut Context) {
+/// `$ZodRecord` for a string key schema: a key the key schema rejects is
+/// one `invalid_key` issue and its value is not checked.
+fn run_record(payload: &mut Payload<'_>, key: &Schema, value: &Schema, context: &mut Context) {
     let JsValue::Object(object) = &*payload.value else {
         payload.type_issue("record");
         return;
     };
     let mut issues = Vec::new();
-    for (key, item) in object.iter().filter(|(key, _)| *key != "__proto__") {
+    for (name, item) in object.iter().filter(|(name, _)| *name != "__proto__") {
+        let segment = || Segment::Key(name.to_owned());
+        let key_result = run(key, Payload::new(Cow::Owned(text(name))), context);
+        if !key_result.issues.is_empty() {
+            let key_issues = key_result.issues.into_iter().map(Issue::finalize).collect();
+            let issue = Issue::new(&JsValue::Undefined)
+                .field("code", text("invalid_key"))
+                .field("origin", text("record"))
+                .field("issues", JsValue::Array(key_issues))
+                .with_path(segment());
+            issues.push(issue);
+            continue;
+        }
         let result = run(value, Payload::new(Cow::Borrowed(item)), context);
-        let segment = || Segment::Key(key.to_owned());
         issues.extend(
             result
                 .issues
@@ -862,6 +980,50 @@ fn run_record(payload: &mut Payload<'_>, value: &Schema, context: &mut Context) 
         );
     }
     payload.issues.extend(issues);
+}
+
+/// `runChecks` for checks on a parsed value: none but a length check runs
+/// once an issue aborted.
+fn run_refinements(payload: &mut Payload<'_>, refinements: &[Refinement]) {
+    let mut aborted = payload.aborted_from(0);
+    for refinement in refinements {
+        let before = payload.issues.len();
+        match *refinement {
+            Refinement::MinLength(bound) => {
+                if payload.explicitly_aborted() {
+                    continue;
+                }
+                if let Some(issue) = length_issue(&payload.value, bound, true) {
+                    payload.issues.push(issue);
+                }
+            }
+            _ if aborted => continue,
+            Refinement::Refine { test, message } => {
+                if !test(&payload.value) {
+                    let issue = Issue::new(&payload.value)
+                        .field("code", text("custom"))
+                        .with_segments(Vec::new())
+                        .continuing(true)
+                        .with_error(Some(message));
+                    payload.issues.push(issue);
+                }
+            }
+            Refinement::SuperRefine(refine) => {
+                for custom in refine(&payload.value) {
+                    let path = custom.path.into_iter().map(Segment::Key).collect();
+                    let issue = Issue::new(&payload.value)
+                        .field("code", text("custom"))
+                        .with_segments(path)
+                        .field("message", JsValue::String(custom.message))
+                        .continuing(true);
+                    payload.issues.push(issue);
+                }
+            }
+        }
+        if payload.issues.len() > before && !aborted {
+            aborted = payload.aborted_from(before);
+        }
+    }
 }
 
 fn run_union<'a>(
@@ -940,6 +1102,17 @@ pub enum Outcome {
     TooDeep,
 }
 
+/// What `schema.safeParse(value)` concludes, with its issues finalized as
+/// `error.issues` holds them.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Verdict {
+    Valid,
+    Invalid(Vec<JsValue>),
+    Unmodeled,
+    TooDeep,
+    Throws(String),
+}
+
 /// Values nested deeper than this are checked on a thread with
 /// `DEEP_STACK` bytes of stack: each `z.lazy()` level takes about 9 KiB in a
 /// debug build, so `LAZY_DEPTH_LIMIT` levels exceed a 2 MiB thread stack.
@@ -966,31 +1139,45 @@ fn nesting_depth(value: &JsValue) -> usize {
 /// Runs `schema.safeParse(value)` and reports its outcome.
 #[must_use]
 pub fn check(schema: &Schema, value: &JsValue) -> Outcome {
+    match verdict(schema, value) {
+        Verdict::Valid => Outcome::Valid,
+        Verdict::Invalid(issues) => Outcome::Invalid(stringify_pretty(&JsValue::Array(issues))),
+        // Only a `Transform::Map` throws, and no schema checked through
+        // `check` has one; `verdict` reports the message.
+        Verdict::Unmodeled | Verdict::Throws(_) => Outcome::Unmodeled,
+        Verdict::TooDeep => Outcome::TooDeep,
+    }
+}
+
+/// Runs `schema.safeParse(value)` and returns its finalized issues.
+#[must_use]
+pub fn verdict(schema: &Schema, value: &JsValue) -> Verdict {
     if nesting_depth(value) <= SHALLOW_DEPTH {
-        return check_here(schema, value);
+        return verdict_here(schema, value);
     }
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(DEEP_STACK)
-            .spawn_scoped(scope, || check_here(schema, value))
+            .spawn_scoped(scope, || verdict_here(schema, value))
             .ok()
             .and_then(|thread| thread.join().ok())
-            .unwrap_or(Outcome::TooDeep)
+            .unwrap_or(Verdict::TooDeep)
     })
 }
 
-fn check_here(schema: &Schema, value: &JsValue) -> Outcome {
+fn verdict_here(schema: &Schema, value: &JsValue) -> Verdict {
     let mut context = Context::default();
     let result = run(schema, Payload::new(Cow::Borrowed(value)), &mut context);
-    if context.too_deep {
-        Outcome::TooDeep
+    if let Some(message) = context.thrown {
+        Verdict::Throws(message)
+    } else if context.too_deep {
+        Verdict::TooDeep
     } else if context.unmodeled {
-        Outcome::Unmodeled
+        Verdict::Unmodeled
     } else if result.issues.is_empty() {
-        Outcome::Valid
+        Verdict::Valid
     } else {
-        let issues = JsValue::Array(result.issues.into_iter().map(Issue::finalize).collect());
-        Outcome::Invalid(stringify_pretty(&issues))
+        Verdict::Invalid(result.issues.into_iter().map(Issue::finalize).collect())
     }
 }
 
