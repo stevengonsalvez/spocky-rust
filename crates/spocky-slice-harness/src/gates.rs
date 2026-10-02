@@ -647,9 +647,10 @@ fn g4_socketdrop_preimages(
     creation_preimages(captured, "full-access", G4_PROMPT_HOLD)
 }
 
-/// G4 client disconnect at the wire: client A drops its socket while a held
-/// turn is in flight and must receive nothing afterwards; client B then
-/// fetches the agent (still running) and cancels the held turn.
+/// G4 client disconnect at the wire: client A is killed (SIGKILL, so its
+/// TCP connection drops with no close handshake) while a held turn is in
+/// flight; client B then fetches the agent (still running, no error frames)
+/// and cancels the held turn.
 #[must_use]
 pub fn g4_socketdrop() -> GateSpec {
     use Arg::{Host, Lit, Project};
@@ -669,9 +670,17 @@ pub fn g4_socketdrop() -> GateSpec {
         }],
         checks: vec![
             Check::AllExitZero,
+            // Client A is killed, not closed: the OS drops its connection
+            // with no WebSocket close handshake.
             Check::FirstLineField {
                 step: "probe",
-                pointer: "/aFramesAfterDrop",
+                pointer: "/dropped",
+                expected: "SIGKILL",
+            },
+            // The daemon must not turn A's drop into an error for B.
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/errorFrames",
                 expected: "0",
             },
             Check::FirstLineField {
