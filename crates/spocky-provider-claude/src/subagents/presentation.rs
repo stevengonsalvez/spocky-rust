@@ -80,14 +80,21 @@ fn format_effort(effort: Option<&str>) -> Option<String> {
     )
 }
 
-/// `Math.round(value)`: halves round toward +Infinity, and the fraction is
-/// taken from `floor` so `0.49999999999999994` stays `0`.
-fn js_round(value: f64) -> f64 {
+/// `Math.round(value)`: halves round toward +Infinity, the fraction is taken
+/// from `floor` so `0.49999999999999994` stays `0`, and a negative input that
+/// rounds to zero gives `-0`.
+#[must_use]
+pub fn js_round(value: f64) -> f64 {
     let floor = value.floor();
-    if value - floor >= 0.5 {
+    let rounded = if value - floor >= 0.5 {
         floor + 1.0
     } else {
         floor
+    };
+    if rounded == 0.0 && value.is_sign_negative() {
+        -0.0
+    } else {
+        rounded
     }
 }
 
@@ -127,7 +134,10 @@ mod tests {
     fn rounding_matches_math_round() {
         let rounded = |value: f64| js_round(value).to_string();
         assert_eq!(rounded(0.499_999_999_999_999_94), "0");
-        assert_eq!(rounded(-0.5), "0");
+        assert_eq!(rounded(-0.5), "-0");
+        assert_eq!(rounded(-0.1), "-0");
+        assert_eq!(rounded(-0.0), "-0");
+        assert_eq!(rounded(0.0), "0");
         assert_eq!(rounded(2.5), "3");
         assert_eq!(rounded(-2.5), "-2");
         assert_eq!(rounded(1_999.5), "2000");
