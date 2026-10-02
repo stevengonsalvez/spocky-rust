@@ -1024,6 +1024,16 @@
         },
         {
           "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "850fac98..4bf0d399 (8 commits): request 24 wait_for_agent_run_start, 26b codex decorateModes in the registry mergeModels, 25b try_run_out_of_band, provider catalog",
+          "integrationHead": "landed after ddf075fa, see git log",
+          "review": "integration reviewer PASS (verdicts/p3_session-4bf0d399.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 70 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "evidenceLimitation": "commit 705c78a0 adds provider_catalog.rs, compiled only after 9d5b44b5 registers it; green only vacuously",
+          "pathsAccepted": "evidence/phase3/session-interleave-gap.md concurrent-load case, already a session lane path; the case stays OPEN under SESSION-INTERLEAVE"
+        },
+        {
+          "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
           "integrationHead": "0d90e37",
