@@ -744,3 +744,18 @@ fn fixture_digests_match_and_a_changed_or_unlisted_fixture_fails() {
         Err("three.json is not listed in tests/fixtures/SHA256SUMS".to_owned())
     );
 }
+
+#[test]
+fn oracle_digests_refuse_a_changed_or_unlisted_file() {
+    let sums = "aaaa  codex/one.js\nbbbb  two.js\n";
+    let check = |name, actual| support::check_digest("ORACLE_SHA256SUMS", sums, name, actual);
+    assert_eq!(check("two.js", "bbbb"), Ok(()));
+    assert_eq!(
+        check("two.js", "cccc"),
+        Err("two.js differs from its ORACLE_SHA256SUMS digest".to_owned())
+    );
+    assert_eq!(
+        check("three.js", "bbbb"),
+        Err("three.js is not listed in tests/fixtures/ORACLE_SHA256SUMS".to_owned())
+    );
+}
