@@ -1047,7 +1047,15 @@
           "review": "integration reviewer PASS (verdicts/p3_g1_wiring-54c596ce.txt)",
           "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets, cargo build -p spocky-daemon-app --bin spocky-daemon",
           "trackedPostG1": ["P2 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline", "P2 unported agent.create and fetch_workspaces paths (fail loud)"],
-          "followUps": ["P3 agent-update-differential.sh: exit trap, egress assert, gtimeout", "P3 evidence/phase3/g1-wiring.md: raw digests"]
+          "followUps": ["P3 agent-update-differential.sh: exit trap, egress assert, gtimeout (fixed a1f6e954)", "P3 evidence/phase3/g1-wiring.md: raw digests (fixed 6cae714f)"]
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "059e68ee..d0cd722b (2 commits): bounded agent_update differential with cleanup, evidence digests",
+          "integrationHead": "6cae714f",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-d0cd722b.txt)",
+          "leadVerification": "script and evidence only, no Rust change: sh -n on agent-update-differential.sh, no U+2014; the differential itself was not rerun by the lead"
         },
         {
           "lane": "p3_session",
