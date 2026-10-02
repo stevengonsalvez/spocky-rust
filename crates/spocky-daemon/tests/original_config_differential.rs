@@ -4,6 +4,8 @@
 //! `gen-original-config-vectors.mjs` under Node 22.20.0). Error messages are
 //! compared whole; the disposable config path is the only masked part.
 
+mod common;
+
 use serde_json::Value;
 use spocky_daemon::config_file::load_persisted_config;
 use spocky_daemon::hostnames::Hostnames;
@@ -14,6 +16,7 @@ fn config_acceptance_and_refusal_match_the_original() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-config-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
+    common::assert_fixture_provenance(&fixture);
     let cases = fixture["cases"].as_array().unwrap();
     assert!(cases.len() >= 26);
     for case in cases {
