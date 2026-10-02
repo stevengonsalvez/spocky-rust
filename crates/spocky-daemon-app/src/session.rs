@@ -27,15 +27,17 @@ use spocky_daemon::session_api::{
 };
 use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_identity::{StoredAgentRef, resolve_agent_identifier};
+use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded as load_agent};
 use spocky_session::agent_manager::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot, SubscribeOptions,
     WaitForAgentOptions, WaitForAgentResult,
 };
-use spocky_session::agent_projection::to_agent_payload;
+use spocky_session::agent_projection::{build_stored_agent_payload, to_agent_payload};
 use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::clock::random_uuid;
 use spocky_session::creation::CreationService;
+use spocky_session::persistence_hooks::is_stored_agent_provider_available;
 use spocky_session::provider_snapshot_manager::ProviderSnapshotManager;
 use spocky_session::provisioning::WorkspaceProvisioning;
 use spocky_session::timeline::{FetchDirection, TimelineCursor};
@@ -532,21 +534,13 @@ async fn list_agent_payloads(
         })
         .filter(|record| include_archived || !truthy_text(record, "archivedAt"))
         .filter(|record| label_matches(record))
-        .filter(|record| {
-            let provider = record
-                .get("provider")
-                .and_then(JsValue::as_str)
-                .unwrap_or("");
-            registered.iter().any(|id| id == provider)
-        })
-        .count();
-    if persisted > 0 {
-        // `buildStoredAgentPayload` (agent-projections.ts) is the session
-        // lane's port and is not on main yet.
-        return Err("Stored agent payloads are not ported in spocky-daemon-app yet".to_owned());
-    }
+        .filter(|record| is_stored_agent_provider_available(record, Some(&registered)))
+        .map(|record| build_stored_agent_payload(&record, &registered))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.message)?;
     Ok(live
         .into_iter()
+        .chain(persisted)
         .filter(|agent| {
             context.provider_visible(
                 agent
@@ -769,11 +763,6 @@ async fn fetch_agents(
     Ok(())
 }
 
-/// The error while `buildStoredAgentPayload` (agent-projections.ts) is not
-/// ported: an unloaded stored agent cannot be described yet.
-pub(crate) const STORED_PAYLOAD_NOT_PORTED: &str =
-    "Stored agent payloads are not ported in spocky-daemon-app yet";
-
 pub(crate) fn frame(kind: &str, payload: JsObject) -> Value {
     let mut frame = JsObject::new();
     frame.insert("type", JsValue::String(kind.to_owned()));
@@ -832,10 +821,17 @@ async fn agent_payload_by_id(
     }
     match context.services.storage.get(agent_id).await {
         Some(record) if !truthy_text(&record, "internal") => {
-            Err(JsText::new(STORED_PAYLOAD_NOT_PORTED))
+            let payload = stored_payload(context, &record).map_err(|error| JsText::new(&error))?;
+            Ok(visible(&payload).then_some(payload))
         }
         _ => Ok(None),
     }
+}
+
+/// `buildStoredAgentPayload(record)` over the registered providers.
+fn stored_payload(context: &RequestContext, record: &JsValue) -> Result<JsValue, String> {
+    build_stored_agent_payload(record, &context.services.manager.registered_provider_ids())
+        .map_err(|error| error.message)
 }
 
 /// `buildProjectPlacementForWorkspaceId`.
@@ -983,7 +979,20 @@ async fn wait_for_finish(
         let record = context.services.storage.get(&agent_id).await;
         return match record {
             Some(record) if !truthy_text(&record, "internal") => {
-                Err(JsText::new(STORED_PAYLOAD_NOT_PORTED))
+                let final_agent =
+                    stored_payload(context, &record).map_err(|error| JsText::new(&error))?;
+                let status = if record.get("attentionReason").and_then(JsValue::as_str)
+                    == Some("permission")
+                {
+                    "permission"
+                } else if record.get("lastStatus").and_then(JsValue::as_str) == Some("error") {
+                    "error"
+                } else {
+                    "idle"
+                };
+                let error = wait_for_finish_error(status, Some(&final_agent));
+                respond(status, final_agent, error, JsValue::Null);
+                Ok(())
             }
             _ => {
                 let error = format!("Agent not found: {agent_id}");
@@ -1040,34 +1049,23 @@ async fn wait_for_finish(
     Ok(())
 }
 
-/// `ensureAgentLoaded` for a live agent. Loading a stored agent resumes it
-/// from persistence, which arrives with the manager's resume port.
+/// `ensureAgentLoaded(agentId, { agentManager, agentStorage, logger })`:
+/// the live agent, or the stored one resumed from persistence and hydrated.
 pub(crate) async fn ensure_agent_loaded(
     context: &RequestContext,
     agent_id: &str,
 ) -> Result<ManagedAgentSnapshot, String> {
-    if let Some(agent) = context.services.manager.get_agent(agent_id) {
-        return Ok(agent);
-    }
-    let Some(record) = context.services.storage.get(agent_id).await else {
-        return Err(format!("Agent not found: {agent_id}"));
-    };
-    let provider = record
-        .get("provider")
-        .and_then(JsValue::as_str)
-        .unwrap_or("");
-    if !context
-        .services
-        .manager
-        .registered_provider_ids()
-        .iter()
-        .any(|id| id == provider)
-    {
-        return Err(format!(
-            "Agent {agent_id} references unavailable provider '{provider}'"
-        ));
-    }
-    Err("Resuming a stored agent is not ported in spocky-daemon-app yet".to_owned())
+    load_agent(
+        agent_id,
+        &EnsureAgentLoadedDeps {
+            agent_manager: (*context.services.manager).clone(),
+            agent_storage: (*context.services.storage).clone(),
+            valid_providers: None,
+            broadcast_timeline: false,
+        },
+    )
+    .await
+    .map_err(|error| error.message)
 }
 
 fn direction_text(direction: FetchDirection) -> JsValue {
