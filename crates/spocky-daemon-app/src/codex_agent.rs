@@ -23,10 +23,11 @@ use spocky_provider_codex::{
     RunOptions, SessionConfig,
 };
 use spocky_session::agent_sdk::{
-    AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError, AgentEventStream,
+    AbortReason, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError, AgentEventStream,
     AgentLaunchContext, AgentPromptInput, AgentProvider, AgentResult, AgentResumePurpose,
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
-    FetchCatalogOptions, ProviderRefreshContext, StreamCallback, Unsubscribe,
+    FetchCatalogOptions, ProviderRefreshContext, ResolveAgentDefaultModeInput, StreamCallback,
+    Unsubscribe,
 };
 
 const CODEX: &str = "codex";
@@ -118,6 +119,22 @@ fn native_thread_id(handle: &JsValue) -> String {
         .or_else(|| defined("sessionId"))
         .map(|value| js_string(Some(value)))
         .unwrap_or_default()
+}
+
+/// `throw signal.reason`: the reason itself when it is an error (the refresh
+/// timeout), a thrown value as its text, the default `DOMException` when the
+/// abort gave none.
+fn abort_error(signal: &AbortSignal) -> AgentError {
+    match signal.reason() {
+        Some(AbortReason::Error(error)) => error.clone(),
+        Some(AbortReason::Value(value)) => {
+            AgentError::new(spocky_contracts::js::js_string(Some(value)))
+        }
+        None => AgentError {
+            name: "AbortError".to_owned(),
+            message: "This operation was aborted".to_owned(),
+        },
+    }
 }
 
 async fn blocking<T: Send + 'static>(
@@ -569,6 +586,34 @@ impl AgentClient for CodexAgentClient {
         Some(self.update_native_thread(&handle, NativeArchiveState::Restore))
     }
 
+    /// `resolveDefaultModeId(input)`: `auto-review` when the codex version
+    /// supports it, else `auto`. With a signal the probe is fresh and stops
+    /// when the signal aborts, and the caller's `signal.reason` is raised, as
+    /// `resolveAutoReviewEnabled` rethrows it.
+    fn resolve_default_mode_id(
+        &self,
+        input: ResolveAgentDefaultModeInput,
+    ) -> Option<BoxFuture<'_, AgentResult<Option<String>>>> {
+        let provider = Arc::clone(&self.provider);
+        Some(Box::pin(async move {
+            let signal = input.signal;
+            let probe_signal = signal.clone();
+            let probed = blocking(move || {
+                Ok(match &probe_signal {
+                    Some(signal) => provider.resolve_default_mode_id(Some(&|| signal.aborted())),
+                    None => provider.resolve_default_mode_id(None),
+                })
+            })
+            .await?;
+            match (probed, signal) {
+                (Ok(mode_id), _) => Ok(Some(mode_id.to_owned())),
+                (Err(_), Some(signal)) => Err(abort_error(&signal)),
+                // Aborted needs a signal; none was given.
+                (Err(aborted), None) => Err(AgentError::new(aborted.to_string())),
+            }
+        }))
+    }
+
     fn fetch_catalog(
         &self,
         _options: FetchCatalogOptions,
@@ -626,12 +671,13 @@ mod tests {
         CodexGates, ProviderCommand, ProviderRuntimeSettings, SessionConfig,
     };
     use spocky_session::agent_sdk::{
-        AgentClient, AgentLaunchContext, AgentPromptInput, AgentRunOptions, AgentSession,
+        AbortController, AbortReason, AgentClient, AgentError, AgentLaunchContext,
+        AgentPromptInput, AgentRunOptions, AgentSession,
     };
 
     use super::{
-        CodexAgentClient, CodexAgentSession, launch_env, native_thread_id, overrides_object,
-        resume_handle,
+        CodexAgentClient, CodexAgentSession, abort_error, launch_env, native_thread_id,
+        overrides_object, resume_handle,
     };
 
     /// Session options whose spawn always fails, so no app-server starts.
@@ -930,6 +976,37 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved["A"], "1");
         assert_eq!(launch_env(None), None);
+    }
+
+    fn aborted_with(reason: AbortReason) -> AgentError {
+        let controller = AbortController::default();
+        controller.abort(reason);
+        abort_error(&controller.signal())
+    }
+
+    #[test]
+    fn an_aborted_mode_probe_raises_the_refresh_timeout() {
+        let timeout = AgentError::new("Timed out refreshing Codex after 5ms");
+        assert_eq!(aborted_with(AbortReason::Error(timeout.clone())), timeout);
+    }
+
+    #[test]
+    fn an_abort_without_a_reason_raises_the_default_dom_exception() {
+        assert_eq!(
+            aborted_with(AbortReason::Value(JsValue::Undefined)),
+            AgentError {
+                name: "AbortError".to_owned(),
+                message: "This operation was aborted".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn an_abort_with_a_thrown_value_raises_its_text() {
+        assert_eq!(
+            aborted_with(AbortReason::Value(JsValue::String("timeout".to_owned()))),
+            AgentError::new("timeout")
+        );
     }
 
     #[test]
