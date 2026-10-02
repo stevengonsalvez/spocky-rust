@@ -2,9 +2,8 @@
 //! `handleSendAgentMessageRequest` handles it, over `MessageReceipts` and
 //! `agent-prompt.ts` `sendPromptToAgent` and `startAgentRun`.
 //!
-//! An archived agent (`unarchiveAgentState`) and the `steer` active-turn
-//! behavior (`steerOrReplaceActiveTurn`) are not ported; those sends fail
-//! loudly. A send whose socket went away still
+//! The `steer` active-turn behavior (`steerOrReplaceActiveTurn`) is not
+//! ported; that send fails loudly. A send whose socket went away still
 //! answers, where the baseline returns silently on the aborted request
 //! signal.
 
@@ -94,8 +93,16 @@ async fn send_prompt(delivery: &SendDelivery) -> Result<(), String> {
                 None | Some(JsValue::Null | JsValue::Undefined)
             )
         });
+    let manager = &context.services.manager;
     if archived {
-        return Err("Unarchiving an agent is not ported in spocky-daemon-app yet".to_owned());
+        // `unarchiveAgentState`.
+        let unarchived = manager
+            .unarchive_snapshot(agent_id, None)
+            .await
+            .map_err(|error| error.message)?;
+        if unarchived {
+            manager.notify_agent_state(agent_id);
+        }
     }
     ensure_agent_loaded(context, agent_id).await?;
     if delivery.steer {
@@ -108,7 +115,6 @@ async fn send_prompt(delivery: &SendDelivery) -> Result<(), String> {
             client_message_id: Some(message_id),
             ..AgentRunOptions::default()
         });
-    let manager = &context.services.manager;
     if start_agent_run(
         manager,
         agent_id,
