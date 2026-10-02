@@ -7,6 +7,10 @@ use crate::js_value::{
     JsObject, JsValue, js_number, js_text_eq, js_text_from_utf16, js_text_utf16,
 };
 
+pub mod date_parse;
+
+pub use date_parse::{date_parse, date_parse_in};
+
 /// A JavaScript `TypeError` carrying V8's exact message, such as
 /// `Cannot read properties of undefined (reading 'type')`.
 #[derive(Debug, Clone, PartialEq, Eq)]
