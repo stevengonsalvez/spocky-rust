@@ -49,6 +49,11 @@
 //!   itself while the replacement waits, with a run still starting, and with
 //!   a cancellation that is never acknowledged (the replacement fails, and
 //!   its mark is cleared when the held run later ends).
+//! - `import`: `importProviderSession` through a provider that imports
+//!   (timeline rows renumbered without the system-injected message, the
+//!   first user message as the title, provider sub-agent events replayed),
+//!   a provider without `importSession`, an unknown provider, and an
+//!   imported config that fails normalization (its session is closed).
 //!
 //! - `archive`: `archiveAgent` on a parent whose children are archived
 //!   with it (live and stored-only), detached (another workspace, an open
@@ -87,15 +92,16 @@ use std::time::Duration;
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
-    HydrateTimelineOptions, ProviderDefinition, ResumeAgentOptions, SubscribeOptions,
-    TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition, ResumeAgentOptions,
+    SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
     AbortController, AbortReason, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
     AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentResumePurpose,
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
-    FetchCatalogOptions, ImportedTimelineEntry, OutOfBandHandler, ProviderRefreshContext,
+    FetchCatalogOptions, ImportProviderSessionContext, ImportProviderSessionInput,
+    ImportedProviderSession, ImportedTimelineEntry, OutOfBandHandler, ProviderRefreshContext,
     StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
@@ -216,6 +222,11 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","item":{"type":"assistant_message","text":"old answer"},"timestamp":""},
     {"type":"timeline","provider":"fake","item":{"type":"tool_call","callId":"h-1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}
   ],
+  "impTurn": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-18"},
+    {"type":"timeline","provider":"fake","turnId":"turn-18","item":{"type":"assistant_message","text":"after import"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-18"}
+  ],
   "rpIdle": [
     {"type":"turn_started","provider":"fake","turnId":"turn-13"},
     {"type":"timeline","provider":"fake","turnId":"turn-13","item":{"type":"assistant_message","text":"idle replace"}},
@@ -242,6 +253,24 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"__delay","ms":400},
     {"type":"turn_completed","provider":"fake","turnId":"turn-17"}
   ],
+  "import": {
+    "config": {"provider":"fake","cwd":"$CWD","title":"  "},
+    "persistence": {"provider":"fake","sessionId":"imp-1","metadata":{"cwd":"$CWD"}},
+    "timeline": [
+      {"item":{"type":"user_message","text":"<paseo-system>\nnoise\n</paseo-system>"}},
+      {"item":{"type":"user_message","text":"  first question  ","messageId":"m1"},"timestamp":"2026-07-12T08:00:00.000Z"},
+      {"item":{"type":"assistant_message","text":"answer"},"timestamp":"2026-07-12T08:00:01.000Z"},
+      {"item":{"type":"tool_call","callId":"i-1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}
+    ],
+    "providerSubagentEvents": [
+      {"provider":"fake","event":{"type":"upsert","id":"child-i","title":"Imported child","status":"completed","timestamp":"2026-07-12T08:00:02.000Z"}}
+    ]
+  },
+  "badImport": {
+    "config": {"provider":"badimport","cwd":"/nonexistent/spocky-import"},
+    "persistence": {"provider":"badimport","sessionId":"imp-2"},
+    "timeline": []
+  },
   "permission": [
     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
     {"type":"__delay","ms":100},
@@ -352,6 +381,13 @@ const fakeClient = (calls, spec) => ({
     calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
     return new FakeSession(spec, calls);
   },
+  ...(spec.import ? {
+    async importSession(input, context) {
+      calls.push(["importSession", input, { config: context.config, storedConfig: context.storedConfig, launchContext: context.launchContext ?? null }]);
+      const imported = JSON.parse(JSON.stringify(spec.import).replaceAll("$CWD", cwd));
+      return { session: new FakeSession(spec, calls), config: imported.config, persistence: imported.persistence, timeline: imported.timeline, providerSubagentEvents: imported.providerSubagentEvents };
+    },
+  } : {}),
   async archiveNativeSession(handle) {
     calls.push(["archiveNativeSession", handle]);
     if (spec.archiveFails) throw new Error("native archive failed");
@@ -863,6 +899,43 @@ const replaceScenario = async () => {
   return { a, b, c, d };
 };
 
+const importScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const calls = [];
+  const registry = new AgentStorage(`${home}/import`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: {
+      fake: fakeClient(calls, spec("fake", { import: scripted.import, turns: [scripted.impTurn], history: scripted.history })),
+      plain: fakeClient(calls, spec("plain")),
+      badimport: fakeClient(calls, spec("badimport", { import: scripted.badImport })),
+    },
+    providerDefinitions: { fake: { enabled: true }, plain: { enabled: true }, badimport: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  const run = (provider) => outcome(async () => toAgentPayload(await manager.importProviderSession({ provider, providerHandleId: "h1", cwd, workspaceId: "wks_9", labels: { a: "b" } })));
+  const results = [await run("fake"), await run("plain"), await run("nope"), await run("badimport")];
+  await sleep(50);
+  await manager.flush();
+  await registry.flush();
+  const ids = [...new Set(feed.filter((entry) => entry[0] === "agent_state").map((entry) => entry[1].id))];
+  // An imported agent's history is already primed, so this is a no-op.
+  await manager.hydrateTimelineFromProvider(ids[0]);
+  const turnEvents = [];
+  for await (const event of manager.streamAgent(ids[0], "after import")) turnEvents.push(event);
+  await sleep(50);
+  await manager.flush();
+  await registry.flush();
+  const rows = {};
+  for (const id of ids) rows[id] = await manager.getTimelineRows(id);
+  const subagents = [];
+  for (const id of ids) subagents.push(manager.listProviderSubagents(id));
+  const stored = {};
+  for (const id of ids) stored[id] = await registry.get(id);
+  return { results, calls, feed, turnEvents, rows, subagents, stored };
+};
+
 const archive = async () => {
   const PARENT_LABEL = "paseo.parent-agent-id";
   const ids = { same: "00000000-0000-4000-8000-0000000000e1", other: "00000000-0000-4000-8000-0000000000e2", tab: "00000000-0000-4000-8000-0000000000e3", stored: "00000000-0000-4000-8000-0000000000e4" };
@@ -910,7 +983,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -950,6 +1023,8 @@ struct Spec {
     archive_fails: bool,
     /// `interrupt` never resolves.
     interrupt_hang: bool,
+    /// What `importSession` resolves, with `$CWD` for the working directory.
+    import: Option<JsValue>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -965,6 +1040,7 @@ fn spec(provider: &str) -> Spec {
         create_delay: None,
         archive_fails: false,
         interrupt_hang: false,
+        import: None,
     }
 }
 
@@ -1350,6 +1426,63 @@ impl AgentClient for FakeClient {
             }),
         ]));
         Box::pin(async { Ok(json(CATALOG)) })
+    }
+    fn supports_import_session(&self) -> bool {
+        self.spec.import.is_some()
+    }
+    fn import_session(
+        &self,
+        input: ImportProviderSessionInput,
+        context: ImportProviderSessionContext,
+    ) -> Option<BoxFuture<'_, AgentResult<ImportedProviderSession>>> {
+        let import = self.spec.import.clone()?;
+        let mut requested = JsObject::new();
+        requested.insert("providerHandleId", text(&input.provider_handle_id));
+        requested.insert("cwd", text(&input.cwd));
+        let mut seen = JsObject::new();
+        seen.insert("config", context.config.clone());
+        seen.insert("storedConfig", context.stored_config.clone());
+        seen.insert(
+            "launchContext",
+            launch_context_value(context.launch_context),
+        );
+        self.calls.lock().expect("calls").push(JsValue::Array(vec![
+            text("importSession"),
+            JsValue::Object(requested),
+            JsValue::Object(seen),
+        ]));
+        let session = FakeSession {
+            spec: self.spec.clone(),
+            listeners: Arc::new(Mutex::new(Vec::new())),
+            calls: Arc::clone(&self.calls),
+        };
+        let cwd = input.cwd;
+        Some(Box::pin(async move {
+            let imported = parse(&stringify(&import).replace("$CWD", &cwd)).expect("import");
+            let timeline = imported
+                .get("timeline")
+                .and_then(JsValue::as_array)
+                .expect("timeline")
+                .iter()
+                .map(|entry| ImportedTimelineEntry {
+                    item: entry.get("item").cloned().expect("item"),
+                    timestamp: entry
+                        .get("timestamp")
+                        .and_then(JsValue::as_str)
+                        .map(str::to_owned),
+                })
+                .collect();
+            Ok(ImportedProviderSession {
+                session: Arc::new(session) as Arc<dyn AgentSession>,
+                config: imported.get("config").cloned().expect("config"),
+                persistence: imported.get("persistence").cloned().expect("persistence"),
+                timeline,
+                provider_subagent_events: imported
+                    .get("providerSubagentEvents")
+                    .and_then(JsValue::as_array)
+                    .map(<[JsValue]>::to_vec),
+            })
+        }))
     }
     fn archive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
         self.calls
@@ -2483,6 +2616,7 @@ async fn scenarios_match_pinned_manager() {
         ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
+        ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
@@ -2729,6 +2863,114 @@ async fn replace_scenario(cwd: &str, home: &Path) -> JsValue {
     )
     .await;
     object(vec![("a", a), ("b", b), ("c", c), ("d", d)])
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn import_scenario(cwd: &str, home: &Path) -> JsValue {
+    let fixture = json(SCENARIO_TURNS);
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("import"));
+    let mut importing = spec("fake");
+    importing.import = fixture.get("import").cloned();
+    importing.history = fixture.get("history").cloned();
+    scripted(&importing, &["impTurn"]);
+    let mut bad = spec("badimport");
+    bad.import = fixture.get("badImport").cloned();
+    let manager = manager_with(
+        &calls,
+        &registry,
+        vec![
+            (importing, enabled()),
+            (spec("plain"), enabled()),
+            (bad, enabled()),
+        ],
+    );
+    let feed = record_feed(&manager);
+    let run = |provider: &'static str| {
+        let manager = manager.clone();
+        let cwd = cwd.to_owned();
+        async move {
+            outcome(
+                manager
+                    .import_provider_session(ImportProviderSessionRequest {
+                        provider: provider.to_owned(),
+                        provider_handle_id: "h1".to_owned(),
+                        cwd,
+                        workspace_id: "wks_9".to_owned(),
+                        labels: Some(object(vec![("a", text("b"))])),
+                    })
+                    .await
+                    .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+            )
+        }
+    };
+    let results = vec![
+        run("fake").await,
+        run("plain").await,
+        run("nope").await,
+        run("badimport").await,
+    ];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let registered = feed.lock().expect("feed").clone();
+    let mut ids: Vec<String> = Vec::new();
+    for entry in &registered {
+        let entry = entry.as_array().expect("entry");
+        if entry[0].as_str() == Some("agent_state")
+            && let Some(id) = entry[1].get("id").and_then(JsValue::as_str)
+            && !ids.iter().any(|known| known == id)
+        {
+            ids.push(id.to_owned());
+        }
+    }
+    // An imported agent's history is already primed, so this is a no-op.
+    manager
+        .hydrate_timeline_from_provider(&ids[0], HydrateTimelineOptions::default())
+        .await
+        .expect("hydrate");
+    let mut turn_events = Vec::new();
+    collect_stream(
+        manager
+            .stream_agent(
+                &ids[0],
+                AgentPromptInput::Text("after import".to_owned()),
+                None,
+            )
+            .expect("stream"),
+        &mut turn_events,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let feed = feed.lock().expect("feed").clone();
+    let mut rows = JsObject::new();
+    let mut stored = JsObject::new();
+    let mut subagents = Vec::new();
+    for id in &ids {
+        rows.insert(
+            id.as_str(),
+            JsValue::Array(manager.get_timeline_rows(id).expect("rows")),
+        );
+        subagents.push(JsValue::Array(
+            manager.list_provider_subagents(id).expect("subagents"),
+        ));
+        stored.insert(id.as_str(), registry.get(id).await.unwrap_or(JsValue::Null));
+    }
+    let calls = calls.lock().expect("calls").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        ("turnEvents", JsValue::Array(turn_events)),
+        ("rows", JsValue::Object(rows)),
+        ("subagents", JsValue::Array(subagents)),
+        ("stored", JsValue::Object(stored)),
+    ])
 }
 
 #[allow(
