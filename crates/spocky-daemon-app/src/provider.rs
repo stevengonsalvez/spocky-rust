@@ -8,9 +8,13 @@
 //! carried by the baseline but never read by the Codex provider.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
+use spocky_contracts::js_value;
 use spocky_provider_codex::{ProviderCommand, ProviderRuntimeSettings};
+use spocky_session::agent_sdk::AgentClient;
+use spocky_session::provider_snapshot_manager::SnapshotProviderDefinition;
 
 const CODEX: &str = "codex";
 
@@ -61,6 +65,46 @@ fn string_record(entries: &Map<String, Value>) -> BTreeMap<String, String> {
         .iter()
         .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
         .collect()
+}
+
+/// `CODEX_MODES` from the provider manifest (`provider-manifest.ts`), the
+/// definition modes `buildProviderRegistry` gives the built-in `codex`.
+const CODEX_MODES: &str = r#"[{"id":"auto","label":"Default Permissions","description":"Edit files and run commands with Codex's default approval flow.","icon":"Shield","colorTier":"moderate"},{"id":"auto-review","label":"Auto-review","description":"Same workspace-write permissions as Default, but eligible `on-request` approvals are routed through the auto-reviewer subagent.","icon":"ShieldCheck","colorTier":"moderate"},{"id":"full-access","label":"Full Access","description":"Edit files, run commands, and access the network without additional prompts.","icon":"ShieldOff","colorTier":"dangerous","isUnattended":true}]"#;
+
+/// The built-in `codex` provider definition the snapshot manager reads
+/// (manifest `id: "codex"`).
+///
+/// # Panics
+///
+/// Never: `CODEX_MODES` is a JSON literal.
+#[must_use]
+pub fn codex_snapshot_definition(client: Arc<dyn AgentClient>) -> SnapshotProviderDefinition {
+    SnapshotProviderDefinition {
+        provider: CODEX.to_owned(),
+        enabled: true,
+        custom: false,
+        label: "Codex".to_owned(),
+        description: Some(
+            "OpenAI's Codex workspace agent with sandbox controls and optional network access"
+                .to_owned(),
+        ),
+        icon_svg: None,
+        default_mode_id: Some("auto-review".to_owned()),
+        modes: Some(js_value::parse(CODEX_MODES).expect("CODEX_MODES is JSON")),
+        client,
+        fetch_catalog: None,
+        resolve_create_config: None,
+        is_create_config_unattended: None,
+    }
+}
+
+/// `agents.catalogRefreshTimeoutMs` (`providerCatalogRefreshTimeoutMs`).
+#[must_use]
+pub fn catalog_refresh_timeout_ms(persisted: &Value) -> Option<f64> {
+    persisted
+        .get("agents")?
+        .get("catalogRefreshTimeoutMs")?
+        .as_f64()
 }
 
 #[cfg(test)]
