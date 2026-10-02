@@ -4,107 +4,10 @@
 //! as a child of this test binary so `TZ` reaches its system-zone lookup the
 //! way it reaches V8's.
 
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+#[path = "support/pinned_node.rs"]
+mod support;
 
 use spocky_contracts::js::date_parse::date_parse;
-
-/// The pinned Node and dist, or `None` when the test may skip.
-fn pinned() -> Option<(OsString, PathBuf)> {
-    match (
-        std::env::var_os("SPOCKY_PINNED_NODE"),
-        std::env::var_os("SPOCKY_PASEO_DIST"),
-    ) {
-        (Some(node), Some(dist)) => Some((node, PathBuf::from(dist))),
-        _ if std::env::var("SPOCKY_ALLOW_SKIP").as_deref() == Ok("1") => {
-            eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: differential not run");
-            None
-        }
-        _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
-    }
-}
-
-/// Node 22.20.0 from Paseo `.tool-versions`.
-const PINNED_NODE_VERSION: &str = "v22.20.0";
-
-/// `gtimeout` where installed, else `timeout`.
-fn timeout_command() -> &'static str {
-    if Command::new("gtimeout").arg("--version").output().is_ok() {
-        "gtimeout"
-    } else {
-        "timeout"
-    }
-}
-
-/// Runs `script` as an ES module with `dist` and `args` in `process.argv`,
-/// bounded by `gtimeout`, and returns its stdout.
-fn run_node(node: &OsString, dist: &Path, script: &str, args: &[String]) -> String {
-    run_node_with_env(node, dist, script, args, &[])
-}
-
-/// [`run_node`] with extra environment variables (for example `TZ`).
-fn run_node_with_env(
-    node: &OsString,
-    dist: &Path,
-    script: &str,
-    args: &[String],
-    env: &[(&str, &str)],
-) -> String {
-    let timeout = timeout_command();
-    let version = Command::new(timeout)
-        .args(["--kill-after=5", "30"])
-        .arg(node)
-        .arg("--version")
-        .output()
-        .expect("pinned node --version");
-    assert_eq!(
-        String::from_utf8_lossy(&version.stdout).trim(),
-        PINNED_NODE_VERSION
-    );
-    let output = Command::new(timeout)
-        .args(["--kill-after=5", "120"])
-        .arg(node)
-        .args(["--input-type=module", "-e", script])
-        .arg(dist)
-        .args(args)
-        .envs(env.iter().copied())
-        .output()
-        .expect("run pinned node");
-    assert!(
-        output.status.success(),
-        "node failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("node stdout is UTF-8")
-}
-
-/// Runs the test `test_name` of the current test binary as a child with `TZ`
-/// set to `tz` and `child_env` present, bounded by `gtimeout`, and returns
-/// its stdout lines that start with `prefix`. The Rust side of a time-zone
-/// differential runs this way so `TZ` reaches its zone lookup the way it
-/// reaches V8's.
-fn run_self_child(test_name: &str, child_env: &str, tz: &str, prefix: &str) -> Vec<String> {
-    let output = Command::new(timeout_command())
-        .args(["--kill-after=5", "120"])
-        .arg(std::env::current_exe().expect("test exe"))
-        .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
-        .env(child_env, "1")
-        .env("TZ", tz)
-        .output()
-        .expect("run the child");
-    assert!(
-        output.status.success(),
-        "child failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout)
-        .expect("child stdout is UTF-8")
-        .lines()
-        .filter(|line| line.starts_with(prefix))
-        .map(str::to_owned)
-        .collect()
-}
 
 const CHILD_ENV: &str = "SPOCKY_DATE_PARSE_CHILD";
 const RESULT_PREFIX: &str = "RESULT ";
@@ -449,13 +352,13 @@ fn host_tzdb_version() -> String {
 
 #[test]
 fn date_parse_matches_v8_in_every_zone() {
-    let Some((node, dist)) = pinned() else {
+    let Some((node, dist)) = support::pinned() else {
         return;
     };
     // Both sides read zone rules from their own tzdb; a gap of more than one
     // release can move a transition, so it fails the run instead of a case.
     let host = host_tzdb_version();
-    let node_version = run_node(
+    let node_version = support::run_node(
         &node,
         &dist,
         "process.stdout.write(process.versions.tz)",
@@ -474,7 +377,7 @@ fn date_parse_matches_v8_in_every_zone() {
             .collect(),
     ));
     for zone in ZONES {
-        let expected: Vec<String> = run_node_with_env(
+        let expected: Vec<String> = support::run_node_with_env(
             &node,
             &dist,
             NODE_SCRIPT,
@@ -484,7 +387,7 @@ fn date_parse_matches_v8_in_every_zone() {
         .lines()
         .map(str::to_owned)
         .collect();
-        let actual = run_self_child(
+        let actual = support::run_self_child(
             "child_prints_date_parse_results",
             CHILD_ENV,
             zone,
