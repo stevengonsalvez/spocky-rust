@@ -172,6 +172,9 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-provider-codex",
       "paths": ["crates/spocky-provider-codex/"],
+      "openPortGaps": [
+        "OPEN, not on G1, must be ported before P5 (2026-10-02): pinned codex implements resolveDefaultModeId (a fresh probe with a signal, the memo without one); the provider at ae2f8904 exposes no auto-review entry point for it, so the spocky-daemon-app adapter seam returns None"
+      ],
       "delegation": "forbidden",
       "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
     },
