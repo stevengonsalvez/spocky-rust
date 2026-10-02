@@ -44,6 +44,7 @@ use spocky_store::registry::{
 };
 use spocky_store::time::parse_iso_millis;
 
+use crate::agent_control::{agent_permission_response, cancel_agent};
 use crate::agent_create::agent_create;
 use crate::agent_directory::{
     AGENTS, CursorError, agent_sort, checkout_from_persisted_workspace_placement, compare,
@@ -51,6 +52,7 @@ use crate::agent_directory::{
 };
 use crate::agent_updates::AgentUpdates;
 use crate::authorization::SessionAuthorization;
+use crate::events::EventDelivery;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
 use crate::workspace_handlers::{fetch_workspaces, workspace_create};
 
@@ -111,17 +113,31 @@ impl SessionBackend for DaemonBackend {
         // ponytail: subscribed for the session's lifetime, where the baseline
         // subscribes while a producer has demand (`refreshObservationProducers`);
         // without a subscription `forwardLiveAgent` has no observer either way.
+        let events = Arc::new(EventDelivery::new(
+            Arc::clone(&open.sink),
+            Arc::clone(&authorization),
+            Arc::clone(&capabilities),
+        ));
         let forward = Arc::downgrade(&updates);
+        let fan_out = Arc::downgrade(&events);
         let unsubscribe = self
             .services
             .manager
             .subscribe(
-                Arc::new(move |event: &AgentManagerEvent| {
-                    if let AgentManagerEvent::AgentState(agent) = event
-                        && let Some(updates) = forward.upgrade()
-                    {
-                        updates.forward_live_agent(agent);
+                Arc::new(move |event: &AgentManagerEvent| match event {
+                    AgentManagerEvent::AgentState(agent) => {
+                        if let Some(updates) = forward.upgrade() {
+                            updates.forward_live_agent(agent);
+                        }
                     }
+                    AgentManagerEvent::AgentStream {
+                        agent_id, event, ..
+                    } => {
+                        if let Some(events) = fan_out.upgrade() {
+                            emit_permission_event(&events, agent_id, event);
+                        }
+                    }
+                    _ => {}
                 }),
                 SubscribeOptions {
                     agent_id: None,
@@ -136,7 +152,7 @@ impl SessionBackend for DaemonBackend {
             permissions: open.permissions,
             capabilities,
             app_version,
-            modern_sources: Mutex::new(HashMap::new()),
+            events,
             updates,
             unsubscribe_agent_events: Mutex::new(unsubscribe),
             sink: open.sink,
@@ -158,9 +174,7 @@ pub struct DaemonSession {
     permissions: Vec<DaemonPermission>,
     capabilities: Arc<Mutex<Option<Value>>>,
     app_version: Arc<Mutex<Option<String>>>,
-    /// `SessionDelivery` sources: whether each socket owns its subscriptions
-    /// (`owned_subscriptions`).
-    modern_sources: Mutex<HashMap<SocketId, bool>>,
+    events: Arc<EventDelivery>,
     updates: Arc<AgentUpdates>,
     unsubscribe_agent_events: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     sink: Arc<dyn SessionSink>,
@@ -195,15 +209,7 @@ impl SessionHandle for DaemonSession {
         source: SocketId,
         app_version: Option<&str>,
     ) {
-        // `delivery.attach(source, modern)`: the first hello decides.
-        self.modern_sources
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(source)
-            .or_insert_with(|| {
-                capabilities.and_then(|caps| caps.get("owned_subscriptions"))
-                    == Some(&Value::Bool(true))
-            });
+        self.events.attach(source, capabilities);
         set(&self.capabilities, capabilities.cloned());
         if let Some(app_version) = app_version {
             set(&self.app_version, Some(app_version.to_owned()));
@@ -225,19 +231,18 @@ impl SessionHandle for DaemonSession {
             capabilities: locked(&self.capabilities),
             app_version: locked(&self.app_version),
             source,
-            modern: self
-                .modern_sources
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&source)
-                .copied()
-                .unwrap_or(false),
+            modern: self.events.is_modern(source),
             updates: Arc::clone(&self.updates),
+            events: Arc::clone(&self.events),
         });
+        let session_events = Arc::clone(&self.events);
         self.services.runtime.spawn(handle_request(
             Arc::clone(&self.authorization),
             message,
             emit,
+            Arc::new(move |frame| {
+                session_events.emit(&frame);
+            }),
             move |message, emit| route(context, message, emit),
         ));
     }
@@ -263,10 +268,7 @@ impl SessionHandle for DaemonSession {
 
     fn socket_detached(&self, source: SocketId) {
         self.updates.detach(source);
-        self.modern_sources
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&source);
+        self.events.detach(source);
     }
 
     fn cleanup(&self) {
@@ -288,9 +290,10 @@ pub(crate) struct RequestContext {
     pub(crate) services: Arc<Services>,
     capabilities: Option<Value>,
     app_version: Option<String>,
-    source: SocketId,
-    modern: bool,
+    pub(crate) source: SocketId,
+    pub(crate) modern: bool,
     updates: Arc<AgentUpdates>,
+    pub(crate) events: Arc<EventDelivery>,
 }
 
 /// `MIN_VERSION_ALL_PROVIDERS`.
@@ -359,6 +362,13 @@ async fn route(
         }
         SessionInbound::FetchAgents(request) => fetch_agents(&context, request, &emit).await,
         SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
+        SessionInbound::CancelAgent(request) => {
+            cancel_agent(&context, request, &emit).await;
+            Ok(())
+        }
+        SessionInbound::AgentPermissionResponse(request) => {
+            agent_permission_response(&context, request, &emit).await
+        }
         SessionInbound::AgentCreate(request) => {
             agent_create(&context.services, &context.updates, *request, &emit).await;
             Ok(())
@@ -381,6 +391,43 @@ async fn route(
             request_type(&other)
         ))),
     }
+}
+
+/// The permission frames `subscribeToAgentEvents` emits for a provider
+/// stream event: `agent_permission_request` through `emit` and
+/// `agent_permission_resolved` through `emitSubscribedEvent`, both session
+/// events here (neither is a reply to a request in flight).
+fn emit_permission_event(events: &EventDelivery, agent_id: &str, event: &JsValue) {
+    let mut payload = JsObject::new();
+    payload.insert("agentId", JsValue::String(agent_id.to_owned()));
+    let kind = match event.get("type").and_then(JsValue::as_str) {
+        Some("permission_requested") => {
+            payload.insert(
+                "request",
+                event.get("request").cloned().unwrap_or(JsValue::Undefined),
+            );
+            "agent_permission_request"
+        }
+        Some("permission_resolved") => {
+            payload.insert(
+                "requestId",
+                event
+                    .get("requestId")
+                    .cloned()
+                    .unwrap_or(JsValue::Undefined),
+            );
+            payload.insert(
+                "resolution",
+                event
+                    .get("resolution")
+                    .cloned()
+                    .unwrap_or(JsValue::Undefined),
+            );
+            "agent_permission_resolved"
+        }
+        _ => return,
+    };
+    events.emit(&frame(kind, payload));
 }
 
 pub(crate) fn js_text(value: &JsText) -> JsValue {

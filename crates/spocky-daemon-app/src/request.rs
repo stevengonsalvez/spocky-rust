@@ -104,11 +104,14 @@ pub type Emit = Arc<dyn Fn(Value) + Send + Sync>;
 /// since handler messages often quote request fields.
 ///
 /// Every frame, including those `dispatch` emits, passes the session's
-/// `allowsOutbound` check first, as `SessionDelivery`'s send does.
+/// `allowsOutbound` check first, as `SessionDelivery`'s send does. Replies go
+/// to `sink`; the failure's `activity_log` is a session event and goes to
+/// `events` (`emitSubscribedEvent`).
 pub async fn handle_request<F, Fut>(
     authorization: Arc<SessionAuthorization>,
     message: SessionInbound,
     sink: Emit,
+    events: Emit,
     dispatch: F,
 ) where
     F: FnOnce(SessionInbound, Emit) -> Fut,
@@ -119,6 +122,14 @@ pub async fn handle_request<F, Fut>(
         Arc::new(move |frame: Value| {
             if authorization.allows_outbound(&frame) {
                 sink(frame);
+            }
+        })
+    };
+    let events: Emit = {
+        let authorization = Arc::clone(&authorization);
+        Arc::new(move |frame: Value| {
+            if authorization.allows_outbound(&frame) {
+                events(frame);
             }
         })
     };
@@ -151,7 +162,7 @@ pub async fn handle_request<F, Fut>(
         if let Some(id) = id {
             emit(rpc_error(id, kind, failure, "handler_error"));
         }
-        emit(json!({
+        events(json!({
             "type": "activity_log",
             "payload": {
                 "id": random_uuid(),
@@ -239,6 +250,7 @@ mod tests {
         block_on(handle_request(
             Arc::new(SessionAuthorization::new(permissions)),
             inbound(message),
+            Arc::clone(&sink),
             sink,
             move |_, _| async move {
                 flag.store(true, Ordering::SeqCst);
@@ -368,6 +380,7 @@ mod tests {
         block_on(handle_request(
             Arc::new(SessionAuthorization::new(&[DaemonPermission::HubExecute])),
             inbound(&json!({"type": "fetch_agent_request", "requestId": "f2", "agentId": "a"})),
+            Arc::clone(&sink),
             sink,
             |_, emit| async move {
                 emit(json!({"type": "pong", "payload": {}}));
@@ -389,6 +402,7 @@ mod tests {
         block_on(handle_request(
             Arc::new(SessionAuthorization::new(&DaemonPermission::ALL)),
             inbound(&json!({"type": "fetch_agents_request", "requestId": "p1"})),
+            Arc::clone(&sink),
             sink,
             |_, _| async { panic!("index out of bounds") },
         ));
