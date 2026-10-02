@@ -1,8 +1,8 @@
 # Phase 3 gate G1 evidence
 
-Lane `p3_slice_harness`, 2026-10-01. Status: harness self-check passes under
-loopback-only egress; G1 parity (original against Spocky) is not claimed and
-is blocked on the `spocky-daemon` binary.
+Lane `p3_slice_harness`, 2026-10-02. Status: G1 PASSES on main `f05feb7b`.
+The official run `g1-20261002T031747Z` passed both the original-against-original
+self-check and original-against-Spocky parity with zero differences.
 
 ## Command
 
@@ -10,10 +10,58 @@ is blocked on the `spocky-daemon` binary.
 gtimeout --kill-after=30 1800 scripts/phase3/gate.sh g1
 ```
 
-Exit 1. The original-against-original self-check passes, then the parity half
-stops with `error: no bin target named spocky-daemon in spocky-daemon package`
-and prints `g1 parity blocked`. A gate run never passes while either half is
-missing.
+Exit 0 on main `f05feb7b` (official run below). The gate first runs the
+original daemon on both sides (self-check), then builds `cargo build --locked
+-p spocky-daemon-app --bin spocky-daemon` and runs original against Spocky
+(parity). It exits 0 only when both pass; if the Spocky binary does not build
+it prints `g1 parity blocked` and exits 1.
+
+## Official G1 run `g1-20261002T031747Z` (main `f05feb7b`)
+
+Run once from a clean detached worktree at `f05feb7b` (code tree identical to
+the wiring tip `fdf96ce5`; the two differ only in `porting/tasks.json`),
+removed afterwards. Raw evidence copied to
+`evidence/raw/phase3/g1-20261002T031747Z-f05feb7b/` (untracked).
+
+| | Self-check (original vs original) | Parity (original vs Spocky) |
+|---|---|---|
+| Result | pass | pass |
+| Comparison | compared, 0 differences | compared, 0 differences |
+| Rules | 82 | 82 |
+| Check failures, survivors, harness errors | 0, 0, 0 | 0, 0, 0 |
+| Discovery and comparison errors | none | none |
+| Fixtures, assertions | 6 of 6, 5 of 5 | 6 of 6, 5 of 5 |
+| `verdict.json` SHA-256 | `5781113fa2fe289d18f751ede8fdce44d4d3f6c27f42915610261113e3ceefed` | `2e827618b0720ff9994c8f82c322ed0d963ad28e45596dc86dec84701b8794f3` |
+
+Parity artifacts:
+
+| File | SHA-256 |
+|---|---|
+| `parity/manifest.json` | `79c462f0ee7ab2d46a53f57fa650a9d68d415b8ea732ced4131ecbfdfa778976` |
+| `parity/rules.json` | `8c2e6771379fa00282c998f2efbd349a02622d48442a36fb56a834302e3798e1` |
+| `parity/transforms.json` | `f0344493280ff2a50767289657d266afe6e35454d0b3d5402eb60b6d17a168f9` |
+
+Per side in the parity run:
+
+| | Original | Spocky |
+|---|---|---|
+| Step exits (ready, workspace-create, run, logs, ls, inspect) | 0, 0, 0, 0, 0, 0 | 0, 0, 0, 0, 0, 0 |
+| Daemon exit after SIGTERM | 0 | 0 |
+| Processes needing SIGKILL | 0 | 0 |
+| Tracked PIDs | 44 | 30 |
+| codex `--version` invocations | 11 | 11 |
+| codex `app-server` invocations | 3 | 3 |
+
+The one named transform, `codex-client-metadata-key-order`, changed
+`left:stub/000` and `right:stub/000`. Every codex invocation record (argv and
+exact JSON-RPC stdin) matched after normalization. No leftover tmux servers or
+disposable roots.
+
+Path to the pass: the first combined run on main `b8c2516a`
+(`g1-20261002T025545Z`) failed only on the agent record written at shutdown
+(`lastStatus` `closed` on the original, `idle` on Spocky). The wiring lane's
+graceful-stop fix closed it; the re-run at `fdf96ce5`
+(`g1-20261002T030650Z`) and this official run both passed.
 
 Self-check only:
 
@@ -271,10 +319,11 @@ Tests prove a key-order swap anywhere else in the same body still fails.
 
 ## Remaining gaps
 
-- G1 parity is blocked: crate `spocky-daemon` has no `spocky-daemon` bin
-  target on main `d6618ba`. The harness launches it with no arguments, the
-  same environment, and the same `config.json`; the daemon lane owns that
-  interface.
+- codex invocation records are matched by content, so an ordering difference
+  between different records (for example catalog, session, catalog against
+  catalog, catalog, session) would pass. Follow-up P2 after G1: a partial-order
+  check for record pairs whose order is stable across original-against-original
+  runs, which needs the shim's arrival order kept in the raw evidence.
 - G2 to G4 are not defined; `gate.sh` rejects them.
 - The outer seatbelt sandbox blocks nested sandboxing. G1 runs codex with
   `danger-full-access`, so codex applies no sandbox of its own; G2 (`auto`
