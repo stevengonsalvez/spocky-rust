@@ -556,6 +556,27 @@ wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nrequires_openai_auth = f
     std::fs::write(root.join("codex").join("config.toml"), config).expect("write config.toml");
 }
 
+/// Directory the launcher records `app-server` stdio under when set: each
+/// launch writes `<dir>/<root dir name>/<pid>/{in,out}.jsonl`, the bytes the
+/// client sent and the bytes Codex answered. `record_fixture.py` turns those
+/// recordings into the replay fixtures.
+pub const RECORD_DIR_ENV: &str = "SPOCKY_RECORD_DIR";
+
+/// The launcher lines that tee an `app-server` launch's stdio into
+/// `RECORD_DIR_ENV`, or nothing when it is unset. Only the launcher script
+/// changes: Codex still runs the same command under the same seatbelt.
+fn recording_lines(root: &DisposableRoot, codex: &str) -> String {
+    let Some(dir) = std::env::var_os(RECORD_DIR_ENV) else {
+        return String::new();
+    };
+    let name = root.path.file_name().expect("root dir name");
+    let dir = PathBuf::from(dir).join(name);
+    format!(
+        "if [ \"$1\" = app-server ]; then d='{}'/$$; mkdir -p \"$d\"; tee \"$d/in.jsonl\" | /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\" | tee \"$d/out.jsonl\"; exit; fi\n",
+        dir.display()
+    )
+}
+
 /// A launcher that runs `codex` under the loopback-only seatbelt profile.
 fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
     let bin = root.join("bin");
@@ -564,9 +585,10 @@ fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
     std::fs::write(
         &launcher,
         format!(
-            "#!/bin/sh\necho $$ >> '{}'\necho \"$*\" >> '{}'\nexec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n",
+            "#!/bin/sh\necho $$ >> '{}'\necho \"$*\" >> '{}'\n{}exec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n",
             root.join(APP_SERVER_PIDS).display(),
-            root.join(CODEX_ARGV_LOG).display()
+            root.join(CODEX_ARGV_LOG).display(),
+            recording_lines(root, codex)
         ),
     )
     .expect("write launcher");
