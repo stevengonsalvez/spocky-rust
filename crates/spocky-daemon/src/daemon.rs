@@ -524,6 +524,7 @@ fn start_after_lock(
     };
     let listen = format_listen_target(&bound_target);
     server.set_listen(&listen, matches!(bound_target, ListenTarget::Tcp { .. }));
+    backend.listening(&bound_target);
     logger.info(&[("listen", &listen)], "Server listening");
 
     let patch = PidLockPatch::Listening {
