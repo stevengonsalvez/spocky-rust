@@ -2070,40 +2070,87 @@ mod tests {
             .any(|process| process.pid == pid && !process.stat.starts_with('Z'))
     }
 
+    /// A test decoy started in its own process group. The guard owns the
+    /// child and never lets a test reap it, so the recorded group id stays
+    /// reserved; dropping the guard, including while a failed assertion
+    /// unwinds, kills the whole group and then reaps the child.
+    struct DecoyGuard {
+        child: std::process::Child,
+        group: u32,
+    }
+
+    impl DecoyGuard {
+        fn spawn(command: &mut Command) -> Self {
+            use std::os::unix::process::CommandExt;
+            let child = command.process_group(0).spawn().unwrap();
+            let group = child.id();
+            Self { child, group }
+        }
+
+        fn id(&self) -> u32 {
+            self.child.id()
+        }
+    }
+
+    impl Drop for DecoyGuard {
+        fn drop(&mut self) {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{}", self.group)])
+                .stderr(Stdio::null())
+                .status();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
     /// A live process whose environment mentions `needle` but that the gate
     /// did not start.
-    fn decoy(needle: &str) -> std::process::Child {
-        let child = Command::new("/bin/sleep")
-            .arg("300")
-            .env("SPOCKY_TEST_ROOT", needle)
-            .spawn()
-            .unwrap();
-        let pid = child.id();
+    fn decoy(needle: &str) -> DecoyGuard {
+        let guard = DecoyGuard::spawn(
+            Command::new("/bin/sleep")
+                .arg("300")
+                .env("SPOCKY_TEST_ROOT", needle),
+        );
+        let pid = guard.id();
         assert!(wait_until(Duration::from_secs(5), || processes_mentioning(
             needle
         )
         .contains(&pid)));
-        child
+        guard
+    }
+
+    #[test]
+    fn decoy_guard_kills_its_group_when_a_test_panics() {
+        let mut group = 0;
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let guard =
+                DecoyGuard::spawn(Command::new("/bin/sh").args(["-c", "/bin/sleep 300 & wait"]));
+            group = guard.group;
+            assert!(wait_until(Duration::from_secs(5), || group_has_members(
+                group
+            )));
+            panic!("a failed assertion while a decoy is live");
+        }));
+        assert!(unwound.is_err());
+        assert!(wait_until(Duration::from_secs(5), || !group_has_members(
+            group
+        )));
     }
 
     #[test]
     fn sweep_kills_owned_processes_and_spares_live_decoys_and_tmux() {
         let directory = scratch(line!());
         let needle = directory.display().to_string();
-        let mut unrelated = decoy(&needle);
+        let unrelated = decoy(&needle);
         let unrelated_pid = unrelated.id();
         // An unrelated live process whose argv (not only its environment)
-        // names a path under the root.
-        // Its own process group, so cleanup can reap the sleep grandchild.
-        let mut argv_decoy = {
-            use std::os::unix::process::CommandExt;
+        // names a path under the root. Its guard's group kill also reaps
+        // the sleep grandchild.
+        let argv_decoy = DecoyGuard::spawn(
             Command::new("/bin/sh")
                 .args(["-c", "/bin/sleep 300; :"])
-                .arg(directory.join("decoy-argv"))
-                .process_group(0)
-                .spawn()
-                .unwrap()
-        };
+                .arg(directory.join("decoy-argv")),
+        );
         let argv_decoy_pid = argv_decoy.id();
         assert!(wait_until(Duration::from_secs(5), || {
             run_bounded(
@@ -2123,11 +2170,13 @@ mod tests {
             shell_quote(&fake_tmux.display().to_string()),
             shell_quote(&directory.join("tmux.pid").display().to_string())
         );
-        let mut ours = Command::new("/bin/sh")
-            .args(["-c", &script])
-            .env("SPOCKY_TEST_ROOT", &needle)
-            .spawn()
-            .unwrap();
+        // Guarded because its group holds the fake tmux decoy, which must
+        // outlive the sweep and must not outlive the test.
+        let ours = DecoyGuard::spawn(
+            Command::new("/bin/sh")
+                .args(["-c", &script])
+                .env("SPOCKY_TEST_ROOT", &needle),
+        );
         let ours_pid = ours.id();
         assert!(wait_until(Duration::from_secs(5), || directory
             .join("tmux.pid")
@@ -2146,7 +2195,6 @@ mod tests {
         assert!(wait_until(Duration::from_secs(5), || alive(tmux_pid)));
         assert_eq!(sampler.owned().pids(), vec![ours_pid]);
         let (killed, survivors) = kill_owned(&sampler, &[]);
-        let _ = ours.wait();
         assert_eq!(killed, vec![ours_pid]);
         assert!(survivors.is_empty());
         assert!(!alive(ours_pid));
@@ -2167,18 +2215,13 @@ mod tests {
             .find(|process| process.ppid == argv_decoy_pid && process.comm.ends_with("sleep"))
             .map(|process| process.pid)
             .expect("argv decoy sleep grandchild");
-        signal(tmux_pid, "KILL");
-        let _ = unrelated.kill();
-        let _ = unrelated.wait();
-        let _ = Command::new("/bin/kill")
-            .args(["-KILL", "--", &format!("-{argv_decoy_pid}")])
-            .status();
-        let _ = argv_decoy.kill();
-        let _ = argv_decoy.wait();
-        // Cleanup leaks nothing: the group kill reaped the grandchild too.
+        drop((unrelated, argv_decoy, ours));
+        // Cleanup leaks nothing: the group kills reaped the grandchild and
+        // the fake tmux too.
         assert!(wait_until(Duration::from_secs(5), || !alive(
             argv_grandchild
-        )));
+        ) && !alive(tmux_pid)
+            && !alive(unrelated_pid)));
         assert!(!group_has_members(argv_decoy_pid));
         fs::remove_dir_all(&directory).unwrap();
     }
@@ -2187,7 +2230,7 @@ mod tests {
     fn term_refuses_a_decoy_pid_written_to_the_daemon_pid_file() {
         let directory = scratch(line!());
         let needle = directory.display().to_string();
-        let mut unrelated = decoy(&needle);
+        let unrelated = decoy(&needle);
         let decoy_pid = unrelated.id();
         let pid_file = directory.join("daemon.pid");
         fs::write(&pid_file, format!("{decoy_pid}\n")).unwrap();
@@ -2213,8 +2256,8 @@ mod tests {
         assert!(alive(decoy_pid));
         let _ = ours.kill();
         let _ = ours.wait();
-        let _ = unrelated.kill();
-        let _ = unrelated.wait();
+        drop(unrelated);
+        assert!(wait_until(Duration::from_secs(5), || !alive(decoy_pid)));
         fs::remove_dir_all(&directory).unwrap();
     }
 
