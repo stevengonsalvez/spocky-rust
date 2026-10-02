@@ -66,3 +66,35 @@ the schedule service itself is outside the slice.
 Raw trees (untracked, scratchpad `fh2/`): original SHA-256
 `f89b14d105e400e690f2d36b33213708a165fe63b0453b14debea268111259d5`, Spocky
 SHA-256 `221efd587a63678b0921f2844ba856c5c4ecde5ab7e5451612e728df598abcfc`.
+
+## agent_update wire differential
+
+`crates/spocky-daemon-app/tests/differential/agent-update-differential.sh`
+runs one pinned client (`connectToDaemon` from the pinned CLI build) against
+each daemon. The client:
+
+1. Subscribes with `fetch_agents_request` and `subscribe: {}`.
+2. Creates a directory workspace.
+3. Creates a codex agent in `full-access` mode with the G1 prompt, answered
+   by the loopback Responses stub.
+4. Waits for the agent to finish.
+
+It records every `fetch_agents_response`, `agent_update` and
+`agent.create.response` frame in arrival order. Per-run values are masked:
+UUIDs, `wks_` and `prj_` ids, ISO timestamps, and the disposable root path.
+
+Result on 2026-10-02 (branch `p3-g1-wiring` on main `5ea85994`):
+
+- Both sides recorded 9 frames, and the masked sequences are byte-identical,
+  key order included.
+- The sequence is: `fetch_agents_response`; upserts `initializing`, `idle`,
+  `running`, then `idle` again; `agent.create.response` with `running`; then
+  upserts `running`, `running`, `idle`.
+- The second `idle` is `forwardLiveAgent(snapshot)` after `createAgentCommand`
+  returns (`session.ts:4308`). It carries the pre-prompt snapshot, so it
+  repeats the earlier `updatedAt`, and it goes out before the create
+  response, as the baseline awaits it.
+
+Both daemons ran under `sandbox-exec` with the egress-deny profile, in tmux on
+the lane socket, on disposable homes and random ports. Only recorded PIDs were
+signalled.
