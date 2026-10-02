@@ -7,7 +7,7 @@
 //! the baseline exactly: `initialRecord` and each `publish` spread keep
 //! existing keys in place and append new ones (an `undefined` update keeps a
 //! slot that `JSON.stringify` omits), while a record read back from disk
-//! takes `RecordSchema.parse` order ([`crate::zod_output`]).
+//! takes `RecordSchema.parse` order ([`spocky_contracts::zod::output`]).
 //!
 //! The admission chain, the runner and the per-receipt queue run as tokio
 //! tasks, as the baseline's promises run without anyone awaiting them:
@@ -25,16 +25,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sha2::{Digest, Sha256};
+use spocky_contracts::creation_schema::CREATION_SNAPSHOT;
 use spocky_contracts::js::{js_string, spread_into, truthy};
 use spocky_contracts::request::CreationKind;
+use spocky_contracts::zod::output::{Catchall, Shape, parse_output};
 use spocky_store::atomic::{FsError, mkdirp, write_file_atomic};
 use spocky_store::collate::locale_compare;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify, stringify_pretty};
 use tokio::sync::{oneshot, watch};
 
 use crate::clock::{generate_workspace_id, random_uuid};
-use crate::creation_schema::CREATION_SNAPSHOT;
-use crate::zod_output::{Catchall, Shape, parse_output};
 
 /// A thrown JavaScript error as the baseline reads it: `error.message` and a
 /// string `error.code`, if any.
