@@ -3,7 +3,7 @@
 //! `StoredAgentRecord`, its persistence handle, timestamps and attention.
 //! Records stay JavaScript values, as `AgentStorage` returns them.
 
-use spocky_contracts::js::{js_string, truthy};
+use spocky_contracts::js::{date_parse, js_string, truthy};
 use spocky_store::js_value::{JsObject, JsValue};
 use spocky_store::time::parse_iso_millis;
 
@@ -94,7 +94,8 @@ pub fn is_stored_agent_provider_available(
 }
 
 /// `resolveStoredAgentUpdatedAt(record)`: the later of `updatedAt` and
-/// `lastActivityAt`, the raw string of the first on a tie.
+/// `lastActivityAt` by `Date.parse` (any form V8 reads, not only ISO), the
+/// raw string of the first on a tie.
 #[must_use]
 pub fn resolve_stored_agent_updated_at(record: &JsValue) -> JsValue {
     let mut latest: Option<(i64, &JsValue)> = None;
@@ -105,7 +106,7 @@ pub fn resolve_stored_agent_updated_at(record: &JsValue) -> JsValue {
         let Some(parsed) = value
             .as_str()
             .filter(|text| !text.is_empty())
-            .and_then(parse_iso_millis)
+            .and_then(date_parse)
         else {
             continue;
         };
