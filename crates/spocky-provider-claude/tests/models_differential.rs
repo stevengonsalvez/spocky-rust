@@ -98,6 +98,10 @@ const CONFIGURED: &[&str] = &[
     r#"{"provider":"claude","id":"custom","label":"x"}"#,
     r#"{"provider":"claude","id":"custom","label":"x","thinkingOptions":null}"#,
     r#"{"provider":"claude","id":"us.anthropic.claude-opus-4-8","label":"x"}"#,
+    // A defined thinkingOptions returns the model untouched.
+    r#"{"provider":"claude","id":"claude-opus-4-8","label":"x","thinkingOptions":[{"id":"low","label":"Low"}]}"#,
+    r#"{"provider":"claude","id":"custom","label":"x","thinkingOptions":[]}"#,
+    r#"{"provider":"claude","id":"claude-haiku-4-5","label":"x","thinkingOptions":[{"id":"off","label":"Off","isDefault":true}],"extra":1}"#,
 ];
 
 const CLAUDE_CODE_VERSIONS: &[&str] = &[
