@@ -820,7 +820,7 @@ const replaceScenario = async () => {
     await sleep(100);
     await manager.flush();
     await registry.flush();
-    return { ...extra, calls, feed, agent: toAgentPayload(manager.getAgent(agentId)), rows: await manager.getTimelineRows(agentId) };
+    return { ...extra, calls, feed, agent: toAgentPayload(manager.getAgent(agentId)), rows: await manager.getTimelineRows(agentId), stored: await registry.get(agentId) };
   };
   const running = await build("running", [scripted.rpIdle, scripted.long, scripted.rpAfter], { interrupt: scripted.interrupt });
   const idleEvents = await collect(await running.manager.replaceAgentRun(agentId, "idle prompt"), []);
@@ -2549,6 +2549,10 @@ async fn replace_finish(
     extra.push((
         "rows",
         JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+    ));
+    extra.push((
+        "stored",
+        registry.get(AGENT_ID).await.unwrap_or(JsValue::Null),
     ));
     object(extra)
 }
