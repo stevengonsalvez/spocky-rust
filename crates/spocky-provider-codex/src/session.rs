@@ -35,6 +35,7 @@ use crate::items::{
 };
 use crate::launch::{self, CODEX_PROVIDER, CodexGates, CustomProvider, ProviderRuntimeSettings};
 use crate::notification::{ItemSource, ParsedNotification, parse_notification};
+use crate::options::parse_provider_options;
 use spocky_contracts::js::js_string as contracts_js_string;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
@@ -471,12 +472,14 @@ impl CodexSession {
     /// service tier and plan mode from feature values.
     ///
     /// # Errors
-    /// Returns the `Invalid Codex mode` message for an unknown `mode_id`.
+    /// Returns the `Invalid Codex mode` message for an unknown `mode_id`, or
+    /// the `ZodError` message for `provider_options` outside the pinned schema.
     pub fn new(options: SessionOptions) -> Result<Self, String> {
         let mut config = options.config;
         if let Some(mode_id) = &config.mode_id {
             validate_mode(mode_id)?;
         }
+        parse_provider_options(config.provider_options.as_ref())?;
         let has_workflow_mode_override = config.mode_id.is_some();
         let current_mode = config
             .mode_id
