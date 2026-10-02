@@ -932,7 +932,7 @@ fn wait_for_any(events: &Events, types: &[&str]) -> Value {
     }
 }
 
-fn rust_run(argv: Vec<String>, root: &DisposableRoot, prompt: &str, action: &str) -> Value {
+fn rust_run(argv: Vec<String>, root: &DisposableRoot, prompt: &str, action: &str) -> String {
     let base_env = vec![
         ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
         ("HOME".into(), root.join("home").into_os_string()),
@@ -966,7 +966,8 @@ fn rust_run(argv: Vec<String>, root: &DisposableRoot, prompt: &str, action: &str
         // No approval: the turn runs to its terminal event on its own.
         wait_for_any(&events, &["turn_completed", "turn_canceled", "turn_failed"]);
         session.close().expect("close");
-        return json!({"events": events.snapshot(), "pendingBefore": [], "pendingAfter": []});
+        return json!({"events": events.snapshot(), "pendingBefore": [], "pendingAfter": []})
+            .to_string();
     }
     let requested = wait_for_any(&events, &["permission_requested"]);
     let before = session.pending_permissions();
@@ -987,7 +988,7 @@ fn rust_run(argv: Vec<String>, root: &DisposableRoot, prompt: &str, action: &str
     wait_for_any(&events, &["turn_completed", "turn_canceled", "turn_failed"]);
     let after = session.pending_permissions();
     session.close().expect("close");
-    json!({"events": events.snapshot(), "pendingBefore": before, "pendingAfter": after})
+    json!({"events": events.snapshot(), "pendingBefore": before, "pendingAfter": after}).to_string()
 }
 
 fn pinned_run(
@@ -996,7 +997,7 @@ fn pinned_run(
     root: &DisposableRoot,
     prompt: &str,
     action: &str,
-) -> Value {
+) -> String {
     let mut child = Command::new(&pinned.node)
         .arg(crate_path("tests/support/pinned_g2_session.mjs"))
         .arg(&pinned.module)
@@ -1029,7 +1030,7 @@ fn pinned_run(
         "pinned G2 run failed: {stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_str(stdout.trim()).expect("pinned run JSON")
+    stdout.trim().to_owned()
 }
 
 /// `Ok` when `sums` (the text of `SHA256SUMS`) lists `fixture` with the
@@ -1103,12 +1104,22 @@ pub fn replay_differential(fixture: &str, scenario: &str, prompt: &str, action: 
     );
     let argv = replay_argv(&pinned, fixture, scenario, &root, &pinned_log);
     let paseo = pinned_run(&pinned, &argv, &root, prompt, action);
-    for part in ["events", "pendingBefore", "pendingAfter"] {
-        assert_eq!(
-            serde_json::to_string(&rust[part]).unwrap(),
-            serde_json::to_string(&paseo[part]).unwrap(),
-            "{scenario}: {part} differ"
-        );
+    // The session output is compared as text, with no parse and re-serialize
+    // in between: both sides emit `{"events":..,"pendingBefore":..,"pendingAfter":..}`
+    // with keys in emission order, so any difference in key order, number
+    // text, or string escaping between the Rust provider's output and the
+    // pinned client's own `JSON.stringify` shows up here.
+    if rust != paseo {
+        let part = |text: &str, name: &str| {
+            serde_json::from_str::<Value>(text)
+                .ok()
+                .and_then(|value| value.get(name).map(Value::to_string))
+        };
+        let differing = ["events", "pendingBefore", "pendingAfter"]
+            .into_iter()
+            .find(|name| part(&rust, name) != part(&paseo, name))
+            .unwrap_or("serialization");
+        panic!("{scenario}: {differing} differ\n rust:   {rust}\n pinned: {paseo}");
     }
     let read = |log: &Path| std::fs::read_to_string(log).expect("client log");
     let (ours, theirs) = (read(&rust_log), read(&pinned_log));
