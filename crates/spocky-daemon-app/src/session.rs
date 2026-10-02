@@ -287,13 +287,13 @@ pub(crate) fn to_frame(value: JsValue) -> Value {
 
 /// `buildAgentPayload`: `toAgentPayload(agent)` with the stored title and
 /// archive time (`enrichAgentPayload`).
-async fn agent_payload(
-    context: &RequestContext,
+pub(crate) async fn agent_payload(
+    services: &Services,
     agent: &ManagedAgentSnapshot,
 ) -> Result<JsValue, String> {
     let mut payload =
         to_agent_payload(&agent.payload_view(), None).map_err(|error| error.to_string())?;
-    let stored = context.services.storage.get(&agent.id).await;
+    let stored = services.storage.get(&agent.id).await;
     if let JsValue::Object(object) = &mut payload {
         let field = |key: &str| {
             stored
@@ -312,7 +312,7 @@ async fn agent_payload(
 async fn live_agent_payloads(context: &RequestContext) -> Result<Vec<JsValue>, String> {
     let mut payloads = Vec::new();
     for agent in context.services.manager.list_agents() {
-        payloads.push(agent_payload(context, &agent).await?);
+        payloads.push(agent_payload(&context.services, &agent).await?);
     }
     Ok(payloads)
 }
@@ -562,7 +562,7 @@ async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emi
 
 /// The error while `buildStoredAgentPayload` (agent-projections.ts) is not
 /// ported: an unloaded stored agent cannot be described yet.
-const STORED_PAYLOAD_NOT_PORTED: &str =
+pub(crate) const STORED_PAYLOAD_NOT_PORTED: &str =
     "Stored agent payloads are not ported in spocky-daemon-app yet";
 
 pub(crate) fn frame(kind: &str, payload: JsObject) -> Value {
@@ -613,7 +613,7 @@ async fn agent_payload_by_id(
         )
     };
     if let Some(agent) = context.services.manager.get_agent(agent_id) {
-        let payload = agent_payload(context, &agent)
+        let payload = agent_payload(&context.services, &agent)
             .await
             .map_err(|error| JsText::new(&error))?;
         return Ok(visible(&payload).then_some(payload));
@@ -968,7 +968,7 @@ async fn fetch_agent_timeline(
     payload.insert("agentId", js_text(&request.agent_id));
     let loaded = async {
         let snapshot = ensure_agent_loaded(context, &agent_id).await?;
-        let agent = agent_payload(context, &snapshot).await?;
+        let agent = agent_payload(&context.services, &snapshot).await?;
         let fetched = context
             .services
             .manager
