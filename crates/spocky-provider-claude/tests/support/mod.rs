@@ -54,10 +54,33 @@ pub fn assert_pinned_modules(dist: &Path, modules: &[(&str, &str)]) {
 /// Node 22.20.0 from Paseo `.tool-versions`.
 const PINNED_NODE_VERSION: &str = "v22.20.0";
 
+/// `gtimeout` where installed, else `timeout`.
+fn timeout_command() -> &'static str {
+    if Command::new("gtimeout").arg("--version").output().is_ok() {
+        "gtimeout"
+    } else {
+        "timeout"
+    }
+}
+
 /// Runs `script` as an ES module with `dist` and `args` in `process.argv`,
 /// bounded by `gtimeout`, and returns its stdout.
 pub fn run_node(node: &OsString, dist: &Path, script: &str, args: &[String]) -> String {
-    let version = Command::new(node)
+    run_node_with_env(node, dist, script, args, &[])
+}
+
+/// [`run_node`] with extra environment variables (for example `TZ`).
+pub fn run_node_with_env(
+    node: &OsString,
+    dist: &Path,
+    script: &str,
+    args: &[String],
+    env: &[(&str, &str)],
+) -> String {
+    let timeout = timeout_command();
+    let version = Command::new(timeout)
+        .args(["--kill-after=5", "30"])
+        .arg(node)
         .arg("--version")
         .output()
         .expect("pinned node --version");
@@ -65,17 +88,13 @@ pub fn run_node(node: &OsString, dist: &Path, script: &str, args: &[String]) -> 
         String::from_utf8_lossy(&version.stdout).trim(),
         PINNED_NODE_VERSION
     );
-    let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
-        "gtimeout"
-    } else {
-        "timeout"
-    };
     let output = Command::new(timeout)
         .args(["--kill-after=5", "120"])
         .arg(node)
         .args(["--input-type=module", "-e", script])
         .arg(dist)
         .args(args)
+        .envs(env.iter().copied())
         .output()
         .expect("run pinned node");
     assert!(
@@ -84,4 +103,31 @@ pub fn run_node(node: &OsString, dist: &Path, script: &str, args: &[String]) -> 
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("node stdout is UTF-8")
+}
+
+/// Runs the test `test_name` of the current test binary as a child with
+/// `TZ` set to `tz` and `child_env` present, bounded by `gtimeout`, and
+/// returns its stdout lines that start with `prefix`. The Rust side of a
+/// time-zone differential runs this way so `TZ` reaches its zone lookup the
+/// way it reaches V8's.
+pub fn run_self_child(test_name: &str, child_env: &str, tz: &str, prefix: &str) -> Vec<String> {
+    let output = Command::new(timeout_command())
+        .args(["--kill-after=5", "120"])
+        .arg(std::env::current_exe().expect("test exe"))
+        .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
+        .env(child_env, "1")
+        .env("TZ", tz)
+        .output()
+        .expect("run the child");
+    assert!(
+        output.status.success(),
+        "child failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("child stdout is UTF-8")
+        .lines()
+        .filter(|line| line.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
 }
