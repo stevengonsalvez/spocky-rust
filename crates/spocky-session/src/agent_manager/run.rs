@@ -12,6 +12,7 @@ use super::events::{
     SubmittedPrompt, TerminalDisposition, event_type, format_turn_failed_message,
     is_turn_terminal_event, raw_turn_id,
 };
+use super::lifecycle::AgentRunCancellationResult;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
 use crate::agent_prompt::submitted_prompt_text;
 use crate::agent_sdk::{
@@ -284,6 +285,66 @@ impl AgentManager {
             touch_updated_at(&mut agent.snapshot);
             self.emit_state_locked(state, agent_id, true);
         }
+    }
+
+    /// `replaceAgentRun(agentId, prompt, options)`: an idle agent just
+    /// streams the prompt; a busy one is marked as being replaced
+    /// (`pendingReplacement`, running), its run is cancelled, then the prompt
+    /// streams. An unacknowledged cancellation fails the replacement and
+    /// clears the mark.
+    ///
+    /// # Errors
+    ///
+    /// `Unknown agent`, a missing session, `Cannot replace agent <id> because
+    /// its active run cancellation was not acknowledged`, or the cancel or
+    /// stream error.
+    pub async fn replace_agent_run(
+        &self,
+        agent_id: &str,
+        prompt: AgentPromptInput,
+        options: Option<AgentRunOptions>,
+    ) -> Result<TurnEventStream, AgentError> {
+        {
+            let mut state = self.lock();
+            let agent = Self::require_agent(&state, agent_id)?;
+            let id = agent.snapshot.id.clone();
+            if agent.snapshot.lifecycle != AgentLifecycle::Running
+                && agent.snapshot.active_foreground_turn_id.is_none()
+                && !state.runs.contains_key(&id)
+            {
+                drop(state);
+                return self.stream_agent(agent_id, prompt, options);
+            }
+            if agent.session.is_none() {
+                return Err(AgentError::new(format!(
+                    "Agent '{id}' has no managed session"
+                )));
+            }
+            if let Some(agent) = state.agent_mut(&id) {
+                agent.snapshot.pending_replacement = true;
+                agent.snapshot.lifecycle = AgentLifecycle::Running;
+                touch_updated_at(&mut agent.snapshot);
+            }
+            self.emit_state_locked(&mut state, &id, true);
+        }
+        let attempt = async {
+            if self.cancel_agent_run(agent_id).await? == AgentRunCancellationResult::Refused {
+                return Err(AgentError {
+                    name: "AgentRunCancellationError".to_owned(),
+                    message: format!(
+                        "Cannot replace agent {agent_id} because its active run cancellation was not acknowledged"
+                    ),
+                });
+            }
+            self.stream_agent(agent_id, prompt, options)
+        }
+        .await;
+        if attempt.is_err()
+            && let Some(agent) = self.lock().agent_mut(agent_id)
+        {
+            agent.snapshot.pending_replacement = false;
+        }
+        attempt
     }
 
     /// `streamAgent(agentId, prompt, options)`: checks run now; the turn
