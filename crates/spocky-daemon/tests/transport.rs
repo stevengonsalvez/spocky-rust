@@ -622,6 +622,33 @@ fn an_invalid_session_message_becomes_a_protocol_failure() {
     harness.finish();
 }
 
+/// websocket-server.ts keeps `pending.authenticating` set while a hello is judged
+/// and rejects every frame that arrives meanwhile: a ping or a second hello in
+/// the same chunk closes the socket, and no `server_info` is sent.
+#[test]
+fn a_frame_in_the_same_chunk_as_the_hello_closes_with_4002_and_no_server_info() {
+    let harness = start(config());
+    for behind in [r#"{"type":"ping"}"#, &hello("c").to_string()] {
+        let mut ws = harness.connect(&[]);
+        let mut chunk = Vec::new();
+        for text in [hello("c").to_string(), behind.to_owned()] {
+            // A masked text frame with an all-zero mask key.
+            chunk.push(0x81);
+            chunk.push(0x80 | u8::try_from(text.len()).unwrap());
+            chunk.extend_from_slice(&[0, 0, 0, 0]);
+            chunk.extend_from_slice(text.as_bytes());
+        }
+        ws.get_mut().write_all(&chunk).unwrap();
+        assert_eq!(
+            next_close(&mut ws),
+            (4002, "Session message before hello".to_owned()),
+            "{behind}"
+        );
+    }
+    assert!(harness.calls.opens.lock().unwrap().is_empty());
+    harness.finish();
+}
+
 #[test]
 fn a_second_hello_on_an_active_socket_closes_with_4002() {
     let harness = start(config());
