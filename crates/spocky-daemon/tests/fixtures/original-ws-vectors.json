@@ -1,6 +1,16 @@
 {
  "node": "v22.20.0",
  "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b"
+  }
+ },
  "serverId": "srv_test",
  "hostname": "Stevens-MacBook-Pro-5.local",
  "version": "0.10.0",
