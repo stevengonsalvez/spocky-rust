@@ -297,11 +297,38 @@ async fn checkout_probe_and_project_key_match_pinned_build() {
     assert_eq!(actual, expected);
 }
 
+/// The wall-clock window of one test run. `Date.now()` and `new Date()` on
+/// either side give values inside it; a timestamp a fixture fixes is outside
+/// it and is compared exactly.
+struct WallClock {
+    from_millis: i64,
+}
+
+impl WallClock {
+    /// Slack either side of the run, for clock reads and process start.
+    const SLACK_MILLIS: i64 = 2_000;
+
+    fn start() -> Self {
+        Self {
+            from_millis: spocky_session::clock::now_millis() - Self::SLACK_MILLIS,
+        }
+    }
+
+    /// Whether `iso` is a wall-clock value of this run.
+    fn contains(&self, iso: &str) -> bool {
+        spocky_store::time::parse_iso_millis(iso).is_some_and(|millis| {
+            millis >= self.from_millis
+                && millis <= spocky_session::clock::now_millis() + Self::SLACK_MILLIS
+        })
+    }
+}
+
 /// Replaces generated ids and wall-clock values, in order of first
 /// appearance, with stable placeholders: `wks_`/`prj_` + 16 hex become
-/// `<wks-N>`/`<prj-N>`, and ISO-8601 millisecond UTC timestamps become
-/// `<time>`. Nothing else changes; key order and every other byte stay.
-fn normalize_generated(text: &str) -> String {
+/// `<wks-N>`/`<prj-N>`, and ISO-8601 millisecond UTC timestamps inside the
+/// run's clock window become `<time>`. Nothing else changes; key order, fixed
+/// timestamps and every other byte stay.
+fn normalize_generated(text: &str, clock: &WallClock) -> String {
     let mut ids: Vec<String> = Vec::new();
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -326,7 +353,7 @@ fn normalize_generated(text: &str) -> String {
             index += 20;
             continue;
         }
-        if is_iso_timestamp(rest) {
+        if is_iso_timestamp(rest) && clock.contains(&rest[..24]) {
             out.push_str("<time>");
             index += 24;
             continue;
@@ -356,10 +383,14 @@ fn is_iso_timestamp(text: &str) -> bool {
 
 #[test]
 fn normalization_only_touches_generated_ids_and_timestamps() {
-    let input = r#"{"workspaceId":"wks_0123456789abcdef","projectId":"prj_aaaaaaaaaaaaaaaa","other":"wks_0123456789abcdef","x":"prj_AAAAAAAAAAAAAAAA","t":"2026-10-01T10:00:00.000Z","u":"2026-10-01 10:00"}"#;
+    let clock = WallClock::start();
+    let now = spocky_session::clock::now_iso();
+    let input = format!(
+        r#"{{"workspaceId":"wks_0123456789abcdef","projectId":"prj_aaaaaaaaaaaaaaaa","other":"wks_0123456789abcdef","x":"prj_AAAAAAAAAAAAAAAA","t":"{now}","fixed":"2026-07-12T10:00:00.000Z","u":"2026-10-01 10:00"}}"#
+    );
     assert_eq!(
-        normalize_generated(input),
-        r#"{"workspaceId":"<wks-0>","projectId":"<prj-1>","other":"<wks-0>","x":"prj_AAAAAAAAAAAAAAAA","t":"<time>","u":"2026-10-01 10:00"}"#
+        normalize_generated(&input, &clock),
+        r#"{"workspaceId":"<wks-0>","projectId":"<prj-1>","other":"<wks-0>","x":"prj_AAAAAAAAAAAAAAAA","t":"<time>","fixed":"2026-07-12T10:00:00.000Z","u":"2026-10-01 10:00"}"#
     );
 }
 
@@ -430,6 +461,7 @@ async fn directory_provisioning_matches_pinned_build() {
     let Some((node, dist)) = pinned_inputs() else {
         return;
     };
+    let clock = WallClock::start();
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock after epoch")
@@ -512,8 +544,8 @@ async fn directory_provisioning_matches_pinned_build() {
         };
         let (expected, actual) = (read(&original_home), read(&spocky_home));
         assert_eq!(
-            normalize_generated(&actual),
-            normalize_generated(&expected),
+            normalize_generated(&actual, &clock),
+            normalize_generated(&expected, &clock),
             "{file}"
         );
     }
