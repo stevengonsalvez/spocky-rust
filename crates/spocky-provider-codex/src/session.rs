@@ -39,7 +39,8 @@ use spocky_contracts::js::js_string as contracts_js_string;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 use crate::tools::{
-    ExecNotification, ToolMapping, decode_output_delta_chunk, exec_notification_to_tool_call,
+    ExecNotification, PatchNotification, ToolMapping, decode_output_delta_chunk,
+    exec_notification_to_tool_call, map_patch_notification,
 };
 use crate::transport::{
     AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, Responder, js_truthy, to_js_value,
@@ -1814,6 +1815,15 @@ impl CodexSession {
         state.active_foreground_turn_id = foreground_turn_id.map(str::to_owned);
     }
 
+    /// Whether `item/fileChange/outputDelta` text is buffered for `call_id`.
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn has_buffered_file_change_output(&self, call_id: &str) -> bool {
+        lock(&self.inner.state)
+            .pending_file_change_output_deltas
+            .contains_key(call_id)
+    }
+
     /// Pid of the running `codex app-server` child, for process tests.
     #[cfg(feature = "test-hooks")]
     #[must_use]
@@ -2097,14 +2107,100 @@ fn dispatch_tool_notification(
                 stderr: stderr.as_deref(),
             },
         ),
-        ParsedNotification::TerminalInteraction { .. }
-        | ParsedNotification::PatchApplyStarted { .. }
-        | ParsedNotification::PatchApplyCompleted { .. } => {
+        ParsedNotification::PatchApplyStarted {
+            call_id, changes, ..
+        } => handle_patch_apply_started(state, events, call_id.as_deref(), &changes),
+        ParsedNotification::PatchApplyCompleted {
+            call_id,
+            changes,
+            stdout,
+            stderr,
+            success,
+            ..
+        } => handle_patch_apply_completed(
+            state,
+            events,
+            &PatchCompletion {
+                call_id: call_id.as_deref(),
+                changes: &changes,
+                stdout: stdout.as_deref(),
+                stderr: stderr.as_deref(),
+                success,
+            },
+        ),
+        ParsedNotification::TerminalInteraction { .. } => {
             state
                 .unported
                 .push(format!("tool notification {parsed_kind}"));
         }
         _ => {}
+    }
+}
+
+/// `handlePatchApplyStartedNotification` for the root thread: drops the
+/// call's buffered file-change output, then emits the running `apply_patch`
+/// item. The item's detail is the shared edit-detail branch, which is not
+/// ported, so the mapping is recorded as unported (a missing call id emits
+/// nothing, as Paseo's `null`).
+fn handle_patch_apply_started(
+    state: &mut State,
+    events: &mut Vec<Value>,
+    call_id: Option<&str>,
+    changes: &Value,
+) {
+    if let Some(id) = call_id.filter(|id| !id.is_empty()) {
+        state.pending_file_change_output_deltas.remove(id);
+    }
+    let config_cwd = state.config.cwd.clone();
+    let mapped = map_patch_notification(&PatchNotification {
+        call_id,
+        changes,
+        cwd: Some(config_cwd.as_str()),
+        stdout: None,
+        stderr: None,
+        success: None,
+        running: true,
+    });
+    if let Some(item) = tool_item_or_record(state, mapped) {
+        emit(state, events, timeline_event(item));
+    }
+}
+
+/// Fields of a legacy `patch_apply_end` notification.
+struct PatchCompletion<'a> {
+    call_id: Option<&'a str>,
+    changes: &'a Value,
+    stdout: Option<&'a str>,
+    stderr: Option<&'a str>,
+    success: Option<bool>,
+}
+
+/// `handlePatchApplyCompletedNotification` for the root thread: the call's
+/// buffered file-change output stands in for a missing `stdout`
+/// (`consumeOutputDelta`, which is also consumed when `stdout` is present).
+fn handle_patch_apply_completed(
+    state: &mut State,
+    events: &mut Vec<Value>,
+    completion: &PatchCompletion<'_>,
+) {
+    let buffered = completion
+        .call_id
+        .filter(|id| !id.is_empty())
+        .and_then(|id| state.pending_file_change_output_deltas.remove(id))
+        .map(|chunks| chunks.concat())
+        .filter(|text| !text.is_empty());
+    let config_cwd = state.config.cwd.clone();
+    let mapped = map_patch_notification(&PatchNotification {
+        call_id: completion.call_id,
+        changes: completion.changes,
+        cwd: Some(config_cwd.as_str()),
+        stdout: completion.stdout.or(buffered.as_deref()),
+        stderr: completion.stderr,
+        success: completion.success,
+        running: false,
+    });
+    if let Some(item) = tool_item_or_record(state, mapped) {
+        emit(state, events, timeline_event(item));
     }
 }
 
