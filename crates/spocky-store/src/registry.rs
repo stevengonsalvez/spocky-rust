@@ -21,7 +21,6 @@ use crate::atomic::write_json_atomic;
 use crate::collate::locale_compare;
 use crate::js_value::{JsObject, JsValue, parse, stringify_pretty};
 use crate::path_compare::are_equivalent_paths;
-use crate::time::parse_iso_millis;
 
 /// A zod validation failure for one registry record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -805,8 +804,8 @@ fn compare_projects(
     right: &PersistedProjectRecord,
 ) -> std::cmp::Ordering {
     match (
-        parse_iso_millis(&left.created_at),
-        parse_iso_millis(&right.created_at),
+        spocky_contracts::js::date_parse(&left.created_at),
+        spocky_contracts::js::date_parse(&right.created_at),
     ) {
         (Some(a), Some(b)) if a != b => a.cmp(&b),
         _ => locale_compare(&left.project_id, &right.project_id),
