@@ -32,6 +32,10 @@ V8 stack-depth family is listed here because it affects observable boundaries:
   `crates/spocky-hub-pilot/src/public_api/validation.rs`. The baseline joins
   4,400 levels and throws `RangeError` at 4,600; depths in between are not
   compared.
+- DIV-004: session create-hook `Outcome::TooDeep` in
+  `crates/spocky-session/src/agent_manager/create.rs`. The `RangeError` text
+  matches V8; the trigger depth is the zod port's recursion boundary, not
+  V8's stack.
 
 ## Accepted interim
 
