@@ -26,6 +26,7 @@ fn server_info_matches_the_original_byte_for_byte() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-hello-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
+    common::assert_fixture_provenance(&fixture);
     let case = &fixture["results"][0];
     // The one tracked difference, DWLABEL-001: the workspace label service is not
     // ported, so the feature is not advertised. Any other difference fails.
