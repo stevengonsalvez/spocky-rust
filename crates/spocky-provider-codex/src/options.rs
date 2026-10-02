@@ -7,7 +7,8 @@
 use std::sync::OnceLock;
 
 use serde_json::{Map, Value};
-use spocky_contracts::zod::{self, Outcome, Schema, UnknownKeys};
+use spocky_contracts::js_value::{self, JsValue};
+use spocky_contracts::zod::{self, Schema, UnknownKeys, Verdict};
 
 use crate::transport::to_js_value;
 
@@ -121,20 +122,27 @@ fn provider_options_schema() -> Schema {
     )
 }
 
-/// `CodexProviderOptionsSchema.parse(providerOptions ?? {})`.
+/// `CodexProviderOptionsSchema.parse(providerOptions ?? {})`: the parsed
+/// output, which holds the schema's keys in the schema's order (zod builds a
+/// new object from its shape), not the input's.
 ///
 /// # Errors
 /// The `ZodError` message pinned throws for options outside the schema.
-pub fn parse_provider_options(options: Option<&Map<String, Value>>) -> Result<(), String> {
+pub fn parse_provider_options(
+    options: Option<&Map<String, Value>>,
+) -> Result<Map<String, Value>, String> {
     static SCHEMA: OnceLock<Schema> = OnceLock::new();
     let schema = SCHEMA.get_or_init(provider_options_schema);
     let value = to_js_value(&Value::Object(options.cloned().unwrap_or_default()));
-    match zod::check(schema, &value) {
-        Outcome::Valid => Ok(()),
-        Outcome::Invalid(message) => Err(message),
-        // The schema has no unported option and no `z.lazy()`, so only a
-        // failure to start the deep-check thread lands here.
-        Outcome::Unmodeled | Outcome::TooDeep => {
+    match zod::verdict(schema, &value) {
+        Verdict::Valid(output) => match serde_json::from_str(&js_value::stringify(&output)) {
+            Ok(Value::Object(parsed)) => Ok(parsed),
+            _ => Err("providerOptions could not be validated".to_owned()),
+        },
+        Verdict::Invalid(issues) => Err(js_value::stringify_pretty(&JsValue::Array(issues))),
+        // The schema has no unported option, no `z.lazy()`, and no transform,
+        // so only a failure to start the deep-check thread lands here.
+        Verdict::Unmodeled | Verdict::TooDeep | Verdict::Throws(_) => {
             Err("providerOptions could not be validated".to_owned())
         }
     }
@@ -146,19 +154,33 @@ mod tests {
 
     use super::*;
 
-    fn parse(value: &Value) -> Result<(), String> {
+    fn parse(value: &Value) -> Result<Map<String, Value>, String> {
         parse_provider_options(value.as_object())
     }
 
     #[test]
     fn accepts_absent_and_valid_options() {
-        assert_eq!(parse_provider_options(None), Ok(()));
+        assert_eq!(parse_provider_options(None), Ok(Map::new()));
         let options = json!({
             "approval_policy": {"granular": {"rules": true}},
             "sandbox_mode": "workspace-write",
             "features": {"network_proxy": {"enabled": true, "domains": {"a.com": "allow"}}},
         });
-        assert_eq!(parse(&options), Ok(()));
+        assert_eq!(parse(&options).as_ref(), Ok(options.as_object().unwrap()));
+    }
+
+    #[test]
+    fn output_follows_the_schema_key_order() {
+        let options = json!({
+            "web_search": "live",
+            "sandbox_mode": "read-only",
+            "approval_policy": {"granular": {"rules": true, "sandbox_approval": false}},
+        });
+        let parsed = parse(&options).unwrap();
+        assert_eq!(
+            Value::Object(parsed).to_string(),
+            r#"{"approval_policy":{"granular":{"sandbox_approval":false,"rules":true}},"sandbox_mode":"read-only","web_search":"live"}"#
+        );
     }
 
     #[test]
