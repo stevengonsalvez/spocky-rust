@@ -1184,6 +1184,16 @@
           "followUps": ["P3 after the reset: pin the agent-loading.js and persistence-hooks.js digests in the differential PINNED_MODULES", "P3 two unported logger.info lines tracked under DLOG-001"]
         },
         {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "db084629..dfc3c34a (5 commits, G3 loading wiring): ensure_agent_loaded at the pinned call sites, JS truthiness, undefined resume overrides as present nulls, raw-wire G2 differential",
+          "integrationHead": "2ccf4826",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-dfc3c34a.txt); G3 preview on 53c130d1 plus this range passed parity (ad001a95...)",
+          "leadVerification": "crates, scripts and Cargo files byte-identical to dfc3c34a; gated: spocky-daemon-app tests --test-threads=1, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "closes": "P2 features compare used jq -S (raw-wire G2 differential)",
+          "openP3": "archived agents error with 'unarchive not ported' before loading; after the reset"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
