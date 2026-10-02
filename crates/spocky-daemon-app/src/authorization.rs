@@ -63,13 +63,17 @@ pub fn outbound_requirement(message: &Value) -> Option<Requirement> {
         "pong" => Some(&[DaemonRead]),
         "rpc_error" | "subscription.release.response" => None,
         "workspace.create.update" | "workspace.create.response" => Some(&[WorkspaceManage]),
-        "agent.create.update" | "agent.create.response" | "send_agent_message_response" => {
-            Some(AGENT_WRITE)
-        }
+        "agent.create.update"
+        | "agent.create.response"
+        | "send_agent_message_response"
+        | "agent_permission_resolved"
+        | "cancel_agent_response" => Some(AGENT_WRITE),
         "creation.subscribe.response" | "wait_for_finish_response" | "activity_log" => {
             Some(&[WorkspaceRead])
         }
         "fetch_agent_response"
+        | "agent_permission_request"
+        | "agent_attention_required"
         | "fetch_agents_response"
         | "fetch_workspaces_response"
         | "fetch_agent_timeline_response"
