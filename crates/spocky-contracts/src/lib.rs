@@ -11,6 +11,9 @@
 pub mod agent;
 pub mod agent_config;
 pub mod attachment;
+pub mod config;
+#[rustfmt::skip]
+pub mod config_schema;
 pub mod creation;
 pub mod field;
 pub mod frame;
