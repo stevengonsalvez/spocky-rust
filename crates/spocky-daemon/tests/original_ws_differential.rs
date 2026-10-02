@@ -463,6 +463,7 @@ fn websocket_exchanges_match_the_original_daemon() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-ws-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
+    common::assert_fixture_provenance(&fixture);
     let captured_host = fixture["hostname"].as_str().unwrap().to_owned();
     let local_host = gethostname::gethostname().to_string_lossy().into_owned();
     let (daemon, open_port, _home) = open_daemon();
