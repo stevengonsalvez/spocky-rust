@@ -11,6 +11,7 @@ pub mod agent_sdk;
 pub mod agent_storage;
 pub mod checkout;
 pub mod clock;
+pub mod create_agent_mode;
 pub mod creation;
 #[rustfmt::skip]
 pub mod creation_schema;
@@ -19,6 +20,7 @@ pub mod git;
 pub mod git_remote;
 pub mod paths;
 pub mod project_key;
+pub mod provider_snapshot_manager;
 pub mod provider_subagents;
 pub mod provisioning;
 pub mod runtime_mcp_config;
