@@ -11,6 +11,15 @@
 //! a close code, reason or frame order: the machine's host name in
 //! `server_info`, and `features.workspaceLabels` (tracked gap DWLABEL-001).
 //!
+//! Uncaptured, tracked as open gaps (too long for a gate run): the 45 s
+//! application socket lease expiry, and the 90 s reconnect grace running out so
+//! that the same client id gets a new session. Also uncaptured: a frame that
+//! reaches the original while an asynchronous password hello is still pending
+//! is answered as a message before hello, so its reply depends on bcrypt
+//! timing; the password cases wait for the compare to finish before the next
+//! frame, and this daemon, which checks the password synchronously, has no
+//! such window.
+//!
 //! The session layer is a stand-in that accepts every schema-valid session
 //! frame and delivers a protocol failure as the status/error frame the
 //! original's session delivery sends, with the failure's text as its message.
