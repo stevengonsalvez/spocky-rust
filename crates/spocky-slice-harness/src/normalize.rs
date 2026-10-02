@@ -969,9 +969,9 @@ fn rule_suffix(target: &NormalizationTarget) -> String {
 /// either side, simulating sequential application so a later class never
 /// claims text an earlier class already replaced.
 ///
-/// Values are the union of both sides' literals, longest first. A rule that
-/// matches only one side makes `spocky-differential` fail the comparison with
-/// a normalization miss, which is the intended mismatch signal.
+/// Values are the union of both sides' literals, longest first. A class that
+/// occurs in a target on one side only gets no rule there, so the raw value
+/// stays and the comparison reports that target as different.
 #[must_use]
 pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<NormalizationRule> {
     let mut left_state: Vec<(String, String)> = left
@@ -1013,15 +1013,31 @@ pub fn rules_for(classes: &[ValueClass], left: &[Text], right: &[Text]) -> Vec<N
         let token = format!("{{{{{:?}:{}}}}}", class.category, class.id);
         for target in &targets {
             let key = target_key(target);
-            let mut hit = false;
-            for state in [&mut left_state, &mut right_state] {
-                if let Some((_, text)) = state.iter_mut().find(|(name, _)| *name == key) {
-                    let (next, matched) = replace_all(text, &values, &token);
-                    *text = next;
-                    hit |= matched;
-                }
-            }
+            // A rule only where the class occurs on BOTH sides of this target.
+            // A value on one side only stays raw and shows as a content
+            // difference; a rule there would abort the whole comparison with
+            // a normalization miss and hide every other difference.
+            let next: Vec<Option<String>> = [&left_state, &right_state]
+                .iter()
+                .map(|state| {
+                    state
+                        .iter()
+                        .find(|(name, _)| *name == key)
+                        .and_then(|(_, text)| {
+                            let (next, matched) = replace_all(text, &values, &token);
+                            matched.then_some(next)
+                        })
+                })
+                .collect();
+            let hit = next.iter().all(Option::is_some);
             if hit {
+                for (state, next) in [&mut left_state, &mut right_state].into_iter().zip(next) {
+                    if let (Some((_, text)), Some(next)) =
+                        (state.iter_mut().find(|(name, _)| *name == key), next)
+                    {
+                        *text = next;
+                    }
+                }
                 rules.push(NormalizationRule {
                     id: format!("{}@{}", class.id, rule_suffix(target)),
                     category: class.category,
@@ -1311,14 +1327,16 @@ mod tests {
     fn realpath_and_tmp_alias_stay_distinguishable() {
         let left = one("/private/tmp/spocky-p3-g1-0000000000a/p".into());
         let right = one("/tmp/spocky-p3-g1-0000000000b/p".into());
-        assert!(equivalent(&left, &right).is_err());
+        // Each form occurs on one side only: no rule, so the raw paths differ.
+        assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
     #[test]
     fn value_present_on_one_side_only_fails_comparison() {
         let left = one("listening on 127.0.0.1:41001".into());
         let right = one("listening".into());
-        assert!(equivalent(&left, &right).is_err());
+        // No rule for a one-sided value; the comparison runs and differs.
+        assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
     #[test]
