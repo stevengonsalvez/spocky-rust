@@ -7,7 +7,7 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::js_value::{JsTextUnit, js_text, js_text_units};
+use crate::js_value::{JsTextUnit, js_text, js_text_canonical_cow, js_text_units};
 
 /// Returns `true` for the `WhiteSpace` and `LineTerminator` code points that
 /// ECMAScript `String.prototype.trim` strips.
@@ -71,10 +71,15 @@ impl JsText {
         Self(js_text(text))
     }
 
-    /// Wraps text that is already JavaScript text, such as a parsed string.
+    /// Wraps text that is already JavaScript text, such as a parsed string
+    /// or the result of a concatenation. It is stored in canonical form, so
+    /// two texts with the same UTF-16 code units are equal and hash alike.
     #[must_use]
     pub fn from_js(text: String) -> Self {
-        Self(text)
+        match js_text_canonical_cow(&text) {
+            std::borrow::Cow::Borrowed(_) => Self(text),
+            std::borrow::Cow::Owned(canonical) => Self(canonical),
+        }
     }
 
     /// The JavaScript text, in the `js_value` encoding.
