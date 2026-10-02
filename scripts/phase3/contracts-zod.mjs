@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// Generates crates/spocky-contracts/src/zod_schemas.rs: the pinned
-// WSInboundMessageSchema as spocky_contracts::zod schemas, so the Rust zod
-// port reports the same issues as `WSInboundMessageSchema.safeParse`.
-// Read-only against the runtime checkout.
+// Generates, as spocky_contracts::zod schemas, so the Rust zod port reports
+// the same issues as the pinned `safeParse`:
+//   crates/spocky-contracts/src/zod_schemas.rs   WSInboundMessageSchema
+//   crates/spocky-contracts/src/config_schema.rs PersistedConfigSchema, and
+//     the provider schemas its agents.providers preprocess parses with
+// Read-only against the runtime checkout and the built server.
 //
 // Usage (Node 22.20.0, the binary pinned by the slice harness):
 //   ~/.nvm/versions/node/v22.20.0/bin/node scripts/phase3/contracts-zod.mjs \
-//     --runtime <paseo-runtime> [--check]
+//     --runtime <paseo-runtime> --server-dist <built paseo root> [--check]
 //
 // The walk reads each schema's `_zod.def` and stops with an error on any
 // kind, check, format, custom error, or transform the port does not model,
@@ -26,7 +28,8 @@ const NODE_VERSION = "v22.20.0";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
-const outputPath = join(repoRoot, "crates/spocky-contracts/src/zod_schemas.rs");
+const inboundPath = join(repoRoot, "crates/spocky-contracts/src/zod_schemas.rs");
+const configPath = join(repoRoot, "crates/spocky-contracts/src/config_schema.rs");
 
 // The SessionInbound variants in crates/spocky-contracts/src/session.rs.
 const MODELED = new Set([
@@ -58,6 +61,17 @@ const FORMATS = new Map([
     "crate::id::is_zod_uuid",
   ],
   ["regex /^wks_[a-f0-9]{16}$/", "crate::id::is_workspace_id"],
+  ["regex /^\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}$/", "crate::config::is_bcrypt_hash"],
+  ["regex /^[a-z][a-z0-9-]*$/", "crate::config::is_provider_id"],
+  ["regex /^(\\d{1,5})-(\\d{1,5})$/", "crate::config::is_tcp_port_range"],
+]);
+
+// .refine() predicates, by SHA-256 of Function.prototype.toString().
+const REFINES = new Map([
+  // PaseoServicePortAllocationSchema: range or portScript is set.
+  ["f06e927e5c5ca3e9ad5ca8b1f4292c643c147263b194efbf45ed33543cdbc916", "crate::config::has_range_or_port_script"],
+  // PaseoServicePortAllocationSchema: an inclusive range within 1-65535.
+  ["1fea2c1ba3641cf9b45a45b58db35e946d9f3cddf2e2bf15fe2cc62489414ad2", "crate::config::is_inclusive_port_range"],
 ]);
 
 // Transforms, by SHA-256 of Function.prototype.toString().
@@ -68,6 +82,10 @@ const TRANSFORMS = new Map([
   ["b1ed742b9fbdc0a05e10629b056a74bc0b3451c7b0c2658313c969275912a07e", "NoIssue"],
   // normalizeAgentAttachments: drops invalid items, adds no issue.
   ["af76e991b5610fc74be306c80c765de8a33d7b0c0552548e97a5359babe9c5ed", "NoIssue"],
+  // PersistedConfigSchema.daemon: allowedHosts becomes hostnames, no issue.
+  ["3af0daf896f8f48247a380d8039b13cfd2622a8f0f6b782d2a608302754f412a", "NoIssue"],
+  // normalizeAgentProviders, the agents.providers preprocess.
+  ["556b985284fc1f134be9917f524dd1c78e7ca7075e74a67af59f35344803b1f6", "Map(crate::config::normalize_agent_providers)"],
 ]);
 
 function fail(message) {
@@ -76,11 +94,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const args = { runtime: null, check: false };
+  const args = { runtime: null, serverRoot: null, check: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--runtime") {
       args.runtime = argv[index + 1];
+      index += 1;
+    } else if (arg === "--server-dist") {
+      args.serverRoot = argv[index + 1];
       index += 1;
     } else if (arg === "--check") {
       args.check = true;
@@ -89,6 +110,7 @@ function parseArgs(argv) {
     }
   }
   if (!args.runtime) fail("--runtime <paseo-runtime checkout> is required");
+  if (!args.serverRoot) fail("--server-dist <built paseo root> is required");
   return args;
 }
 
@@ -104,12 +126,17 @@ function rustString(value, where) {
   if (typeof value !== "string" || !/^[\x20-\x7e]*$/.test(value) || value.includes('"#')) {
     fail(`${where}: cannot write ${JSON.stringify(value)} as a Rust literal`);
   }
-  return /["\\]/.test(value) ? `r#"${value}"#` : `"${value}"`;
+  if (value.includes('"')) return `r#"${value}"#`;
+  return value.includes("\\") ? `r"${value}"` : `"${value}"`;
 }
 
 function rustNumber(value, where) {
   if (typeof value !== "number" || !Number.isFinite(value)) fail(`${where}: bound ${value} is not finite`);
-  return Number.isInteger(value) ? `${value}.0` : String(value);
+  if (!Number.isInteger(value)) return String(value);
+  // Digit groups, as clippy's unreadable_literal asks.
+  const digits = String(Math.abs(value));
+  const grouped = digits.length > 4 ? digits.replace(/\B(?=(\d{3})+$)/g, "_") : digits;
+  return `${value < 0 ? "-" : ""}${grouped}.0`;
 }
 
 function constantName(exportName) {
@@ -121,11 +148,19 @@ function constantName(exportName) {
 }
 
 class Generator {
-  constructor(messages) {
-    this.session = messages.SessionInboundMessageSchema;
+  // modules: namespaces whose exported names label shared statics.
+  // session: the session union whose unmodeled options are skipped, if any.
+  // forced: schemas emitted as named statics. superRefines: Rust functions
+  // for the .superRefine() checks, by the schema that carries them.
+  constructor(modules, session, forced = new Map(), superRefines = new Map()) {
+    this.session = session;
+    this.forced = forced;
+    this.superRefines = superRefines;
     this.exportNames = new Map();
-    for (const [name, value] of Object.entries(messages)) {
-      if (value?._zod && !this.exportNames.has(value)) this.exportNames.set(value, name);
+    for (const module of modules) {
+      for (const [name, value] of Object.entries(module)) {
+        if (value?._zod && !this.exportNames.has(value)) this.exportNames.set(value, name);
+      }
     }
     this.references = new Map();
     this.shared = new Map();
@@ -142,7 +177,7 @@ class Generator {
       if (!values || values.size === 0) fail(`${where}: option without discriminator values`);
       for (const value of values) {
         if (typeof value !== "string") fail(`${where}: discriminator value ${String(value)} is not a string`);
-        const modeled = def !== this.session._zod.def || MODELED.has(value);
+        const modeled = !this.session || def !== this.session._zod.def || MODELED.has(value);
         options.push({ value, schema: modeled ? option : null, shared: values.size > 1 });
       }
     }
@@ -157,7 +192,7 @@ class Generator {
       case "array":
         return [def.element];
       case "record":
-        return [def.valueType];
+        return [def.keyType, def.valueType];
       case "union":
         if (def.discriminator) {
           return this.discriminatedOptions(def, where)
@@ -198,7 +233,7 @@ class Generator {
     let name = this.shared.get(schema);
     if (!name) {
       const exported = this.exportNames.get(schema);
-      name = exported ? constantName(exported) : `SHARED_${this.shared.size}`;
+      name = this.forced.get(schema) ?? (exported ? constantName(exported) : `SHARED_${this.shared.size}`);
       if ([...this.shared.values()].includes(name)) name = `${name}_${this.shared.size}`;
       this.shared.set(schema, name);
       const body = this.inline(schema, where, 1);
@@ -208,7 +243,9 @@ class Generator {
   }
 
   emit(schema, where, depth) {
-    if ((this.references.get(schema) ?? 0) > 1 && !isLeaf(schema)) return this.reference(schema, where);
+    if (this.forced.has(schema) || ((this.references.get(schema) ?? 0) > 1 && !isLeaf(schema))) {
+      return this.reference(schema, where);
+    }
     return this.inline(schema, where, depth);
   }
 
@@ -221,22 +258,30 @@ class Generator {
     if (def.error) fail(`${where}: custom error maps are not modeled`);
     if (def.coerce) fail(`${where}: coercion is not modeled`);
     const checks = def.checks ?? [];
-    if (checks.length > 0 && def.type !== "string" && def.type !== "number") {
-      fail(`${where}: checks on ${def.type} are not modeled`);
-    }
     for (const check of checks) {
-      if (check._zod.def.error || check._zod.def.abort) fail(`${where}: check options are not modeled`);
+      const c = check._zod.def;
+      if (c.abort || c.when !== undefined && !["min_length", "max_length"].includes(c.check)) {
+        fail(`${where}: check options are not modeled`);
+      }
+      if (c.error && !["string_format", "custom"].includes(c.check)) fail(`${where}: ${c.check} error maps are not modeled`);
     }
+    const body = (() => {
     switch (def.type) {
       case "string": {
         const out = [];
-        if (def.format) out.push(this.format(def.format, def.pattern, where));
+        if (def.format === "url") {
+          if (def.hostname || def.protocol || def.normalize) fail(`${where}: url options are not modeled`);
+          out.push("StringCheck::Url");
+        } else if (def.format) {
+          out.push(this.format(def.format, def.pattern, where, undefined));
+        }
         for (const check of checks) {
           const c = check._zod.def;
           if (c.check === "min_length") out.push(`StringCheck::Min(${c.minimum})`);
           else if (c.check === "max_length") out.push(`StringCheck::Max(${c.maximum})`);
           else if (c.check === "overwrite" && c.tx.toString() === "(input) => input.trim()") out.push("StringCheck::Trim");
-          else if (c.check === "string_format") out.push(this.format(c.format, c.pattern, where));
+          else if (c.check === "overwrite" && c.tx.toString() === "(input) => input.toLowerCase()") out.push("StringCheck::Lower");
+          else if (c.check === "string_format") out.push(this.format(c.format, c.pattern, where, c.error));
           else fail(`${where}: string check ${c.check} is not modeled`);
         }
         return `Schema::String(${list(out)})`;
@@ -280,11 +325,8 @@ class Generator {
         return `Schema::Object(\n${pad}${list(fields).replaceAll("\n", `\n    `)},\n${pad}${unknownKeys},\n${end})`;
       }
       case "record": {
-        const key = def.keyType._zod.def;
-        if (key.type !== "string" || key.format || (key.checks ?? []).length > 0 || key.error) {
-          fail(`${where}: record keys other than z.string() are not modeled`);
-        }
-        return `Schema::Record(${boxed(def.valueType, "{}")})`;
+        if (def.keyType._zod.def.type !== "string") fail(`${where}: non-string record keys are not modeled`);
+        return `Schema::Record(${boxed(def.keyType, "{key}")}, ${boxed(def.valueType, "{}")})`;
       }
       case "union": {
         if (def.inclusive === false && !def.discriminator) fail(`${where}: exclusive unions are not modeled`);
@@ -318,13 +360,39 @@ class Generator {
       default:
         return fail(`${where}: ${def.type} is not modeled`);
     }
+    })();
+    if (def.type === "string" || def.type === "number" || checks.length === 0) return body;
+    const refinements = checks.map((check) => this.refinement(schema, check, where));
+    return `Schema::Refined(\n${pad}Box::new(${body}),\n${pad}${list(refinements).replaceAll("\n", "\n    ")},\n${end})`;
   }
 
-  format(format, pattern, where) {
+  refinement(schema, check, where) {
+    const c = check._zod.def;
+    if (c.check === "min_length") return `Refinement::MinLength(${c.minimum})`;
+    if (c.check === "custom" && c.fn) {
+      const source = c.fn.toString();
+      const test = REFINES.get(sha256(source));
+      if (!test) fail(`${where}: refine ${sha256(source)} is not modeled:\n${source}`);
+      const message = c.error?.({});
+      if (typeof message !== "string") fail(`${where}: refine without a fixed message`);
+      return `Refinement::Refine {\n    test: ${test},\n    message: ${rustString(message, where)},\n}`;
+    }
+    if (c.check === "custom") {
+      const refine = this.superRefines.get(schema);
+      if (!refine) fail(`${where}: superRefine is not modeled`);
+      return `Refinement::SuperRefine(${refine})`;
+    }
+    return fail(`${where}: ${c.check} check on ${schema._zod.def.type} is not modeled`);
+  }
+
+  format(format, pattern, where, error) {
     const source = pattern?.toString();
     const test = FORMATS.get(`${format} ${source}`);
     if (!test) fail(`${where}: string format ${format} ${source} is not modeled`);
-    return `StringCheck::Format {\n    format: ${rustString(format, where)},\n    pattern: ${rustString(source, where)},\n    test: ${test},\n}`;
+    const message = error?.({});
+    if (error && typeof message !== "string") fail(`${where}: format error without a fixed message`);
+    const rustMessage = error ? `Some(${rustString(message, where)})` : "None";
+    return `StringCheck::Format {\n    format: ${rustString(format, where)},\n    pattern: ${rustString(source, where)},\n    test: ${test},\n    message: ${rustMessage},\n}`;
   }
 }
 
@@ -335,31 +403,32 @@ function isLeaf(schema) {
 function literal(value, where) {
   if (typeof value === "string") return `JsValue::String(${rustString(value, where)}.to_owned())`;
   if (typeof value === "boolean") return `JsValue::Bool(${value})`;
+  if (typeof value === "number") return `JsValue::Number(${rustNumber(value, where)})`;
   return fail(`${where}: literal ${String(value)} is not modeled`);
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (process.version !== NODE_VERSION) fail(`expected node ${NODE_VERSION}, running ${process.version}`);
-  const runtime = resolve(args.runtime);
-  const head = git(runtime, "rev-parse", "HEAD");
-  if (head !== PASEO_COMMIT) fail(`runtime HEAD ${head} is not ${PASEO_COMMIT}`);
-  const dirty = git(runtime, "status", "--porcelain", "--untracked-files=no");
-  if (dirty !== "") fail(`runtime has tracked modifications:\n${dirty}`);
+// The crate::zod names a generated file uses, so it imports only those.
+function zodImports(text, extra) {
+  const names = ["NumberCheck", "Refinement", "StringCheck", "Transform", "UnknownKeys"].filter((name) =>
+    text.includes(`${name}::`),
+  );
+  return [...names, "Schema", ...extra].sort().join(", ");
+}
 
-  const messagesPath = join(runtime, "packages/protocol/dist/messages.js");
-  const messages = await import(pathToFileURL(messagesPath).href);
+function statics(generator) {
+  return generator.statics.map((item) => `\n${item}\n`).join("");
+}
+
+function inboundFile(messages, digest) {
   const root = messages.WSInboundMessageSchema;
-  const generator = new Generator(messages);
+  const generator = new Generator([messages], messages.SessionInboundMessageSchema);
   generator.count(root, "inbound");
   const body = generator.inline(root, "inbound", 1);
-  const missing = [...MODELED].filter(
-    (type) => !generator.discriminatedOptions(messages.SessionInboundMessageSchema._zod.def, "session").some((o) => o.value === type),
-  );
+  const options = generator.discriminatedOptions(messages.SessionInboundMessageSchema._zod.def, "session");
+  const missing = [...MODELED].filter((type) => !options.some((option) => option.value === type));
   if (missing.length > 0) fail(`MODELED types missing from SessionInboundMessageSchema: ${missing.join(", ")}`);
-
-  const digest = sha256(readFileSync(messagesPath));
-  const text = `// Generated by scripts/phase3/contracts-zod.mjs; do not edit.
+  const code = `${body}${statics(generator)}`;
+  return `// Generated by scripts/phase3/contracts-zod.mjs; do not edit.
 //! \`WSInboundMessageSchema\` of pinned Paseo \`5de45e2\` as [\`crate::zod\`]
 //! schemas, generated from \`packages/protocol/dist/messages.js\`
 //! (SHA-256 \`${digest}\`).
@@ -369,7 +438,7 @@ async function main() {
 use std::sync::LazyLock;
 
 use crate::js_value::JsValue;
-use crate::zod::{NumberCheck, Outcome, Schema, StringCheck, Transform, UnknownKeys, check};
+use crate::zod::{${zodImports(code, ["Outcome", "check"])}};
 
 /// SHA-256 of the \`messages.js\` this file was generated from.
 pub const MESSAGES_JS_SHA256: &str = "${digest}";
@@ -383,18 +452,99 @@ pub fn check_inbound(value: &JsValue) -> Outcome {
 static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
     ${body}
 });
-${generator.statics.map((item) => `\n${item}\n`).join("")}`;
+${statics(generator)}`;
+}
 
-  if (args.check) {
-    if (readFileSync(outputPath, "utf8") !== text) {
-      process.stderr.write("contracts-zod: zod_schemas.rs is stale; rerun without --check\n");
-      process.exit(1);
-    }
-    process.stdout.write(`contracts-zod: ${outputPath} is current\n`);
-    return;
+async function configFile(serverRoot) {
+  const configJs = join(serverRoot, "packages/server/dist/server/server/persisted-config.js");
+  const providerJs = join(serverRoot, "packages/protocol/dist/provider-config.js");
+  const config = await import(pathToFileURL(configJs).href);
+  const providers = await import(pathToFileURL(providerJs).href);
+  const root = config.PersistedConfigSchema;
+  const agentProviders = root._zod.def.shape.agents._zod.def.innerType._zod.def.shape.providers;
+  if (agentProviders._zod.def.innerType._zod.def.out !== providers.ProviderOverridesSchema) {
+    fail("agents.providers does not pipe into provider-config.js ProviderOverridesSchema");
   }
-  writeFileSync(outputPath, text);
-  process.stdout.write(`contracts-zod: wrote ${outputPath}\n`);
+  const forced = new Map([
+    [root, "PERSISTED_CONFIG"],
+    [providers.ProviderOverridesSchema, "PROVIDER_OVERRIDES"],
+    [providers.AgentProviderRuntimeSettingsMapSchema, "AGENT_PROVIDER_RUNTIME_SETTINGS_MAP"],
+  ]);
+  const superRefines = new Map([
+    [providers.ProviderOverridesSchema, "crate::config::provider_overrides_issues"],
+    [providers.AgentProviderRuntimeSettingsMapSchema, "crate::config::runtime_settings_map_issues"],
+  ]);
+  const generator = new Generator([config, providers], null, forced, superRefines);
+  for (const [schema] of forced) generator.count(schema, "config");
+  for (const [schema] of forced) generator.reference(schema, "config");
+  const code = statics(generator);
+  const configDigest = sha256(readFileSync(configJs));
+  const providerDigest = sha256(readFileSync(providerJs));
+  return `// Generated by scripts/phase3/contracts-zod.mjs; do not edit.
+//! \`PersistedConfigSchema\` of pinned Paseo \`5de45e2\` as [\`crate::zod\`]
+//! schemas, with the \`provider-config.js\` schemas its \`agents.providers\`
+//! preprocess parses with. Generated from the built
+//! \`packages/server/dist/server/server/persisted-config.js\` (SHA-256
+//! \`${configDigest}\`) and \`packages/protocol/dist/provider-config.js\`
+//! (SHA-256 \`${providerDigest}\`).
+
+use std::sync::LazyLock;
+${code.includes("JsValue::") ? "\nuse crate::js_value::JsValue;" : ""}
+use crate::zod::{${zodImports(code, [])}};
+
+/// SHA-256 of the \`persisted-config.js\` this file was generated from.
+pub const PERSISTED_CONFIG_JS_SHA256: &str = "${configDigest}";
+
+/// \`PersistedConfigSchema\`.
+#[must_use]
+pub fn persisted_config() -> &'static Schema {
+    &PERSISTED_CONFIG
+}
+
+/// \`ProviderOverridesSchema\`.
+#[must_use]
+pub fn provider_overrides() -> &'static Schema {
+    &PROVIDER_OVERRIDES
+}
+
+/// \`AgentProviderRuntimeSettingsMapSchema\`.
+#[must_use]
+pub fn agent_provider_runtime_settings_map() -> &'static Schema {
+    &AGENT_PROVIDER_RUNTIME_SETTINGS_MAP
+}
+${code}`;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (process.version !== NODE_VERSION) fail(`expected node ${NODE_VERSION}, running ${process.version}`);
+  const runtime = resolve(args.runtime);
+  const head = git(runtime, "rev-parse", "HEAD");
+  if (head !== PASEO_COMMIT) fail(`runtime HEAD ${head} is not ${PASEO_COMMIT}`);
+  const dirty = git(runtime, "status", "--porcelain", "--untracked-files=no");
+  if (dirty !== "") fail(`runtime has tracked modifications:\n${dirty}`);
+  const serverRoot = resolve(args.serverRoot);
+  const marker = readFileSync(join(serverRoot, ".spocky-build"), "utf8");
+  if (!marker.includes(`commit=${PASEO_COMMIT}\n`)) fail(`${serverRoot} is not a build of ${PASEO_COMMIT}`);
+
+  const messagesPath = join(runtime, "packages/protocol/dist/messages.js");
+  const messages = await import(pathToFileURL(messagesPath).href);
+  const outputs = [
+    [inboundPath, inboundFile(messages, sha256(readFileSync(messagesPath)))],
+    [configPath, await configFile(serverRoot)],
+  ];
+  for (const [path, text] of outputs) {
+    if (args.check) {
+      if (readFileSync(path, "utf8") !== text) {
+        process.stderr.write(`contracts-zod: ${path} is stale; rerun without --check\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`contracts-zod: ${path} is current\n`);
+    } else {
+      writeFileSync(path, text);
+      process.stdout.write(`contracts-zod: wrote ${path}\n`);
+    }
+  }
 }
 
 await main();
