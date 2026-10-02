@@ -1194,6 +1194,37 @@
           "openP3": "archived agents error with 'unarchive not ported' before loading; after the reset"
         },
         {
+          "lane": "p4_terminal",
+          "date": "2026-10-02",
+          "sourceRange": "8350699..fe4c3af (8 commits): spocky-wire and serde_json dependencies (manifest and lock atomic), terminal size ownership, node utf8 string decoder, restore policy and snapshot frames, pinned-build differentials",
+          "integrationHead": "64afdcd2",
+          "review": "integration reviewer 1 PASS (verdicts/p4_terminal-fe4c3af.txt); lead seam review: new edge spocky-terminal -> spocky-wire fits ownership (spocky-wire owns binary terminal frames), recorded in porting/crate-ownership.md",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-terminal 24 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "evidenceLimitation": "9e2dcc70, b0e4d72b and 9d61884a add modules compiled only after 3d0c031a registers them; those intermediates are green only vacuously",
+          "followUps": ["P2 the restore differential pins terminal-restore.js but not the protocol renderer and binary-frames modules it imports", "P2 no terminal test asserts the node version, while the utf8 oracle is node's string_decoder"]
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "90c3b0ff..5161d39a (3 commits, G4 disconnect): drop a send's reply when its client disconnects (5161d39a two-file atomic, accepted by the reviewer)",
+          "integrationHead": "landed together with p4_xterm_core; main 78cc87da",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-5161d39a.txt)"
+        },
+        {
+          "lane": "p4_xterm_core",
+          "date": "2026-10-02",
+          "sourceRange": "0f5db95..8db4af1 (21 commits): faithful @xterm/headless 6.0.0 core port with corpus and seeded fuzz differential; dev-dependencies sha2 and spocky-contracts (manifest and lock atomic in 4d94bde3)",
+          "integrationHead": "78cc87da",
+          "review": "integration reviewer 2 PASS (verdicts/p4_xterm_core-8db4af1.txt); the 575 deleted lines in the branch diff are base skew only, the cherry-picks remove nothing",
+          "leadVerification": "combined gate with wiring G4 disconnect: spocky-daemon-app and spocky-xterm 69 passed 1 ignored, --test-threads=1 with pinned node 22.20.0, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "followUps": [
+            "P2 tests/common/mod.rs:33 pinned() checks the xterm-headless.js digest but not the node version; capture() drops header line 1 (node v22.20.0, xtermHeadless, corpusSha256) unchecked, so any SPOCKY_PINNED_NODE passes",
+            "P3 tests/xterm_fuzz.rs:420 the wedge path is reached by 1 of 5000 seeds and resize throw by 0; add a biased generator or show the other Throw sites unreachable",
+            "P3 tests/common/mod.rs:114 local js_trim and is_js_blank duplicate spocky_contracts::text::js_trim (js_helpers_consolidation)",
+            "P3 evidence/phase4/xterm-differential.md:77 note that Paseo terminal-worker-process.ts:34 uncaughtException also calls reportInFlightTerminalCreateFailure, so a wedge during an in-flight create is reported as a create failure"
+          ]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
