@@ -116,6 +116,7 @@ fn step(
         wait_for_stub_requests,
         daemon_restart: false,
         disconnect_at_stub_requests: None,
+        node_script: None,
     }
 }
 
@@ -146,6 +147,7 @@ pub fn g1() -> GateSpec {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             },
             StepSpec {
                 name: "run",
@@ -165,6 +167,7 @@ pub fn g1() -> GateSpec {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             },
             StepSpec {
                 name: "logs",
@@ -173,6 +176,7 @@ pub fn g1() -> GateSpec {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             },
             StepSpec {
                 name: "ls",
@@ -181,6 +185,7 @@ pub fn g1() -> GateSpec {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             },
             StepSpec {
                 name: "inspect",
@@ -189,6 +194,7 @@ pub fn g1() -> GateSpec {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             },
         ],
         checks: vec![
@@ -622,6 +628,63 @@ pub fn g4_disconnect() -> GateSpec {
     }
 }
 
+/// The turn the socket-drop probe holds open.
+pub const G4_PROMPT_HOLD: &str = "Hold the G4 turn open.";
+
+/// The probe script: two clients, the first dropped mid-wait.
+const G4_SUBSCRIBER: &str = include_str!("../../../scripts/phase3/g4-subscriber.mjs");
+
+fn g4_socketdrop_preimages(
+    captured: &BTreeMap<&'static str, String>,
+) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "full-access", G4_PROMPT_HOLD)
+}
+
+/// G4 client disconnect at the wire: client A drops its socket while a held
+/// turn is in flight and must receive nothing afterwards; client B then
+/// fetches the agent (still running) and cancels the held turn.
+#[must_use]
+pub fn g4_socketdrop() -> GateSpec {
+    use Arg::{Host, Lit, Project};
+    GateSpec {
+        id: "g4-socketdrop",
+        script: Script {
+            responses: vec![held_turn("resp_g4_hold")],
+        },
+        steps: vec![StepSpec {
+            node_script: Some(G4_SUBSCRIBER),
+            ..step(
+                "probe",
+                vec![Host, Project, Lit(G4_PROMPT_HOLD)],
+                None,
+                None,
+            )
+        }],
+        checks: vec![
+            Check::AllExitZero,
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/aFramesAfterDrop",
+                expected: "0",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/status",
+                expected: "running",
+            },
+            Check::StdoutContains {
+                step: "probe",
+                needle: "cancel_agent_response",
+            },
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g4_socketdrop_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
 /// G4 old state: the original daemon makes the home, the side's daemon opens it.
 #[must_use]
 pub fn g4_oldstate() -> GateSpec {
@@ -753,6 +816,7 @@ pub fn by_id(id: &str) -> Option<GateSpec> {
         "g4-http500" => Some(g4_http500()),
         "g4-nocodex" => Some(g4_nocodex()),
         "g4-disconnect" => Some(g4_disconnect()),
+        "g4-socketdrop" => Some(g4_socketdrop()),
         "g4-oldstate" => Some(g4_oldstate()),
         "g4-newstate" => Some(g4_newstate()),
         _ => None,
@@ -826,6 +890,7 @@ mod tests {
             "g4-http500",
             "g4-nocodex",
             "g4-disconnect",
+            "g4-socketdrop",
             "g4-oldstate",
             "g4-newstate",
         ] {

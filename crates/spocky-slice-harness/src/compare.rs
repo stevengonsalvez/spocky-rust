@@ -603,6 +603,7 @@ mod tests {
                 wait_for_stub_requests: None,
                 daemon_restart: false,
                 disconnect_at_stub_requests: None,
+                node_script: None,
             }],
             checks,
             preimages: |_| Vec::new(),

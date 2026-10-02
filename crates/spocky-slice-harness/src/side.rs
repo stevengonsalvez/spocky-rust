@@ -120,6 +120,11 @@ pub struct StepSpec {
     /// stub has recorded at least this many requests. The step's exit is then
     /// `signal 9` and its output is whatever the CLI had written.
     pub disconnect_at_stub_requests: Option<usize>,
+    /// Instead of the pinned CLI, run this node script with the pinned node
+    /// under the egress sandbox. It is written to the side's root as
+    /// `fixtures/<step name>.mjs` and gets the Paseo root first, then the
+    /// expanded `args`.
+    pub node_script: Option<&'static str>,
 }
 
 /// Which daemon makes a gate's home and which one opens it after the restart.
@@ -173,6 +178,13 @@ pub enum Check {
     StdoutLine {
         step: &'static str,
         line: &'static str,
+    },
+    /// The first line of a step's stdout is JSON with this value at the
+    /// pointer; strings compare raw, other values by their JSON text.
+    FirstLineField {
+        step: &'static str,
+        pointer: &'static str,
+        expected: &'static str,
     },
     /// Every step and the readiness probe exited 0, except the listed steps,
     /// which must each exit with exactly the listed code. A negative code
@@ -1342,6 +1354,40 @@ fn cli_command(
     command
 }
 
+/// The command for one step: the pinned CLI, or the step's node script. A
+/// script is written under the side's root first and gets the Paseo root as
+/// its first argument. Returns the argv to record and the command.
+fn step_command(
+    step: &StepSpec,
+    tools: &Tools,
+    layout: &Layout,
+    environment: &BTreeMap<String, String>,
+    argv: Vec<String>,
+) -> Result<(Vec<String>, Command), String> {
+    let Some(source) = step.node_script else {
+        let command = cli_command(tools, layout, environment, &argv);
+        return Ok((argv, command));
+    };
+    let directory = layout.path("fixtures");
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let script = directory.join(format!("{}.mjs", step.name));
+    fs::write(&script, source).map_err(|error| error.to_string())?;
+    let mut full = vec![
+        script.display().to_string(),
+        tools.paseo_root.display().to_string(),
+    ];
+    full.extend(argv);
+    let mut command = Command::new(SANDBOX_EXEC);
+    command
+        .args(["-p", EGRESS_PROFILE])
+        .arg(tools.node_bin.join("node"))
+        .args(&full)
+        .current_dir(layout.path("project"))
+        .env_clear()
+        .envs(environment);
+    Ok((full, command))
+}
+
 fn not_run(name: &str, argv: Vec<String>, reason: String) -> StepRun {
     StepRun {
         name: name.into(),
@@ -1674,8 +1720,15 @@ fn run_in_layout(
         let disconnect = step
             .disconnect_at_stub_requests
             .map(|count| move || stub_records(layout).len() >= count);
+        let (argv, mut command) = match step_command(step, tools, layout, &environment, argv) {
+            Ok(prepared) => prepared,
+            Err(reason) => {
+                steps.push(not_run(step.name, Vec::new(), reason));
+                continue;
+            }
+        };
         let (stdout, stderr, exit) = run_tracked_until(
-            &mut cli_command(tools, layout, &environment, &argv),
+            &mut command,
             STEP_TIMEOUT,
             &mut pids,
             disconnect.as_ref().map(|ready| ready as &dyn Fn() -> bool),
@@ -1882,6 +1935,27 @@ pub fn failed_checks(gate: &GateSpec, side: &SideRun) -> Vec<String> {
                 .chain(&side.steps)
                 .find(|step| step.exit != Exit::Code(0))
                 .map(|step| format!("{}: {}", step.name, step.exit.render())),
+            Check::FirstLineField {
+                step,
+                pointer,
+                expected,
+            } => {
+                let found = side
+                    .steps
+                    .iter()
+                    .find(|run| run.name == *step)
+                    .and_then(|run| {
+                        let text = String::from_utf8_lossy(&run.stdout).into_owned();
+                        serde_json::from_str::<Value>(text.lines().next()?).ok()
+                    })
+                    .and_then(|json| json.pointer(pointer).cloned())
+                    .map(|value| match value {
+                        Value::String(text) => text,
+                        other => other.to_string(),
+                    });
+                (found.as_deref() != Some(*expected))
+                    .then(|| format!("{step}{pointer} is {found:?}, expected {expected:?}"))
+            }
             Check::ExitsAre(expected) => std::iter::once(&side.readiness)
                 .chain(&side.steps)
                 .find_map(|step| {
@@ -2620,6 +2694,106 @@ mod tests {
         assert!(failed(&[("send", -9)], vec![killed.clone()]).is_empty());
         assert_eq!(failed(&[("send", -15)], vec![killed.clone()]).len(), 1);
         assert_eq!(failed(&[], vec![killed]).len(), 1);
+    }
+
+    #[test]
+    fn first_line_field_reads_numbers_and_strings_from_line_one_only() {
+        let gate = GateSpec {
+            id: "t",
+            script: Script {
+                responses: Vec::new(),
+            },
+            steps: Vec::new(),
+            preimages: |_| Vec::new(),
+            codex_present: true,
+            home_origin: HomeOrigin::Same,
+            checks: vec![
+                Check::FirstLineField {
+                    step: "probe",
+                    pointer: "/frames",
+                    expected: "0",
+                },
+                Check::FirstLineField {
+                    step: "probe",
+                    pointer: "/status",
+                    expected: "running",
+                },
+            ],
+        };
+        let probe = |stdout: &str| StepRun {
+            name: "probe".into(),
+            argv: Vec::new(),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: Vec::new(),
+            exit: Exit::Code(0),
+            stub_requests: 0,
+        };
+        let failed = |stdout: &str| failed_checks(&gate, &side_with(vec![probe(stdout)])).len();
+        assert_eq!(
+            failed("{\"frames\":0,\"status\":\"running\"}\n{\"frames\":9}\n"),
+            0
+        );
+        assert_eq!(failed("{\"frames\":3,\"status\":\"running\"}\n"), 1);
+        assert_eq!(failed("{\"frames\":\"0\",\"status\":\"idle\"}\n"), 1);
+        // Only line one counts, and a missing field fails.
+        assert_eq!(failed("\n{\"frames\":0,\"status\":\"running\"}\n"), 2);
+        assert_eq!(failed(""), 2);
+    }
+
+    #[test]
+    fn a_script_step_writes_its_source_and_runs_it_with_the_paseo_root_first() {
+        let root = scratch(line!());
+        let layout = Layout { root: root.clone() };
+        let tools = Tools {
+            paseo_root: PathBuf::from("/paseo"),
+            node_bin: PathBuf::from("/node-bin"),
+            codex: PathBuf::from("/codex"),
+            stub: PathBuf::from("/stub"),
+            spocky_daemon: None,
+        };
+        let step = StepSpec {
+            node_script: Some("// probe\n"),
+            name: "probe",
+            args: Vec::new(),
+            capture: None,
+            wait_for_stub_requests: None,
+            daemon_restart: false,
+            disconnect_at_stub_requests: None,
+        };
+        let (argv, command) = step_command(
+            &step,
+            &tools,
+            &layout,
+            &BTreeMap::new(),
+            vec!["--host".into(), "h:1".into()],
+        )
+        .unwrap();
+        let script = root.join("fixtures/probe.mjs");
+        assert_eq!(fs::read_to_string(&script).unwrap(), "// probe\n");
+        assert_eq!(
+            argv,
+            [
+                script.display().to_string(),
+                "/paseo".into(),
+                "--host".into(),
+                "h:1".into()
+            ]
+        );
+        let words: Vec<String> = command
+            .get_args()
+            .map(|word| word.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(words[2], "/node-bin/node");
+        assert_eq!(words[3..], argv[..]);
+        // A CLI step keeps its argv and writes nothing.
+        let cli = StepSpec {
+            node_script: None,
+            ..step
+        };
+        let (plain, _) =
+            step_command(&cli, &tools, &layout, &BTreeMap::new(), vec!["ls".into()]).unwrap();
+        assert_eq!(plain, ["ls"]);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
