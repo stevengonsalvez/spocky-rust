@@ -177,9 +177,14 @@ mask() {
     -e 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<UUID>/g' \
     -e 's/wks_[0-9a-f]+/<WKS>/g' \
     -e 's/prj_[0-9a-f]+/<PRJ>/g' \
-    -e 's/srv_[A-Za-z0-9]+/<SRV>/g' \
+    -e 's/srv_[A-Za-z0-9_-]{12}/<SRV>/g' \
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
+
+# `generateServerId` is srv_ plus 12 base64url characters, which can include
+# - and _.
+[ "$(printf 'x srv_aB-_cD0123xy y\n' | mask /dev/stdin)" = 'x <SRV> y' ] ||
+  { echo "FAIL: mask misses a base64url server id"; exit 1; }
 
 echo "commit: $(git -C "$here" rev-parse HEAD)"
 original_runs=${ORIGINAL_RUNS:-5}
