@@ -52,6 +52,10 @@ pub struct PersistedDaemonConfig {
     pub cors_allowed_origins: Vec<String>,
     /// bcrypt hash from `daemon.auth.password`.
     pub auth_password: Option<String>,
+    /// `features.dictation.enabled`.
+    pub dictation_enabled: Option<bool>,
+    /// `features.voiceMode.enabled`.
+    pub voice_mode_enabled: Option<bool>,
 }
 
 /// The password hash is a credential: never print it.
@@ -61,6 +65,8 @@ impl fmt::Debug for PersistedDaemonConfig {
             .field("listen", &self.listen)
             .field("hostnames", &self.hostnames)
             .field("cors_allowed_origins", &self.cors_allowed_origins)
+            .field("dictation_enabled", &self.dictation_enabled)
+            .field("voice_mode_enabled", &self.voice_mode_enabled)
             .field(
                 "auth_password",
                 &self.auth_password.as_ref().map(|_| "<redacted>"),
@@ -162,7 +168,18 @@ fn daemon_fields(config: &JsValue) -> PersistedDaemonConfig {
             .and_then(|auth| auth.get("password"))
             .and_then(JsValue::as_str)
             .map(str::to_owned),
+        dictation_enabled: feature_enabled(config, "dictation"),
+        voice_mode_enabled: feature_enabled(config, "voiceMode"),
     }
+}
+
+/// `features.<name>.enabled`.
+fn feature_enabled(config: &JsValue, name: &str) -> Option<bool> {
+    config
+        .get("features")
+        .and_then(|features| features.get(name))
+        .and_then(|feature| feature.get("enabled"))
+        .and_then(JsValue::as_bool)
 }
 
 /// `env.X ?? env.Y` for a string environment value that is present.
@@ -210,6 +227,8 @@ mod tests {
                 hostnames: None,
                 cors_allowed_origins: vec!["https://app.paseo.sh".to_owned()],
                 auth_password: None,
+                dictation_enabled: None,
+                voice_mode_enabled: None,
             }
         );
     }
