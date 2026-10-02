@@ -2440,7 +2440,35 @@ async fn titles_scenario(cwd: &str, home: &Path) -> JsValue {
 
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
 /// [`FIXED_IDS`] with `<UUID>`.
-fn normalize(text: &str) -> String {
+/// The wall-clock window of one test run. `Date.now()` and `new Date()` on
+/// either side give values inside it; a timestamp a fixture fixes is outside
+/// it and is compared exactly.
+struct WallClock {
+    from_millis: i64,
+}
+
+impl WallClock {
+    /// Slack either side of the run, for clock reads and process start.
+    const SLACK_MILLIS: i64 = 2_000;
+
+    fn start() -> Self {
+        Self {
+            from_millis: spocky_session::clock::now_millis() - Self::SLACK_MILLIS,
+        }
+    }
+
+    /// Whether `iso` is a wall-clock value of this run.
+    fn contains(&self, iso: &str) -> bool {
+        spocky_store::time::parse_iso_millis(iso).is_some_and(|millis| {
+            millis >= self.from_millis
+                && millis <= spocky_session::clock::now_millis() + Self::SLACK_MILLIS
+        })
+    }
+}
+
+/// Masks the generated ids and the wall-clock timestamps of one run, and
+/// nothing else: fixed ids and fixed fixture timestamps stay as they are.
+fn normalize(text: &str, clock: &WallClock) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
@@ -2455,7 +2483,7 @@ fn normalize(text: &str) -> String {
             23 => bytes.get(index + offset) == Some(&b'Z'),
             _ => digit(index + offset),
         });
-        if iso {
+        if iso && clock.contains(&text[index..index + 24]) {
             out.push_str("<ISO>");
             index += 24;
             continue;
@@ -2482,13 +2510,17 @@ fn normalize(text: &str) -> String {
 }
 
 #[test]
-fn normalize_keeps_fixed_ids() {
+fn normalize_masks_only_wall_clock_values() {
+    let clock = WallClock::start();
+    let now = spocky_session::clock::now_iso();
     let text = format!(
-        r#"["2026-10-01T12:34:56.789Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","{AGENT_ID}","{UNKNOWN_ID}x"]"#
+        r#"["{now}","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","{AGENT_ID}","{UNKNOWN_ID}x"]"#
     );
     assert_eq!(
-        normalize(&text),
-        format!(r#"["<ISO>","<UUID>","{AGENT_ID}","{UNKNOWN_ID}x"]"#)
+        normalize(&text, &clock),
+        format!(
+            r#"["<ISO>","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","<UUID>","{AGENT_ID}","{UNKNOWN_ID}x"]"#
+        )
     );
 }
 
@@ -2560,6 +2592,7 @@ async fn scenarios_match_pinned_manager() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    let clock = WallClock::start();
     assert_pinned_modules(&dist);
     let workspace = home("cwd");
     let cwd = std::fs::canonicalize(&workspace.0)
@@ -2600,7 +2633,7 @@ async fn scenarios_match_pinned_manager() {
         "node failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let expected = normalize(&String::from_utf8_lossy(&output.stdout));
+    let expected = normalize(&String::from_utf8_lossy(&output.stdout), &clock);
     let rust = object(vec![
         ("main", main_scenario(&cwd, &rust_home.0).await),
         ("errors", errors_scenario(&cwd, &rust_home.0).await),
@@ -2619,7 +2652,7 @@ async fn scenarios_match_pinned_manager() {
         ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
-    assert_eq!(normalize(&stringify(&rust)), expected);
+    assert_eq!(normalize(&stringify(&rust), &clock), expected);
 }
 
 async fn collect_stream(mut stream: TurnEventStream, events: &mut Vec<JsValue>) {
