@@ -3414,7 +3414,10 @@ pub struct CodexProvider {
     runtime_settings: Option<ProviderRuntimeSettings>,
     custom_provider: Option<CustomProvider>,
     base_env: Vec<(OsString, OsString)>,
-    gates: OnceLock<CodexGates>,
+    /// `goalsEnabledPromise`.
+    goals_enabled: OnceLock<bool>,
+    /// `autoReviewEnabledPromise`, filled only by calls without a signal.
+    auto_review_enabled: OnceLock<bool>,
 }
 
 impl CodexProvider {
@@ -3429,30 +3432,106 @@ impl CodexProvider {
             runtime_settings,
             custom_provider,
             base_env,
-            gates: OnceLock::new(),
+            goals_enabled: OnceLock::new(),
+            auto_review_enabled: OnceLock::new(),
         }
     }
 
-    /// `resolveGoalsEnabled` and `resolveAutoReviewEnabled`, probed once.
+    /// The gates `createSession` and `resumeSession` resolve:
+    /// `resolveGoalsEnabled()` then `resolveAutoReviewEnabled()`, both
+    /// without a signal, so both memoized.
     pub fn gates(&self) -> CodexGates {
-        *self
-            .gates
-            .get_or_init(|| launch::resolve_gates(self.runtime_settings.as_ref(), &self.base_env))
+        CodexGates {
+            goals_enabled: self.resolve_goals_enabled(),
+            auto_review_enabled: self.resolve_auto_review_enabled(false),
+        }
     }
 
-    /// `fetchCatalog(options, context)`: a short-lived app-server (no launch
-    /// env, no `--enable goals`), `model/list`, configured defaults, then
-    /// dispose. With a deadline, the app-server is disposed when it passes,
-    /// as Paseo disposes it on the refresh context's abort signal.
+    /// `isAvailable()`: whether launch resolution finds a runnable Codex. A
+    /// failed lookup (other than not found) is an error.
+    ///
+    /// # Errors
+    /// Returns the launch lookup failure.
+    pub fn is_available(&self) -> Result<bool, String> {
+        match launch::resolve_launch_prefix(self.runtime_settings.as_ref(), &self.base_env) {
+            Ok(_) => Ok(true),
+            Err(message) if message == launch::CODEX_NOT_FOUND_MESSAGE => Ok(false),
+            Err(message) => Err(message),
+        }
+    }
+
+    /// `resolveGoalsEnabled()`: probed on first use, then memoized.
+    fn resolve_goals_enabled(&self) -> bool {
+        *self.goals_enabled.get_or_init(|| {
+            launch::probe_goals_enabled(self.runtime_settings.as_ref(), &self.base_env)
+        })
+    }
+
+    /// `resolveAutoReviewEnabled(signal)`: memoized only without a signal;
+    /// with one, a fresh probe on every call.
+    fn resolve_auto_review_enabled(&self, signal_present: bool) -> bool {
+        if signal_present {
+            return self.probe_auto_review_enabled(None).unwrap_or(false);
+        }
+        *self
+            .auto_review_enabled
+            .get_or_init(|| self.probe_auto_review_enabled(None).unwrap_or(false))
+    }
+
+    fn probe_auto_review_enabled(&self, deadline: Option<Instant>) -> Option<bool> {
+        launch::probe_auto_review_enabled(self.runtime_settings.as_ref(), &self.base_env, deadline)
+    }
+
+    /// [`Self::fetch_catalog_signalled`] where a deadline is the signal: a
+    /// deadline means a signal is present.
+    ///
+    /// # Errors
+    /// As [`Self::fetch_catalog_signalled`].
+    pub fn fetch_catalog(&self, deadline: Option<Instant>) -> Result<Value, String> {
+        self.fetch_catalog_signalled(deadline, deadline.is_some())
+    }
+
+    /// `fetchCatalog(options, context)`. Two branches run concurrently, as
+    /// Paseo's `Promise.all` runs them: a short-lived app-server (no launch
+    /// env, no `--enable goals`) for `model/list` and configured defaults,
+    /// and `resolveAutoReviewEnabled(context?.signal)`. `signal_present` is
+    /// whether the refresh context carries a signal: with one, auto-review is
+    /// probed afresh; without, the memo is used and filled. With a deadline,
+    /// the app-server is disposed when it passes, as Paseo disposes it on
+    /// the signal's abort.
     ///
     /// # Errors
     /// Returns launch, initialize, or `model/list` failures, or
     /// [`CATALOG_DEADLINE_MESSAGE`] when the deadline passed first.
-    pub fn fetch_catalog(&self, deadline: Option<Instant>) -> Result<Value, String> {
+    pub fn fetch_catalog_signalled(
+        &self,
+        deadline: Option<Instant>,
+        signal_present: bool,
+    ) -> Result<Value, String> {
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(CATALOG_DEADLINE_MESSAGE.to_owned());
         }
-        let gates = self.gates();
+        thread::scope(|scope| {
+            let auto_review = scope.spawn(|| {
+                if signal_present {
+                    self.probe_auto_review_enabled(deadline)
+                } else {
+                    Some(self.resolve_auto_review_enabled(false))
+                }
+            });
+            let models = self.catalog_models(deadline);
+            // `Promise.all` settles with the first rejection; the probe
+            // still runs to its end, which the scope waits for.
+            let auto_review = auto_review.join().unwrap_or(Some(false));
+            let models = models?;
+            let auto_review_enabled =
+                auto_review.ok_or_else(|| CATALOG_DEADLINE_MESSAGE.to_owned())?;
+            Ok(catalog::catalog(models, auto_review_enabled))
+        })
+    }
+
+    /// `fetchModelsFromAppServer(context)`.
+    fn catalog_models(&self, deadline: Option<Instant>) -> Result<Vec<Value>, String> {
         let prefix = launch::resolve_launch_prefix(self.runtime_settings.as_ref(), &self.base_env)?;
         let env = launch::provider_env(&self.base_env, self.runtime_settings.as_ref(), None);
         let child = launch::spawn_app_server(&prefix, false, &env)?;
@@ -3494,11 +3573,14 @@ impl CodexProvider {
         let disposed = client.dispose().map_err(|error| error.message);
         let models = models?;
         disposed?;
-        Ok(catalog::catalog(models, gates.auto_review_enabled))
+        Ok(models)
     }
 
-    fn spawner(&self, launch_env: Option<BTreeMap<String, String>>) -> SpawnAppServer {
-        let gates = self.gates();
+    fn spawner(
+        &self,
+        launch_env: Option<BTreeMap<String, String>>,
+        gates: CodexGates,
+    ) -> SpawnAppServer {
         let settings = self.runtime_settings.clone();
         let base_env = self.base_env.clone();
         Box::new(move || {
@@ -3546,16 +3628,17 @@ impl CodexProvider {
                 )
             });
         merged.insert("cwd".to_owned(), cwd);
+        let gates = self.gates();
         let session = CodexSession::resumed(
             SessionOptions {
                 config: SessionConfig::from_json(&merged),
-                spawn: self.spawner(launch_env),
+                spawn: self.spawner(launch_env, gates),
                 custom_codex_config: launch::custom_provider_config(
                     self.runtime_settings.as_ref(),
                     self.custom_provider.as_ref(),
                 ),
                 ephemeral: false,
-                gates: self.gates(),
+                gates,
             },
             handle,
             history_only,
@@ -3578,7 +3661,7 @@ impl CodexProvider {
         let gates = self.gates();
         let session = CodexSession::new(SessionOptions {
             config,
-            spawn: self.spawner(launch_env),
+            spawn: self.spawner(launch_env, gates),
             custom_codex_config: launch::custom_provider_config(
                 self.runtime_settings.as_ref(),
                 self.custom_provider.as_ref(),
@@ -3915,5 +3998,79 @@ mod tests {
             find_collaboration_mode(&modes, true).map(|m| m.name.as_str()),
             Some("Plan")
         );
+    }
+
+    /// A provider whose Codex is a script that logs its argv and prints
+    /// `codex-cli 0.159.0`.
+    fn recording_provider(dir: &std::path::Path) -> (CodexProvider, std::path::PathBuf) {
+        std::fs::create_dir_all(dir).unwrap();
+        let log = dir.join("argv.log");
+        let script = dir.join("codex");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\necho 'codex-cli 0.159.0'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&script)
+            .status()
+            .unwrap();
+        let provider = CodexProvider::new(
+            Some(ProviderRuntimeSettings {
+                command: Some(launch::ProviderCommand::Replace {
+                    argv: vec![script.to_string_lossy().into_owned()],
+                }),
+                env: None,
+            }),
+            None,
+            std::env::vars_os().collect(),
+        );
+        (provider, log)
+    }
+
+    fn probes(log: &std::path::Path) -> usize {
+        std::fs::read_to_string(log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| *line == "--version")
+            .count()
+    }
+
+    #[test]
+    fn launch_gates_memoize_as_paseo_does() {
+        let dir = std::env::temp_dir().join(format!("spocky-gate-memo-{}", std::process::id()));
+        let (provider, log) = recording_provider(&dir);
+        assert_eq!(provider.is_available(), Ok(true));
+        assert_eq!(probes(&log), 1, "isAvailable: one prefix probe");
+        // A signalled auto-review probe never fills the memo.
+        assert!(provider.resolve_auto_review_enabled(true));
+        assert!(provider.resolve_auto_review_enabled(true));
+        assert_eq!(probes(&log), 5, "two fresh prefix plus version probes");
+        assert_eq!(
+            provider.gates(),
+            CodexGates {
+                goals_enabled: true,
+                auto_review_enabled: true
+            }
+        );
+        assert_eq!(
+            probes(&log),
+            9,
+            "first create: goals and auto-review probed"
+        );
+        provider.gates();
+        assert!(provider.resolve_auto_review_enabled(false));
+        assert_eq!(
+            probes(&log),
+            9,
+            "later creates and unsignalled calls hit both memos"
+        );
+        assert!(provider.resolve_auto_review_enabled(true));
+        assert_eq!(probes(&log), 11, "a signal still probes afresh");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
