@@ -266,6 +266,19 @@ const SCENARIO_TURNS: &str = r#"{
       {"provider":"fake","event":{"type":"upsert","id":"child-i","title":"Imported child","status":"completed","timestamp":"2026-07-12T08:00:02.000Z"}}
     ]
   },
+  "badTimeline": {
+    "config": {"provider":"badtimeline","cwd":"$CWD"},
+    "persistence": {"provider":"badtimeline","sessionId":"imp-3"},
+    "timeline": [{"item":{"type":"tool_call","callId":"t","name":"shell","status":"running","error":null}}]
+  },
+  "badSubagent": {
+    "config": {"provider":"badsubagent","cwd":"$CWD"},
+    "persistence": {"provider":"badsubagent","sessionId":"imp-4"},
+    "timeline": [],
+    "providerSubagentEvents": [
+      {"provider":"badsubagent","event":{"type":"timeline","id":"child-b","item":{"type":"tool_call","callId":"x","name":"shell","status":"running","error":null},"timestamp":"2026-07-12T08:00:03.000Z"}}
+    ]
+  },
   "badImport": {
     "config": {"provider":"badimport","cwd":"/nonexistent/spocky-import"},
     "persistence": {"provider":"badimport","sessionId":"imp-2"},
@@ -910,12 +923,14 @@ const importScenario = async () => {
       fake: fakeClient(calls, spec("fake", { import: scripted.import, turns: [scripted.impTurn], history: scripted.history })),
       plain: fakeClient(calls, spec("plain")),
       badimport: fakeClient(calls, spec("badimport", { import: scripted.badImport })),
+      badtimeline: fakeClient(calls, spec("badtimeline", { import: scripted.badTimeline })),
+      badsubagent: fakeClient(calls, spec("badsubagent", { import: scripted.badSubagent })),
     },
-    providerDefinitions: { fake: { enabled: true }, plain: { enabled: true }, badimport: { enabled: true } },
+    providerDefinitions: { fake: { enabled: true }, plain: { enabled: true }, badimport: { enabled: true }, badtimeline: { enabled: true }, badsubagent: { enabled: true } },
   });
   const feed = recordFeed(manager);
   const run = (provider) => outcome(async () => toAgentPayload(await manager.importProviderSession({ provider, providerHandleId: "h1", cwd, workspaceId: "wks_9", labels: { a: "b" } })));
-  const results = [await run("fake"), await run("plain"), await run("nope"), await run("badimport")];
+  const results = [await run("fake"), await run("plain"), await run("nope"), await run("badimport"), await run("badtimeline"), await run("badsubagent")];
   await sleep(50);
   await manager.flush();
   await registry.flush();
@@ -2912,6 +2927,10 @@ async fn import_scenario(cwd: &str, home: &Path) -> JsValue {
     scripted(&importing, &["impTurn"]);
     let mut bad = spec("badimport");
     bad.import = fixture.get("badImport").cloned();
+    let mut bad_timeline = spec("badtimeline");
+    bad_timeline.import = fixture.get("badTimeline").cloned();
+    let mut bad_subagent = spec("badsubagent");
+    bad_subagent.import = fixture.get("badSubagent").cloned();
     let manager = manager_with(
         &calls,
         &registry,
@@ -2919,6 +2938,8 @@ async fn import_scenario(cwd: &str, home: &Path) -> JsValue {
             (importing, enabled()),
             (spec("plain"), enabled()),
             (bad, enabled()),
+            (bad_timeline, enabled()),
+            (bad_subagent, enabled()),
         ],
     );
     let feed = record_feed(&manager);
@@ -2945,6 +2966,8 @@ async fn import_scenario(cwd: &str, home: &Path) -> JsValue {
         run("plain").await,
         run("nope").await,
         run("badimport").await,
+        run("badtimeline").await,
+        run("badsubagent").await,
     ];
     tokio::time::sleep(Duration::from_millis(50)).await;
     manager.flush().await;
