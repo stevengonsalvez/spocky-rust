@@ -3365,16 +3365,23 @@ fn apply_codex_tool_policy(
 }
 
 /// `resolveModelAndThinking()`.
+/// Every use of the model in pinned `resolveModelAndThinking` is a JavaScript
+/// truthiness check (`!model`, `model ? ... : ...`), so an empty string is
+/// unset, not a model id.
+fn unset_if_empty(model: Option<String>) -> Option<String> {
+    model.filter(|model| !model.is_empty())
+}
+
 fn resolve_model_and_thinking(
     client: &AppServerClient,
     model: Option<String>,
     thinking: Option<String>,
 ) -> Result<(String, Option<String>), String> {
-    let mut model = model;
+    let mut model = unset_if_empty(model);
     let mut thinking = thinking;
     if model.is_none() || thinking.is_none() {
         let defaults = read_configured_defaults(client);
-        model = model.or(defaults.model);
+        model = model.or_else(|| unset_if_empty(defaults.model));
         thinking = thinking.or(defaults.thinking_option_id);
     }
     if model.is_none() || thinking.is_none() {
@@ -4084,5 +4091,15 @@ mod tests {
         assert!(provider.resolve_auto_review_enabled(true));
         assert_eq!(probes(&log), 11, "a signal still probes afresh");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_empty_model_counts_as_unset_like_javascript_falsiness() {
+        assert_eq!(unset_if_empty(Some(String::new())), None);
+        assert_eq!(unset_if_empty(None), None);
+        assert_eq!(
+            unset_if_empty(Some("gpt-6-astra".to_owned())),
+            Some("gpt-6-astra".to_owned())
+        );
     }
 }
