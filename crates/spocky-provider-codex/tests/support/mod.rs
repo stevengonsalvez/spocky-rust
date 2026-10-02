@@ -1032,6 +1032,48 @@ fn pinned_run(
     serde_json::from_str(stdout.trim()).expect("pinned run JSON")
 }
 
+/// `Ok` when `sums` (the text of `SHA256SUMS`) lists `fixture` with the
+/// digest `actual`.
+pub fn check_fixture_digest(sums: &str, fixture: &str, actual: &str) -> Result<(), String> {
+    let listed = sums
+        .lines()
+        .find_map(|line| {
+            let (digest, name) = line.split_once("  ")?;
+            (name == fixture).then_some(digest)
+        })
+        .ok_or_else(|| format!("{fixture} is not listed in tests/fixtures/SHA256SUMS"))?;
+    if listed == actual {
+        Ok(())
+    } else {
+        Err(format!("{fixture} differs from its SHA256SUMS digest"))
+    }
+}
+
+/// SHA-256 of `path`, from `shasum -a 256`.
+fn sha256_of(path: &Path) -> String {
+    let output = Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(path)
+        .output()
+        .expect("shasum");
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .expect("shasum digest")
+        .to_owned()
+}
+
+/// Panics unless `tests/fixtures/<fixture>` has the digest `SHA256SUMS`
+/// lists, so a replay cannot run on a fixture that changed unnoticed.
+pub fn assert_fixture_digest(fixture: &str) {
+    let sums = std::fs::read_to_string(crate_path("tests/fixtures/SHA256SUMS"))
+        .expect("tests/fixtures/SHA256SUMS");
+    let actual = sha256_of(&crate_path(&format!("tests/fixtures/{fixture}")));
+    if let Err(problem) = check_fixture_digest(&sums, fixture, &actual) {
+        panic!("{problem}");
+    }
+}
+
 /// Whole-run bound for waiting on a terminal session event in a replay.
 const REPLAY_WAIT: Duration = Duration::from_secs(30);
 /// Model every recorded session was started with.
@@ -1045,6 +1087,7 @@ const REPLAY_MODEL: &str = "gpt-6-astra";
 /// identical client-to-Codex JSON lines. Nothing is normalized: both sides
 /// read the same replayed bytes.
 pub fn replay_differential(fixture: &str, scenario: &str, prompt: &str, action: &str) {
+    assert_fixture_digest(fixture);
     let pinned = pinned_paseo();
     let root = DisposableRoot::new(&format!("g2-{scenario}"));
     let rust_log = root.join("rust-client.jsonl");
