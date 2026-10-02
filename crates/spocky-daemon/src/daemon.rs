@@ -181,6 +181,7 @@ pub struct RunningDaemon {
     heartbeat: Option<HeartbeatHandle>,
     shutdown_requested: Arc<AtomicBool>,
     logger: Arc<dyn Logger>,
+    backend: Arc<dyn SessionBackend>,
 }
 
 fn fail(message: impl Into<String>) -> StartupError {
@@ -374,6 +375,10 @@ fn resolve_target(
     Ok(target)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one port of the bootstrap start sequence, kept in pinned order"
+)]
 fn start_after_lock(
     env: &DaemonEnv,
     paseo_home: &Path,
@@ -441,7 +446,7 @@ fn start_after_lock(
             timeouts: Timeouts::default(),
         },
         ServerDeps {
-            backend,
+            backend: Arc::clone(&backend),
             verifier: Arc::new(DenyAllVerifier),
             local_credential: Arc::new(move || {
                 credential_reader
@@ -485,6 +490,7 @@ fn start_after_lock(
         heartbeat: Some(heartbeat),
         shutdown_requested,
         logger: Arc::clone(logger),
+        backend,
     };
     if let Err(error) = publish(paseo_home, &patch) {
         // Listening but unpublished: undo everything that was started.
@@ -519,7 +525,8 @@ impl RunningDaemon {
     }
 
     /// `daemon.stop()` then the supervisor's exit steps: remove the credential,
-    /// close the server, clear `listen` in the lock, release the lock.
+    /// freeze ingress, stop the backend's agents, close the server, clear
+    /// `listen` in the lock, release the lock.
     pub fn stop(mut self) {
         if let Err(error) = delete_local_credential(&self.paseo_home) {
             self.logger.warn(
@@ -528,6 +535,7 @@ impl RunningDaemon {
             );
         }
         self.server.prepare_for_shutdown();
+        self.backend.stop_agents();
         self.server.close();
         if let Some(listener) = self.listener.take() {
             listener.stop();
