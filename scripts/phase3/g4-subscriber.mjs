@@ -5,7 +5,8 @@
 //
 // argv: <paseoRoot> --host <host:port> <project> <holdPrompt>
 //
-// stdout line 1 is {"aFramesAfterDrop": <n>, "status": "<fetched status>"};
+// stdout line 1 is {"aFramesAfterDrop": <n>, "status": "<fetched status>",
+// "workspaceId": "<id>"};
 // the remaining lines are client B's raw wire text, unmodified except that
 // pings, pongs and the server_info status are left out. Wire text is taken by
 // hooking DaemonClient.prototype.handleJsonPayload, so key order and unknown
@@ -48,7 +49,11 @@ const fetched = await b.fetchAgent({ agentId: agent.id });
 await b.cancelAgent(agent.id);
 await sleep(1500);
 console.log(
-  JSON.stringify({ aFramesAfterDrop: raw.get(a).length - before, status: fetched?.agent?.status }),
+  JSON.stringify({
+    aFramesAfterDrop: raw.get(a).length - before,
+    status: fetched?.agent?.status,
+    workspaceId: created.workspace.id,
+  }),
 );
 for (const text of raw.get(b)) {
   const frame = JSON.parse(text);
