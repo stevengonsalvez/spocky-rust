@@ -28,20 +28,21 @@ pub enum ConfigRefusal {
     TooDeep,
 }
 
-/// Validates config file text as `parseConfigFile(configPath, raw)` does.
+/// Validates config file text as `parseConfigFile(configPath, raw)` does
+/// and returns the config it returns: `PersistedConfigSchema`'s output.
 ///
 /// # Errors
 ///
 /// Returns the refusal `loadPersistedConfig` throws: invalid JSON, invalid
 /// config with every zod issue on its own line, or the `ZodError` that the
 /// legacy provider migration throws.
-pub fn check_config_text(config_path: &str, raw: &str) -> Result<(), ConfigRefusal> {
+pub fn check_config_text(config_path: &str, raw: &str) -> Result<JsValue, ConfigRefusal> {
     let raw = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
     let parsed = parse(raw).map_err(|error| {
         ConfigRefusal::Message(format!("[Config] Invalid JSON in {config_path}: {error}"))
     })?;
     match verdict(persisted_config(), &strip_removed_config_fields(&parsed)) {
-        Verdict::Valid => Ok(()),
+        Verdict::Valid(config) => Ok(config),
         Verdict::Invalid(issues) => {
             let lines: Vec<String> = issues.iter().map(issue_line).collect();
             Err(ConfigRefusal::Message(format!(
@@ -135,10 +136,12 @@ pub fn normalize_agent_providers(value: &JsValue) -> Mapped {
             normalized.insert(provider_id, entry.clone());
         }
     }
-    let legacy = JsValue::Object(legacy);
-    if verdict(agent_provider_runtime_settings_map(), &legacy) != Verdict::Valid {
+    let Verdict::Valid(legacy) = verdict(
+        agent_provider_runtime_settings_map(),
+        &JsValue::Object(legacy),
+    ) else {
         return Mapped::Same;
-    }
+    };
     let migrated = match migrate_provider_settings(&legacy) {
         Ok(migrated) => migrated,
         Err(message) => return Mapped::Throws(message),
@@ -150,11 +153,9 @@ pub fn normalize_agent_providers(value: &JsValue) -> Mapped {
 }
 
 /// `migrateProviderSettings(parsedLegacyEntries.data, BUILTIN_PROVIDER_IDS)`
-/// for entries `AgentProviderRuntimeSettingsMapSchema` accepted. Every such
-/// entry fails `ProviderOverrideSchema` (its `command` is an object), so each
-/// takes the legacy path: `append` is dropped, `replace` keeps `argv` as
-/// `command`, and `env` is kept without `__proto__`, as the parsed record
-/// holds it.
+/// over the parsed legacy entries. Every one fails `ProviderOverrideSchema`
+/// (its `command` is an object), so each takes the legacy path: `append` is
+/// dropped, `replace` keeps `argv` as `command`, and `env` is kept.
 ///
 /// # Errors
 ///
@@ -175,16 +176,41 @@ fn migrate_provider_settings(legacy: &JsValue) -> Result<JsObject, String> {
         {
             next.insert("command", argv.clone());
         }
-        if let Some(env) = entry.get("env").and_then(plain_object) {
-            next.insert("env", JsValue::Object(without(env, "__proto__")));
+        if let Some(env) = entry.get("env").filter(|env| truthy(Some(env))) {
+            next.insert("env", env.clone());
         }
         migrated.insert(provider_id, JsValue::Object(next));
     }
-    let migrated_value = JsValue::Object(migrated);
-    match verdict(provider_overrides(), &migrated_value) {
+    match verdict(provider_overrides(), &JsValue::Object(migrated)) {
+        Verdict::Valid(parsed) => Ok(parsed.as_object().cloned().unwrap_or_default()),
         Verdict::Invalid(issues) => Err(stringify_pretty(&JsValue::Array(issues))),
-        _ => Ok(migrated_value.as_object().cloned().unwrap_or_default()),
+        _ => Ok(JsObject::new()),
     }
+}
+
+/// The `PersistedConfigSchema.daemon` transform:
+/// `({ allowedHosts, ...daemon }) => hostnames === undefined ? daemon :
+/// { ...daemon, hostnames }`, with `hostnames = daemon.hostnames ??
+/// allowedHosts`.
+#[must_use]
+pub fn daemon_hostnames(value: &JsValue) -> Mapped {
+    let Some(input) = plain_object(value) else {
+        return Mapped::Same;
+    };
+    let mut daemon = without(input, "allowedHosts");
+    let nullish = |value: Option<&JsValue>| {
+        value.is_none_or(|value| matches!(value, JsValue::Undefined | JsValue::Null))
+    };
+    let hostnames = if nullish(daemon.get("hostnames")) {
+        input.get("allowedHosts")
+    } else {
+        daemon.get("hostnames")
+    };
+    if let Some(hostnames) = hostnames.filter(|hostnames| !matches!(hostnames, JsValue::Undefined))
+    {
+        daemon.insert("hostnames", hostnames.clone());
+    }
+    Mapped::Value(JsValue::Object(daemon))
 }
 
 /// `PROVIDER_ID_PATTERN`, `/^[a-z][a-z0-9-]*$/`; also `PluginIdSchema`.

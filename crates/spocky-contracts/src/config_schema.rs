@@ -66,10 +66,10 @@ static PROVIDER_PROFILE_MODEL: LazyLock<Schema> = LazyLock::new(|| {
                     ("description", Schema::Optional(Box::new(Schema::String(vec![])))),
                     ("isDefault", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )))))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -98,12 +98,12 @@ static PROVIDER_OVERRIDES: LazyLock<Schema> = LazyLock::new(|| {
                     ("enabled", Schema::Optional(Box::new(Schema::Boolean))),
                     ("disabledTools", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )))),
             ("enabled", Schema::Optional(Box::new(Schema::Boolean))),
             ("order", Schema::Optional(Box::new(Schema::Number(vec![])))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )))),
         vec![
             Refinement::SuperRefine(crate::config::provider_overrides_issues),
@@ -159,13 +159,13 @@ static PERSISTED_CONFIG: LazyLock<Schema> = LazyLock::new(|| {
                             ("enabled", Schema::Optional(Box::new(Schema::Boolean))),
                             ("injectIntoAgents", Schema::Optional(Box::new(Schema::Boolean))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Passthrough,
                     )))),
                     ("browserTools", Schema::Optional(Box::new(Schema::Object(
                         vec![
                             ("enabled", Schema::Optional(Box::new(Schema::Boolean))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Passthrough,
                     )))),
                     ("git", Schema::Optional(Box::new(Schema::Object(
                         vec![
@@ -191,7 +191,7 @@ static PERSISTED_CONFIG: LazyLock<Schema> = LazyLock::new(|| {
                             ("args", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
                             ("icon", Schema::Optional(Box::new(Schema::String(vec![])))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Passthrough,
                     )))))),
                     ("agentProfiles", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Object(
                         vec![
@@ -206,7 +206,7 @@ static PERSISTED_CONFIG: LazyLock<Schema> = LazyLock::new(|| {
                             ("featureValues", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))),
                             ("notes", Schema::Optional(Box::new(Schema::String(vec![])))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Passthrough,
                     )))))),
                     ("cors", Schema::Optional(Box::new(Schema::Object(
                         vec![
@@ -249,7 +249,7 @@ static PERSISTED_CONFIG: LazyLock<Schema> = LazyLock::new(|| {
                     )))),
                 ],
                 UnknownKeys::Strict,
-            )), Box::new(Schema::Transform(Transform::NoIssue)))))),
+            )), Box::new(Schema::Transform(Transform::Map(crate::config::daemon_hostnames))))))),
             ("app", Schema::Optional(Box::new(Schema::Object(
                 vec![
                     ("baseUrl", Schema::Optional(Box::new(Schema::String(vec![])))),
@@ -538,7 +538,7 @@ static AGENT_PROVIDER_RUNTIME_SETTINGS_MAP: LazyLock<Schema> = LazyLock::new(|| 
                                 JsValue::String("default".to_owned()),
                             ])),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Strip,
                     )),
                     ("append", Schema::Object(
                         vec![
@@ -547,7 +547,7 @@ static AGENT_PROVIDER_RUNTIME_SETTINGS_MAP: LazyLock<Schema> = LazyLock::new(|| 
                             ])),
                             ("args", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Strip,
                     )),
                     ("replace", Schema::Object(
                         vec![
@@ -563,14 +563,14 @@ static AGENT_PROVIDER_RUNTIME_SETTINGS_MAP: LazyLock<Schema> = LazyLock::new(|| 
                                 ],
                             )),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Strip,
                     )),
                 ],
             )))),
             ("env", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
             ("disallowedTools", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::String(vec![])))))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )))),
         vec![
             Refinement::SuperRefine(crate::config::runtime_settings_map_issues),

@@ -7,7 +7,7 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "8dbe5f62e0dcb1ff398788d43ea9c803aebe06ac9eb1d655e4e2bdcb412e6e40",
+    "casesSha256": "b0eb3f7db6e30d6855d6820a5e551a20942cda97b8d275c1de64e02d9b281a0d",
     "pinnedServer": {
       "buildMarkerSha256": "d2a479bfec301b3d2659c25a9cc42393cce1c09f9c457f92356008e3d48cea2f",
       "agentProjectionsJsSha256": "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
@@ -2153,7 +2153,8 @@
       "source": "v1 marker only",
       "input": "{\"version\":1}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"version\":1}"
       }
     },
     {
@@ -2162,7 +2163,8 @@
       "source": "a leading BOM is stripped before JSON.parse",
       "input": "﻿{\"version\":1}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"version\":1}"
       }
     },
     {
@@ -2231,7 +2233,8 @@
       "source": "z.url() accepts trimmed input",
       "input": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"  http://a.example/x  \"}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"http://a.example/x\"}}}"
       }
     },
     {
@@ -2240,7 +2243,8 @@
       "source": "WHATWG accepts a bare scheme URL",
       "input": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"mailto:x\"}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"mailto:x\"}}}"
       }
     },
     {
@@ -2289,7 +2293,8 @@
       "source": "stripRemovedConfigFields drops removed keys",
       "input": "{\"providers\":{\"openai\":{\"voice\":{\"a\":1}},\"local\":{\"autoDownload\":true}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"providers\":{\"openai\":{},\"local\":{}}}"
       }
     },
     {
@@ -2298,7 +2303,8 @@
       "source": "trim and toLowerCase before the enum",
       "input": "{\"features\":{\"dictation\":{\"stt\":{\"provider\":\"  OpenAI \"}}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"features\":{\"dictation\":{\"stt\":{\"provider\":\"openai\"}}}}"
       }
     },
     {
@@ -2307,7 +2313,8 @@
       "source": "a modern entry passes through",
       "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":[\"c\"],\"env\":{\"A\":\"1\"}}}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"agents\":{\"providers\":{\"codex\":{\"command\":[\"c\"],\"env\":{\"A\":\"1\"}}}}}"
       }
     },
     {
@@ -2326,7 +2333,8 @@
       "source": "legacy replace, append, and default entries migrate beside a modern one",
       "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":{\"mode\":\"replace\",\"argv\":[\"x\"]},\"env\":{\"A\":\"1\"},\"disallowedTools\":[\"t\"]},\"claude\":{\"command\":{\"mode\":\"append\",\"args\":[\"y\"]}},\"pi\":{\"command\":{\"mode\":\"default\"}},\"opencode\":{\"label\":\"L\"}}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"agents\":{\"providers\":{\"opencode\":{\"label\":\"L\"},\"codex\":{\"command\":[\"x\"],\"env\":{\"A\":\"1\"}},\"pi\":{}}}}"
       }
     },
     {
@@ -2360,12 +2368,53 @@
       }
     },
     {
+      "id": "config.daemon_allowed_hosts",
+      "direction": "config",
+      "source": "the daemon transform moves allowedHosts to hostnames",
+      "input": "{\"daemon\":{\"allowedHosts\":[\"a\"],\"listen\":\"x\"}}",
+      "config": {
+        "success": true,
+        "output": "{\"daemon\":{\"listen\":\"x\",\"hostnames\":[\"a\"]}}"
+      }
+    },
+    {
+      "id": "config.daemon_hostnames_win",
+      "direction": "config",
+      "source": "hostnames wins over allowedHosts",
+      "input": "{\"daemon\":{\"hostnames\":true,\"allowedHosts\":[\"a\"],\"listen\":\"x\"}}",
+      "config": {
+        "success": true,
+        "output": "{\"daemon\":{\"listen\":\"x\",\"hostnames\":true}}"
+      }
+    },
+    {
+      "id": "config.shape_order",
+      "direction": "config",
+      "source": "output follows shape order, not input order",
+      "input": "{\"log\":{\"level\":\"info\"},\"pluginsEnabled\":true,\"version\":1,\"$schema\":\"s\"}",
+      "config": {
+        "success": true,
+        "output": "{\"$schema\":\"s\",\"version\":1,\"pluginsEnabled\":true,\"log\":{\"level\":\"info\"}}"
+      }
+    },
+    {
+      "id": "config.passthrough_extras",
+      "direction": "config",
+      "source": "passthrough keeps extra keys after the shape, drops __proto__",
+      "input": "{\"daemon\":{\"mcp\":{\"x\":{\"y\":1},\"enabled\":true,\"__proto__\":2,\"7\":0}}}",
+      "config": {
+        "success": true,
+        "output": "{\"daemon\":{\"mcp\":{\"7\":0,\"enabled\":true,\"x\":{\"y\":1}}}}"
+      }
+    },
+    {
       "id": "config.providers_legacy_proto_key",
       "direction": "config",
       "source": "an own __proto__ entry is never migrated",
       "input": "{\"agents\":{\"providers\":{\"__proto__\":{\"command\":{\"mode\":\"default\"}},\"codex\":{\"command\":{\"mode\":\"replace\",\"argv\":[\"z\"]}}}}}",
       "config": {
-        "success": true
+        "success": true,
+        "output": "{\"agents\":{\"providers\":{\"codex\":{\"command\":[\"z\"]}}}}"
       }
     }
   ]

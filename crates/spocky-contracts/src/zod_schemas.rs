@@ -29,7 +29,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                         JsValue::String("ping".to_owned()),
                     ])),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("hello", Schema::Object(
                 vec![
@@ -53,7 +53,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ])),
                                     ("password", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("localCredential", Schema::Object(
                                 vec![
@@ -62,7 +62,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ])),
                                     ("token", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                         ],
                     )))),
@@ -91,15 +91,15 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ])))), Box::new(Schema::Transform(Transform::BrowserHostCommands)))),
                                     ("hostKind", Schema::Default(Box::new(Schema::String(vec![
                                         StringCheck::Min(1),
-                                    ])))),
+                                    ])), r#""browser host""#)),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Passthrough,
                             )))),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Passthrough,
                     )))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("recording_state", Schema::Object(
                 vec![
@@ -108,7 +108,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                     ])),
                     ("isRecording", Schema::Boolean),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("session", Schema::Object(
                 vec![
@@ -127,7 +127,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("requestId", Schema::String(vec![])),
                                     ("subscriptionId", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("session.events.set_subscription.request", Schema::Object(
                                 vec![
@@ -138,7 +138,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("events", Schema::Array(Box::new(Schema::Enum(&["project.update", "providers_snapshot_update", "agent_attention_required", "agent_permission_request", "agent_permission_resolved", "checkout_status_update", "script_status_update", "workspace_setup_progress", "agent.provider_subagents.update", "terminal_attention_required", "status.server_info", "status.daemon_config_changed", "status.plugin_catalog_changed", "status.plugin_settings_changed", "activity_log", "hub.execution.agent.update", "hub.execution.agent.stream"])))),
                                     ("notifications", Schema::Optional(Box::new(Schema::Boolean))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("hub.execution.agent.create.request", Schema::Unmodeled),
                             ("hub.execution.agent.validate.request", Schema::Unmodeled),
@@ -163,14 +163,14 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("requiresAttention", Schema::Optional(Box::new(Schema::Boolean))),
                                             ("thinkingOptionId", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("sort", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Object(
                                         vec![
                                             ("key", Schema::Enum(&["status_priority", "created_at", "updated_at", "title"])),
                                             ("direction", Schema::Enum(&["asc", "desc"])),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))))),
                                     ("page", Schema::Optional(Box::new(Schema::Object(
                                         vec![
@@ -183,17 +183,17 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                 StringCheck::Min(1),
                                             ])))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("subscribe", Schema::Optional(Box::new(Schema::Object(
                                         vec![
                                             ("subscriptionId", Schema::Optional(Box::new(Schema::String(vec![])))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("sync", Schema::Optional(Box::new(Schema::Lazy(|| &SHARED_0)))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("fetch_agent_history_request", Schema::Unmodeled),
                             ("fetch_recent_provider_sessions_request", Schema::Unmodeled),
@@ -209,14 +209,14 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("projectId", Schema::Optional(Box::new(Schema::String(vec![])))),
                                             ("idPrefix", Schema::Optional(Box::new(Schema::String(vec![])))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("sort", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Object(
                                         vec![
                                             ("key", Schema::Enum(&["status_priority", "activity_at", "name", "project_id"])),
                                             ("direction", Schema::Enum(&["asc", "desc"])),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))))),
                                     ("page", Schema::Optional(Box::new(Schema::Object(
                                         vec![
@@ -229,17 +229,17 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                 StringCheck::Min(1),
                                             ])))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("subscribe", Schema::Optional(Box::new(Schema::Object(
                                         vec![
                                             ("subscriptionId", Schema::Optional(Box::new(Schema::String(vec![])))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("sync", Schema::Optional(Box::new(Schema::Lazy(|| &SHARED_0)))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("project.list.request", Schema::Unmodeled),
                             ("fetch_agent_request", Schema::Object(
@@ -250,7 +250,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("requestId", Schema::String(vec![])),
                                     ("agentId", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("delete_agent_request", Schema::Unmodeled),
                             ("archive_agent_request", Schema::Unmodeled),
@@ -282,7 +282,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("images", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Lazy(|| &SHARED_1)))))),
                                     ("attachments", Schema::Lazy(|| &SHARED_2)),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("wait_for_finish_request", Schema::Object(
                                 vec![
@@ -296,7 +296,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                         NumberCheck::Gt(0.0),
                                     ])))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("daemon.get_status.request", Schema::Unmodeled),
                             ("daemon.get_pairing_offer.request", Schema::Unmodeled),
@@ -357,7 +357,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("labels", Schema::Lazy(|| &SHARED_29)),
                                     ("requestId", Schema::Lazy(|| &SHARED_30)),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("list_provider_models_request", Schema::Unmodeled),
                             ("list_provider_modes_request", Schema::Unmodeled),
@@ -381,7 +381,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("nativeHandle", Schema::Optional(Box::new(Schema::String(vec![])))),
                                             ("metadata", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("overrides", Schema::Optional(Box::new(Schema::Object(
                                         vec![
@@ -397,11 +397,11 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("systemPrompt", Schema::Optional(Box::new(Schema::Lazy(|| &SHARED_15)))),
                                             ("mcpServers", Schema::Optional(Box::new(Schema::Lazy(|| &SHARED_16)))),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("requestId", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("import_agent_request", Schema::Unmodeled),
                             ("refresh_agent_request", Schema::Object(
@@ -412,7 +412,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("agentId", Schema::String(vec![])),
                                     ("requestId", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("cancel_agent_request", Schema::Object(
                                 vec![
@@ -422,7 +422,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("agentId", Schema::String(vec![])),
                                     ("requestId", Schema::Optional(Box::new(Schema::String(vec![])))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("shutdown_server_request", Schema::Unmodeled),
                             ("restart_server_request", Schema::Unmodeled),
@@ -443,7 +443,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                 NumberCheck::Gte(0.0),
                                             ])),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("limit", Schema::Optional(Box::new(Schema::Number(vec![
                                         NumberCheck::Int,
@@ -452,7 +452,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("projection", Schema::Optional(Box::new(Schema::Enum(&["projected", "canonical"])))),
                                     ("mergeWindow", Schema::Optional(Box::new(Schema::Boolean))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("agent.timeline.search.request", Schema::Unmodeled),
                             ("agent.timeline.list_prompts.request", Schema::Unmodeled),
@@ -466,7 +466,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("agentIds", Schema::Array(Box::new(Schema::String(vec![])))),
                                     ("requestId", Schema::String(vec![])),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("agent.fork_context.request", Schema::Unmodeled),
                             ("set_agent_mode_request", Schema::Unmodeled),
@@ -495,7 +495,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                     ("updatedInput", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))),
                                                     ("updatedPermissions", Schema::Optional(Box::new(Schema::Array(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::Unknown))))))),
                                                 ],
-                                                UnknownKeys::Allow,
+                                                UnknownKeys::Strip,
                                             )),
                                             ("deny", Schema::Object(
                                                 vec![
@@ -506,12 +506,12 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                     ("message", Schema::Optional(Box::new(Schema::String(vec![])))),
                                                     ("interrupt", Schema::Optional(Box::new(Schema::Boolean))),
                                                 ],
-                                                UnknownKeys::Allow,
+                                                UnknownKeys::Strip,
                                             )),
                                         ],
                                     )),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("checkout_status_request", Schema::Unmodeled),
                             ("checkout.diff.get.request", Schema::Unmodeled),
@@ -584,7 +584,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("labels", Schema::Lazy(|| &SHARED_29)),
                                             ("agentId", Schema::Lazy(|| &SHARED_33)),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("subscribe", Schema::Optional(Box::new(Schema::Boolean))),
                                     ("requestId", Schema::String(vec![])),
@@ -598,7 +598,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                             ("prompt", Schema::Optional(Box::new(Schema::String(vec![])))),
                                             ("attachments", Schema::Lazy(|| &SHARED_2)),
                                         ],
-                                        UnknownKeys::Allow,
+                                        UnknownKeys::Strip,
                                     )))),
                                     ("source", Schema::Discriminated(
                                         "kind",
@@ -611,7 +611,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                     ("path", Schema::String(vec![])),
                                                     ("projectId", Schema::Optional(Box::new(Schema::String(vec![])))),
                                                 ],
-                                                UnknownKeys::Allow,
+                                                UnknownKeys::Strip,
                                             )),
                                             ("worktree", Schema::Object(
                                                 vec![
@@ -635,12 +635,12 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                                     ])))),
                                                     ("worktreeSlug", Schema::Optional(Box::new(Schema::String(vec![])))),
                                                 ],
-                                                UnknownKeys::Allow,
+                                                UnknownKeys::Strip,
                                             )),
                                         ],
                                     )),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("agent.create.request", Schema::Object(
                                 vec![
@@ -666,7 +666,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ("agentId", Schema::Lazy(|| &SHARED_33)),
                                     ("subscribe", Schema::Optional(Box::new(Schema::Boolean))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("creation.subscribe.request", Schema::Object(
                                 vec![
@@ -681,7 +681,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                     ])),
                                     ("subscribe", Schema::Optional(Box::new(Schema::Boolean))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("workspace.clear_attention.request", Schema::Unmodeled),
                             ("workspace.mark_unread.request", Schema::Unmodeled),
@@ -709,7 +709,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                                         NumberCheck::Int,
                                     ])))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                             ("list_commands_request", Schema::Unmodeled),
                             ("register_push_token", Schema::Unmodeled),
@@ -752,7 +752,7 @@ static WS_INBOUND_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
                         ],
                     )),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
         ],
     )
@@ -767,7 +767,7 @@ static SHARED_0: LazyLock<Schema> = LazyLock::new(|| {
                 NumberCheck::Gte(0.0),
             ])))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -777,7 +777,7 @@ static SHARED_1: LazyLock<Schema> = LazyLock::new(|| {
             ("data", Schema::String(vec![])),
             ("mimeType", Schema::String(vec![])),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -881,7 +881,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                     ("env", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("http", Schema::Object(
                 vec![
@@ -892,7 +892,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                     ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("sse", Schema::Object(
                 vec![
@@ -903,7 +903,7 @@ static SHARED_16: LazyLock<Schema> = LazyLock::new(|| {
                     ("headers", Schema::Optional(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))),
                     ("alwaysLoad", Schema::Optional(Box::new(Schema::Boolean))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
         ],
     )))))
@@ -924,7 +924,7 @@ static SHARED_4: LazyLock<Schema> = LazyLock::new(|| {
             ("systemPrompt", Schema::Lazy(|| &SHARED_15)),
             ("mcpServers", Schema::Lazy(|| &SHARED_16)),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -973,7 +973,7 @@ static CHANGE_REQUEST_CHECKOUT_SOURCE: LazyLock<Schema> = LazyLock::new(|| {
             ])),
             ("projectPath", Schema::Optional(Box::new(Schema::String(vec![])))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -995,7 +995,7 @@ static SHARED_25: LazyLock<Schema> = LazyLock::new(|| {
                 NumberCheck::Gt(0.0),
             ])))),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )))
 });
 
@@ -1015,7 +1015,7 @@ static SHARED_27: LazyLock<Schema> = LazyLock::new(|| {
                         StringCheck::Min(1),
                     ])))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("checkout-branch", Schema::Object(
                 vec![
@@ -1026,7 +1026,7 @@ static SHARED_27: LazyLock<Schema> = LazyLock::new(|| {
                         StringCheck::Min(1),
                     ])),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("checkout-pr", Schema::Object(
                 vec![
@@ -1038,7 +1038,7 @@ static SHARED_27: LazyLock<Schema> = LazyLock::new(|| {
                         NumberCheck::Gt(0.0),
                     ])),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
         ],
     )))
@@ -1049,7 +1049,7 @@ static SHARED_28: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 static SHARED_29: LazyLock<Schema> = LazyLock::new(|| {
-    Schema::Default(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))))
+    Schema::Default(Box::new(Schema::Record(Box::new(Schema::String(vec![])), Box::new(Schema::String(vec![])))), "{}")
 });
 
 static SHARED_30: LazyLock<Schema> = LazyLock::new(|| {
@@ -1070,7 +1070,7 @@ static REVIEW_ATTACHMENT_CONTEXT_LINE: LazyLock<Schema> = LazyLock::new(|| {
             ("type", Schema::Enum(&["add", "remove", "context"])),
             ("content", Schema::String(vec![])),
         ],
-        UnknownKeys::Allow,
+        UnknownKeys::Strip,
     )
 });
 
@@ -1086,7 +1086,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("mimeType", Schema::Literal(vec![
                         JsValue::String("application/paseo-forge-change-request".to_owned()),
                     ])),
-                    ("forge", Schema::Default(Box::new(Schema::Optional(Box::new(Schema::String(vec![])))))),
+                    ("forge", Schema::Default(Box::new(Schema::Optional(Box::new(Schema::String(vec![])))), r#""github""#)),
                     ("number", Schema::Number(vec![
                         NumberCheck::Int,
                         NumberCheck::Gt(0.0),
@@ -1098,7 +1098,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("baseRefName", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                     ("headRefName", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("forge_issue", Schema::Object(
                 vec![
@@ -1108,7 +1108,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("mimeType", Schema::Literal(vec![
                         JsValue::String("application/paseo-forge-issue".to_owned()),
                     ])),
-                    ("forge", Schema::Default(Box::new(Schema::Optional(Box::new(Schema::String(vec![])))))),
+                    ("forge", Schema::Default(Box::new(Schema::Optional(Box::new(Schema::String(vec![])))), r#""github""#)),
                     ("number", Schema::Number(vec![
                         NumberCheck::Int,
                         NumberCheck::Gt(0.0),
@@ -1118,7 +1118,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("body", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                     ("projectPath", Schema::Optional(Box::new(Schema::String(vec![])))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("github_pr", Schema::Object(
                 vec![
@@ -1138,7 +1138,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("baseRefName", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                     ("headRefName", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("github_issue", Schema::Object(
                 vec![
@@ -1156,7 +1156,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ("url", Schema::String(vec![])),
                     ("body", Schema::Optional(Box::new(Schema::Nullable(Box::new(Schema::String(vec![])))))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("text", Schema::Pipe(Box::new(Schema::Object(
                 vec![
@@ -1179,10 +1179,10 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                             ("title", Schema::String(vec![])),
                             ("url", Schema::String(vec![])),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Strip,
                     )))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )), Box::new(Schema::Transform(Transform::NoIssue)))),
             ("review", Schema::Object(
                 vec![
@@ -1210,13 +1210,13 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                                     ("targetLine", Schema::Lazy(|| &REVIEW_ATTACHMENT_CONTEXT_LINE)),
                                     ("lines", Schema::Array(Box::new(Schema::Lazy(|| &REVIEW_ATTACHMENT_CONTEXT_LINE)))),
                                 ],
-                                UnknownKeys::Allow,
+                                UnknownKeys::Strip,
                             )),
                         ],
-                        UnknownKeys::Allow,
+                        UnknownKeys::Strip,
                     )))),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
             ("uploaded_file", Schema::Object(
                 vec![
@@ -1232,7 +1232,7 @@ static SHARED_31: LazyLock<Schema> = LazyLock::new(|| {
                     ])),
                     ("path", Schema::String(vec![])),
                 ],
-                UnknownKeys::Allow,
+                UnknownKeys::Strip,
             )),
         ],
     )))))

@@ -13,8 +13,8 @@
 //
 // For every case in contracts-cases.mjs it records the exact input text and
 // what the pinned validators produce:
-//   config   -> loadPersistedConfig on the text as config.json (the refusal
-//               message, with the config path as $CONFIG)
+//   config   -> loadPersistedConfig on the text as config.json (the config
+//               it returns, or its refusal message; the path as $CONFIG)
 //   inbound  -> WSInboundMessageSchema.safeParse (what the daemon accepts,
 //               and error.message for a rejection)
 //   outbound -> validateWSOutboundMessage (the client's zod-aot validator)
@@ -96,14 +96,15 @@ function outcome(result) {
 }
 
 // What loadPersistedConfig does with `raw` as config.json in a disposable
-// home; the config path in an error message is written as $CONFIG.
+// home: the config it returns as JSON.stringify text, or its error message.
+// The config path is written as $CONFIG in either.
 function loadConfig(loadPersistedConfig, raw) {
   const home = mkdtempSync(join(tmpdir(), "spocky-contracts-config-"));
   const path = join(home, "config.json");
   try {
     writeFileSync(path, raw);
-    loadPersistedConfig(home);
-    return { success: true };
+    const output = JSON.stringify(loadPersistedConfig(home));
+    return { success: true, output: output.split(path).join("$CONFIG") };
   } catch (error) {
     return { success: false, message: error.message.split(path).join("$CONFIG") };
   } finally {

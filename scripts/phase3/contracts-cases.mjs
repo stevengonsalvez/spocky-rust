@@ -1832,6 +1832,10 @@ CASES.push(
     "migrated entries follow the others; superRefine sees the merged record",
     '{"agents":{"providers":{"codex":{"command":{"mode":"default"}},"Zed":{"extends":"codex","label":"Z"},"7":{"extends":"codex"}}}}',
   ),
+  config("daemon_allowed_hosts", "the daemon transform moves allowedHosts to hostnames", '{"daemon":{"allowedHosts":["a"],"listen":"x"}}'),
+  config("daemon_hostnames_win", "hostnames wins over allowedHosts", '{"daemon":{"hostnames":true,"allowedHosts":["a"],"listen":"x"}}'),
+  config("shape_order", "output follows shape order, not input order", '{"log":{"level":"info"},"pluginsEnabled":true,"version":1,"$schema":"s"}'),
+  config("passthrough_extras", "passthrough keeps extra keys after the shape, drops __proto__", '{"daemon":{"mcp":{"x":{"y":1},"enabled":true,"__proto__":2,"7":0}}}'),
   config(
     "providers_legacy_proto_key",
     "an own __proto__ entry is never migrated",

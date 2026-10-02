@@ -9,13 +9,13 @@
 //! This ports only the schema kinds, checks, and issue messages that the
 //! inbound schemas reach (`crate::zod_schemas` is generated from them),
 //! following `zod/v4/core/schemas.js`, `checks.js`, `util.js`, and
-//! `zod/v4/locales/en.js`. Values are tracked only as far as issues depend on
-//! them: these schemas never read a default or a transform output again, so
-//! neither is computed.
+//! `zod/v4/locales/en.js`. [`check`] tracks values only as far as issues
+//! depend on them; [`verdict`] also builds the parsed output: shape-ordered
+//! objects, passthrough keys, defaults, and transform results.
 
 use std::borrow::Cow;
 
-use crate::js_value::{JsObject, JsValue, js_number, stringify_pretty};
+use crate::js_value::{JsObject, JsValue, js_number, parse, stringify_pretty};
 use crate::text::{js_length, js_trim};
 use crate::ws::BROWSER_AUTOMATION_COMMAND_NAMES;
 
@@ -429,8 +429,10 @@ pub enum NumberCheck {
 /// How an object schema treats keys outside its shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnknownKeys {
-    /// The default, and `.passthrough()`: never an issue.
-    Allow,
+    /// The default: never an issue, and dropped from the output.
+    Strip,
+    /// `.passthrough()`: never an issue, and kept after the shape keys.
+    Passthrough,
     /// `.strict()`: one `unrecognized_keys` issue.
     Strict,
 }
@@ -470,8 +472,8 @@ pub enum Schema {
     Discriminated(&'static str, Vec<(&'static str, Schema)>),
     Optional(Box<Schema>),
     Nullable(Box<Schema>),
-    /// `.default(value)`.
-    Default(Box<Schema>),
+    /// `.default(value)`, with the default as JSON text.
+    Default(Box<Schema>, &'static str),
     Pipe(Box<Schema>, Box<Schema>),
     Transform(Transform),
     /// `z.lazy()`, and any schema shared by reference.
@@ -484,7 +486,7 @@ impl Schema {
     /// `_zod.optin === "optional"`.
     fn optional_in(&self) -> bool {
         match self {
-            Self::Optional(_) | Self::Default(_) | Self::Transform(_) => true,
+            Self::Optional(_) | Self::Default(..) | Self::Transform(_) => true,
             Self::Nullable(inner) | Self::Pipe(inner, _) => inner.optional_in(),
             Self::Lazy(target) => target().optional_in(),
             Self::Union(options) => options.iter().any(Self::optional_in),
@@ -564,6 +566,8 @@ struct Context {
     too_deep: bool,
     /// A transform threw this message out of `safeParse`.
     thrown: Option<String>,
+    /// Build the parsed output as well as the issues.
+    output: bool,
 }
 
 fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> Payload<'a> {
@@ -637,11 +641,7 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
                 return run(inner, payload, context);
             }
         }
-        Schema::Default(inner) => {
-            if !matches!(*payload.value, JsValue::Undefined) {
-                return run(inner, payload, context);
-            }
-        }
+        Schema::Default(inner, default) => return run_default(inner, default, payload, context),
         Schema::Pipe(input, output) => {
             let mut left = run(input, payload, context);
             if !left.issues.is_empty() {
@@ -664,6 +664,27 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
         Schema::Unmodeled => context.unmodeled = true,
     }
     payload
+}
+
+/// `$ZodDefault`: an absent value becomes the default without parsing; a
+/// parsed `undefined` becomes it too.
+fn run_default<'a>(
+    inner: &Schema,
+    default: &str,
+    mut payload: Payload<'a>,
+    context: &mut Context,
+) -> Payload<'a> {
+    if matches!(*payload.value, JsValue::Undefined) {
+        if context.output {
+            payload.value = Cow::Owned(parse(default).unwrap_or(JsValue::Undefined));
+        }
+        return payload;
+    }
+    let mut result = run(inner, payload, context);
+    if context.output && matches!(*result.value, JsValue::Undefined) {
+        result.value = Cow::Owned(parse(default).unwrap_or(JsValue::Undefined));
+    }
+    result
 }
 
 /// A transform's added issues; `fallback` marks the value as produced.
@@ -885,8 +906,12 @@ fn run_array(payload: &mut Payload<'_>, element: &Schema, context: &mut Context)
         return;
     };
     let mut issues = Vec::new();
+    let mut output = Vec::new();
     for (index, item) in items.iter().enumerate() {
         let result = run(element, Payload::new(Cow::Borrowed(item)), context);
+        if context.output {
+            output.push(result.value.into_owned());
+        }
         issues.extend(
             result
                 .issues
@@ -895,6 +920,9 @@ fn run_array(payload: &mut Payload<'_>, element: &Schema, context: &mut Context)
         );
     }
     payload.issues.extend(issues);
+    if context.output {
+        payload.value = Cow::Owned(JsValue::Array(output));
+    }
 }
 
 /// The `$ZodObjectJIT` fast path that `safeParse` takes, then the
@@ -910,10 +938,16 @@ fn run_object(
         return;
     };
     let mut issues = Vec::new();
+    let mut output = JsObject::new();
     for (key, schema) in shape {
         let present = object.get(key);
         let value = present.map_or(Cow::Owned(JsValue::Undefined), Cow::Borrowed);
-        let result = run(schema, Payload::new(value), context);
+        let mut result = run(schema, Payload::new(value), context);
+        // An undefined result is kept only for a key the input has.
+        if context.output && (present.is_some() || !matches!(*result.value, JsValue::Undefined)) {
+            let value = std::mem::replace(&mut result.value, Cow::Owned(JsValue::Undefined));
+            output.insert(*key, value.into_owned());
+        }
         let optional_in = schema.optional_in();
         if result.issues.is_empty() {
             if present.is_none() && !optional_in {
@@ -933,6 +967,14 @@ fn run_object(
             );
         }
     }
+    if unknown == UnknownKeys::Passthrough && context.output {
+        let extra = object
+            .iter()
+            .filter(|(key, _)| *key != "__proto__" && !shape.iter().any(|(name, _)| name == key));
+        for (key, value) in extra {
+            output.insert(key, value.clone());
+        }
+    }
     if unknown == UnknownKeys::Strict {
         let keys: Vec<JsValue> = object
             .iter()
@@ -948,6 +990,9 @@ fn run_object(
         }
     }
     payload.issues.extend(issues);
+    if context.output {
+        payload.value = Cow::Owned(JsValue::Object(output));
+    }
 }
 
 /// `$ZodRecord` for a string key schema: a key the key schema rejects is
@@ -958,6 +1003,7 @@ fn run_record(payload: &mut Payload<'_>, key: &Schema, value: &Schema, context: 
         return;
     };
     let mut issues = Vec::new();
+    let mut output = JsObject::new();
     for (name, item) in object.iter().filter(|(name, _)| *name != "__proto__") {
         let segment = || Segment::Key(name.to_owned());
         let key_result = run(key, Payload::new(Cow::Owned(text(name))), context);
@@ -972,6 +1018,10 @@ fn run_record(payload: &mut Payload<'_>, key: &Schema, value: &Schema, context: 
             continue;
         }
         let result = run(value, Payload::new(Cow::Borrowed(item)), context);
+        if context.output {
+            let key = key_result.value.as_str().unwrap_or(name).to_owned();
+            output.insert(key, result.value.into_owned());
+        }
         issues.extend(
             result
                 .issues
@@ -980,6 +1030,9 @@ fn run_record(payload: &mut Payload<'_>, key: &Schema, value: &Schema, context: 
         );
     }
     payload.issues.extend(issues);
+    if context.output {
+        payload.value = Cow::Owned(JsValue::Object(output));
+    }
 }
 
 /// `runChecks` for checks on a parsed value: none but a length check runs
@@ -1106,7 +1159,8 @@ pub enum Outcome {
 /// `error.issues` holds them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
-    Valid,
+    /// Accepted, with the parsed output.
+    Valid(JsValue),
     Invalid(Vec<JsValue>),
     Unmodeled,
     TooDeep,
@@ -1139,8 +1193,8 @@ fn nesting_depth(value: &JsValue) -> usize {
 /// Runs `schema.safeParse(value)` and reports its outcome.
 #[must_use]
 pub fn check(schema: &Schema, value: &JsValue) -> Outcome {
-    match verdict(schema, value) {
-        Verdict::Valid => Outcome::Valid,
+    match judge(schema, value, false) {
+        Verdict::Valid(_) => Outcome::Valid,
         Verdict::Invalid(issues) => Outcome::Invalid(stringify_pretty(&JsValue::Array(issues))),
         // Only a `Transform::Map` throws, and no schema checked through
         // `check` has one; `verdict` reports the message.
@@ -1149,24 +1203,32 @@ pub fn check(schema: &Schema, value: &JsValue) -> Outcome {
     }
 }
 
-/// Runs `schema.safeParse(value)` and returns its finalized issues.
+/// Runs `schema.safeParse(value)` and returns its output or its finalized
+/// issues.
 #[must_use]
 pub fn verdict(schema: &Schema, value: &JsValue) -> Verdict {
+    judge(schema, value, true)
+}
+
+fn judge(schema: &Schema, value: &JsValue, output: bool) -> Verdict {
     if nesting_depth(value) <= SHALLOW_DEPTH {
-        return verdict_here(schema, value);
+        return verdict_here(schema, value, output);
     }
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(DEEP_STACK)
-            .spawn_scoped(scope, || verdict_here(schema, value))
+            .spawn_scoped(scope, || verdict_here(schema, value, output))
             .ok()
             .and_then(|thread| thread.join().ok())
             .unwrap_or(Verdict::TooDeep)
     })
 }
 
-fn verdict_here(schema: &Schema, value: &JsValue) -> Verdict {
-    let mut context = Context::default();
+fn verdict_here(schema: &Schema, value: &JsValue, output: bool) -> Verdict {
+    let mut context = Context {
+        output,
+        ..Context::default()
+    };
     let result = run(schema, Payload::new(Cow::Borrowed(value)), &mut context);
     if let Some(message) = context.thrown {
         Verdict::Throws(message)
@@ -1175,7 +1237,7 @@ fn verdict_here(schema: &Schema, value: &JsValue) -> Verdict {
     } else if context.unmodeled {
         Verdict::Unmodeled
     } else if result.issues.is_empty() {
-        Verdict::Valid
+        Verdict::Valid(result.value.into_owned())
     } else {
         Verdict::Invalid(result.issues.into_iter().map(Issue::finalize).collect())
     }
@@ -1199,7 +1261,7 @@ mod tests {
     fn length_check_runs_after_a_type_issue_and_reads_object_length() {
         let schema = Schema::Object(
             vec![("a", Schema::String(vec![StringCheck::Min(1)]))],
-            UnknownKeys::Allow,
+            UnknownKeys::Strip,
         );
         assert_eq!(
             message(&schema, r#"{"a":[]}"#),
@@ -1213,7 +1275,7 @@ mod tests {
 
     #[test]
     fn missing_key_is_nonoptional_and_strict_lists_extra_keys() {
-        let schema = Schema::Object(vec![("a", Schema::Unknown)], UnknownKeys::Allow);
+        let schema = Schema::Object(vec![("a", Schema::Unknown)], UnknownKeys::Strip);
         assert_eq!(
             message(&schema, "{}"),
             "[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"nonoptional\",\n    \"path\": [\n      \"a\"\n    ],\n    \"message\": \"Invalid input: expected nonoptional, received undefined\"\n  }\n]"

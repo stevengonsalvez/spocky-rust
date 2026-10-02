@@ -13,9 +13,13 @@
 //!   pinned client's zod-aot validator accepts the frame and returns it
 //!   unchanged, and the Rust value the Spocky daemon would emit writes exactly
 //!   the captured validator output. Outbound types are emit-only;
-//! - config: `check_config_text` accepts exactly the config text pinned
-//!   `loadPersistedConfig` accepts, and refuses the rest with its exact
-//!   error message.
+//! - config: `check_config_text` returns byte-for-byte the config pinned
+//!   `loadPersistedConfig` returns (`JSON.stringify` of `PersistedConfigSchema`
+//!   output: key order, defaults, transforms, and the `agents.providers`
+//!   legacy migration), and refuses the rest with its exact error message.
+//!   Mutation checks of `config::migrate_provider_settings`, each run by
+//!   hand and failing `providers_legacy_migrated`: not dropping `append`
+//!   entries, and not copying a legacy `env`.
 
 #[path = "support/outbound_frames.rs"]
 mod outbound_frames;
@@ -28,6 +32,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use spocky_contracts::config::{ConfigRefusal, check_config_text};
 use spocky_contracts::frame::{InboundRejection, WsOutbound, frame_text, parse_inbound};
+use spocky_contracts::js_value::stringify;
 use spocky_contracts::number::Int;
 use spocky_contracts::session::{SessionOutbound, StatusPayload};
 use spocky_contracts::ws::{
@@ -37,7 +42,7 @@ use spocky_contracts::ws::{
 };
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 172;
+const EXPECTED_CASES: usize = 176;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
@@ -85,13 +90,13 @@ fn check_inbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>
 
 fn check_config(case: &Value, id: &str, input: &str, failures: &mut Vec<String>) {
     let expected = if flag(case, "/config/success") {
-        Ok(())
+        Ok(text(case, "/config/output").to_owned())
     } else {
         Err(ConfigRefusal::Message(
             text(case, "/config/message").to_owned(),
         ))
     };
-    let actual = check_config_text("$CONFIG", input);
+    let actual = check_config_text("$CONFIG", input).map(|config| stringify(&config));
     if actual != expected {
         failures.push(format!(
             "{id}: Rust\n  {actual:?}\nbaseline\n  {expected:?}"
