@@ -12,7 +12,10 @@
 //!   `checkoutFromPersistedWorkspacePlacement`) builds the snapshot parts, the
 //!   pinned client's zod-aot validator accepts the frame and returns it
 //!   unchanged, and the Rust value the Spocky daemon would emit writes exactly
-//!   the captured validator output. Outbound types are emit-only.
+//!   the captured validator output. Outbound types are emit-only;
+//! - config: `check_config_text` accepts exactly the config text pinned
+//!   `loadPersistedConfig` accepts, and refuses the rest with its exact
+//!   error message.
 
 #[path = "support/outbound_frames.rs"]
 mod outbound_frames;
@@ -23,6 +26,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use spocky_contracts::config::{ConfigRefusal, check_config_text};
 use spocky_contracts::frame::{InboundRejection, WsOutbound, frame_text, parse_inbound};
 use spocky_contracts::number::Int;
 use spocky_contracts::session::{SessionOutbound, StatusPayload};
@@ -33,7 +37,7 @@ use spocky_contracts::ws::{
 };
 
 /// Raised only by recapturing; a lower count fails the run.
-const EXPECTED_CASES: usize = 149;
+const EXPECTED_CASES: usize = 172;
 
 fn fixture() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/g1-golden.json");
@@ -76,6 +80,22 @@ fn check_inbound(case: &Value, id: &str, input: &str, failures: &mut Vec<String>
         }
         (Ok(frame), false) => failures.push(format!("{id}: zod rejects, Rust accepted {frame:?}")),
         (Err(rejection), _) => failures.push(format!("{id}: Rust rejected: {rejection}")),
+    }
+}
+
+fn check_config(case: &Value, id: &str, input: &str, failures: &mut Vec<String>) {
+    let expected = if flag(case, "/config/success") {
+        Ok(())
+    } else {
+        Err(ConfigRefusal::Message(
+            text(case, "/config/message").to_owned(),
+        ))
+    };
+    let actual = check_config_text("$CONFIG", input);
+    if actual != expected {
+        failures.push(format!(
+            "{id}: Rust\n  {actual:?}\nbaseline\n  {expected:?}"
+        ));
     }
 }
 
@@ -200,7 +220,11 @@ fn fixture_provenance_is_pinned() {
     ] {
         assert_eq!(text(&fixture, pointer), digest, "{pointer}");
     }
-    // The generated zod schemas come from the same messages.js.
+    // The generated zod schemas come from the same built files.
+    assert_eq!(
+        text(&fixture, "/provenance/pinnedServer/persistedConfigJsSha256"),
+        spocky_contracts::config_schema::PERSISTED_CONFIG_JS_SHA256
+    );
     assert_eq!(
         text(&fixture, "/provenance/messagesJsSha256"),
         spocky_contracts::zod_schemas::MESSAGES_JS_SHA256
@@ -235,6 +259,7 @@ fn every_case_matches_pinned_validators() {
         match text(case, "/direction") {
             "inbound" => check_inbound(case, id, input, &mut failures),
             "outbound" => check_outbound(case, id, input, &mut failures),
+            "config" => check_config(case, id, input, &mut failures),
             other => failures.push(format!("{id}: unknown direction {other}")),
         }
     }

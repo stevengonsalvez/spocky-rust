@@ -7,11 +7,12 @@
     "zodAot": "0.20.4",
     "messagesJsSha256": "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
     "wsOutboundAotJsSha256": "ba95ed482b2b1b365d2d523f8ed8ab292f77d0710baa6527e97447abee901bab",
-    "casesSha256": "87607b60add90edabe3e092a825377d8258de50ee37dc97c4bcfc50b79673382",
+    "casesSha256": "8dbe5f62e0dcb1ff398788d43ea9c803aebe06ac9eb1d655e4e2bdcb412e6e40",
     "pinnedServer": {
       "buildMarkerSha256": "d2a479bfec301b3d2659c25a9cc42393cce1c09f9c457f92356008e3d48cea2f",
       "agentProjectionsJsSha256": "725258d3cf93e0de535d27fc245d776983303bc4c7c8874141ed9277516bb690",
-      "workspaceRegistryModelJsSha256": "99035b682844ef38281733462dc777a5219df9229264d05dc716c962f22ec6c1"
+      "workspaceRegistryModelJsSha256": "99035b682844ef38281733462dc777a5219df9229264d05dc716c962f22ec6c1",
+      "persistedConfigJsSha256": "5d8500251e8c114b7ae0dcb3af9ca505c092211939e16795830731ca52ea2e8c"
     }
   },
   "cases": [
@@ -2144,6 +2145,227 @@
       "zod": {
         "success": true,
         "output": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"agent_refreshed\",\"agentId\":\"123e4567-e89b-42d3-a456-426614174000\",\"requestId\":\"r\",\"timelineSize\":0}}}"
+      }
+    },
+    {
+      "id": "config.minimal",
+      "direction": "config",
+      "source": "v1 marker only",
+      "input": "{\"version\":1}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.bom",
+      "direction": "config",
+      "source": "a leading BOM is stripped before JSON.parse",
+      "input": "﻿{\"version\":1}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.invalid_json",
+      "direction": "config",
+      "source": "V8 JSON.parse text",
+      "input": "{\"version\":1,}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid JSON in $CONFIG: Expected double-quoted property name in JSON at position 13 (line 1 column 14)"
+      }
+    },
+    {
+      "id": "config.unknown_root_key",
+      "direction": "config",
+      "source": "strict root",
+      "input": "{\"bogus\":1,\"version\":2}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - version: Invalid input: expected 1\n  - : Unrecognized key: \"bogus\""
+      }
+    },
+    {
+      "id": "config.daemon_many_issues",
+      "direction": "config",
+      "source": "issues across strict nested objects, unions, and numbers",
+      "input": "{\"daemon\":{\"allowedHosts\":[\"ok.example\",5],\"git\":{\"maxProcessesPerSecond\":0,\"extra\":1},\"cors\":{\"allowedOrigins\":\"x\"}},\"log\":{\"level\":\"loud\"}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - daemon.allowedHosts: Invalid input\n  - daemon.git.maxProcessesPerSecond: Too small: expected number to be >0\n  - daemon.git: Unrecognized key: \"extra\"\n  - daemon.cors.allowedOrigins: Invalid input: expected array, received string\n  - log.level: Invalid option: expected one of \"trace\"|\"debug\"|\"info\"|\"warn\"|\"error\"|\"fatal\""
+      }
+    },
+    {
+      "id": "config.array_index_path",
+      "direction": "config",
+      "source": "a path with an array index joins as a number",
+      "input": "{\"daemon\":{\"terminalProfiles\":[{}]}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - daemon.terminalProfiles.0.id: Invalid input: expected string, received undefined\n  - daemon.terminalProfiles.0.name: Invalid input: expected string, received undefined\n  - daemon.terminalProfiles.0.command: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "id": "config.bcrypt_message",
+      "direction": "config",
+      "source": "a regex check with its own message",
+      "input": "{\"daemon\":{\"auth\":{\"password\":\"plain\"}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - daemon.auth.password: Expected a bcrypt hash"
+      }
+    },
+    {
+      "id": "config.public_base_url_invalid",
+      "direction": "config",
+      "source": "z.url() rejects",
+      "input": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"not a url\"}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - daemon.serviceProxy.publicBaseUrl: Invalid URL"
+      }
+    },
+    {
+      "id": "config.public_base_url_trimmed",
+      "direction": "config",
+      "source": "z.url() accepts trimmed input",
+      "input": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"  http://a.example/x  \"}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.public_base_url_scheme_only",
+      "direction": "config",
+      "source": "WHATWG accepts a bare scheme URL",
+      "input": "{\"daemon\":{\"serviceProxy\":{\"publicBaseUrl\":\"mailto:x\"}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.service_ports_empty",
+      "direction": "config",
+      "source": "refine: range or portScript",
+      "input": "{\"worktrees\":{\"servicePorts\":{}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - worktrees.servicePorts: Expected range or portScript"
+      }
+    },
+    {
+      "id": "config.service_ports_reversed",
+      "direction": "config",
+      "source": "refine: inclusive port range",
+      "input": "{\"worktrees\":{\"servicePorts\":{\"range\":\" 9-1 \"}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - worktrees.servicePorts: Expected an inclusive TCP port range from 1-65535"
+      }
+    },
+    {
+      "id": "config.service_ports_bad_pattern",
+      "direction": "config",
+      "source": "regex issue aborts the refines",
+      "input": "{\"worktrees\":{\"servicePorts\":{\"range\":\"x\"}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - worktrees.servicePorts.range: Invalid string: must match pattern /^(\\d{1,5})-(\\d{1,5})$/\n  - worktrees.servicePorts: Expected an inclusive TCP port range from 1-65535"
+      }
+    },
+    {
+      "id": "config.plugin_bad_key",
+      "direction": "config",
+      "source": "record key schema: invalid_key",
+      "input": "{\"plugins\":{\"Bad\":{\"type\":\"x\"}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - plugins.Bad: Invalid key in record"
+      }
+    },
+    {
+      "id": "config.strip_removed_fields",
+      "direction": "config",
+      "source": "stripRemovedConfigFields drops removed keys",
+      "input": "{\"providers\":{\"openai\":{\"voice\":{\"a\":1}},\"local\":{\"autoDownload\":true}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.speech_provider_lowercase",
+      "direction": "config",
+      "source": "trim and toLowerCase before the enum",
+      "input": "{\"features\":{\"dictation\":{\"stt\":{\"provider\":\"  OpenAI \"}}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.providers_modern",
+      "direction": "config",
+      "source": "a modern entry passes through",
+      "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":[\"c\"],\"env\":{\"A\":\"1\"}}}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.providers_custom_without_extends",
+      "direction": "config",
+      "source": "superRefine issues after a modern entry",
+      "input": "{\"agents\":{\"providers\":{\"Mine\":{},\"acp-x\":{\"extends\":\"acp\",\"label\":\"X\"},\"y\":{\"extends\":\"nope\",\"label\":\"Y\"}}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - agents.providers.Mine: Provider ID \"Mine\" must match /^[a-z][a-z0-9-]*$/.\n  - agents.providers.Mine.extends: Custom provider \"Mine\" must declare extends.\n  - agents.providers.Mine.label: Custom provider \"Mine\" must declare label.\n  - agents.providers.acp-x.command: Provider \"acp-x\" extending \"acp\" must declare command.\n  - agents.providers.y.extends: Provider \"y\" extends unknown provider \"nope\"."
+      }
+    },
+    {
+      "id": "config.providers_legacy_migrated",
+      "direction": "config",
+      "source": "legacy replace, append, and default entries migrate beside a modern one",
+      "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":{\"mode\":\"replace\",\"argv\":[\"x\"]},\"env\":{\"A\":\"1\"},\"disallowedTools\":[\"t\"]},\"claude\":{\"command\":{\"mode\":\"append\",\"args\":[\"y\"]}},\"pi\":{\"command\":{\"mode\":\"default\"}},\"opencode\":{\"label\":\"L\"}}}}",
+      "config": {
+        "success": true
+      }
+    },
+    {
+      "id": "config.providers_legacy_invalid",
+      "direction": "config",
+      "source": "a legacy entry the runtime settings schema rejects is left as is",
+      "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":{\"mode\":\"replace\",\"argv\":[]}}}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - agents.providers.codex.command: Invalid input: expected array, received object"
+      }
+    },
+    {
+      "id": "config.providers_legacy_custom_throws",
+      "direction": "config",
+      "source": "ProviderOverridesSchema.parse(migrated) throws its ZodError",
+      "input": "{\"agents\":{\"providers\":{\"mine\":{\"command\":{\"mode\":\"default\"}}}}}",
+      "config": {
+        "success": false,
+        "message": "[\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"mine\",\n      \"extends\"\n    ],\n    \"message\": \"Custom provider \\\"mine\\\" must declare extends.\"\n  },\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"mine\",\n      \"label\"\n    ],\n    \"message\": \"Custom provider \\\"mine\\\" must declare label.\"\n  }\n]"
+      }
+    },
+    {
+      "id": "config.providers_legacy_after_bad_id",
+      "direction": "config",
+      "source": "migrated entries follow the others; superRefine sees the merged record",
+      "input": "{\"agents\":{\"providers\":{\"codex\":{\"command\":{\"mode\":\"default\"}},\"Zed\":{\"extends\":\"codex\",\"label\":\"Z\"},\"7\":{\"extends\":\"codex\"}}}}",
+      "config": {
+        "success": false,
+        "message": "[Config] Invalid config in $CONFIG:\n  - agents.providers.7: Provider ID \"7\" must match /^[a-z][a-z0-9-]*$/.\n  - agents.providers.7.label: Custom provider \"7\" must declare label.\n  - agents.providers.Zed: Provider ID \"Zed\" must match /^[a-z][a-z0-9-]*$/."
+      }
+    },
+    {
+      "id": "config.providers_legacy_proto_key",
+      "direction": "config",
+      "source": "an own __proto__ entry is never migrated",
+      "input": "{\"agents\":{\"providers\":{\"__proto__\":{\"command\":{\"mode\":\"default\"}},\"codex\":{\"command\":{\"mode\":\"replace\",\"argv\":[\"z\"]}}}}}",
+      "config": {
+        "success": true
       }
     }
   ]

@@ -1781,3 +1781,60 @@ CASES.push(
       }),
   },
 );
+
+// Persisted config (persisted-config.ts parseConfigFile): what
+// loadPersistedConfig accepts, or the exact message it throws.
+const config = (id, source, raw) => ({ id: `config.${id}`, direction: "config", source, raw });
+CASES.push(
+  config("minimal", "v1 marker only", '{"version":1}'),
+  config("bom", "a leading BOM is stripped before JSON.parse", '﻿{"version":1}'),
+  config("invalid_json", "V8 JSON.parse text", '{"version":1,}'),
+  config("unknown_root_key", "strict root", '{"bogus":1,"version":2}'),
+  config(
+    "daemon_many_issues",
+    "issues across strict nested objects, unions, and numbers",
+    '{"daemon":{"allowedHosts":["ok.example",5],"git":{"maxProcessesPerSecond":0,"extra":1},"cors":{"allowedOrigins":"x"}},"log":{"level":"loud"}}',
+  ),
+  config("array_index_path", "a path with an array index joins as a number", '{"daemon":{"terminalProfiles":[{}]}}'),
+  config("bcrypt_message", "a regex check with its own message", '{"daemon":{"auth":{"password":"plain"}}}'),
+  config("public_base_url_invalid", "z.url() rejects", '{"daemon":{"serviceProxy":{"publicBaseUrl":"not a url"}}}'),
+  config("public_base_url_trimmed", "z.url() accepts trimmed input", '{"daemon":{"serviceProxy":{"publicBaseUrl":"  http://a.example/x  "}}}'),
+  config("public_base_url_scheme_only", "WHATWG accepts a bare scheme URL", '{"daemon":{"serviceProxy":{"publicBaseUrl":"mailto:x"}}}'),
+  config("service_ports_empty", "refine: range or portScript", '{"worktrees":{"servicePorts":{}}}'),
+  config("service_ports_reversed", "refine: inclusive port range", '{"worktrees":{"servicePorts":{"range":" 9-1 "}}}'),
+  config("service_ports_bad_pattern", "regex issue aborts the refines", '{"worktrees":{"servicePorts":{"range":"x"}}}'),
+  config("plugin_bad_key", "record key schema: invalid_key", '{"plugins":{"Bad":{"type":"x"}}}'),
+  config("strip_removed_fields", "stripRemovedConfigFields drops removed keys", '{"providers":{"openai":{"voice":{"a":1}},"local":{"autoDownload":true}}}'),
+  config("speech_provider_lowercase", "trim and toLowerCase before the enum", '{"features":{"dictation":{"stt":{"provider":"  OpenAI "}}}}'),
+  config("providers_modern", "a modern entry passes through", '{"agents":{"providers":{"codex":{"command":["c"],"env":{"A":"1"}}}}}'),
+  config(
+    "providers_custom_without_extends",
+    "superRefine issues after a modern entry",
+    '{"agents":{"providers":{"Mine":{},"acp-x":{"extends":"acp","label":"X"},"y":{"extends":"nope","label":"Y"}}}}',
+  ),
+  config(
+    "providers_legacy_migrated",
+    "legacy replace, append, and default entries migrate beside a modern one",
+    '{"agents":{"providers":{"codex":{"command":{"mode":"replace","argv":["x"]},"env":{"A":"1"},"disallowedTools":["t"]},"claude":{"command":{"mode":"append","args":["y"]}},"pi":{"command":{"mode":"default"}},"opencode":{"label":"L"}}}}',
+  ),
+  config(
+    "providers_legacy_invalid",
+    "a legacy entry the runtime settings schema rejects is left as is",
+    '{"agents":{"providers":{"codex":{"command":{"mode":"replace","argv":[]}}}}}',
+  ),
+  config(
+    "providers_legacy_custom_throws",
+    "ProviderOverridesSchema.parse(migrated) throws its ZodError",
+    '{"agents":{"providers":{"mine":{"command":{"mode":"default"}}}}}',
+  ),
+  config(
+    "providers_legacy_after_bad_id",
+    "migrated entries follow the others; superRefine sees the merged record",
+    '{"agents":{"providers":{"codex":{"command":{"mode":"default"}},"Zed":{"extends":"codex","label":"Z"},"7":{"extends":"codex"}}}}',
+  ),
+  config(
+    "providers_legacy_proto_key",
+    "an own __proto__ entry is never migrated",
+    '{"agents":{"providers":{"__proto__":{"command":{"mode":"default"}},"codex":{"command":{"mode":"replace","argv":["z"]}}}}}',
+  ),
+);

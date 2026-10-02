@@ -13,6 +13,8 @@
 //
 // For every case in contracts-cases.mjs it records the exact input text and
 // what the pinned validators produce:
+//   config   -> loadPersistedConfig on the text as config.json (the refusal
+//               message, with the config path as $CONFIG)
 //   inbound  -> WSInboundMessageSchema.safeParse (what the daemon accepts,
 //               and error.message for a rejection)
 //   outbound -> validateWSOutboundMessage (the client's zod-aot validator)
@@ -24,7 +26,8 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -92,6 +95,22 @@ function outcome(result) {
   };
 }
 
+// What loadPersistedConfig does with `raw` as config.json in a disposable
+// home; the config path in an error message is written as $CONFIG.
+function loadConfig(loadPersistedConfig, raw) {
+  const home = mkdtempSync(join(tmpdir(), "spocky-contracts-config-"));
+  const path = join(home, "config.json");
+  try {
+    writeFileSync(path, raw);
+    loadPersistedConfig(home);
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: error.message.split(path).join("$CONFIG") };
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 function caseInput(testCase, pinned) {
   if (typeof testCase.raw === "string") return testCase.raw;
   if (typeof testCase.build === "function") return JSON.stringify(testCase.build(pinned));
@@ -105,18 +124,22 @@ async function loadPinnedServer(serverRoot) {
   const dist = join(serverRoot, "packages/server/dist/server/server");
   const projectionsPath = join(dist, "agent/agent-projections.js");
   const placementPath = join(dist, "workspace-registry-model.js");
+  const configPath = join(dist, "persisted-config.js");
   const projections = await import(pathToFileURL(projectionsPath).href);
   const placement = await import(pathToFileURL(placementPath).href);
+  const config = await import(pathToFileURL(configPath).href);
   return {
     api: {
       toAgentPayload: projections.toAgentPayload,
       buildStoredAgentPayload: projections.buildStoredAgentPayload,
       checkoutFromPersistedWorkspacePlacement: placement.checkoutFromPersistedWorkspacePlacement,
+      loadPersistedConfig: config.loadPersistedConfig,
     },
     provenance: {
       buildMarkerSha256: createHash("sha256").update(marker).digest("hex"),
       agentProjectionsJsSha256: sha256(projectionsPath),
       workspaceRegistryModelJsSha256: sha256(placementPath),
+      persistedConfigJsSha256: sha256(configPath),
     },
   };
 }
@@ -155,6 +178,10 @@ async function main() {
       source: testCase.source,
       input,
     };
+    if (testCase.direction === "config") {
+      record.config = loadConfig(server.api.loadPersistedConfig, input);
+      return record;
+    }
     let value;
     try {
       value = JSON.parse(input);
