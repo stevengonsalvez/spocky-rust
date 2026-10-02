@@ -87,6 +87,8 @@ If a repository URL changes, copy an existing checkout into the matching `.basel
 
 Every scenario retains raw and normalized outputs. Normalization is limited to documented generated IDs, wall-clock values, and temporary paths. Behavior, ordering, missing versus null semantics, errors, frames, state transitions, visuals, assertions, fixture counts, and executed-test counts are never normalized.
 
+Wire differentials record the raw JSON text of every frame, captured by hooking the pinned `DaemonClient` `handleJsonPayload`, never through `subscribeRawMessages`. That API hands over zod-parsed messages, so key order and unknown keys are lost and cannot be compared. Any wire differential recorded the parsed way is not parity evidence until it is re-recorded raw. (2026-10-02 coordinator rule, after the wiring lane found that the G1 agent_update differential and the first G2 differentials compared parsed frames; the G1 gate itself compares CLI output and is unaffected.)
+
 Tracked evidence manifests live under `evidence/`. Large raw captures live under `evidence/raw/` and remain untracked. Each manifest records its raw artifact digest and reproducible command.
 
 ## Safety
