@@ -295,7 +295,7 @@ const fakeClient = (calls, spec) => ({
     calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
     return new FakeSession(spec, calls);
   },
-  async fetchCatalog(options) { calls.push(["fetchCatalog", options]); return JSON.parse(catalogJson); },
+  async fetchCatalog(options, context) { calls.push(["fetchCatalog", options, context === undefined ? "no context" : "context"]); return JSON.parse(catalogJson); },
   async isAvailable() {
     if (typeof spec.available === "boolean") return spec.available;
     throw new Error(spec.available);
@@ -1120,7 +1120,7 @@ impl AgentClient for FakeClient {
     fn fetch_catalog(
         &self,
         options: FetchCatalogOptions,
-        _context: Option<Arc<dyn ProviderRefreshContext>>,
+        context: Option<Arc<dyn ProviderRefreshContext>>,
     ) -> BoxFuture<'_, AgentResult<JsValue>> {
         let mut value = JsObject::new();
         match options {
@@ -1137,6 +1137,11 @@ impl AgentClient for FakeClient {
         self.calls.lock().expect("calls").push(JsValue::Array(vec![
             text("fetchCatalog"),
             JsValue::Object(value),
+            text(if context.is_none() {
+                "no context"
+            } else {
+                "context"
+            }),
         ]));
         Box::pin(async { Ok(json(CATALOG)) })
     }
