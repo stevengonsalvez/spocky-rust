@@ -1108,6 +1108,9 @@ struct SocketTask {
     phase: Phase,
     /// Set once a close frame went out; the peer has until then to answer.
     closing_deadline: Option<Instant>,
+    /// The receiver failed: end the connection once the close frame is out, as
+    /// ws does with `socket.end()` after `receiverOnError`.
+    end_after_close: bool,
     /// `applicationSocketLease` deadline, set by the first ping.
     lease_deadline: Option<Instant>,
     close_details: (Option<u16>, Option<String>),
@@ -1170,6 +1173,7 @@ fn run_socket(
         identity,
         phase: Phase::Done,
         closing_deadline: None,
+        end_after_close: false,
         lease_deadline: None,
         close_details: (None, None),
     };
@@ -1266,10 +1270,12 @@ impl SocketTask {
                     // ws 8.20.0 `receiverOnError` closes with the status code only.
                     self.close(WS_CLOSE_MAX_PAYLOAD, "");
                     self.phase = Phase::Done;
+                    self.end_after_close = true;
                 }
                 Err(WsError::Utf8(_)) => {
                     self.close(1007, "");
                     self.phase = Phase::Done;
+                    self.end_after_close = true;
                 }
                 // ConnectionClosed, AlreadyClosed and every other error end the connection.
                 Err(_) => return,
@@ -1330,6 +1336,11 @@ impl SocketTask {
                     let _ = self.ws.close(frame);
                     self.closing_deadline =
                         Some(Instant::now() + self.shared.config.timeouts.close);
+                    if self.end_after_close {
+                        let _ = self.ws.flush();
+                        self.ws.get_mut().shutdown();
+                        return false;
+                    }
                 }
                 Ok(Outbound::Terminate) => {
                     self.ws.get_mut().shutdown();
