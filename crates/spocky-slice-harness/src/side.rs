@@ -1354,6 +1354,15 @@ fn cli_command(
     command
 }
 
+/// The JSON a step's stdout carries: all of it, or else its first line (a
+/// script prints a JSON summary first and raw wire text after).
+fn captured_json(stdout: &[u8]) -> Option<Value> {
+    serde_json::from_slice::<Value>(stdout).ok().or_else(|| {
+        let text = std::str::from_utf8(stdout).ok()?;
+        serde_json::from_str::<Value>(text.lines().next()?).ok()
+    })
+}
+
 /// The command for one step: the pinned CLI, or the step's node script. A
 /// script is written under the side's root first and gets the Paseo root as
 /// its first argument. Returns the argv to record and the command.
@@ -1745,9 +1754,8 @@ fn run_in_layout(
             ));
         }
         if let Some((key, pointer)) = step.capture
-            && let Some(Value::String(value)) = serde_json::from_slice::<Value>(&stdout)
-                .ok()
-                .and_then(|json| json.pointer(pointer).cloned())
+            && let Some(Value::String(value)) =
+                captured_json(&stdout).and_then(|json| json.pointer(pointer).cloned())
         {
             captured.insert(key, value);
         }
@@ -2694,6 +2702,21 @@ mod tests {
         assert!(failed(&[("send", -9)], vec![killed.clone()]).is_empty());
         assert_eq!(failed(&[("send", -15)], vec![killed.clone()]).len(), 1);
         assert_eq!(failed(&[], vec![killed]).len(), 1);
+    }
+
+    #[test]
+    fn capture_reads_the_whole_output_or_else_its_first_line() {
+        let pointer = "/workspaceId";
+        let get =
+            |bytes: &[u8]| captured_json(bytes).and_then(|json| json.pointer(pointer).cloned());
+        assert_eq!(get(b"{\"workspaceId\":\"wks_1\"}\n"), Some("wks_1".into()));
+        // Whole output wins when it parses: a second line makes it not JSON.
+        assert_eq!(
+            get(b"{\"workspaceId\":\"wks_2\"}\n{\"frame\":1}\nraw"),
+            Some("wks_2".into())
+        );
+        assert_eq!(get(b"not json\n{\"workspaceId\":\"wks_3\"}\n"), None);
+        assert_eq!(get(b""), None);
     }
 
     #[test]
