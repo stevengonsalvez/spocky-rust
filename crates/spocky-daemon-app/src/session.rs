@@ -58,6 +58,7 @@ use crate::agent_message::send_agent_message;
 use crate::agent_updates::{AgentUpdates, WaitGuard};
 use crate::authorization::SessionAuthorization;
 use crate::events::EventDelivery;
+use crate::inline_task::start_inline;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
 use crate::workspace_handlers::{fetch_workspaces, workspace_create};
 
@@ -252,15 +253,20 @@ impl SessionHandle for DaemonSession {
             events: Arc::clone(&self.events),
         });
         let session_events = Arc::clone(&self.events);
-        self.services.runtime.spawn(handle_request(
-            Arc::clone(&self.authorization),
-            message,
-            emit,
-            Arc::new(move |frame| {
-                session_events.emit(&frame);
-            }),
-            move |message, emit| route(context, message, emit),
-        ));
+        // Pinned starts each message without queueing it, so a handler's
+        // synchronous prefix runs in arrival order.
+        start_inline(
+            &self.services.runtime,
+            handle_request(
+                Arc::clone(&self.authorization),
+                message,
+                emit,
+                Arc::new(move |frame| {
+                    session_events.emit(&frame);
+                }),
+                move |message, emit| route(context, message, emit),
+            ),
+        );
     }
 
     fn protocol_failure(&self, source: SocketId, failure: ProtocolFailure) {
