@@ -15,6 +15,7 @@ const http = require("node:http");
 const { spawn } = require("node:child_process");
 
 const root = process.argv[2];
+const { provenance, claimPid, claimHolds } = require("./generator-support.cjs");
 const bcrypt = require(path.join(root, "node_modules/bcryptjs"));
 const PROFILE =
   '(version 1)(allow default)(deny network-outbound (remote ip "*:*"))(allow network-outbound (remote ip "localhost:*"))';
@@ -31,6 +32,17 @@ async function freePort() {
       });
     });
     if (!FORBIDDEN.has(port)) return port;
+  }
+}
+
+function claimWorker(handle) {
+  // The worker named in the lock, claimed while the supervisor this script
+  // started is alive (see generator-support.cjs).
+  try {
+    const pid = JSON.parse(fs.readFileSync(path.join(handle.home, "paseo.pid"), "utf8")).pid;
+    return claimPid(pid, handle.child.pid);
+  } catch {
+    return null;
   }
 }
 
@@ -88,21 +100,23 @@ async function startDaemon(withPassword) {
       });
       request.on("error", () => resolve(false));
     });
-    if (ok) return handle;
+    if (ok) {
+      handle.workerClaim = claimWorker(handle);
+      return handle;
+    }
     await new Promise((r) => setTimeout(r, 300));
   }
 }
 
 async function stopDaemon(handle) {
-  let lockPid = null;
-  try { lockPid = JSON.parse(fs.readFileSync(path.join(handle.home, "paseo.pid"), "utf8")).pid; } catch {}
   if (!handle.exited) handle.child.kill("SIGTERM");
   const deadline = Date.now() + 15000;
   while (!handle.exited && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   if (!handle.exited) handle.child.kill("SIGKILL");
-  // The daemon worker named in the lock is a child of the process started above.
-  if (lockPid && lockPid !== handle.child.pid && pidAlive(lockPid)) {
-    try { process.kill(lockPid, "SIGTERM"); } catch {}
+  // The worker claimed at startup, if it is still that same process.
+  const claim = handle.workerClaim;
+  if (claim && claim.pid !== handle.child.pid && claimHolds(claim) && pidAlive(claim.pid)) {
+    try { process.kill(claim.pid, "SIGTERM"); } catch {}
   }
   fs.rmSync(handle.base, { recursive: true, force: true });
 }
@@ -216,6 +230,7 @@ async function main() {
     process.stdout.write(JSON.stringify({
       node: process.version,
       original: path.basename(root),
+      provenance: provenance(root),
       serverId: status.serverId,
       hostname: status.hostname,
       version: status.version,
