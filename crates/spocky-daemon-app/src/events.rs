@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
+use spocky_contracts::js_value::JsValue;
 use spocky_daemon::session_api::{SessionSink, SocketId};
+use spocky_session::agent_sdk::{AbortController, AbortReason, AbortSignal};
 
 use crate::authorization::SessionAuthorization;
 
@@ -39,6 +41,12 @@ fn legacy_wants_event(event: &str, capabilities: Option<&Value>) -> bool {
     }
 }
 
+/// One `SessionDelivery` source.
+struct Source {
+    modern: bool,
+    cancellation: AbortController,
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -48,9 +56,9 @@ pub struct EventDelivery {
     sink: Arc<dyn SessionSink>,
     authorization: Arc<SessionAuthorization>,
     capabilities: Arc<Mutex<Option<Value>>>,
-    /// Attached sockets, and whether each owns its subscriptions
-    /// (`owned_subscriptions`).
-    sources: Mutex<HashMap<SocketId, bool>>,
+    /// Attached sockets: whether each owns its subscriptions
+    /// (`owned_subscriptions`), and its `cancellation`, aborted on detach.
+    sources: Mutex<HashMap<SocketId, Source>>,
 }
 
 impl EventDelivery {
@@ -70,22 +78,44 @@ impl EventDelivery {
 
     /// `delivery.attach(source, modern)`: the first hello decides.
     pub fn attach(&self, source: SocketId, capabilities: Option<&Value>) {
-        lock(&self.sources).entry(source).or_insert_with(|| {
-            capabilities.and_then(|caps| caps.get("owned_subscriptions"))
-                == Some(&Value::Bool(true))
+        lock(&self.sources).entry(source).or_insert_with(|| Source {
+            modern: capabilities.and_then(|caps| caps.get("owned_subscriptions"))
+                == Some(&Value::Bool(true)),
+            cancellation: AbortController::default(),
         });
     }
 
-    /// `delivery.detach(source)`.
+    /// `delivery.detach(source)`: the source's requests see their signal
+    /// abort.
     pub fn detach(&self, source: SocketId) {
-        lock(&self.sources).remove(&source);
+        if let Some(detached) = lock(&self.sources).remove(&source) {
+            detached
+                .cancellation
+                .abort(AbortReason::Value(JsValue::Undefined));
+        }
+    }
+
+    /// `delivery.requestSignal` for a request from `source`; a socket never
+    /// attached is attached as legacy, as `delivery.request` does.
+    #[must_use]
+    pub fn request_signal(&self, source: SocketId) -> AbortSignal {
+        lock(&self.sources)
+            .entry(source)
+            .or_insert_with(|| Source {
+                modern: false,
+                cancellation: AbortController::default(),
+            })
+            .cancellation
+            .signal()
     }
 
     /// `delivery.isModern(source)`; a socket never attached is legacy, as
     /// `delivery.request` attaches it.
     #[must_use]
     pub fn is_modern(&self, source: SocketId) -> bool {
-        lock(&self.sources).get(&source).copied().unwrap_or(false)
+        lock(&self.sources)
+            .get(&source)
+            .is_some_and(|source| source.modern)
     }
 
     /// `emitSubscribedEvent(message)`: `false` when the message is not a
@@ -100,7 +130,7 @@ impl EventDelivery {
         let wants = legacy_wants_event(event, lock(&self.capabilities).as_ref());
         let legacy: Vec<SocketId> = lock(&self.sources)
             .iter()
-            .filter(|(_, modern)| !**modern)
+            .filter(|(_, source)| !source.modern)
             .map(|(source, _)| *source)
             .collect();
         if wants {
@@ -153,6 +183,19 @@ mod tests {
         assert!(events.emit(&json!({"type": "activity_log", "payload": {}})));
         assert!(!events.emit(&json!({"type": "agent_update", "payload": {}})));
         assert_eq!(*sink.0.lock().unwrap(), [2]);
+    }
+
+    #[test]
+    fn detaching_a_socket_aborts_its_requests() {
+        let sink = Arc::new(Recorder::default());
+        let events = delivery(&sink, json!({}));
+        events.attach(4, Some(&json!({})));
+        let signal = events.request_signal(4);
+        let other = events.request_signal(5);
+        assert!(!signal.aborted());
+        events.detach(4);
+        assert!(signal.aborted());
+        assert!(!other.aborted());
     }
 
     #[test]
