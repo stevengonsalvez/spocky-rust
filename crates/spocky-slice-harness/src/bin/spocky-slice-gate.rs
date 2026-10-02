@@ -27,7 +27,7 @@ use std::process::ExitCode;
 use serde_json::Value;
 use spocky_slice_harness::compare::{Verdict, compare_sides, differing_artifacts, stable_pairs};
 use spocky_slice_harness::gates;
-use spocky_slice_harness::normalize::sha256_hex;
+use spocky_slice_harness::normalize::{lower_hex, sha256_hex};
 use spocky_slice_harness::side::{DaemonKind, Tools, run_side};
 use spocky_slice_harness::side::{GateSpec, SideRun};
 
@@ -134,18 +134,43 @@ fn recorded_order(path: &Path) -> Result<Vec<String>, String> {
 /// Earlier runs whose self-check sides join the codex order references.
 const ORDER_HISTORY: usize = 2;
 
-/// What a run's original sides were observed with: the gate, the pinned
-/// Paseo build (its directory name carries the commit), the pinned codex,
-/// and the SHA-256 of the gate fixture (stub script, steps, and checks).
-/// Observations of different identities are never mixed.
+/// Lowercase hex SHA-256 of a file's bytes.
+fn file_sha256(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    fs::read(path)
+        .ok()
+        .map(|bytes| lower_hex(&Sha256::digest(bytes)))
+}
+
+/// The commit the Paseo build root records in its `.spocky-build` marker.
+fn baseline_commit(paseo_root: &Path) -> Option<String> {
+    fs::read_to_string(paseo_root.join(".spocky-build"))
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("commit=").map(str::to_owned))
+}
+
+/// What a run's original sides were observed with: the gate, the Paseo
+/// baseline commit its build root records, the SHA-256 of the codex and node
+/// binaries, and the SHA-256 of the gate fixture (stub script, steps, and
+/// checks). Observations of different identities are never mixed.
 fn identity(gate: &GateSpec, tools: &Tools) -> Value {
     let script = serde_json::to_string(&gate.script).unwrap_or_default();
     serde_json::json!({
         "gate": gate.id,
-        "baseline": tools.paseo_root.file_name().map(|name| name.to_string_lossy().into_owned()),
-        "codex": tools.codex.display().to_string(),
+        "baselineCommit": baseline_commit(&tools.paseo_root),
+        "codexSha256": file_sha256(&tools.codex),
+        "nodeSha256": file_sha256(&tools.node_bin.join("node")),
         "fixtureSha256": sha256_hex(&format!("{script}\n{:?}\n{:?}", gate.steps, gate.checks)),
     })
+}
+
+/// Whether every identity field is known. An identity with an unreadable
+/// binary or baseline never matches history, so it can only use this run.
+fn identity_complete(identity: &Value) -> bool {
+    identity
+        .as_object()
+        .is_some_and(|fields| fields.values().all(|value| !value.is_null()))
 }
 
 /// Original `side.json` paths of the latest [`ORDER_HISTORY`] runs in
@@ -153,6 +178,9 @@ fn identity(gate: &GateSpec, tools: &Tools) -> Value {
 /// with the same identity. Runs without a matching `self-check/order.json`
 /// are skipped.
 fn order_history(history: &Path, run: &Path, identity: &Value) -> Vec<PathBuf> {
+    if !identity_complete(identity) {
+        return Vec::new();
+    }
     let Ok(entries) = fs::read_dir(history) else {
         return Vec::new();
     };
@@ -411,6 +439,50 @@ mod tests {
         fs::write(path, text).unwrap();
     }
 
+    fn full_identity() -> Value {
+        serde_json::json!({
+            "gate": "g2",
+            "baselineCommit": "5de45e208690b0efc51c59a585ae9729325a9204",
+            "codexSha256": "c",
+            "nodeSha256": "n",
+            "fixtureSha256": "a",
+        })
+    }
+
+    #[test]
+    fn a_codex_node_or_baseline_mismatch_contributes_nothing() {
+        let history = std::env::temp_dir().join(format!(
+            "spocky-p3-order-history-binaries-{}",
+            std::process::id()
+        ));
+        let run = std::env::temp_dir().join("spocky-p3-elsewhere/g2-20261002T090000Z");
+        for (field, value) in [
+            ("codexSha256", "rebuilt"),
+            ("nodeSha256", "rebuilt"),
+            ("baselineCommit", "0000000000000000000000000000000000000000"),
+        ] {
+            let _ = fs::remove_dir_all(&history);
+            let mut theirs = full_identity();
+            theirs[field] = value.into();
+            earlier_run(&history, "g2-20261002T010000Z", &theirs, true);
+            assert!(
+                order_history(&history, &run, &full_identity()).is_empty(),
+                "{field}"
+            );
+            earlier_run(&history, "g2-20261002T020000Z", &full_identity(), true);
+            assert_eq!(
+                order_history(&history, &run, &full_identity()).len(),
+                2,
+                "{field}"
+            );
+        }
+        let mut unknown = full_identity();
+        unknown["codexSha256"] = Value::Null;
+        earlier_run(&history, "g2-20261002T030000Z", &unknown, true);
+        assert!(order_history(&history, &run, &unknown).is_empty());
+        fs::remove_dir_all(&history).unwrap();
+    }
+
     fn earlier_run(phase: &Path, name: &str, identity: &Value, pass: bool) {
         let check = phase.join(name).join("self-check");
         write(
@@ -428,8 +500,9 @@ mod tests {
         let phase =
             std::env::temp_dir().join(format!("spocky-p3-order-history-{}", std::process::id()));
         let _ = fs::remove_dir_all(&phase);
-        let identity = serde_json::json!({ "gate": "g1", "fixtureSha256": "a" });
-        let other = serde_json::json!({ "gate": "g1", "fixtureSha256": "b" });
+        let identity = full_identity();
+        let mut other = full_identity();
+        other["fixtureSha256"] = "b".into();
         earlier_run(&phase, "g1-20261002T010000Z", &identity, true);
         earlier_run(&phase, "g1-20261002T020000Z", &identity, true);
         earlier_run(&phase, "g1-20261002T030000Z", &identity, false);
