@@ -25,10 +25,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sha2::{Digest, Sha256};
+use spocky_contracts::creation_issue_schema::creation_snapshot;
 use spocky_contracts::creation_schema::CREATION_SNAPSHOT;
 use spocky_contracts::js::{js_string, spread_into, truthy};
 use spocky_contracts::request::CreationKind;
 use spocky_contracts::zod::output::{Catchall, Shape, parse_output};
+use spocky_contracts::zod::{Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::atomic::{FsError, mkdirp, write_file_atomic};
 use spocky_store::collate::locale_compare;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify, stringify_pretty};
@@ -182,6 +184,33 @@ static RECORD: std::sync::LazyLock<Shape> = std::sync::LazyLock::new(|| {
     )
 });
 
+/// `RecordSchema` for issues.
+static RECORD_ISSUES: std::sync::LazyLock<Schema> = std::sync::LazyLock::new(|| {
+    Schema::Object(
+        vec![
+            ("fingerprint", Schema::String(vec![])),
+            ("snapshot", Schema::Lazy(creation_snapshot)),
+            (
+                "inFlight",
+                Schema::Nullable(Box::new(Schema::Enum(&["workspace", "agent", "prompt"]))),
+            ),
+        ],
+        UnknownKeys::Strip,
+    )
+});
+
+/// The legacy agent receipt schema of `readLegacyAgent`, for issues.
+static LEGACY_RECEIPT_ISSUES: std::sync::LazyLock<Schema> = std::sync::LazyLock::new(|| {
+    Schema::Object(
+        vec![
+            ("fingerprint", Schema::String(vec![])),
+            ("state", Schema::Enum(&["pending", "completed"])),
+            ("agentId", Schema::String(vec![])),
+        ],
+        UnknownKeys::Strip,
+    )
+});
+
 /// The legacy agent receipt schema of `readLegacyAgent`.
 static LEGACY_RECEIPT: std::sync::LazyLock<Shape> = std::sync::LazyLock::new(|| {
     Shape::Object(
@@ -258,9 +287,15 @@ fn parse_json(text: &str) -> Result<JsValue, CreationError> {
     parse(text).map_err(|error| CreationError::new(error.message))
 }
 
-/// `schema.parse(value)`. A rejection names its path only; the baseline
-/// throws the `ZodError` whose message lists zod's issues.
-fn zod_parse(shape: &Shape, value: &JsValue) -> Result<JsValue, CreationError> {
+/// `schema.parse(value)`: a rejection is the `ZodError` the baseline throws,
+/// whose message is zod's issue list; the output comes from `shape`, which
+/// must accept what `schema` does.
+fn zod_parse(shape: &Shape, schema: &Schema, value: &JsValue) -> Result<JsValue, CreationError> {
+    if let Verdict::Invalid(issues) = verdict(schema, value) {
+        return Err(CreationError::new(stringify_pretty(&JsValue::Array(
+            issues,
+        ))));
+    }
     parse_output(shape, value).map_err(|rejected| {
         CreationError::new(format!("Invalid input at [{}]", rejected.0.join(", ")))
     })
@@ -672,7 +707,7 @@ async fn read_legacy_agent(
     let Some(text) = read_optional(&file)? else {
         return Ok(None);
     };
-    let receipt = zod_parse(&LEGACY_RECEIPT, &parse_json(&text)?)?;
+    let receipt = zod_parse(&LEGACY_RECEIPT, &LEGACY_RECEIPT_ISSUES, &parse_json(&text)?)?;
     let mut legacy_request = JsObject::new();
     legacy_request.insert("type", string("create_agent_request"));
     spread_into(&mut legacy_request, Some(&input.request));
@@ -834,7 +869,7 @@ fn read(inner: &Inner, identity: &str) -> Result<Option<JsObject>, CreationError
         let Some(text) = read_optional(&file)? else {
             return Ok(None);
         };
-        match &zod_parse(&RECORD, &parse_json(&text)?)? {
+        match &zod_parse(&RECORD, &RECORD_ISSUES, &parse_json(&text)?)? {
             JsValue::Object(record) => Ok(Some(record.clone())),
             _ => unreachable!("RecordSchema outputs an object"),
         }
