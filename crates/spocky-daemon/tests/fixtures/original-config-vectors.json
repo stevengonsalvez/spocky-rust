@@ -1,0 +1,179 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "cases": [
+  {
+   "name": "empty_object",
+   "text": "{}",
+   "ok": {
+    "listen": null,
+    "hostnames": null,
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  },
+  {
+   "name": "daemon_fields",
+   "text": "{\"daemon\":{\"listen\":\"127.0.0.1:9\",\"hostnames\":[\".a.com\"],\"cors\":{\"allowedOrigins\":[\"x\"]},\"auth\":{\"password\":\"$2a$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234\"}}}",
+   "ok": {
+    "listen": "127.0.0.1:9",
+    "hostnames": [
+     ".a.com"
+    ],
+    "corsAllowedOrigins": [
+     "x"
+    ],
+    "password": "$2a$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234"
+   }
+  },
+  {
+   "name": "hostnames_true",
+   "text": "{\"daemon\":{\"hostnames\":true}}",
+   "ok": {
+    "listen": null,
+    "hostnames": true,
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  },
+  {
+   "name": "allowed_hosts_old_name",
+   "text": "{\"daemon\":{\"allowedHosts\":[\"h.example\"]}}",
+   "ok": {
+    "listen": null,
+    "hostnames": [
+     "h.example"
+    ],
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  },
+  {
+   "name": "hostnames_win_over_allowed_hosts",
+   "text": "{\"daemon\":{\"allowedHosts\":true,\"hostnames\":[\"h\"]}}",
+   "ok": {
+    "listen": null,
+    "hostnames": [
+     "h"
+    ],
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  },
+  {
+   "name": "unknown_top_level_key",
+   "text": "{\"bogus\":1}",
+   "error": "[Config] Invalid config in <config>:\n  - : Unrecognized key: \"bogus\""
+  },
+  {
+   "name": "unknown_daemon_key",
+   "text": "{\"daemon\":{\"bogus\":true}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon: Unrecognized key: \"bogus\""
+  },
+  {
+   "name": "unknown_features_key",
+   "text": "{\"features\":{\"bogus\":1}}",
+   "error": "[Config] Invalid config in <config>:\n  - features: Unrecognized key: \"bogus\""
+  },
+  {
+   "name": "hostnames_false",
+   "text": "{\"daemon\":{\"hostnames\":false}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.hostnames: Invalid input"
+  },
+  {
+   "name": "hostnames_mixed_invalid",
+   "text": "{\"daemon\":{\"hostnames\":[\".a.com\",5]}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.hostnames: Invalid input"
+  },
+  {
+   "name": "allowed_hosts_mixed_invalid",
+   "text": "{\"daemon\":{\"allowedHosts\":[\"ok\",5]}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.allowedHosts: Invalid input"
+  },
+  {
+   "name": "listen_number",
+   "text": "{\"daemon\":{\"listen\":5}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.listen: Invalid input: expected string, received number"
+  },
+  {
+   "name": "cors_wrong_type",
+   "text": "{\"daemon\":{\"cors\":{\"allowedOrigins\":[1]}}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.cors.allowedOrigins.0: Invalid input: expected string, received number"
+  },
+  {
+   "name": "password_not_bcrypt",
+   "text": "{\"daemon\":{\"auth\":{\"password\":\"plain\"}}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.auth.password: Expected a bcrypt hash"
+  },
+  {
+   "name": "password_null",
+   "text": "{\"daemon\":{\"auth\":{\"password\":null}}}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.auth.password: Invalid input: expected string, received null"
+  },
+  {
+   "name": "several_issues",
+   "text": "{\"daemon\":{\"listen\":5,\"bogus\":1},\"bogus2\":true}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon.listen: Invalid input: expected string, received number\n  - daemon: Unrecognized key: \"bogus\"\n  - : Unrecognized key: \"bogus2\""
+  },
+  {
+   "name": "invalid_json",
+   "text": "{not json",
+   "error": "[Config] Invalid JSON in <config>: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  },
+  {
+   "name": "empty_file",
+   "text": "",
+   "error": "[Config] Invalid JSON in <config>: Unexpected end of JSON input"
+  },
+  {
+   "name": "truncated_json",
+   "text": "{\"daemon\":",
+   "error": "[Config] Invalid JSON in <config>: Unexpected end of JSON input"
+  },
+  {
+   "name": "bom_prefixed",
+   "text": "﻿{\"daemon\":{\"listen\":\"127.0.0.1:9\"}}",
+   "ok": {
+    "listen": "127.0.0.1:9",
+    "hostnames": null,
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  },
+  {
+   "name": "root_array",
+   "text": "[]",
+   "error": "[Config] Invalid config in <config>:\n  - : Invalid input: expected object, received array"
+  },
+  {
+   "name": "root_null",
+   "text": "null",
+   "error": "[Config] Invalid config in <config>:\n  - : Invalid input: expected object, received null"
+  },
+  {
+   "name": "root_number",
+   "text": "5",
+   "error": "[Config] Invalid config in <config>:\n  - : Invalid input: expected object, received number"
+  },
+  {
+   "name": "daemon_string",
+   "text": "{\"daemon\":\"x\"}",
+   "error": "[Config] Invalid config in <config>:\n  - daemon: Invalid input: expected object, received string"
+  },
+  {
+   "name": "agents_providers_number",
+   "text": "{\"agents\":{\"providers\":5}}",
+   "error": "[Config] Invalid config in <config>:\n  - agents.providers: Invalid input: expected record, received number"
+  },
+  {
+   "name": "relay_disabled",
+   "text": "{\"daemon\":{\"relay\":{\"enabled\":false}}}",
+   "ok": {
+    "listen": null,
+    "hostnames": null,
+    "corsAllowedOrigins": null,
+    "password": null
+   }
+  }
+ ]
+}
