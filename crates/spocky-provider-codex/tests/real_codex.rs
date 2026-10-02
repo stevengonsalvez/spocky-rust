@@ -724,3 +724,23 @@ fn an_upstream_500_fails_the_turn_with_codexs_message() {
     assert_eq!(session.unported(), Vec::<String>::new());
     session.close().expect("close");
 }
+
+#[test]
+fn fixture_digests_match_and_a_changed_or_unlisted_fixture_fails() {
+    for fixture in ["g2_approvals.json", "g4_upstream_500.json"] {
+        support::assert_fixture_digest(fixture);
+    }
+    let sums = "aaaa  one.json\nbbbb  two.json\n";
+    assert_eq!(
+        support::check_fixture_digest(sums, "two.json", "bbbb"),
+        Ok(())
+    );
+    assert_eq!(
+        support::check_fixture_digest(sums, "two.json", "cccc"),
+        Err("two.json differs from its SHA256SUMS digest".to_owned())
+    );
+    assert_eq!(
+        support::check_fixture_digest(sums, "three.json", "bbbb"),
+        Err("three.json is not listed in tests/fixtures/SHA256SUMS".to_owned())
+    );
+}
