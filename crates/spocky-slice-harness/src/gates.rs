@@ -338,7 +338,8 @@ fn g2_steps() -> Vec<StepSpec> {
                 vec![agent(), Captured("permission_allow")],
             ),
             None,
-            None,
+            // Codex has sent the allowed tool output.
+            Some(2),
         ),
         step(
             "wait-allowed",
@@ -365,7 +366,8 @@ fn g2_steps() -> Vec<StepSpec> {
                 vec![agent(), Captured("permission_deny")],
             ),
             None,
-            None,
+            // Codex has sent the denied tool output.
+            Some(4),
         ),
         step(
             "wait-denied",
@@ -380,10 +382,10 @@ fn g2_steps() -> Vec<StepSpec> {
                 vec![Lit("--no-wait"), agent(), Lit(G2_PROMPT_HOLD)],
             ),
             None,
-            None,
+            // Cancel mid-turn: stop runs once codex is streaming the held reply.
+            Some(5),
         ),
-        // Cancel mid-turn: only once codex is streaming the held reply.
-        step("stop", cli(&["stop"], vec![agent()]), None, Some(5)),
+        step("stop", cli(&["stop"], vec![agent()]), None, None),
         step("logs", cli(&["logs"], vec![agent()]), None, None),
         step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
         step("inspect", cli(&["inspect"], vec![agent()]), None, None),
@@ -514,10 +516,18 @@ mod tests {
         assert!(
             calls[0].contains("\"printf G2-ALLOW\"") && calls[1].contains("\"printf G2-DENY\"")
         );
-        let stop = gate.steps.iter().find(|step| step.name == "stop").unwrap();
+        let settled: Vec<(&str, usize)> = gate
+            .steps
+            .iter()
+            .filter_map(|step| Some((step.name, step.wait_for_stub_requests?)))
+            .collect();
         assert_eq!(
-            stop.wait_for_stub_requests,
-            Some(gate.script.responses.len())
+            settled,
+            [
+                ("permit-allow", 2),
+                ("permit-deny", 4),
+                ("send-hold", gate.script.responses.len())
+            ]
         );
         let preimages = g2_preimages(&BTreeMap::from([
             ("project", "/p".to_owned()),
