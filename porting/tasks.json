@@ -1125,6 +1125,15 @@
           "followUps": ["P2 the features compare uses jq -S, which hides key order (wiring fixing)"]
         },
         {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "65555437..35283fc0 (12 commits, landed as 9): G2 permission and cancel gate, held reply streams, stub request waits and settling, codex tool output and permission id naming, approved codex-wall-time, send-receipt-key and stub-content-length classes scoped as approved",
+          "integrationHead": "e19a04a3",
+          "review": "integration reviewer PASS (verdicts/p3_slice_harness-35283fc0.txt), superseding the 99a11007 PASS that was held for class scope",
+          "leadChanges": ["65555437, d0c22b28 and 3475b9dc folded with f2bc2a74 into one justified atomic commit: each new stub or step field fails E0063 until the last struct literals in gates.rs set it"],
+          "leadVerification": "harness crate, scripts and evidence identical to 35283fc0; gated: spocky-slice-harness tests --test-threads=1, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
@@ -1342,6 +1351,27 @@
             "DLOG-001: no daemon.log file sink",
             "post-G1 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline",
             "the G1 agent_update wire differential compared zod-parsed frames (subscribeRawMessages); it must be re-recorded as raw JSON per the PORTING.md evidence rule; the G1 gate verdict itself compares CLI output and is unaffected"
+          ]
+        },
+        {
+          "gate": "G2",
+          "date": "2026-10-02",
+          "mainHead": "f2063165 plus harness 35283fc0 (the same tree landed on main by the lead)",
+          "run": "g2-20261002T041620Z",
+          "evidence": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-slice-harness/evidence/raw/phase3/g2-20261002T041620Z-f2063165+35283fc0",
+          "selfCheck": "PASS, 0 differences, 0 check failures, 193 rules, verdict.json SHA-256 e13a77d44cc8eb8a2b075de695f21f37af65633ec9f4713a176b91dc371be84e",
+          "parity": "PASS, 0 differences, 0 check failures, 193 rules, verdict.json SHA-256 18b6ed01e7e274b43564287049b3ca450a2aaca340e7637628061dd860f6e5d1",
+          "steps": "all 14 steps exit 0 on all 4 sides",
+          "rules": "generated_id 155, temporary_path 19, wall_clock 19; approved G2 classes codex-wall-time, send-receipt-key (file name only) and stub-content-length (verified record only)",
+          "leadCheck": "lead recomputed both verdict.json SHA-256s from the evidence directory; both match, both report pass true with 193 rules and empty differing.txt",
+          "status": "G2 PASSED",
+          "openTrackedDeviations": [
+            "wait_for_finish_response versus agent_update reply interleave (reply-first barrier after the reset)",
+            "server_info.features.workspaceLabels absent (DWLABEL-001, workspace-labels service unported)",
+            "SERVER-INFO-CAPABILITIES: server_info.capabilities absent (daemon.rs:440 hard-codes None)",
+            "followUpPrompt fails loudly; kept out of G2 scenarios",
+            "set_subscription not ported",
+            "codex fileChange apply_patch timeline tool_call before permission_requested not ported"
           ]
         }
       ],
