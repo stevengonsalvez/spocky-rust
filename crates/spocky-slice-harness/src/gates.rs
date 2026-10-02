@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde_json::json;
 
-use crate::side::{Arg, Check, GateSpec, StepSpec};
+use crate::side::{Arg, Check, GateSpec, HomeOrigin, StepSpec};
 use crate::stub::{Script, ScriptedReply};
 
 /// The fixed G1 prompt.
@@ -115,6 +115,7 @@ fn step(
         capture,
         wait_for_stub_requests,
         daemon_restart: false,
+        disconnect_at_stub_requests: None,
     }
 }
 
@@ -144,6 +145,7 @@ pub fn g1() -> GateSpec {
                 capture: Some(("workspace", "/workspaceId")),
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             },
             StepSpec {
                 name: "run",
@@ -162,6 +164,7 @@ pub fn g1() -> GateSpec {
                 capture: Some(("agent", "/agentId")),
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             },
             StepSpec {
                 name: "logs",
@@ -169,6 +172,7 @@ pub fn g1() -> GateSpec {
                 capture: None,
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             },
             StepSpec {
                 name: "ls",
@@ -176,6 +180,7 @@ pub fn g1() -> GateSpec {
                 capture: None,
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             },
             StepSpec {
                 name: "inspect",
@@ -183,6 +188,7 @@ pub fn g1() -> GateSpec {
                 capture: None,
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             },
         ],
         checks: vec![
@@ -201,6 +207,8 @@ pub fn g1() -> GateSpec {
             Check::DaemonExit(0),
         ],
         preimages: g1_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
     }
 }
 
@@ -270,6 +278,8 @@ pub fn g2() -> GateSpec {
         steps: g2_steps(),
         checks: g2_checks(),
         preimages: g2_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
     }
 }
 
@@ -523,6 +533,8 @@ pub fn g3() -> GateSpec {
             Check::DaemonExit(0),
         ],
         preimages: g3_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
     }
 }
 

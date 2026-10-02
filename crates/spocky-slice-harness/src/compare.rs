@@ -580,7 +580,7 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::side::{Check, DaemonKind, StepSpec};
+    use crate::side::{Check, DaemonKind, HomeOrigin, StepSpec};
     use crate::stub::Script;
 
     const AGENT_LEFT: &str = "0199a3c4-1b2c-7d3e-8f40-123456789abc";
@@ -602,9 +602,12 @@ mod tests {
                 capture: None,
                 wait_for_stub_requests: None,
                 daemon_restart: false,
+                disconnect_at_stub_requests: None,
             }],
             checks,
             preimages: |_| Vec::new(),
+            codex_present: true,
+            home_origin: HomeOrigin::Same,
         }
     }
 

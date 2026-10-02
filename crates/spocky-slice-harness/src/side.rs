@@ -116,6 +116,37 @@ pub struct StepSpec {
     /// session. The step's exit is the stopped daemon's exit code, or the
     /// readiness probe's when that is not 0; its stdout is the probe's.
     pub daemon_restart: bool,
+    /// Kill the CLI's process group (the client disconnecting) as soon as the
+    /// stub has recorded at least this many requests. The step's exit is then
+    /// `signal 9` and its output is whatever the CLI had written.
+    pub disconnect_at_stub_requests: Option<usize>,
+}
+
+/// Which daemon makes a gate's home and which one opens it after the restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeOrigin {
+    /// The side's daemon on both sides of the restart.
+    Same,
+    /// The original daemon makes the home; the side's daemon opens it.
+    OriginalThenSide,
+    /// The side's daemon makes the home; the original daemon opens it.
+    SideThenOriginal,
+}
+
+impl HomeOrigin {
+    fn first(self, side: DaemonKind) -> DaemonKind {
+        match self {
+            Self::Same | Self::SideThenOriginal => side,
+            Self::OriginalThenSide => DaemonKind::Original,
+        }
+    }
+
+    fn second(self, side: DaemonKind) -> DaemonKind {
+        match self {
+            Self::Same | Self::OriginalThenSide => side,
+            Self::SideThenOriginal => DaemonKind::Original,
+        }
+    }
 }
 
 /// Longest a step waits for the stub to reach its request count.
@@ -143,6 +174,9 @@ pub enum Check {
         step: &'static str,
         line: &'static str,
     },
+    /// Every step and the readiness probe exited 0, except the listed steps,
+    /// which must each exit with exactly the listed code.
+    ExitsAre(&'static [(&'static str, i32)]),
     /// Every scripted reply was consumed and no unscripted request arrived.
     StubExactlyConsumed,
     /// The daemon exited with this code after SIGTERM.
@@ -165,6 +199,10 @@ pub struct GateSpec {
     /// Exact preimages the gate knows the daemon hashes (creation request
     /// fingerprints), built from this side's `project` path and captures.
     pub preimages: PreimageBuilder,
+    /// Whether the `codex` shim is on the daemon's `PATH`. When false the
+    /// daemon finds no codex binary at all.
+    pub codex_present: bool,
+    pub home_origin: HomeOrigin,
 }
 
 /// How a process ended.
@@ -305,6 +343,17 @@ fn run_tracked(
     timeout: Duration,
     pids: &mut Vec<u32>,
 ) -> (Vec<u8>, Vec<u8>, Exit) {
+    run_tracked_until(command, timeout, pids, None)
+}
+
+/// [`run_tracked`], killing the process group when `disconnect` first
+/// returns true (the client dropping its connection mid-turn).
+fn run_tracked_until(
+    command: &mut Command,
+    timeout: Duration,
+    pids: &mut Vec<u32>,
+    disconnect: Option<&dyn Fn() -> bool>,
+) -> (Vec<u8>, Vec<u8>, Exit) {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -331,6 +380,13 @@ fn run_tracked(
                 let _ = child.kill();
                 let _ = child.wait();
                 break Exit::TimedOut;
+            }
+            Ok(None) if disconnect.is_some_and(|ready| ready()) => {
+                kill_group(group);
+                let _ = child.kill();
+                break child
+                    .wait()
+                    .map_or_else(|error| Exit::NotRun(error.to_string()), Exit::from_status);
             }
             Ok(None) => thread::sleep(Duration::from_millis(50)),
             Err(error) => break Exit::NotRun(error.to_string()),
@@ -468,7 +524,7 @@ fn paseo_config(layout: &Layout, daemon_port: u16, stub_port: u16) -> Value {
     })
 }
 
-fn create_layout(gate: &str, tools: &Tools) -> io::Result<Layout> {
+fn create_layout(gate: &str, tools: &Tools, codex_present: bool) -> io::Result<Layout> {
     // Equal-length root names on both sides keep length-derived values (for
     // example HTTP content-length) comparable; hex time is never a wall-clock literal.
     let root = loop {
@@ -495,7 +551,9 @@ fn create_layout(gate: &str, tools: &Tools) -> io::Result<Layout> {
     ] {
         fs::create_dir(layout.path(directory))?;
     }
-    write_codex_wrapper(&layout, &tools.codex)?;
+    if codex_present {
+        write_codex_wrapper(&layout, &tools.codex)?;
+    }
     Ok(layout)
 }
 
@@ -1294,6 +1352,31 @@ fn not_run(name: &str, argv: Vec<String>, reason: String) -> StepRun {
     }
 }
 
+/// The daemon command line for `kind`, under the egress sandbox.
+fn daemon_program(kind: DaemonKind, tools: &Tools) -> Result<Vec<String>, String> {
+    let unsandboxed: Vec<String> = match kind {
+        DaemonKind::Original => vec![
+            tools.node_bin.join("node").display().to_string(),
+            tools
+                .paseo_root
+                .join("packages/cli/dist/index.js")
+                .display()
+                .to_string(),
+            "daemon".into(),
+            "run".into(),
+        ],
+        DaemonKind::Spocky => match &tools.spocky_daemon {
+            Some(binary) => vec![binary.display().to_string()],
+            None => return Err("spocky side requested without --spocky-daemon".into()),
+        },
+    };
+    Ok([SANDBOX_EXEC, "-p", EGRESS_PROFILE]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(unsandboxed)
+        .collect())
+}
+
 /// Starts the daemon's launch script in a new tmux session on the dedicated
 /// socket, registers the pane as an owned root, and records the session and
 /// PIDs to `pid_file`. Returns the daemon PID the launch script wrote.
@@ -1419,7 +1502,8 @@ pub fn run_side(
     evidence: &Path,
 ) -> Result<SideRun, String> {
     let window_start_ms = now_ms();
-    let layout = create_layout(gate.id, tools).map_err(|error| format!("create root: {error}"))?;
+    let layout = create_layout(gate.id, tools, gate.codex_present)
+        .map_err(|error| format!("create root: {error}"))?;
     let result = run_in_layout(gate, kind, tools, evidence, &layout, window_start_ms);
     let root = layout.root.display().to_string();
     let owned = Path::new(ROOT_PARENT).join(format!("{OWNED_PREFIX}{}-", gate.id));
@@ -1464,28 +1548,10 @@ fn run_in_layout(
     fs::write(layout.path("paseo-home/config.json"), config).map_err(|error| error.to_string())?;
 
     let environment = side_environment(layout, tools);
-    let unsandboxed: Vec<String> = match kind {
-        DaemonKind::Original => vec![
-            tools.node_bin.join("node").display().to_string(),
-            tools
-                .paseo_root
-                .join("packages/cli/dist/index.js")
-                .display()
-                .to_string(),
-            "daemon".into(),
-            "run".into(),
-        ],
-        DaemonKind::Spocky => match &tools.spocky_daemon {
-            Some(binary) => vec![binary.display().to_string()],
-            None => return Err("spocky side requested without --spocky-daemon".into()),
-        },
-    };
-    let program: Vec<String> = [SANDBOX_EXEC, "-p", EGRESS_PROFILE]
-        .into_iter()
-        .map(str::to_owned)
-        .chain(unsandboxed)
-        .collect();
+    let first_kind = gate.home_origin.first(kind);
+    let program = daemon_program(first_kind, tools)?;
     let session = format!("{OWNED_PREFIX}{}-{}-{}", gate.id, kind.label(), now_ms());
+    let mut daemon_kind = first_kind;
     fs::write(
         layout.path("launch.sh"),
         launch_script(layout, &environment, &program),
@@ -1559,6 +1625,21 @@ fn run_in_layout(
                 }
             }
             session = format!("{session}-restart{restarts}");
+            let next_kind = gate.home_origin.second(kind);
+            if next_kind != daemon_kind {
+                daemon_kind = next_kind;
+                match daemon_program(next_kind, tools) {
+                    Ok(program) => {
+                        if let Err(error) = fs::write(
+                            layout.path("launch.sh"),
+                            launch_script(layout, &environment, &program),
+                        ) {
+                            errors.push(format!("{}: rewrite launch.sh: {error}", step.name));
+                        }
+                    }
+                    Err(error) => errors.push(format!("{}: {error}", step.name)),
+                }
+            }
             daemon_pid = launch_daemon(
                 layout,
                 &session,
@@ -1589,10 +1670,14 @@ fn run_in_layout(
                 continue;
             }
         };
-        let (stdout, stderr, exit) = run_tracked(
+        let disconnect = step
+            .disconnect_at_stub_requests
+            .map(|count| move || stub_records(layout).len() >= count);
+        let (stdout, stderr, exit) = run_tracked_until(
             &mut cli_command(tools, layout, &environment, &argv),
             STEP_TIMEOUT,
             &mut pids,
+            disconnect.as_ref().map(|ready| ready as &dyn Fn() -> bool),
         );
         if let Some(count) = step.wait_for_stub_requests
             && exit == Exit::Code(0)
@@ -1796,6 +1881,21 @@ pub fn failed_checks(gate: &GateSpec, side: &SideRun) -> Vec<String> {
                 .chain(&side.steps)
                 .find(|step| step.exit != Exit::Code(0))
                 .map(|step| format!("{}: {}", step.name, step.exit.render())),
+            Check::ExitsAre(expected) => std::iter::once(&side.readiness)
+                .chain(&side.steps)
+                .find_map(|step| {
+                    let want = expected
+                        .iter()
+                        .find(|(name, _)| *name == step.name)
+                        .map_or(0, |(_, code)| *code);
+                    (step.exit != Exit::Code(want)).then(|| {
+                        format!(
+                            "{}: {}, expected exit {want}",
+                            step.name,
+                            step.exit.render()
+                        )
+                    })
+                }),
             Check::JsonString {
                 step,
                 pointer,
@@ -2472,6 +2572,92 @@ mod tests {
     }
 
     #[test]
+    fn exits_are_checks_exact_codes_and_defaults_the_rest_to_zero() {
+        let gate = |expected: &'static [(&'static str, i32)]| GateSpec {
+            id: "t",
+            script: Script {
+                responses: Vec::new(),
+            },
+            steps: Vec::new(),
+            preimages: |_| Vec::new(),
+            codex_present: true,
+            home_origin: HomeOrigin::Same,
+            checks: vec![Check::ExitsAre(expected)],
+        };
+        let step = |name: &str, code| StepRun {
+            name: name.into(),
+            argv: Vec::new(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            exit: Exit::Code(code),
+            stub_requests: 0,
+        };
+        let failed =
+            |expected, steps: Vec<StepRun>| failed_checks(&gate(expected), &side_with(steps));
+        assert!(failed(&[("run", 1)], vec![step("run", 1), step("ls", 0)]).is_empty());
+        // The listed step must fail with exactly that code.
+        assert_eq!(failed(&[("run", 1)], vec![step("run", 0)]).len(), 1);
+        assert_eq!(failed(&[("run", 1)], vec![step("run", 2)]).len(), 1);
+        // An unlisted step must still exit 0.
+        assert_eq!(
+            failed(&[("run", 1)], vec![step("run", 1), step("ls", 1)]).len(),
+            1
+        );
+        assert_eq!(failed(&[], vec![step("run", 1)]).len(), 1);
+    }
+
+    #[test]
+    fn home_origin_names_the_daemon_that_makes_and_opens_the_home() {
+        use DaemonKind::{Original, Spocky};
+        assert_eq!(
+            [Original, Spocky]
+                .map(|kind| (HomeOrigin::Same.first(kind), HomeOrigin::Same.second(kind))),
+            [(Original, Original), (Spocky, Spocky)]
+        );
+        assert_eq!(
+            [Original, Spocky].map(|kind| (
+                HomeOrigin::OriginalThenSide.first(kind),
+                HomeOrigin::OriginalThenSide.second(kind)
+            )),
+            [(Original, Original), (Original, Spocky)]
+        );
+        assert_eq!(
+            [Original, Spocky].map(|kind| (
+                HomeOrigin::SideThenOriginal.first(kind),
+                HomeOrigin::SideThenOriginal.second(kind)
+            )),
+            [(Original, Original), (Spocky, Original)]
+        );
+    }
+
+    #[test]
+    fn a_disconnecting_client_is_killed_once_the_condition_holds() {
+        let started = Instant::now();
+        let ready = || started.elapsed() >= Duration::from_millis(400);
+        let mut pids = Vec::new();
+        let (stdout, _, exit) = run_tracked_until(
+            Command::new("/bin/sh").args(["-c", "echo begun; /bin/sleep 30"]),
+            Duration::from_secs(20),
+            &mut pids,
+            Some(&ready),
+        );
+        assert_eq!(exit, Exit::Signal(9));
+        assert_eq!(String::from_utf8_lossy(&stdout), "begun\n");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(wait_until(Duration::from_secs(5), || !group_has_members(
+            pids[0]
+        )));
+        // A client that finishes first is not disturbed.
+        let (_, _, exit) = run_tracked_until(
+            Command::new("/bin/sh").args(["-c", "exit 3"]),
+            Duration::from_secs(20),
+            &mut Vec::new(),
+            Some(&|| false),
+        );
+        assert_eq!(exit, Exit::Code(3));
+    }
+
+    #[test]
     fn checks_fail_on_wrong_status_missing_text_and_stub_drift() {
         let gate = GateSpec {
             id: "t",
@@ -2480,6 +2666,8 @@ mod tests {
             },
             steps: Vec::new(),
             preimages: |_| Vec::new(),
+            codex_present: true,
+            home_origin: HomeOrigin::Same,
             checks: vec![
                 Check::AllExitZero,
                 Check::JsonString {
