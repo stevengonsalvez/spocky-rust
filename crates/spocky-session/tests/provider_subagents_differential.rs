@@ -110,8 +110,35 @@ fn rust_output() -> String {
     stringify(&JsValue::Object(out))
 }
 
-/// Replaces ISO timestamps with `<ISO>` and UUIDs with `<UUID>`.
-fn normalize(text: &str) -> String {
+/// The wall-clock window of one test run. `Date.now()` and `new Date()` on
+/// either side give values inside it; a timestamp a fixture fixes is outside
+/// it and is compared exactly.
+struct WallClock {
+    from_millis: i64,
+}
+
+impl WallClock {
+    /// Slack either side of the run, for clock reads and process start.
+    const SLACK_MILLIS: i64 = 2_000;
+
+    fn start() -> Self {
+        Self {
+            from_millis: spocky_session::clock::now_millis() - Self::SLACK_MILLIS,
+        }
+    }
+
+    /// Whether `iso` is a wall-clock value of this run.
+    fn contains(&self, iso: &str) -> bool {
+        spocky_store::time::parse_iso_millis(iso).is_some_and(|millis| {
+            millis >= self.from_millis
+                && millis <= spocky_session::clock::now_millis() + Self::SLACK_MILLIS
+        })
+    }
+}
+
+/// Masks the wall-clock timestamps of one run with `<ISO>` and every UUID
+/// with `<UUID>`; fixed fixture timestamps stay as they are.
+fn normalize(text: &str, clock: &WallClock) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
@@ -126,8 +153,7 @@ fn normalize(text: &str) -> String {
             23 => bytes.get(index + offset) == Some(&b'Z'),
             _ => digit(index + offset),
         });
-        let fixed = text[index..].starts_with("2026-07-12T");
-        if iso && !fixed {
+        if iso && clock.contains(&text[index..index + 24]) {
             out.push_str("<ISO>");
             index += 24;
             continue;
@@ -149,12 +175,15 @@ fn normalize(text: &str) -> String {
 }
 
 #[test]
-fn normalize_keeps_fixed_timestamps() {
+fn normalize_masks_only_wall_clock_values() {
+    let clock = WallClock::start();
+    let now = spocky_session::clock::now_iso();
+    let text = format!(
+        r#"["2026-07-12T10:00:00.000Z","2031-01-02T03:04:05.678Z","{now}","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"]"#
+    );
     assert_eq!(
-        normalize(
-            r#"["2026-07-12T10:00:00.000Z","2031-01-02T03:04:05.678Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"]"#
-        ),
-        r#"["2026-07-12T10:00:00.000Z","<ISO>","<UUID>"]"#
+        normalize(&text, &clock),
+        r#"["2026-07-12T10:00:00.000Z","2031-01-02T03:04:05.678Z","<ISO>","<UUID>"]"#
     );
 }
 
@@ -201,6 +230,7 @@ fn subagent_store_matches_pinned_build() {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    let clock = WallClock::start();
     assert_pinned_modules(&dist);
     let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
         "gtimeout"
@@ -221,7 +251,7 @@ fn subagent_store_matches_pinned_build() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
-        normalize(&rust_output()),
-        normalize(&String::from_utf8_lossy(&output.stdout))
+        normalize(&rust_output(), &clock),
+        normalize(&String::from_utf8_lossy(&output.stdout), &clock)
     );
 }
