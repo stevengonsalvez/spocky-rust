@@ -3,25 +3,21 @@
 //! Source at Paseo `5de45e2`: `loadPersistedConfig`, `DEFAULT_PERSISTED_CONFIG`
 //! and `parseConfigFile` in `persisted-config.ts`.
 //!
-//! Only `daemon.listen`, `daemon.hostnames` (and its old name `allowedHosts`),
-//! `daemon.cors.allowedOrigins` and `daemon.auth.password` are read.
-//!
-//! Unported: config refusal. The baseline parses the whole file with one strict
-//! zod schema (`persisted-config.ts`) and refuses what it rejects: an
-//! unrecognized key in any section (`Unrecognized key: "bogus"`), an invalid
-//! `allowedHosts` entry beside valid ones, and every issue joined as zod joins
-//! them, with the V8 `JSON.parse` text for a syntax error. This module checks
-//! only the four fields above, so a config the baseline refuses can start the
-//! daemon and the text of the errors it does report differs. Closing the gap
-//! needs a persisted-config schema in the contracts zod port, after which the
-//! check calls it with no second zod here. Tracked as an open gap, deferred
-//! until after G1.
+//! The whole file is validated with `spocky_contracts::config::check_config_text`
+//! (the pinned `PersistedConfigSchema`), so a config the baseline refuses is
+//! refused here with the same text: an unrecognized key in any section, an
+//! invalid `hostnames` entry, every issue on its own line, and the V8
+//! `JSON.parse` text for a syntax error. Only `daemon.listen`,
+//! `daemon.hostnames` (and its old name `allowedHosts`), `daemon.cors.allowedOrigins`
+//! and `daemon.auth.password` are then read; the rest belongs to the session
+//! layer.
 
 use std::fmt;
 use std::fs;
 use std::path::Path;
 
-use serde_json::Value;
+use spocky_contracts::config::{ConfigRefusal, check_config_text};
+use spocky_contracts::js_value::JsValue;
 
 use crate::hostnames::Hostnames;
 use crate::js;
@@ -73,23 +69,6 @@ impl fmt::Debug for PersistedDaemonConfig {
     }
 }
 
-/// `BcryptHashSchema`: `/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/`. An empty or
-/// malformed `daemon.auth.password` is a config error, as in the baseline. It is
-/// never read as "no password", so a bad value cannot open the daemon.
-fn is_bcrypt_hash(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    bytes.len() == 60
-        && bytes.starts_with(b"$2")
-        && matches!(bytes[2], b'a' | b'b' | b'y')
-        && bytes[3] == b'$'
-        && bytes[4].is_ascii_digit()
-        && bytes[5].is_ascii_digit()
-        && bytes[6] == b'$'
-        && bytes[7..]
-            .iter()
-            .all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'/')
-}
-
 /// An error with the baseline's `[Config]` message prefix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError(pub String);
@@ -139,136 +118,51 @@ pub fn load_persisted_config(
     Ok(config)
 }
 
+/// `parseConfigFile`: `check_config_text` in spocky-contracts runs the pinned
+/// schema, so an unrecognized key, an invalid entry or a syntax error is
+/// refused with the baseline's text; the daemon fields are then read from the
+/// validated config.
 fn parse_config_text(config_path: &Path, raw: &str) -> Result<PersistedDaemonConfig, ConfigError> {
-    let text = raw.strip_prefix('\u{feff}').unwrap_or(raw);
-    let parsed: Value = serde_json::from_str(text).map_err(|error| {
-        ConfigError(format!(
-            "[Config] Invalid JSON in {}: {error}",
-            config_path.display()
-        ))
-    })?;
-    extract(&parsed).map_err(|issue| {
-        ConfigError(format!(
-            "[Config] Invalid config in {}:\n  - {issue}",
-            config_path.display()
-        ))
-    })
+    let config =
+        check_config_text(&config_path.display().to_string(), raw).map_err(
+            |refusal| match refusal {
+                ConfigRefusal::Message(message) => ConfigError(message),
+                // Nested past where the pinned zod throws a `RangeError`, which
+                // `loadPersistedConfig` lets through unwrapped.
+                ConfigRefusal::TooDeep => {
+                    ConfigError("Maximum call stack size exceeded".to_owned())
+                }
+            },
+        )?;
+    Ok(daemon_fields(&config))
 }
 
-fn string_list(value: &Value, path: &str) -> Result<Vec<String>, String> {
-    let Value::Array(items) = value else {
-        return Err(format!(
-            "{path}: Invalid input: expected array, received {}",
-            kind(value)
-        ));
+/// The fields the transport reads, from a config `PersistedConfigSchema`
+/// accepted (`allowedHosts` is already folded into `hostnames`).
+fn daemon_fields(config: &JsValue) -> PersistedDaemonConfig {
+    let daemon = config.get("daemon");
+    let field = |name: &str| daemon.and_then(|daemon| daemon.get(name));
+    let strings = |value: Option<&JsValue>| -> Vec<String> {
+        value
+            .and_then(JsValue::as_array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect()
     };
-    items
-        .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            item.as_str().map(str::to_owned).ok_or_else(|| {
-                format!(
-                    "{path}.{index}: Invalid input: expected string, received {}",
-                    kind(item)
-                )
-            })
-        })
-        .collect()
-}
-
-fn kind(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
+    PersistedDaemonConfig {
+        listen: field("listen").and_then(JsValue::as_str).map(str::to_owned),
+        hostnames: field("hostnames").and_then(|value| match value {
+            JsValue::Bool(true) => Some(Hostnames::Any),
+            JsValue::Array(_) => Some(Hostnames::Patterns(strings(Some(value)))),
+            _ => None,
+        }),
+        cors_allowed_origins: strings(field("cors").and_then(|cors| cors.get("allowedOrigins"))),
+        auth_password: field("auth")
+            .and_then(|auth| auth.get("password"))
+            .and_then(JsValue::as_str)
+            .map(str::to_owned),
     }
-}
-
-fn hostnames_field(value: &Value, path: &str) -> Result<Hostnames, String> {
-    match value {
-        Value::Bool(true) => Ok(Hostnames::Any),
-        Value::Array(_) => string_list(value, path).map(Hostnames::Patterns),
-        _ => Err(format!("{path}: Invalid input")),
-    }
-}
-
-fn extract(root: &Value) -> Result<PersistedDaemonConfig, String> {
-    let Value::Object(root) = root else {
-        return Err(format!(
-            ": Invalid input: expected object, received {}",
-            kind(root)
-        ));
-    };
-    let mut config = PersistedDaemonConfig::default();
-    let Some(daemon) = root.get("daemon") else {
-        return Ok(config);
-    };
-    let Value::Object(daemon) = daemon else {
-        return Err(format!(
-            "daemon: Invalid input: expected object, received {}",
-            kind(daemon)
-        ));
-    };
-    if let Some(listen) = daemon.get("listen") {
-        config.listen = Some(
-            listen
-                .as_str()
-                .ok_or_else(|| {
-                    format!(
-                        "daemon.listen: Invalid input: expected string, received {}",
-                        kind(listen)
-                    )
-                })?
-                .to_owned(),
-        );
-    }
-    // `allowedHosts` is the old name; `hostnames` wins when both are present.
-    if let Some(value) = daemon
-        .get("hostnames")
-        .or_else(|| daemon.get("allowedHosts"))
-    {
-        let path = if daemon.contains_key("hostnames") {
-            "daemon.hostnames"
-        } else {
-            "daemon.allowedHosts"
-        };
-        config.hostnames = Some(hostnames_field(value, path)?);
-    }
-    if let Some(cors) = daemon.get("cors") {
-        let Value::Object(cors) = cors else {
-            return Err(format!(
-                "daemon.cors: Invalid input: expected object, received {}",
-                kind(cors)
-            ));
-        };
-        if let Some(origins) = cors.get("allowedOrigins") {
-            config.cors_allowed_origins = string_list(origins, "daemon.cors.allowedOrigins")?;
-        }
-    }
-    if let Some(auth) = daemon.get("auth") {
-        let Value::Object(auth) = auth else {
-            return Err(format!(
-                "daemon.auth: Invalid input: expected object, received {}",
-                kind(auth)
-            ));
-        };
-        if let Some(password) = auth.get("password") {
-            let hash = password.as_str().ok_or_else(|| {
-                format!(
-                    "daemon.auth.password: Invalid input: expected string, received {}",
-                    kind(password)
-                )
-            })?;
-            if !is_bcrypt_hash(hash) {
-                return Err("daemon.auth.password: Expected a bcrypt hash".to_owned());
-            }
-            config.auth_password = Some(hash.to_owned());
-        }
-    }
-    Ok(config)
 }
 
 /// `env.X ?? env.Y` for a string environment value that is present.
@@ -418,30 +312,6 @@ mod tests {
     }
 
     const HASH: &str = "$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234";
-
-    #[test]
-    fn the_bcrypt_pattern_matches_the_baseline_regex() {
-        assert!(is_bcrypt_hash(HASH));
-        assert!(is_bcrypt_hash(&HASH.replace("$2b$", "$2a$")));
-        assert!(is_bcrypt_hash(&HASH.replace("$2b$", "$2y$")));
-        assert!(is_bcrypt_hash(&format!(
-            "$2b$12${}",
-            "./".repeat(25) + "AB1"
-        )));
-        for bad in [
-            "",
-            "x",
-            &HASH.replace("$2b$", "$2x$"),
-            &HASH.replace("$12$", "$1$"),
-            &HASH.replace("$12$", "$ab$"),
-            &format!("{HASH}x"),
-            &HASH[..59],
-            &HASH.replace('Z', "-"),
-            &HASH.replace('Z', "_"),
-        ] {
-            assert!(!is_bcrypt_hash(bad), "{bad:?}");
-        }
-    }
 
     #[test]
     fn an_empty_or_malformed_password_is_a_config_error_not_no_password() {
