@@ -14,6 +14,7 @@ use spocky_daemon::listen::{ListenTarget, parse_listen_string, resolve_listen_ad
 use spocky_daemon::log::JsonLineLogger;
 use spocky_daemon::process::run;
 use spocky_daemon::server_id::get_or_create_server_id;
+use spocky_daemon_app::bootstrap::{ensure_schedule_store_dir, materialize_opencode_bridge_plugin};
 use spocky_daemon_app::codex_agent::CodexAgentClient;
 use spocky_daemon_app::provider::codex_runtime_settings;
 use spocky_daemon_app::session::{DaemonBackend, Services};
@@ -166,6 +167,17 @@ fn main() -> ExitCode {
         },
         on_workspace_created: None,
     });
+
+    // `createAgentProviderRuntime` starts the OpenCode bridge before listening.
+    if let Err(error) = materialize_opencode_bridge_plugin(&paseo_home) {
+        eprintln!("Failed to write the OpenCode bridge plugin: {error}");
+        return ExitCode::from(1);
+    }
+    // `scheduleService.start()`, also before listening.
+    if let Err(error) = ensure_schedule_store_dir(&paseo_home) {
+        eprintln!("Failed to create the schedule store: {error}");
+        return ExitCode::from(1);
+    }
 
     let backend = Arc::new(DaemonBackend::new(Arc::new(Services {
         runtime: runtime.handle().clone(),
