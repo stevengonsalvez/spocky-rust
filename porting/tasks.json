@@ -179,6 +179,8 @@
       "paths": ["crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/", "evidence/phase3/session-interleave-gap.*", "scripts/phase3/session-interleave-gap.sh"],
       "decisions": [
         "2026-10-01 coordinator: port the Node fs rename error text 'EISDIR: illegal operation on a directory, rename <tmp> -> <path>' (code, uv description, syscall, paths) in crates/spocky-store atomic.rs; it reaches createAgent callers; node-verified tests, only temp paths normalized",
+        "2026-10-02 coordinator: provider snapshot manager not ported, off the create path, tracked: replacePluginProviders, mutable provider config, getProviderDiagnostic, validateAgentConfiguration, shutdown",
+        "2026-10-02 coordinator: SEAM AgentClient::get_catalog_cache_key returns a 'static future; lead lands it atomically with any implementor fixes (on main 038a266e only the agent_sdk.rs trait default and test clients define it; no provider crate implements AgentClient)",
         "2026-10-02 coordinator: after the snapshot manager, p3_session owns request 24 (wait_for_agent_run_start), 26b (codex decorateModes in the registry mergeModels) and 25b (try_run_out_of_band); the wiring agent.create glue goes live in one commit with the snapshot manager",
         "2026-10-02 coordinator, G1 blocker: p3_session resumes and ports agent/provider-snapshot-manager.ts (1215 lines: getReadyProvider, refreshProvider, workspace cache, resolveCreateConfig) whole into spocky-session, provider-agnostic, with a differential against the pinned dist; its refresh drives the G1 codex --version probes and the first catalog app-server",
         "2026-10-01 coordinator: BREAKING seam in crates/spocky-session/src/agent_sdk.rs, AbortReason {Value, Error(AgentError)}, so abortMessage sees Error reasons and the default DOMException text 'This operation was aborted'; session writer drafts before and after signatures to the lead; lead lands it in one atomic commit with the provider-codex and daemon-app call-site fixes after the session resend PASS"
@@ -1179,7 +1181,8 @@
           "gap": "Cross-agent same-tick interleaving: node interleaves different agents' handleStreamEvent chains at microtask granularity, while the Rust AgentManager drains each agent's events in turn. CONFIRMED by node-versus-Rust differential (2026-10-02).",
           "status": "OPEN port gap, NOT an accepted exception (coordinator decision 2026-10-02); closes when a cross-agent same-tick differential matches node",
           "reachability": "Unreachable for codex, which runs one app-server pipe per session, so not on G1. Reachable only by a provider that multiplexes sessions on one stream (opencode, plugin providers)",
-          "blocks": ["opencode provider gate", "multiplexing plugin provider gates"],
+          "widened": "2026-10-02 coordinator ruling, same class: provider snapshot manager loads running concurrently across providers, or more than 4 same-provider targets behind p-limit, order their calls by node microtask depth versus Rust task scheduling; each load's own call sequence and counts match",
+          "blocks": ["opencode provider gate", "multiplexing plugin provider gates", "multi-provider gates"],
           "id": "SESSION-INTERLEAVE",
           "detail": "The spocky-session agent manager publishes two agents' same-tick session events in a different cross-agent feed order than pinned Paseo: Paseo's per-agent promise chains interleave at microtask granularity, Rust drains one agent at a time",
           "closingCondition": "cross-agent same-tick differential matches node: scripts/phase3/session-interleave-gap.sh exits 0",
