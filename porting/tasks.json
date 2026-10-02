@@ -1285,6 +1285,26 @@
           "followUps": ["P3 every gate script must pass --include-ignored for the pinned differentials (no scripts/phase3 gate script does yet)", "P3 jiff and node tzdata pairing noted for provider-claude (next batch)"]
         },
         {
+          "lane": "batch (p3_contracts, p3_slice_harness, p3_g1_wiring, p3_session, p4_provider_claude)",
+          "date": "2026-10-02",
+          "integrationHead": "3e41177c",
+          "sourceRanges": [
+            "p3_contracts 2223d54c..9787d89e (1; reviewer 2 PASS, verdicts/p3_contracts-9787d89e.txt): Catch, catchall and issue-code cases",
+            "p3_slice_harness c924ec7c..368f9f7f (12; reviewer 2 PASS, verdicts/p3_slice_harness-368f9f7f.txt): G4 failure, disconnect and cross-daemon home fixtures, socket drop probe, agent-age normalization; c924ec7c, 0db0df03 and 5fc22220 are writer-justified atomic commits (all 12 compile); widened path evidence/phase3/g4-fixtures.md",
+            "p3_g1_wiring 4d173e64..351ae307 (7, original ids; reviewer 1 PASS, verdicts/p3_g1_wiring-351ae307.txt): reply barrier rework, broad ReplyBarrier removed; patch-identical to the rebased a5531825..6ac96866",
+            "p3_session 030d69cf..c1f1b42b (2; reviewer 2 PASS, verdicts/p3_session-c1f1b42b.txt): replaceAgentRun",
+            "p4_provider_claude 89222d13..b2249894 (41): 26 rebased commits patch-identical to the earlier blocked 85083b1..83f4921 plus 15 fixes and the V8 Date.parse port (reviewer 1 PASS, verdicts/p4_provider_claude-b2249894.txt); jiff adds no new lockfile packages"
+          ],
+          "leadVerification": "gated after cargo clean -p for the gated crates: spocky-contracts, spocky-slice-harness, spocky-daemon-app, spocky-session and spocky-provider-claude tests --test-threads=1 --include-ignored (skipping only daemon-app's real-codex test), 322 passed; clippy -D warnings, fmt check, sh -n gate.sh, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "incident": "the first batch-2 gate reused a contracts golden test binary built in the removed integ-b4 worktree (CARGO_MANIFEST_DIR baked in) and failed on missing fixtures; the lead now cleans the gated crates before each gate",
+          "openItems": [
+            "settle_ended_run (agent_create.rs:246) is a 2 s / 5 ms poll standing in for replaceAgentRun; delete it now that p3_session replace_agent_run is on main (wiring switches start_agent_run)",
+            "P3 provider-claude: jiff reads the host tzdb while node reads ICU's bundled tzdata; pair their versions",
+            "P2 provider-claude presentation.rs:85 js_round loses the sign of zero; fix when it moves into spocky_contracts::js",
+            "after provider-claude: p3_contracts moves date_parse and the tool_detail primitives into contracts"
+          ]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
