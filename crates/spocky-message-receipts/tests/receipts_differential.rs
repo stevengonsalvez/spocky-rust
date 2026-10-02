@@ -651,6 +651,175 @@ async fn receipts_match_pinned_build() {
     assert_eq!(actual_normal, expected_normal);
 }
 
+/// `digest({})`, the fingerprint of an empty request, for receipts written by
+/// hand.
+const EMPTY_REQUEST_FINGERPRINT: &str =
+    "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+
+/// The steps that build an old home: deliveries, a failed delivery, receipts
+/// of other agents and request key orders, then receipts damaged or written
+/// by hand. `@F` is [`EMPTY_REQUEST_FINGERPRINT`].
+const OLD_HOME_STEPS: &str = r#"[
+  {"label":"delivered","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","10":1,"2":2,"b":{"y":1,"x":[{"d":1,"c":2}]}},"prepare":{"ops":[]},"send":{"ops":[]}},
+  {"label":"delivery fails after the pending receipt","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"m2","request":{},"send":{"ops":[],"fail":"connection lost"}},
+  {"label":"same message id, another agent","op":"send","instance":"w","dir":"receipts","agentId":"another","messageId":"m1","request":{"text":"hello"},"send":{"ops":[]}},
+  {"label":"keys in another order","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"m3","request":{"z":1,"a":[{"y":1,"x":2}]},"send":{"ops":[]}},
+  {"label":"delivered in another directory","op":"send","instance":"w","dir":"other","agentId":"agent","messageId":"m1","request":{"text":"hello"},"send":{"ops":[]}},
+  {"label":"c1","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c1","request":{},"send":{"ops":[]}},
+  {"label":"c2","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c2","request":{},"send":{"ops":[]}},
+  {"label":"c3","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c3","request":{},"send":{"ops":[]}},
+  {"label":"c4","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c4","request":{},"send":{"ops":[]}},
+  {"label":"c5","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c5","request":{},"send":{"ops":[]}},
+  {"label":"c6","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c6","request":{},"send":{"ops":[]}},
+  {"label":"c7","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c7","request":{},"send":{"ops":[]}},
+  {"label":"c8","op":"send","instance":"w","dir":"receipts","agentId":"agent","messageId":"c8","request":{},"send":{"ops":[]}},
+  {"label":"empty receipt","op":"write","path":{"receipt":["receipts","agent","c1"]},"text":""},
+  {"label":"cut receipt","op":"write","path":{"receipt":["receipts","agent","c2"]},"text":"{\"fingerprint\":\"ab"},
+  {"label":"garbage receipt","op":"write","path":{"receipt":["receipts","agent","c3"]},"text":"not a receipt"},
+  {"label":"wrong shape receipt","op":"write","path":{"receipt":["receipts","agent","c4"]},"text":"{\"fingerprint\":1,\"state\":\"done\"}"},
+  {"label":"array receipt","op":"write","path":{"receipt":["receipts","agent","c5"]},"text":"[]"},
+  {"label":"null receipt","op":"write","path":{"receipt":["receipts","agent","c6"]},"text":"null"},
+  {"label":"byte order mark receipt","op":"write","path":{"receipt":["receipts","agent","c7"]},"text":"﻿{}"},
+  {"label":"invalid UTF-8 receipt","op":"write","path":{"receipt":["receipts","agent","c8"]},"hex":"7b22f09f98222c22ff223a317d"},
+  {"label":"completed receipt by hand","op":"write","path":{"receipt":["receipts","agent","l1"]},"text":"{\"state\":\"completed\",\"extra\":1,\"agentId\":\"agent\",\"fingerprint\":\"@F\"}\n"},
+  {"label":"pending receipt by hand","op":"write","path":{"receipt":["receipts","agent","l2"]},"text":"{\"fingerprint\":\"@F\",\"agentId\":\"agent\",\"state\":\"pending\"}"},
+  {"label":"other fingerprint by hand","op":"write","path":{"receipt":["receipts","agent","l3"]},"text":"{\"fingerprint\":\"0000\",\"agentId\":\"agent\",\"state\":\"completed\"}"},
+  {"label":"receipt path is a directory","op":"mkdir","path":{"receipt":["receipts","agent","d1"]}}
+]"#;
+
+/// The lookups run against a copy of an old home, each from a fresh
+/// instance: the same request and a different one, receipts that are
+/// pending, completed, damaged, or by hand, concurrent duplicates, and ids
+/// the home has never seen.
+const OLD_HOME_PROBES: &str = r#"[
+  {"label":"delivered, same request","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m1","request":{"10":1,"b":{"x":[{"c":2,"d":1}],"y":1},"2":2,"text":"hello"},"send":{"ops":[]}},
+  {"label":"delivered, other request","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"other"},"send":{"ops":[]}},
+  {"label":"concurrent duplicates of a delivered message","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m1","request":{"text":"hello","10":1,"2":2,"b":{"y":1,"x":[{"d":1,"c":2}]}},"send":{"ops":[]},"count":2},
+  {"label":"pending, same request","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m2","request":{},"send":{"ops":[]}},
+  {"label":"pending, other request","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m2","request":{"x":1},"send":{"ops":[]}},
+  {"label":"another agent, same message id","op":"send","instance":"p","dir":"receipts","agentId":"another","messageId":"m1","request":{"text":"hello"},"send":{"ops":[]}},
+  {"label":"keys in another order","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"m3","request":{"a":[{"x":2,"y":1}],"z":1},"send":{"ops":[]}},
+  {"label":"other directory","op":"send","instance":"p","dir":"other","agentId":"agent","messageId":"m1","request":{"text":"hello"},"send":{"ops":[]}},
+  {"label":"empty receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c1","request":{},"send":{"ops":[]}},
+  {"label":"cut receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c2","request":{},"send":{"ops":[]}},
+  {"label":"garbage receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c3","request":{},"send":{"ops":[]}},
+  {"label":"wrong shape receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c4","request":{},"send":{"ops":[]}},
+  {"label":"array receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c5","request":{},"send":{"ops":[]}},
+  {"label":"null receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c6","request":{},"send":{"ops":[]}},
+  {"label":"byte order mark receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c7","request":{},"send":{"ops":[]}},
+  {"label":"invalid UTF-8 receipt","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"c8","request":{},"send":{"ops":[]}},
+  {"label":"completed receipt by hand","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"l1","request":{},"send":{"ops":[]}},
+  {"label":"pending receipt by hand","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"l2","request":{},"send":{"ops":[]}},
+  {"label":"other fingerprint by hand","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"l3","request":{},"send":{"ops":[]}},
+  {"label":"receipt path is a directory","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"d1","request":{},"send":{"ops":[]}},
+  {"label":"unseen message delivers","op":"send","instance":"p","dir":"receipts","agentId":"agent","messageId":"f1","request":{"fresh":true},"prepare":{"ops":[]},"send":{"ops":[]}},
+  {"label":"unseen message again is a duplicate","op":"send","instance":"q","dir":"receipts","agentId":"agent","messageId":"f1","request":{"fresh":true},"send":{"ops":[]}},
+  {"label":"unseen message in an unseen directory","op":"send","instance":"q","dir":"fresh/dir","agentId":"agent","messageId":"f1","request":{"fresh":true},"prepare":{"ops":[]},"send":{"ops":[]}}
+]"#;
+
+/// Copies the contents of `from` into the existing `to`, keeping modes.
+fn copy_home(from: &str, to: &str) {
+    let status = Command::new("cp")
+        .args(["-Rp", &format!("{from}/."), to])
+        .status()
+        .expect("run cp");
+    assert!(status.success(), "cp -Rp {from} {to}");
+}
+
+/// Runs the old-home probes against two copies of `home`, one with node and
+/// one with the Rust port, and returns both outputs, normalized.
+async fn probe_old_home(
+    node: &std::ffi::OsStr,
+    dist: &std::ffi::OsStr,
+    home: &str,
+) -> (String, String) {
+    let probes = parse(OLD_HOME_PROBES).expect("probes are JSON");
+    let (node_guard, node_root) = disposable_root("old-home-node");
+    copy_home(home, &node_root);
+    let expected = run_node(
+        node,
+        NODE_SCRIPT,
+        &[dist, node_root.as_ref(), OLD_HOME_PROBES.as_ref()],
+    );
+    drop(node_guard);
+    let (rust_guard, rust_root) = disposable_root("old-home-rust");
+    copy_home(home, &rust_root);
+    let actual = run_rust(&rust_root, &probes).await;
+    drop(rust_guard);
+    (
+        normalize(&expected, &node_root),
+        normalize(&actual, &rust_root),
+    )
+}
+
+/// The probes did reach every outcome a loaded home can give, so agreeing
+/// on them is not agreeing on nothing.
+fn assert_probes_reach_every_outcome(output: &str) {
+    for needle in [
+        "\"ok\":true",
+        "agent_request_key_conflict",
+        "agent_request_outcome_unknown",
+        "SyntaxError",
+        "ZodError",
+        "EISDIR",
+    ] {
+        assert!(output.contains(needle), "no probe produced {needle}");
+    }
+    let rows = parse(output).expect("rows");
+    assert_eq!(
+        rows.as_array().map(<[JsValue]>::len),
+        parse(OLD_HOME_PROBES)
+            .expect("probes")
+            .as_array()
+            .map(<[JsValue]>::len)
+    );
+}
+
+#[tokio::test]
+async fn a_home_written_by_node_loads_the_same_in_rust() {
+    let Some((node, dist)) = pinned_inputs() else {
+        return;
+    };
+    let steps = OLD_HOME_STEPS.replace("@F", EMPTY_REQUEST_FINGERPRINT);
+    let (writer_guard, writer_root) = disposable_root("old-home-writer-node");
+    run_node(
+        &node,
+        NODE_SCRIPT,
+        &[dist.as_os_str(), writer_root.as_ref(), steps.as_ref()],
+    );
+    let (expected, actual) = probe_old_home(&node, &dist, &writer_root).await;
+    drop(writer_guard);
+    assert_probes_reach_every_outcome(&expected);
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn a_home_written_by_rust_loads_the_same_in_node() {
+    let Some((node, dist)) = pinned_inputs() else {
+        return;
+    };
+    let steps = OLD_HOME_STEPS.replace("@F", EMPTY_REQUEST_FINGERPRINT);
+    let (node_guard, node_writer) = disposable_root("old-home-writer-node");
+    let node_written = run_node(
+        &node,
+        NODE_SCRIPT,
+        &[dist.as_os_str(), node_writer.as_ref(), steps.as_ref()],
+    );
+    let (rust_guard, rust_writer) = disposable_root("old-home-writer-rust");
+    let rust_written = run_rust(&rust_writer, &parse(&steps).expect("steps")).await;
+    // Both writers leave the same home, so the cross reads below start from
+    // the same bytes.
+    assert_eq!(
+        normalize(&rust_written, &rust_writer),
+        normalize(&node_written, &node_writer)
+    );
+    drop(node_guard);
+    let (expected, actual) = probe_old_home(&node, &dist, &rust_writer).await;
+    drop(rust_guard);
+    assert_probes_reach_every_outcome(&expected);
+    assert_eq!(actual, expected);
+}
+
 const ERRNO_SCRIPT: &str = r#"
 const util = await import("node:util");
 const rows = [];
