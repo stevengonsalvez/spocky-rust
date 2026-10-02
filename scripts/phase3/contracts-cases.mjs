@@ -1708,3 +1708,76 @@ CASES.push(
     raw: `{"type":"session","message":{"type":"agent.create.request","requestId":"r","config":{"provider":"codex","cwd":"/c","providerOptions":{"n":${"[".repeat(30)}1e400${"]".repeat(30)}}}}}`,
   },
 );
+
+// G3: resume and refresh. Requests are zod output (shape order, unknown
+// keys stripped); the status frames are the daemon's construction order.
+CASES.push(
+  {
+    id: "session.resume_agent.handle_and_overrides",
+    direction: "inbound",
+    source: "ResumeAgentRequestMessageSchema; AgentSessionConfigSchema.partial()",
+    raw: '{"type":"session","message":{"requestId":"r","overrides":{"title":null,"model":"m","junk":1,"cwd":"/c"},"type":"resume_agent_request","handle":{"metadata":{"k":[1],"__proto__":2},"sessionId":"s","provider":"codex","nativeHandle":"n","junk":1}}}',
+  },
+  {
+    id: "session.resume_agent.null_handle",
+    direction: "inbound",
+    source: "AgentPersistenceHandleSchema is nullable",
+    raw: '{"type":"session","message":{"type":"resume_agent_request","handle":null,"requestId":"r"}}',
+  },
+  {
+    id: "session.resume_agent.reject_missing_handle",
+    direction: "inbound",
+    source: "handle is required even though nullable",
+    raw: '{"type":"session","message":{"type":"resume_agent_request","requestId":"r"}}',
+  },
+  {
+    id: "session.resume_agent.reject_blank_override_title",
+    direction: "inbound",
+    source: "partial() keeps each key's checks",
+    raw: '{"type":"session","message":{"type":"resume_agent_request","handle":{"provider":"codex","sessionId":"s"},"overrides":{"title":"  "},"requestId":"r"}}',
+  },
+  {
+    id: "session.resume_agent.reject_handle_without_session",
+    direction: "inbound",
+    source: "nested handle issues, no string requestId",
+    raw: '{"type":"session","message":{"type":"resume_agent_request","handle":{"provider":1},"requestId":null}}',
+  },
+  {
+    id: "session.refresh_agent.ok",
+    direction: "inbound",
+    source: "RefreshAgentRequestMessageSchema",
+    raw: '{"type":"session","message":{"requestId":"r","junk":true,"agentId":"a","type":"refresh_agent_request"}}',
+  },
+  {
+    id: "session.refresh_agent.reject_missing_agent_id",
+    direction: "inbound",
+    source: "missing required keys",
+    raw: '{"type":"session","message":{"type":"refresh_agent_request"}}',
+  },
+  {
+    id: "out.g3.agent_resumed",
+    direction: "outbound",
+    source: "session.ts:4438-4448",
+    build: (pinned) =>
+      session({
+        type: "status",
+        payload: {
+          status: "agent_resumed",
+          agentId: AGENT_ID,
+          requestId: "r",
+          timelineSize: 3,
+          agent: liveAgent(pinned, { idle: true }),
+        },
+      }),
+  },
+  {
+    id: "out.g3.agent_refreshed",
+    direction: "outbound",
+    source: "session.ts:4585-4594",
+    build: () =>
+      session({
+        type: "status",
+        payload: { status: "agent_refreshed", agentId: AGENT_ID, requestId: "r", timelineSize: 0 },
+      }),
+  },
+);

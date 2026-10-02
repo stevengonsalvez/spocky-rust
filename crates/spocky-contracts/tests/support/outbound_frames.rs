@@ -15,10 +15,10 @@ use spocky_contracts::request::{
 };
 use spocky_contracts::response::{
     AgentCreateResponse, AgentDirectoryEntry, AgentPermissionRequestEvent, AgentPermissionResolved,
-    CancelAgentResponse, FetchAgentResponse, FetchAgentTimelineResponse, FetchAgentsResponse,
-    FetchWorkspacesResponse, PageInfo, SendAgentMessageResponse,
-    SetAgentTimelineSubscriptionResponse, WaitForFinishResponse, WaitStatus,
-    WorkspaceCreateResponse,
+    AgentRefreshedStatus, AgentResumedStatus, CancelAgentResponse, FetchAgentResponse,
+    FetchAgentTimelineResponse, FetchAgentsResponse, FetchWorkspacesResponse, PageInfo,
+    SendAgentMessageResponse, SetAgentTimelineSubscriptionResponse, WaitForFinishResponse,
+    WaitStatus, WorkspaceCreateResponse,
 };
 use spocky_contracts::session::{RpcError, SessionOutbound, SessionPong, StatusPayload};
 use spocky_contracts::snapshot::{
@@ -715,6 +715,21 @@ pub fn frame(id: &str) -> Option<WsOutbound> {
                 agent_id: s(AGENT_ID),
                 request: codex_shell_approval(None, Some(JsRecord::new())),
                 subscription_id: Some(s("sub-1")),
+            }),
+        },
+        "out.g3.agent_resumed" => SessionOutbound::Status {
+            payload: StatusPayload::AgentResumed(Box::new(AgentResumedStatus {
+                agent_id: s(AGENT_ID),
+                request_id: s("r"),
+                timeline_size: 3,
+                agent: live_agent(true),
+            })),
+        },
+        "out.g3.agent_refreshed" => SessionOutbound::Status {
+            payload: StatusPayload::AgentRefreshed(AgentRefreshedStatus {
+                agent_id: s(AGENT_ID),
+                request_id: s("r"),
+                timeline_size: 0,
             }),
         },
         _ => return None,
