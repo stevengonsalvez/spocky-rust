@@ -25,7 +25,7 @@ pub use crate::js_value::array_index;
 /// zod 4 drops an own `__proto__` property from `z.record`, `.passthrough()`
 /// extras, and `z.json()` at any depth, without validating its value.
 pub const PROTO_KEY: &str = "__proto__";
-use crate::js_value::{JsObject, JsTextUnit, JsValue, js_text_units};
+use crate::js_value::{JsObject, JsTextUnit, JsValue, js_text_scalars};
 use crate::number::JsNumber;
 
 /// Any JSON value, written as `JSON.stringify` writes the parsed object.
@@ -447,7 +447,7 @@ impl<'de> Deserializer<'de> for JsValueDeserializer<'_> {
 #[must_use]
 pub fn js_wire_text(serialized: &str) -> String {
     let mut out = String::with_capacity(serialized.len());
-    for unit in js_text_units(serialized) {
+    for unit in js_text_scalars(serialized) {
         match unit {
             JsTextUnit::Char(character) => out.push(character),
             JsTextUnit::LoneSurrogate(unit) => {
