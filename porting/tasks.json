@@ -1225,6 +1225,42 @@
           ]
         },
         {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-02",
+          "sourceRange": "80064007..fc5c0df7 (8 commits, G4 steps 1 and 2): upstream 500 and missing codex differentials",
+          "integrationHead": "3c975479",
+          "review": "integration reviewer 2 PASS (verdicts/p3_provider_codex-fc5c0df7.txt); follow-ups routed to the codex lane",
+          "leadVerification": "gated: spocky-provider-codex 131 passed with SPOCKY_REAL_CODEX=1 --include-ignored (sandboxed) and pinned node and dist, clippy -D warnings (provider-codex, daemon-app), fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-02",
+          "sourceRange": "b3be8fc2..c841ee41 (2 commits, on top of fc5c0df7)",
+          "integrationHead": "landed together with the contracts zod move; main 3af76df4",
+          "review": "integration reviewer 2 PASS (verdicts/p3_provider_codex-c841ee41.txt)"
+        },
+        {
+          "lane": "p3_contracts",
+          "date": "2026-10-02",
+          "sourceRange": "d6721b46..8e8aae70 (9 commits): zod_output moved into spocky_contracts::zod (zod/output.rs), generated creation_schema.rs moved into spocky-contracts, spocky-session switched to them",
+          "integrationHead": "3af76df4; the session writer rebases on it",
+          "review": "integration reviewer 2 PASS (verdicts/p3_contracts-8e8aae70.txt)",
+          "pathsWidened": "for this range only, by coordinator direction: crates/spocky-session/src/creation.rs, crates/spocky-session/src/lib.rs, removal of crates/spocky-session zod_output.rs and creation_schema.rs, scripts/phase3/creation-zod.mjs",
+          "generatorCheck": "2026-10-02 lead, disposable paseo-rewrite clone at 5de45e2 with the harness dist: creation-zod.mjs --check reports creation_schema.rs current; contracts-zod.mjs --check reports zod_schemas.rs and config_schema.rs current; contracts-capture.mjs --check matches 176 cases",
+          "landingOrder": "landed before the next p3_session range, which edits creation.rs and must rebase"
+        },
+        {
+          "lane": "lead_stop_hook",
+          "date": "2026-10-02",
+          "sourceRange": "c3c94260..78d9706b (4 commits): SessionBackend default stop_agents hook; RunningDaemon::stop calls it between server.prepare_for_shutdown() and server.close() (bootstrap.ts stop() 1806-1810); DaemonBackend implements it; the binary's post-run stop_agents is removed, which also puts agent shutdown inside the force-exit window",
+          "integrationHead": "90881646",
+          "review": "reviewer 1 BLOCK on commit hygiene only (split 1a0bd04f); split into a92ddded and 78d9706b; reviewer 2 PASS on the split (verdicts/lead_stop_hook-78d9706b.txt), tree identical to 1a0bd04f",
+          "leadVerification": "scoped checks per commit (daemon 203 passed; daemon-app 48 passed 1 ignored each; clippy, fmt, bin build); landing gate: spocky-daemon plus spocky-daemon-app 252 passed 1 ignored, clippy -D warnings, fmt check, bin build, cargo check --workspace --all-targets",
+          "closes": ["G1 and G3 open deviation: stop-hook seam order", "p3_g1_wiring P3: move stop_agents inside the transport force-exit window"],
+          "note": "start_after_lock carries allow(clippy::too_many_lines) with a reason (101/100 lines after keeping the backend), as other crates do",
+          "followUp": "coordinator triggers a G3 rerun on 90881646"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1444,7 +1480,7 @@
           "leadCheck": "lead recomputed both verdict.json SHA-256s from the evidence directory; both match, both report pass true with 82 rules and empty differing.txt",
           "status": "G1 PASSED",
           "openTrackedDeviations": [
-            "SessionBackend stop-hook seam order: Daemon::stop closes the ws server before agents close; pinned closes agents in between (bootstrap.ts:1806-1809); lead seam after G1",
+            "SessionBackend stop-hook seam order: Daemon::stop closes the ws server before agents close; pinned closes agents in between (bootstrap.ts:1806-1809); lead seam after G1 (CLOSED 2026-10-02: lead seam c3c94260..78d9706b landed as 90881646)",
             "flush stands in for flush_for_shutdown until p3_session request 27 lands (CLOSED 2026-10-02: session request 27 landed in 1346c719 and wiring 76faf23a switched the shutdown path to flush_for_shutdown)",
             "harness partial-order check: content-sorted codex-io hides order differences between distinct records (p3_slice_harness P2)",
             "codex resolveDefaultModeId not exposed by spocky-provider-codex; adapter returns None (before P5)",
@@ -1497,7 +1533,7 @@
           "verification": "coordinator verified the evidence independently; lead recomputed both verdict.json SHA-256s (both match, both pass true with 108 rules and empty differing.txt) and confirmed 2ccf4826..f50f75a9 changes only porting/tasks.json",
           "status": "G3 PASSED",
           "openTrackedDeviations": [
-            "SessionBackend stop-hook seam order (lead seam)",
+            "SessionBackend stop-hook seam order (lead seam; CLOSED by 90881646, G3 rerun pending)",
             "wait_for_finish_response versus agent_update reply interleave barrier",
             "DLOG-001 daemon.log file sink",
             "SESSION-INTERLEAVE cross-agent same-tick ordering",
@@ -1746,7 +1782,7 @@
       "capabilities": ["single zod port: input judging, issue reporting and output order"],
       "dependencies": ["p3_session requests 25 and 26 (zod_output.rs, generated creation_schema.rs) landed on main", "G1 passed"],
       "priority": 3,
-      "state": "blocked: starts right after G1 (coordinator decision 2026-10-02)",
+      "state": "code moved 2026-10-02 (p3_contracts d6721b46..8e8aae70): zod_output and creation_schema now live in spocky-contracts; the corrupt-receipt text gap stays OPEN until a node differential shows the receipt check reporting the ZodError issue list",
       "owner": "p3_session moves its zod code; p3_contracts owns the destination",
       "copies": ["crates/spocky-contracts/src/zod.rs and zod_schemas.rs (issue engine, inbound schemas)", "crates/spocky-session zod_output.rs (zod output-order port) and generated creation_schema.rs"],
       "scope": "Move zod_output and the generated schemas into spocky-contracts beside zod.rs, switch spocky-session to them, delete the session copies, keep every differential green.",
