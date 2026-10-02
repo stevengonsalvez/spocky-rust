@@ -3,7 +3,8 @@
 # then creates a workspace and a codex full-access agent that runs the G1
 # prompt against the loopback Responses stub. It records the
 # fetch_agents_response, agent_update and agent.create.response frames in
-# arrival order. That runs once against the pinned daemon and once against
+# arrival order as the exact wire text (the client's raw payload hook, so key
+# order and unknown keys show). That runs once against the pinned daemon and once against
 # spocky-daemon. Per-run ids, timestamps and root paths are masked, and the
 # two frame sequences must then be byte-identical.
 #
@@ -158,8 +159,14 @@ mask() {
     -e 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<UUID>/g' \
     -e 's/wks_[0-9a-f]+/<WKS>/g' \
     -e 's/prj_[0-9a-f]+/<PRJ>/g' \
+    -e 's/srv_[A-Za-z0-9_-]{12}/<SRV>/g' \
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
+
+# `generateServerId` is srv_ plus 12 base64url characters, which can include
+# - and _.
+[ "$(printf 'x srv_aB-_cD0123xy y\n' | mask /dev/stdin)" = 'x <SRV> y' ] ||
+  { echo "FAIL: mask misses a base64url server id"; exit 1; }
 
 run_side original "$top/original"
 run_side spocky "$top/spocky"
