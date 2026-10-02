@@ -1014,6 +1014,16 @@
         },
         {
           "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "519e7b1d..eaaadd15 (5 commits): provider snapshot manager port (getReadyProvider, refreshProvider, workspace cache, resolveCreateConfig), create agent mode, SEAM 519e7b1d AgentClient::get_catalog_cache_key returns a 'static BoxFuture",
+          "integrationHead": "ddf075fa",
+          "review": "integration reviewer PASS (verdicts/p3_session-eaaadd15.txt)",
+          "seam": "519e7b1d needed no implementor call-site fixes: cargo check --locked --workspace --all-targets was green on the seam commit alone (only the agent_sdk.rs trait default and test clients define the method)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 69 passed, clippy -D warnings (spocky-session, spocky-daemon-app), fmt check, cargo check --workspace --all-targets",
+          "evidenceLimitation": "commits 946f3ffb (create_agent_mode.rs) and 67d90f88 (provider_snapshot_manager.rs) add files compiled only after e4b55ea7 registers them in lib.rs; those intermediates are green only vacuously"
+        },
+        {
+          "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
           "integrationHead": "0d90e37",
