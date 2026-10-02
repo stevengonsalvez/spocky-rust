@@ -1041,6 +1041,8 @@ async fn wait_for_finish(
             }
         };
     }
+    // Updates that would settle this wait go out after its reply.
+    let _reply_pending = context.updates.begin_wait(&agent_id);
     let result =
         wait_with_timeout(context, &agent_id, request.timeout_ms.map(PositiveInt::get)).await;
     let disappeared = || JsText::new(&format!("Agent {agent_id} disappeared while waiting"));
