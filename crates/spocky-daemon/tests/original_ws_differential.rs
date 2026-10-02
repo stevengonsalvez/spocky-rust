@@ -500,14 +500,15 @@ fn websocket_exchanges_match_the_original_daemon() {
                 captured["closed"].as_bool().unwrap(),
                 "{name}: connection {conn} closed by the server"
             );
-            // Fixtures captured before the generator recorded `end` have no such key.
-            if captured.get("end").is_some() {
-                assert_eq!(
-                    *end,
-                    captured["end"].as_str(),
-                    "{name}: connection {conn} ended with a FIN or a reset"
-                );
-            }
+            assert!(
+                captured.get("end").is_some(),
+                "{name}: the fixture records how connection {conn} ended"
+            );
+            assert_eq!(
+                *end,
+                captured["end"].as_str(),
+                "{name}: connection {conn} ended with a FIN or a reset"
+            );
         }
     }
     server.close();
