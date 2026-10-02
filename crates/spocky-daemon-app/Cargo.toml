@@ -8,6 +8,7 @@ rust-version = "1.94"
 [dependencies]
 base64 = "0.22"
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
+sha2 = "0.10.9"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-daemon = { path = "../spocky-daemon" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
@@ -16,7 +17,6 @@ spocky-store = { path = "../spocky-store" }
 tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync"] }
 
 [dev-dependencies]
-sha2 = "0.10.9"
 spocky-provider-codex = { path = "../spocky-provider-codex", features = ["test-hooks"] }
 spocky-slice-harness = { path = "../spocky-slice-harness" }
 tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread", "time"] }
