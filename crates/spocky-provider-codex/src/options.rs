@@ -122,18 +122,20 @@ fn provider_options_schema() -> Schema {
     )
 }
 
-/// `CodexProviderOptionsSchema.parse(providerOptions ?? {})`: the parsed
+/// `CodexProviderOptionsSchema.parse(providerOptions ?? {})`, for the value
+/// `config.providerOptions` holds (any JSON, not only an object): the parsed
 /// output, which holds the schema's keys in the schema's order (zod builds a
 /// new object from its shape), not the input's.
 ///
 /// # Errors
 /// The `ZodError` message pinned throws for options outside the schema.
-pub fn parse_provider_options(
-    options: Option<&Map<String, Value>>,
-) -> Result<Map<String, Value>, String> {
+pub fn parse_provider_options(options: Option<&Value>) -> Result<Map<String, Value>, String> {
     static SCHEMA: OnceLock<Schema> = OnceLock::new();
     let schema = SCHEMA.get_or_init(provider_options_schema);
-    let value = to_js_value(&Value::Object(options.cloned().unwrap_or_default()));
+    let value = match options {
+        None | Some(Value::Null) => to_js_value(&Value::Object(Map::new())),
+        Some(options) => to_js_value(options),
+    };
     match zod::verdict(schema, &value) {
         Verdict::Valid(output) => match serde_json::from_str(&js_value::stringify(&output)) {
             Ok(Value::Object(parsed)) => Ok(parsed),
@@ -155,7 +157,7 @@ mod tests {
     use super::*;
 
     fn parse(value: &Value) -> Result<Map<String, Value>, String> {
-        parse_provider_options(value.as_object())
+        parse_provider_options(Some(value))
     }
 
     #[test]
@@ -166,6 +168,20 @@ mod tests {
             "sandbox_mode": "workspace-write",
             "features": {"network_proxy": {"enabled": true, "domains": {"a.com": "allow"}}},
         });
+        assert_eq!(parse(&options).as_ref(), Ok(options.as_object().unwrap()));
+    }
+
+    #[test]
+    fn null_reads_as_empty_and_other_non_objects_are_rejected() {
+        assert_eq!(parse_provider_options(Some(&Value::Null)), Ok(Map::new()));
+        let message = parse_provider_options(Some(&json!("read-only"))).unwrap_err();
+        assert!(message.contains(r#""code": "invalid_type""#), "{message}");
+        assert!(message.contains(r#""expected": "object""#), "{message}");
+    }
+
+    #[test]
+    fn strings_keep_a_literal_u10ffff() {
+        let options = json!({"sandbox_workspace_write": {"writable_roots": ["a\u{10FFFF}b"]}});
         assert_eq!(parse(&options).as_ref(), Ok(options.as_object().unwrap()));
     }
 

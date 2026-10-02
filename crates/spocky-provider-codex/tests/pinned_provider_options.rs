@@ -282,7 +282,7 @@ fn rust_info(options: Option<&Value>, root: &DisposableRoot) -> Result<String, S
         SessionConfig {
             cwd: root.project(),
             model: Some(MODEL.to_owned()),
-            provider_options: options.and_then(Value::as_object).cloned(),
+            provider_options: options.cloned(),
             ..SessionConfig::default()
         },
         None,

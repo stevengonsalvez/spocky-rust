@@ -77,8 +77,9 @@ pub struct SessionConfig {
     pub feature_values: Option<Map<String, Value>>,
     /// `title?: string | null`, as given.
     pub title: Option<Value>,
-    /// Already validated `CodexProviderOptions`.
-    pub provider_options: Option<Map<String, Value>>,
+    /// `providerOptions?: unknown`, as given: the session constructor parses
+    /// it (`null` and absent read as `{}`; any other non-object is a `ZodError`).
+    pub provider_options: Option<Value>,
     /// `ToolPolicy` (`{ preapproved: [{ server, tool }] }`).
     pub tool_policy: Option<Value>,
     /// `Record<string, McpServerConfig>`.
@@ -88,7 +89,8 @@ pub struct SessionConfig {
 impl SessionConfig {
     /// A config from stored agent metadata merged with overrides, as Paseo
     /// spreads them into `AgentSessionConfig`: strings and objects are taken
-    /// as given, `null` and other types read as absent.
+    /// as given, `null` and other types read as absent. `providerOptions` is the
+    /// exception: it is kept whatever it holds, for the constructor to parse.
     #[must_use]
     pub fn from_json(record: &Map<String, Value>) -> Self {
         let text = |key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -102,7 +104,7 @@ impl SessionConfig {
             thinking_option_id: text("thinkingOptionId"),
             feature_values: object("featureValues"),
             title: record.get("title").cloned(),
-            provider_options: object("providerOptions"),
+            provider_options: record.get("providerOptions").cloned(),
             tool_policy: record
                 .get("toolPolicy")
                 .filter(|policy| !policy.is_null())
@@ -780,7 +782,7 @@ impl CodexSession {
             json!(normalize_thinking(config.thinking_option_id.as_deref())),
         );
         if let Some(options) = &config.provider_options {
-            metadata.insert("providerOptions".to_owned(), Value::Object(options.clone()));
+            metadata.insert("providerOptions".to_owned(), options.clone());
         }
         if let Some(policy) = &config.tool_policy {
             metadata.insert("toolPolicy".to_owned(), policy.clone());
