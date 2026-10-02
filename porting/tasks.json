@@ -1061,6 +1061,23 @@
           "leadVerification": "script and evidence only, no Rust change: sh -n on agent-update-differential.sh, no U+2014; the differential itself was not rerun by the lead"
         },
         {
+          "lane": "p3_provider_codex",
+          "date": "2026-10-02",
+          "sourceRange": "23b0e2d0..ae2f8904 (11 commits): codex launch-probe parity, separate goals and auto-review memo gates, signal-aware probes",
+          "integrationHead": "landed with the harness range below, main d75f7a5e",
+          "review": "integration reviewer PASS; verified by the writer with real codex under the egress-deny sandbox",
+          "leadVerification": "gated: spocky-provider-codex with SPOCKY_REAL_CODEX=1 --include-ignored (sandboxed lane), plus the combined checks below",
+          "openGap": "resolveDefaultModeId not exposed at ae2f8904; recorded on the p3_provider_codex task"
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "64318aac..0eb03bda (3 commits): path-bound rules, one-sided values fail, NOT COMPARED reporting",
+          "integrationHead": "d75f7a5e",
+          "review": "integration reviewer PASS",
+          "leadVerification": "combined gate with the codex range: spocky-provider-codex, spocky-slice-harness and spocky-daemon-app 246 passed 1 ignored (daemon-app real codex, SPOCKY_REAL_CODEX unset there), clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
