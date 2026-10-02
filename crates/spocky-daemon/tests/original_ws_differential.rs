@@ -98,6 +98,10 @@ struct Wire {
     stream: TcpStream,
     received: Arc<Mutex<Vec<u8>>>,
     closed: Arc<AtomicBool>,
+    /// How the server ended the stream: `fin` (end of stream) or `rst`
+    /// (a reset); `None` while open or when this side closed it.
+    end: Arc<Mutex<Option<&'static str>>>,
+    closed_here: Arc<AtomicBool>,
 }
 
 impl Wire {
@@ -105,24 +109,37 @@ impl Wire {
         let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let received = Arc::new(Mutex::new(Vec::new()));
         let closed = Arc::new(AtomicBool::new(false));
+        let end = Arc::new(Mutex::new(None));
+        let closed_here = Arc::new(AtomicBool::new(false));
         let mut reader = stream.try_clone().unwrap();
         let (sink, flag) = (Arc::clone(&received), Arc::clone(&closed));
+        let (kind, local) = (Arc::clone(&end), Arc::clone(&closed_here));
         thread::spawn(move || {
             let mut chunk = [0_u8; 4096];
             loop {
-                match reader.read(&mut chunk) {
-                    Ok(0) | Err(_) => {
-                        flag.store(true, Ordering::SeqCst);
-                        return;
-                    }
-                    Ok(read) => sink.lock().unwrap().extend_from_slice(&chunk[..read]),
+                let result = reader.read(&mut chunk);
+                if let Ok(read) = result
+                    && read > 0
+                {
+                    sink.lock().unwrap().extend_from_slice(&chunk[..read]);
+                    continue;
                 }
+                if !local.load(Ordering::SeqCst) {
+                    *kind.lock().unwrap() = Some(match result {
+                        Ok(_) => "fin",
+                        Err(_) => "rst",
+                    });
+                }
+                flag.store(true, Ordering::SeqCst);
+                return;
             }
         });
         Self {
             stream,
             received,
             closed,
+            end,
+            closed_here,
         }
     }
 }
@@ -204,20 +221,30 @@ fn events(received: &[u8]) -> Vec<Value> {
     }
     let mut out = vec![json!({"t": "head", "text": &text[..end + 4]})];
     let mut rest = &received[end + 4..];
-    while rest.len() >= 2 {
+    while !rest.is_empty() {
+        assert!(
+            rest.len() >= 2,
+            "partial trailing frame header: {rest:02x?}"
+        );
         let opcode = rest[0] & 0x0f;
         let (length, offset) = match rest[1] & 0x7f {
-            126 if rest.len() >= 4 => (usize::from(u16::from_be_bytes([rest[2], rest[3]])), 4),
-            127 if rest.len() >= 10 => (
-                usize::try_from(u64::from_be_bytes(rest[2..10].try_into().unwrap())).unwrap(),
-                10,
-            ),
-            126 | 127 => break,
+            0x7e => {
+                assert!(rest.len() >= 4, "partial 16-bit length");
+                (usize::from(u16::from_be_bytes([rest[2], rest[3]])), 4)
+            }
+            0x7f => {
+                assert!(rest.len() >= 10, "partial 64-bit length");
+                (
+                    usize::try_from(u64::from_be_bytes(rest[2..10].try_into().unwrap())).unwrap(),
+                    10,
+                )
+            }
             short => (usize::from(short), 2),
         };
-        if rest.len() < offset + length {
-            break;
-        }
+        assert!(
+            rest.len() >= offset + length,
+            "partial trailing frame payload"
+        );
         let payload = &rest[offset..offset + length];
         out.push(match opcode {
             0x8 => json!({
@@ -235,7 +262,10 @@ fn events(received: &[u8]) -> Vec<Value> {
     out
 }
 
-fn run(port: u16, steps: &[Value]) -> HashMap<String, (bool, Vec<Value>)> {
+/// What a connection saw: closed by the server, how it ended, and the events.
+type Seen = (bool, Option<&'static str>, Vec<Value>);
+
+fn run(port: u16, steps: &[Value]) -> HashMap<String, Seen> {
     let mut wires: Vec<(String, Wire)> = Vec::new();
     let find = |wires: &Vec<(String, Wire)>, name: &str| {
         wires.iter().position(|(known, _)| known == name).unwrap()
@@ -264,6 +294,13 @@ fn run(port: u16, steps: &[Value]) -> HashMap<String, (bool, Vec<Value>)> {
             "text" => wire
                 .stream
                 .write_all(&encode_frame(0x1, step[2].as_str().unwrap().as_bytes())),
+            "texts" => {
+                let mut bytes = Vec::new();
+                for text in step[2].as_array().unwrap() {
+                    bytes.extend(encode_frame(0x1, text.as_str().unwrap().as_bytes()));
+                }
+                wire.stream.write_all(&bytes)
+            }
             "binary" => wire
                 .stream
                 .write_all(&encode_frame(0x2, &hex_bytes(step[2].as_str().unwrap()))),
@@ -280,6 +317,7 @@ fn run(port: u16, steps: &[Value]) -> HashMap<String, (bool, Vec<Value>)> {
             }
             "raw" => wire.stream.write_all(&hex_bytes(step[2].as_str().unwrap())),
             "destroy" => {
+                wire.closed_here.store(true, Ordering::SeqCst);
                 let _ = wire.stream.shutdown(std::net::Shutdown::Both);
                 wire.closed.store(true, Ordering::SeqCst);
                 Ok(())
@@ -301,12 +339,28 @@ fn run(port: u16, steps: &[Value]) -> HashMap<String, (bool, Vec<Value>)> {
         .into_iter()
         .map(|(name, wire)| {
             let closed = wire.closed.load(Ordering::SeqCst);
+            let end = *wire.end.lock().unwrap();
             let _ = wire.stream.shutdown(std::net::Shutdown::Both);
             thread::sleep(Duration::from_millis(20));
             let received = wire.received.lock().unwrap().clone();
-            (name, (closed, events(&received)))
+            (name, (closed, end, events(&received)))
         })
         .collect()
+}
+
+/// The `hostname` field must occur exactly once in a `server_info` this daemon
+/// sent, so the rewrite below touches that field and nothing else.
+fn assert_hostname_once(event: &Value, local_host: &str) {
+    if event["t"] == "text"
+        && let Some(text) = event["text"].as_str()
+        && text.contains("\"status\":\"server_info\"")
+    {
+        let field = format!(
+            "\"hostname\":{}",
+            serde_json::to_string(local_host).unwrap()
+        );
+        assert_eq!(text.matches(&field).count(), 1, "hostname field in {text}");
+    }
 }
 
 /// `server_info` as captured, with the two allowed differences removed.
@@ -426,7 +480,7 @@ fn websocket_exchanges_match_the_original_daemon() {
         let expected = case["events"].as_object().unwrap();
         assert_eq!(actual.len(), expected.len(), "{name}: connections");
         for (conn, captured) in expected {
-            let (closed, frames) = &actual[conn];
+            let (closed, end, frames) = &actual[conn];
             let want: Vec<Value> = captured["frames"]
                 .as_array()
                 .unwrap()
@@ -435,7 +489,10 @@ fn websocket_exchanges_match_the_original_daemon() {
                 .collect();
             let got: Vec<Value> = frames
                 .iter()
-                .map(|event| normalize(event, &captured_host, &local_host))
+                .map(|event| {
+                    assert_hostname_once(event, &local_host);
+                    normalize(event, &captured_host, &local_host)
+                })
                 .collect();
             assert_eq!(got, want, "{name}: connection {conn}");
             assert_eq!(
@@ -443,6 +500,14 @@ fn websocket_exchanges_match_the_original_daemon() {
                 captured["closed"].as_bool().unwrap(),
                 "{name}: connection {conn} closed by the server"
             );
+            // Fixtures captured before the generator recorded `end` have no such key.
+            if captured.get("end").is_some() {
+                assert_eq!(
+                    *end,
+                    captured["end"].as_str(),
+                    "{name}: connection {conn} ended with a FIN or a reset"
+                );
+            }
         }
     }
     server.close();
