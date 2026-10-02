@@ -897,7 +897,7 @@ fn crate_path(relative: &str) -> PathBuf {
 
 /// The command both clients launch as `codex`: the replay of `scenario` from
 /// `tests/fixtures/<fixture>`, logging what the client sends to `log`.
-fn replay_argv(
+pub fn replay_argv(
     pinned: &PinnedPaseo,
     fixture: &str,
     scenario: &str,
@@ -1100,6 +1100,54 @@ impl PinnedPaseo {
         }
         path
     }
+}
+
+/// Runs a pinned-Node driver (`script`, a path under the crate) with `args`
+/// and no inherited environment beyond `PATH` and a disposable `HOME`, bounded
+/// by `timeout` and killed by its own pid on overrun, with both pipes drained
+/// while it runs. Returns its trimmed stdout and panics when it exits non-zero.
+pub fn run_pinned_node(
+    pinned: &PinnedPaseo,
+    script: &str,
+    args: &[String],
+    root: &DisposableRoot,
+    timeout: Duration,
+) -> String {
+    let mut child = Command::new(&pinned.node)
+        .arg(crate_path(script))
+        .args(args)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", root.join("home"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn pinned node");
+    let drain = |stream: Option<Box<dyn Read + Send>>| {
+        thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut stream) = stream {
+                let _ = stream.read_to_string(&mut text);
+            }
+            text
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|s| Box::new(s) as _));
+    let stderr = drain(child.stderr.take().map(|s| Box::new(s) as _));
+    let deadline = Instant::now() + timeout;
+    while child.try_wait().expect("wait for pinned node").is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{script} exceeded {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let status = child.wait().expect("pinned node status");
+    let (stdout, stderr) = (stdout.join().unwrap(), stderr.join().unwrap());
+    assert!(status.success(), "{script} failed: {stdout}\n{stderr}");
+    stdout.trim().to_owned()
 }
 
 /// Whole-run bound for waiting on a terminal session event in a replay.
