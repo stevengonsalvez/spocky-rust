@@ -77,6 +77,10 @@ pub struct CustomProvider {
     pub extends: String,
 }
 
+/// A caller's abort signal, polled the way Paseo reads `signal.aborted`: true
+/// once the signal has aborted.
+pub type AbortCheck<'a> = &'a (dyn Fn() -> bool + Sync);
+
 /// The resolved executable and leading arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchPrefix {
@@ -222,9 +226,21 @@ fn probe_executable(path: &str, base_env: &[(OsString, OsString)]) -> bool {
 /// `error: ...` on failure.
 #[must_use]
 pub fn resolve_binary_version(binary: &str, base_env: &[(OsString, OsString)]) -> String {
+    resolve_binary_version_abortable(binary, base_env, None)
+}
+
+/// [`resolve_binary_version`] with Paseo's `signal`: an abort kills the probe,
+/// which reports `error: The operation was aborted`.
+#[must_use]
+pub fn resolve_binary_version_abortable(
+    binary: &str,
+    base_env: &[(OsString, OsString)],
+    abort: Option<AbortCheck<'_>>,
+) -> String {
     let mut command = Command::new(binary);
     command.arg("--version");
-    match run_bounded(command, base_env, VERSION_TIMEOUT, 1024 * 1024) {
+    match run_bounded_abortable(command, base_env, VERSION_TIMEOUT, 1024 * 1024, abort) {
+        Ok(outcome) if outcome.aborted => "error: The operation was aborted".to_owned(),
         Ok(outcome) if outcome.status_code == Some(0) && !outcome.timed_out => {
             let trimmed = js_trim(&outcome.stdout);
             if trimmed.is_empty() {
@@ -313,35 +329,49 @@ pub fn probe_goals_enabled(
     })
 }
 
-/// `probeAutoReviewEnabled(signal)`: `resolveCodexLaunchPrefix`, then
-/// `resolveBinaryVersion`, then the 0.115.0 gate. A failure is `false`,
-/// except that a passed `deadline` (Paseo's aborted signal) checked after
-/// the prefix and again at the end returns `None`, as Paseo rethrows
-/// `signal.reason`.
-///
-/// ponytail: Paseo also kills the version exec on abort; here it runs to its
-/// own 5 s bound before the deadline check. Pass the deadline into
-/// `run_bounded` if a late catalog abort must return sooner.
+/// `probeAutoReviewEnabled(signal)`: `resolveCodexLaunchPrefix`,
+/// `signal?.throwIfAborted()`, `resolveBinaryVersion(command, signal)`,
+/// `signal?.throwIfAborted()`, then the 0.115.0 gate. A probe failure is
+/// `false`, but if the signal has aborted by then Paseo rethrows
+/// `signal.reason` instead, which is `None` here for the caller to raise.
+#[must_use]
+pub fn probe_auto_review_abortable(
+    settings: Option<&ProviderRuntimeSettings>,
+    base_env: &[(OsString, OsString)],
+    abort: Option<AbortCheck<'_>>,
+) -> Option<bool> {
+    let aborted = || abort.is_some_and(|check| check());
+    let enabled = match resolve_launch_prefix(settings, base_env) {
+        Ok(prefix) => {
+            if aborted() {
+                return None;
+            }
+            version_at_least(
+                &resolve_binary_version_abortable(&prefix.command, base_env, abort),
+                AUTO_REVIEW_MIN_VERSION,
+            )
+        }
+        Err(_) => false,
+    };
+    (!aborted()).then_some(enabled)
+}
+
+/// [`probe_auto_review_abortable`] for a signal that aborts when `deadline`
+/// passes, which is how the catalog refresh's signal reaches the provider.
 #[must_use]
 pub fn probe_auto_review_enabled(
     settings: Option<&ProviderRuntimeSettings>,
     base_env: &[(OsString, OsString)],
     deadline: Option<Instant>,
 ) -> Option<bool> {
-    let passed = || deadline.is_some_and(|deadline| Instant::now() >= deadline);
-    let enabled = match resolve_launch_prefix(settings, base_env) {
-        Ok(prefix) => {
-            if passed() {
-                return None;
-            }
-            version_at_least(
-                &resolve_binary_version(&prefix.command, base_env),
-                AUTO_REVIEW_MIN_VERSION,
-            )
-        }
-        Err(_) => false,
-    };
-    (!passed()).then_some(enabled)
+    match deadline {
+        Some(deadline) => probe_auto_review_abortable(
+            settings,
+            base_env,
+            Some(&move || Instant::now() >= deadline),
+        ),
+        None => probe_auto_review_abortable(settings, base_env, None),
+    }
 }
 
 /// The env a provider child receives: base env, then `runtimeSettings.env`,
@@ -503,16 +533,30 @@ struct BoundedOutcome {
     stderr: String,
     timed_out: bool,
     overflowed: bool,
+    /// The caller's abort check fired and the child was killed.
+    aborted: bool,
 }
 
 /// Runs a short command with `execFile` semantics: piped output, a timeout
 /// that sends SIGKILL, and a per-stream byte limit that kills the child as
 /// soon as either stream exceeds it.
 fn run_bounded(
+    command: Command,
+    base_env: &[(OsString, OsString)],
+    timeout: Duration,
+    max_buffer: usize,
+) -> std::io::Result<BoundedOutcome> {
+    run_bounded_abortable(command, base_env, timeout, max_buffer, None)
+}
+
+/// [`run_bounded`] that also kills the child when `abort` reports true, as
+/// `execFile`'s `signal` option does.
+fn run_bounded_abortable(
     mut command: Command,
     base_env: &[(OsString, OsString)],
     timeout: Duration,
     max_buffer: usize,
+    abort: Option<AbortCheck<'_>>,
 ) -> std::io::Result<BoundedOutcome> {
     command
         .env_clear()
@@ -532,9 +576,15 @@ fn run_bounded(
         .map(|stream| Capture::start(stream, max_buffer, Arc::clone(&overflow)));
     let deadline = Instant::now() + timeout;
     let mut timed_out = false;
+    let mut aborted = false;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
+        }
+        if abort.is_some_and(|check| check()) {
+            aborted = true;
+            let _ = child.kill();
+            break child.wait()?;
         }
         if overflow.load(Ordering::SeqCst) {
             let _ = child.kill();
@@ -555,6 +605,7 @@ fn run_bounded(
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
         timed_out,
+        aborted,
     })
 }
 
@@ -703,6 +754,7 @@ mod tests {
             stderr: "boom".to_owned(),
             timed_out,
             overflowed: false,
+            aborted: false,
         };
         assert_eq!(
             which_candidates(
@@ -854,6 +906,59 @@ mod tests {
             None
         );
         assert_eq!(logged(&log).len(), 5);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_abort_stops_the_probe_after_the_prefix_and_after_the_version() {
+        let dir = std::env::temp_dir().join(format!("spocky-abort-{}", std::process::id()));
+        let (settings, log) = recording_codex(&dir, "codex-cli 0.159.0");
+        let env = base_env();
+        // Aborted from the start: the prefix probe runs, then
+        // `throwIfAborted` stops before the version probe.
+        assert_eq!(
+            probe_auto_review_abortable(Some(&settings), &env, Some(&|| true)),
+            None
+        );
+        assert_eq!(logged(&log).len(), 1);
+        // Aborted once the version probe has started: both probes ran, and
+        // the abort (which also kills the running probe) still raises.
+        assert_eq!(
+            probe_auto_review_abortable(Some(&settings), &env, Some(&|| logged(&log).len() >= 3)),
+            None
+        );
+        assert_eq!(logged(&log).len(), 1 + 2);
+        // Never aborted: the answer.
+        assert_eq!(
+            probe_auto_review_abortable(Some(&settings), &env, Some(&|| false)),
+            Some(true)
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_abort_kills_a_running_version_probe() {
+        let dir = std::env::temp_dir().join(format!("spocky-abort-kill-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("codex");
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&script)
+            .status()
+            .unwrap();
+        let started = Instant::now();
+        let after = started + Duration::from_millis(300);
+        let version = resolve_binary_version_abortable(
+            &script.to_string_lossy(),
+            &base_env(),
+            Some(&move || Instant::now() >= after),
+        );
+        assert_eq!(version, "error: The operation was aborted");
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "killed, not waited out"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
