@@ -252,7 +252,7 @@
       ],
       "postG1Seams": [
         "OPEN, lead-owned SEAM (2026-10-02): spocky-daemon Daemon::stop (daemon.rs:530-531) calls server.prepare_for_shutdown() then close() with no backend hook, so agents close after the ws server closes; pinned closes them in between (bootstrap.ts:1806-1809). Add a SessionBackend stop hook (session_api.rs:89) called between the two calls, landed atomically with the p3_g1_wiring call site, after G1",
-        "OPEN (2026-10-02): the shutdown path uses flush where pinned uses flushForShutdown; p3_session request 27 ports flush_for_shutdown"
+        "CLOSED (2026-10-02): the shutdown path used flush where pinned uses flushForShutdown; session request 27 and wiring 76faf23a closed it"
       ],
       "notPortedFailLoud": ["worktree targets", "git and worktreeName options", "autoArchive", "agent create with no workspace and no caller", "stale-provider reload retry"],
       "delegation": "forbidden",
@@ -1106,6 +1106,15 @@
           "followUps": ["P3s go to their writers after G2"]
         },
         {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "6599d922..76faf23a (9 commits): G2 outbound authorization, shared startAgentRun and run start wait, replies wait for queued agent updates, send_agent_message_request with message receipts (manifest and lock atomic in d8a90858), G2 permission and cancel client and frame differential, flush_for_shutdown before stop",
+          "integrationHead": "a63d55fd",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-8b44c85a.txt); 6599d922..377ca3c0 patch-identical to the reviewed c098facc..8b44c85a, plus 76faf23a",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-daemon-app 46 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "beforeG2Acceptance": ["P2 the G2 subscriber skips status frames", "P2 the serverInfoFeatures diff is printed, not asserted"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
@@ -1317,7 +1326,7 @@
           "status": "G1 PASSED",
           "openTrackedDeviations": [
             "SessionBackend stop-hook seam order: Daemon::stop closes the ws server before agents close; pinned closes agents in between (bootstrap.ts:1806-1809); lead seam after G1",
-            "flush stands in for flush_for_shutdown until p3_session request 27 lands",
+            "flush stands in for flush_for_shutdown until p3_session request 27 lands (CLOSED 2026-10-02: session request 27 landed in 1346c719 and wiring 76faf23a switched the shutdown path to flush_for_shutdown)",
             "harness partial-order check: content-sorted codex-io hides order differences between distinct records (p3_slice_harness P2)",
             "codex resolveDefaultModeId not exposed by spocky-provider-codex; adapter returns None (before P5)",
             "DLOG-001: no daemon.log file sink",
