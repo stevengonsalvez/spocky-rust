@@ -18,6 +18,7 @@ pub mod history;
 pub mod items;
 pub mod launch;
 pub mod notification;
+pub mod options;
 pub mod session;
 pub mod tools;
 pub mod transport;
