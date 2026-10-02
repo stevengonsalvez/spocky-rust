@@ -122,3 +122,27 @@ Run with these checks (out dir
 | `spocky/frames.jsonl` (raw) | `e2d0eb3becdc2e5b30a98c367da1a1f578eb662de1bee9cc396f097b6ec7ea1e` |
 | `original/masked.jsonl` | `d6b301c11fd83a9431cffc7046fafe62a9d5e153353308b129f0e9a0d92ac958` |
 | `spocky/masked.jsonl` | `d6b301c11fd83a9431cffc7046fafe62a9d5e153353308b129f0e9a0d92ac958` |
+
+## Graceful stop: agents closed before exit
+
+Pinned `bootstrap.ts` `stop()` (lines 1806-1810) runs these between the ws
+server's `prepareForShutdown()` and `close()`:
+
+1. `agentManager.prepareForShutdown()`.
+2. `closeAllAgents` (lines 1862-1878): `closeAgent` per agent, each bounded at
+   5 s, with failures logged.
+3. `agentManager.flushForShutdown()`.
+4. `agentStorage.flush()`.
+
+A closed agent is persisted with `lastStatus: "closed"`. `src/shutdown.rs`
+ports these steps. The binary runs them after the transport's stop returns,
+because the transport has no backend hook between its `prepare_for_shutdown`
+and `close`. They still run inside the 10 s force-exit window. The manager
+flush is `flush()` until `flush_for_shutdown` (request 27) lands.
+
+The agent_update differential now sends each daemon SIGTERM by its recorded
+PID after the client finishes. It compares the one persisted agent record:
+both say `lastStatus: "closed"`, and the masked records are byte-identical.
+Masked record SHA-256:
+`d86e6a3025e3f5a5bf04d6db5860dadf5c66a428b23f244bd130857bcc3a2029` on both
+sides (out dir `scratchpad/au-pkg4`, untracked).
