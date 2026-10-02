@@ -5,6 +5,7 @@
 
 pub mod agent_directory;
 pub mod authorization;
+pub mod bootstrap;
 pub mod codex_agent;
 pub mod provider;
 pub mod request;
