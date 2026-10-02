@@ -30,11 +30,7 @@ fn rust_line(case: &Value) -> Result<String, ()> {
 
 fn pinned_lines(root: &DisposableRoot, corpus: &Path) -> Vec<String> {
     let pinned = support::pinned_paseo();
-    let mapper = pinned
-        .module
-        .parent()
-        .expect("agent providers dir")
-        .join("codex/tool-call-mapper.js");
+    let mapper = pinned.verified_oracle("codex/tool-call-mapper.js");
     let mut child = Command::new(&pinned.node)
         .arg(
             Path::new(env!("CARGO_MANIFEST_DIR"))
