@@ -553,7 +553,10 @@ fn session_value(value: &JsValue, depth: usize) -> Option<Value> {
 
 /// [`Phase`] without borrowing the socket task.
 enum PhaseKind {
-    Pending,
+    /// `authenticating` is `pending.authenticating` in `websocket-server.ts`.
+    Pending {
+        authenticating: bool,
+    },
     Active(Arc<SessionConnection>),
     Done,
 }
@@ -568,6 +571,10 @@ enum Phase {
 struct Pending {
     deadline: Instant,
     admission: Option<SessionAdmission>,
+    /// Set from the moment a hello is accepted for judging until its pending
+    /// state is cleared: every frame that arrives meanwhile, a second hello
+    /// included, is rejected as a message before hello.
+    authenticating: bool,
 }
 
 /// What a frame is, once it passes the inbound schema.
@@ -1246,6 +1253,7 @@ impl SocketTask {
         self.phase = Phase::Pending(Pending {
             deadline: Instant::now() + self.shared.config.timeouts.hello,
             admission: has_header_credential.then(SessionAdmission::owner),
+            authenticating: false,
         });
     }
 
@@ -1435,7 +1443,9 @@ impl SocketTask {
             }
         };
         let phase = match &self.phase {
-            Phase::Pending(_) => PhaseKind::Pending,
+            Phase::Pending(pending) => PhaseKind::Pending {
+                authenticating: pending.authenticating,
+            },
             Phase::Active(connection) => PhaseKind::Active(Arc::clone(connection)),
             Phase::Done => PhaseKind::Done,
         };
@@ -1450,11 +1460,11 @@ impl SocketTask {
                     &serde_json::to_value(WsControlOutbound::Pong).unwrap_or(Value::Null),
                 );
             }
-            (PhaseKind::Pending, Inbound::Control(control)) => match *control {
-                WsControlInbound::Hello(hello) => self.on_hello(&hello),
+            (PhaseKind::Pending { authenticating }, Inbound::Control(control)) => match *control {
+                WsControlInbound::Hello(hello) if !authenticating => self.on_hello(&hello),
                 other => self.reject_pending(type_name(&other)),
             },
-            (PhaseKind::Pending, Inbound::Session(_)) => self.reject_pending("session"),
+            (PhaseKind::Pending { .. }, Inbound::Session(_)) => self.reject_pending("session"),
             (PhaseKind::Active(_), Inbound::Control(control)) => match *control {
                 WsControlInbound::RecordingState { .. } | WsControlInbound::Ping => {}
                 WsControlInbound::Hello(_) => {
@@ -1562,6 +1572,24 @@ impl SocketTask {
         }
     }
 
+    /// Handles the frames already received while a hello was being judged, with
+    /// the connection still `authenticating`: each is rejected as a message
+    /// before hello. Only what has arrived is read; nothing waits.
+    fn reject_frames_received_while_authenticating(&mut self) {
+        let _ = self.ws.get_mut().set_nonblocking(true);
+        while matches!(self.phase, Phase::Pending(_)) {
+            match self.ws.read() {
+                Err(WsError::Io(error)) if is_would_block(&error) => break,
+                result => {
+                    if !self.handle_read(result) {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = self.ws.get_mut().set_nonblocking(false);
+    }
+
     /// `handlePendingConnectionMessage` for anything but a hello.
     fn reject_pending(&mut self, message_type: &str) {
         self.logger().warn(
@@ -1601,10 +1629,19 @@ impl SocketTask {
 
     /// `handleHello`.
     fn on_hello(&mut self, hello: &Hello) {
-        let Phase::Pending(pending) = std::mem::replace(&mut self.phase, Phase::Done) else {
-            return;
+        let preadmitted = match &mut self.phase {
+            Phase::Pending(pending) => {
+                if hello.protocol_version.get() >= 1 {
+                    // `pending.authenticating = true`: from here until the pending
+                    // state is cleared, every frame that arrives is rejected.
+                    pending.authenticating = true;
+                }
+                pending.admission.take()
+            }
+            _ => return,
         };
         if hello.protocol_version.get() < 1 {
+            self.phase = Phase::Done;
             self.logger().warn(
                 &[(
                     "receivedProtocolVersion",
@@ -1615,17 +1652,29 @@ impl SocketTask {
             self.reject_hello(hello, HelloRejectedReason::IncompatibleProtocol);
             return;
         }
-        let admission = if let Some(admission) = pending.admission {
+        let admission = if let Some(admission) = preadmitted {
+            // Admitted by a credential on the upgrade request: nothing is awaited,
+            // so no frame can arrive before the session is attached.
+            self.phase = Phase::Done;
             admission
         } else {
             let local_credential = (self.shared.deps.local_credential)();
-            match resolve_session_admission(
+            let resolved = resolve_session_admission(
                 hello.auth.as_ref(),
                 self.shared.config.password_hash.as_deref(),
                 local_credential.as_deref(),
                 AdmissionTransport::Direct,
                 self.shared.deps.verifier.as_ref(),
-            ) {
+            );
+            // The frames that reached the socket while the credential was being
+            // judged were handled as they arrived in the baseline, and a pending
+            // connection one of them closed ends the hello without a reply.
+            self.reject_frames_received_while_authenticating();
+            if !matches!(self.phase, Phase::Pending(_)) {
+                return;
+            }
+            self.phase = Phase::Done;
+            match resolved {
                 Ok(admission) => admission,
                 Err(failure) => {
                     let reason = match failure {
