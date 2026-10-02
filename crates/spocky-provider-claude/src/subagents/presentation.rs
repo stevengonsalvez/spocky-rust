@@ -80,9 +80,15 @@ fn format_effort(effort: Option<&str>) -> Option<String> {
     )
 }
 
-/// `Math.round(value)`.
+/// `Math.round(value)`: halves round toward +Infinity, and the fraction is
+/// taken from `floor` so `0.49999999999999994` stays `0`.
 fn js_round(value: f64) -> f64 {
-    (value + 0.5).floor()
+    let floor = value.floor();
+    if value - floor >= 0.5 {
+        floor + 1.0
+    } else {
+        floor
+    }
 }
 
 fn format_tokens(total_tokens: Option<f64>) -> Option<String> {
@@ -109,4 +115,21 @@ pub fn build_claude_subagent_subtitle(facts: &PresentationFacts) -> Option<Strin
     .flatten()
     .collect();
     (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::js_round;
+
+    // node: Math.round(0.49999999999999994) is 0, Math.round(-0.5) is -0,
+    // Math.round(2.5) is 3, Math.round(-2.5) is -2.
+    #[test]
+    fn rounding_matches_math_round() {
+        let rounded = |value: f64| js_round(value).to_string();
+        assert_eq!(rounded(0.499_999_999_999_999_94), "0");
+        assert_eq!(rounded(-0.5), "0");
+        assert_eq!(rounded(2.5), "3");
+        assert_eq!(rounded(-2.5), "-2");
+        assert_eq!(rounded(1_999.5), "2000");
+    }
 }
