@@ -367,6 +367,9 @@ async fn create_session_agent(
     } else {
         snapshot.clone()
     };
+    // The run start's state change reaches subscribers before this stale
+    // forward, as the baseline's synchronous dispatch orders them.
+    services.manager.dispatched().await;
     updates.forward_live_agent_and_wait(&snapshot).await;
     agent_payload(&services, &live).await
 }
