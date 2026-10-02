@@ -1174,6 +1174,16 @@
           "followUps": ["P3 only daemon.out.1 and daemon.out.2 are captured"]
         },
         {
+          "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "07076ff6..a414001a (9 commits, G3 stored-agent loading): context-presence test logging (rebased 8d64751e and 2bb2ce51, now reviewed), waitForAgentClose, stored-agent persistence hooks, ensureAgentLoaded matching agent-loading.ts:63-152 step for step, buildStoredAgentPayload, node differentials",
+          "integrationHead": "5d579c83",
+          "review": "integration reviewer PASS (verdicts/p3_session-a414001a.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 71 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "openGap": "OPEN 2026-10-02: a non-ISO Date.parse input differs; fix with one shared V8 Date.parse port in spocky_contracts::js used by spocky-session and spocky-provider-claude",
+          "followUps": ["P3 after the reset: pin the agent-loading.js and persistence-hooks.js digests in the differential PINNED_MODULES", "P3 two unported logger.info lines tracked under DLOG-001"]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
