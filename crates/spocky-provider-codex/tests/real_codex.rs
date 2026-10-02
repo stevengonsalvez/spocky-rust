@@ -8,7 +8,7 @@ use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spocky_provider_codex::{Prompt, RunOptions};
+use spocky_provider_codex::{CodexProvider, Prompt, RunOptions};
 use support::{
     DisposableRoot, Events, Reply, ResponsesStub, full_access_config, manager_full_access_config,
     stub_provider,
@@ -534,5 +534,147 @@ fn real_codex_tests_fail_without_the_opt_in() {
     assert!(
         output.contains("SPOCKY_REAL_CODEX=1 is required to run real-codex tests"),
         "{output}"
+    );
+}
+
+/// The launch log split at the `# phase` markers, as (phase, argv lines).
+fn launch_phases(root: &DisposableRoot) -> Vec<(String, Vec<String>)> {
+    let log = std::fs::read_to_string(root.join(support::CODEX_ARGV_LOG)).expect("argv log");
+    let mut phases: Vec<(String, Vec<String>)> = Vec::new();
+    for line in log.lines() {
+        match line.strip_prefix("# ") {
+            Some(phase) => phases.push((phase.to_owned(), Vec::new())),
+            None => phases
+                .last_mut()
+                .expect("phase marker first")
+                .1
+                .push(line.to_owned()),
+        }
+    }
+    phases
+}
+
+/// Order-free view of a phase whose two branches run concurrently.
+fn sorted(mut launches: Vec<String>) -> Vec<String> {
+    launches.sort();
+    launches
+}
+
+/// Runs the daemon's G1 path on the Rust provider: availability, an
+/// unsignalled catalog, a signalled catalog, availability, then
+/// createAgent and close, marking each phase in the argv log. Returns the
+/// catalog's default model.
+fn run_rust_g1_sequence(root: &DisposableRoot, provider: &CodexProvider) -> String {
+    let phase = |name: &str| {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(root.join(support::CODEX_ARGV_LOG))
+            .and_then(|mut log| writeln!(log, "# {name}"))
+            .expect("phase marker");
+    };
+    phase("is-available");
+    assert_eq!(provider.is_available(), Ok(true));
+    phase("catalog-unsignalled");
+    let catalog = provider
+        .fetch_catalog_signalled(None, false)
+        .expect("unsignalled catalog");
+    phase("catalog-signalled");
+    provider
+        .fetch_catalog_signalled(
+            Some(std::time::Instant::now() + support::CATALOG_TIMEOUT),
+            true,
+        )
+        .expect("signalled catalog");
+    phase("is-available");
+    assert_eq!(provider.is_available(), Ok(true));
+    phase("create-session");
+    let model = spocky_provider_codex::catalog::default_model_id(&catalog).expect("model");
+    let session = provider
+        .create_session(
+            spocky_provider_codex::SessionConfig {
+                model: Some(model.clone()),
+                ..full_access_config(root)
+            },
+            None,
+            false,
+        )
+        .expect("create session");
+    phase("close");
+    session.close().expect("close");
+    model
+}
+
+/// Phases with the concurrent catalog branches put in a fixed order.
+fn comparable(phases: &[(String, Vec<String>)]) -> Vec<(String, Vec<String>)> {
+    phases
+        .iter()
+        .map(|(name, launches)| {
+            let launches = if name.starts_with("catalog") {
+                sorted(launches.clone())
+            } else {
+                launches.clone()
+            };
+            (name.clone(), launches)
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn g1_launch_probes_match_the_pinned_client() {
+    let codex = support::real_codex();
+    let stub = ResponsesStub::start(vec![]);
+    let root = DisposableRoot::new("g1-probes");
+    let provider = stub_provider(&root, &stub, &codex);
+    let model = run_rust_g1_sequence(&root, &provider);
+
+    let version = "--version".to_owned();
+    let catalog_launches = sorted(vec![
+        version.clone(),
+        version.clone(),
+        version.clone(),
+        "app-server".to_owned(),
+    ]);
+    let ours = launch_phases(&root);
+    assert_eq!(
+        comparable(&ours),
+        [
+            ("is-available".to_owned(), vec![version.clone()]),
+            ("catalog-unsignalled".to_owned(), catalog_launches.clone()),
+            ("catalog-signalled".to_owned(), catalog_launches),
+            ("is-available".to_owned(), vec![version.clone()]),
+            (
+                "create-session".to_owned(),
+                vec![
+                    version.clone(),
+                    version.clone(),
+                    version.clone(),
+                    "app-server --enable goals".to_owned(),
+                ]
+            ),
+            ("close".to_owned(), vec![]),
+        ]
+    );
+    for (name, launches) in &ours {
+        if name.starts_with("catalog") {
+            assert_eq!(launches[0], version, "{name}: a prefix probe comes first");
+        }
+    }
+    let probes = ours
+        .iter()
+        .flat_map(|(_, launches)| launches)
+        .filter(|launch| **launch == version)
+        .count();
+    assert_eq!(probes, 11, "pinned makes 11 --version probes on this path");
+
+    // Differential: the pinned client through the same launcher and stub.
+    std::fs::remove_file(root.join(support::CODEX_ARGV_LOG)).expect("reset argv log");
+    support::run_pinned_g1_sequence(&root, &stub, &model);
+    assert_eq!(
+        comparable(&ours),
+        comparable(&launch_phases(&root)),
+        "launch sequence differs from pinned"
     );
 }
