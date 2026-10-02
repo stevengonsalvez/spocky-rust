@@ -1,0 +1,116 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "graceful": {
+  "listening": {
+   "config.json": {
+    "mode": "600",
+    "text": "{\"daemon\":{\"listen\":\"127.0.0.1:56326\",\"relay\":{\"enabled\":false}},\"features\":{\"dictation\":{\"enabled\":false},\"voiceMode\":{\"enabled\":false}}}"
+   },
+   "daemon-keypair.json": {
+    "mode": "600",
+    "text": "{\n  \"v\": 2,\n  \"publicKeyB64\": \"GZGkSObRyZ566ksbGyMsjcN4wLdw5uO78P0WdsVdsQE=\",\n  \"secretKeyB64\": \"KbDVyo0t2aGIuwGUHc7vTpquLkjyxJucvj4YrYcoVuY=\"\n}\n"
+   },
+   "local-credential": {
+    "mode": "600",
+    "text": "KeAwKFeF-lpsYu-A8RMwnl756drO1SCAQ9-tvW0N0ko\n"
+   },
+   "paseo.pid": {
+    "mode": "644",
+    "text": "{\"pid\":14068,\"startedAt\":\"2026-10-02T17:36:21.045Z\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"uid\":501,\"listen\":\"127.0.0.1:56326\",\"heartbeat\":true,\"serverId\":\"srv_H9JDGV-RpCfr\"}"
+   },
+   "runtime": {
+    "directory": true
+   },
+   "schedules": {
+    "directory": true
+   },
+   "server-id": {
+    "mode": "600",
+    "text": "srv_H9JDGV-RpCfr\n"
+   }
+  },
+  "after": {
+   "config.json": {
+    "mode": "600",
+    "text": "{\"daemon\":{\"listen\":\"127.0.0.1:56326\",\"relay\":{\"enabled\":false}},\"features\":{\"dictation\":{\"enabled\":false},\"voiceMode\":{\"enabled\":false}}}"
+   },
+   "daemon-keypair.json": {
+    "mode": "600",
+    "text": "{\n  \"v\": 2,\n  \"publicKeyB64\": \"GZGkSObRyZ566ksbGyMsjcN4wLdw5uO78P0WdsVdsQE=\",\n  \"secretKeyB64\": \"KbDVyo0t2aGIuwGUHc7vTpquLkjyxJucvj4YrYcoVuY=\"\n}\n"
+   },
+   "runtime": {
+    "directory": true
+   },
+   "schedules": {
+    "directory": true
+   },
+   "server-id": {
+    "mode": "600",
+    "text": "srv_H9JDGV-RpCfr\n"
+   }
+  },
+  "lockPid": 14068,
+  "port": 56326
+ },
+ "killed": {
+  "listening": {
+   "config.json": {
+    "mode": "600",
+    "text": "{\"daemon\":{\"listen\":\"127.0.0.1:56420\",\"relay\":{\"enabled\":false}},\"features\":{\"dictation\":{\"enabled\":false},\"voiceMode\":{\"enabled\":false}}}"
+   },
+   "daemon-keypair.json": {
+    "mode": "600",
+    "text": "{\n  \"v\": 2,\n  \"publicKeyB64\": \"/ot/S2i0dCP3NL8qQP1QtKUcxwlYlOSon0a3mYT3jxY=\",\n  \"secretKeyB64\": \"KjINq/LI+8EfLBIVtwihW+wu6N74b8UaRQP3qbi+mpI=\"\n}\n"
+   },
+   "local-credential": {
+    "mode": "600",
+    "text": "sQYeioJv8-HRejsqbEhzptxKqVzGJpwftMoLQd9a1yk\n"
+   },
+   "paseo.pid": {
+    "mode": "644",
+    "text": "{\"pid\":18957,\"startedAt\":\"2026-10-02T17:36:43.448Z\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"uid\":501,\"listen\":\"127.0.0.1:56420\",\"heartbeat\":true,\"serverId\":\"srv_SH85ES0lhK8R\"}"
+   },
+   "runtime": {
+    "directory": true
+   },
+   "schedules": {
+    "directory": true
+   },
+   "server-id": {
+    "mode": "600",
+    "text": "srv_SH85ES0lhK8R\n"
+   }
+  },
+  "after": {
+   "config.json": {
+    "mode": "600",
+    "text": "{\"daemon\":{\"listen\":\"127.0.0.1:56420\",\"relay\":{\"enabled\":false}},\"features\":{\"dictation\":{\"enabled\":false},\"voiceMode\":{\"enabled\":false}}}"
+   },
+   "daemon-keypair.json": {
+    "mode": "600",
+    "text": "{\n  \"v\": 2,\n  \"publicKeyB64\": \"/ot/S2i0dCP3NL8qQP1QtKUcxwlYlOSon0a3mYT3jxY=\",\n  \"secretKeyB64\": \"KjINq/LI+8EfLBIVtwihW+wu6N74b8UaRQP3qbi+mpI=\"\n}\n"
+   },
+   "local-credential": {
+    "mode": "600",
+    "text": "sQYeioJv8-HRejsqbEhzptxKqVzGJpwftMoLQd9a1yk\n"
+   },
+   "paseo.pid": {
+    "mode": "644",
+    "text": "{\"pid\":18957,\"startedAt\":\"2026-10-02T17:36:43.448Z\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"uid\":501,\"listen\":\"127.0.0.1:56420\",\"heartbeat\":true,\"serverId\":\"srv_SH85ES0lhK8R\"}"
+   },
+   "runtime": {
+    "directory": true
+   },
+   "schedules": {
+    "directory": true
+   },
+   "server-id": {
+    "mode": "600",
+    "text": "srv_SH85ES0lhK8R\n"
+   }
+  },
+  "lockPid": 18957,
+  "port": 56420
+ }
+}
