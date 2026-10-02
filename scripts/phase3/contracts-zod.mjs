@@ -46,6 +46,8 @@ const MODELED = new Set([
   "subscription.release.request",
   "agent_permission_response",
   "cancel_agent_request",
+  "resume_agent_request",
+  "refresh_agent_request",
 ]);
 
 // string_format checks, by format and RegExp.prototype.toString(), with the
