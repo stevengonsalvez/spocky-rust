@@ -622,3 +622,89 @@ fn legacy_exec_end_is_authoritative_over_the_command_item() {
         ],
     );
 }
+
+fn patch_begin(call_id: Option<&str>) -> Value {
+    let mut msg = json!({
+        "type": "patch_apply_begin",
+        "changes": {"src/a.ts": {"type": "update", "diff": "@@ -1 +1 @@\n-a\n+b\n"}}
+    });
+    if let Some(call_id) = call_id {
+        msg["call_id"] = json!(call_id);
+    }
+    json!({"threadId": "test-thread", "msg": msg})
+}
+
+// Legacy `codex/event/patch_apply_*`: Paseo maps the call to an `apply_patch`
+// item whose detail is the shared edit-detail branch (not ported here), so a
+// mapped call is recorded as unported and nothing is emitted; a notification
+// without a call id is dropped like Paseo's `null`.
+#[test]
+fn legacy_patch_notifications_are_recorded_unported_not_dropped() {
+    let (session, events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "codex/event/patch_apply_begin",
+        &patch_begin(Some("patch-1")),
+    );
+    notify(
+        &session,
+        "codex/event/patch_apply_end",
+        &json!({"threadId": "test-thread", "msg": {
+            "type": "patch_apply_end", "call_id": "patch-1", "success": true,
+            "changes": {"src/a.ts": {"type": "update", "diff": "@@ -1 +1 @@\n-a\n+b\n"}}
+        }}),
+    );
+    assert!(events.lock().unwrap().is_empty());
+    assert_eq!(
+        session.unported(),
+        ["tool detail branch apply_patch"],
+        "recorded once, for both notifications"
+    );
+
+    let (session, events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "codex/event/patch_apply_begin",
+        &patch_begin(None),
+    );
+    assert!(events.lock().unwrap().is_empty());
+    assert_eq!(session.unported(), Vec::<String>::new());
+}
+
+// Paseo: `patch_apply_begin` clears the call's buffered `file_change_output_delta`
+// text, and `patch_apply_end` consumes it. Both leave nothing behind, so a
+// later call with the same id starts empty.
+#[test]
+fn legacy_patch_notifications_consume_buffered_file_change_output() {
+    let (session, _events) = create_session(Some("test-turn"));
+    notify(
+        &session,
+        "item/fileChange/outputDelta",
+        &json!({"threadId": "test-thread", "itemId": "patch-1", "delta": "partial"}),
+    );
+    notify(
+        &session,
+        "codex/event/patch_apply_end",
+        &json!({"threadId": "test-thread", "msg": {
+            "type": "patch_apply_end", "call_id": "patch-1", "success": true, "changes": {}
+        }}),
+    );
+    assert!(
+        !session.has_buffered_file_change_output("patch-1"),
+        "patch_apply_end consumes the buffer"
+    );
+    notify(
+        &session,
+        "item/fileChange/outputDelta",
+        &json!({"threadId": "test-thread", "itemId": "patch-2", "delta": "partial"}),
+    );
+    notify(
+        &session,
+        "codex/event/patch_apply_begin",
+        &patch_begin(Some("patch-2")),
+    );
+    assert!(
+        !session.has_buffered_file_change_output("patch-2"),
+        "patch_apply_begin clears the buffer"
+    );
+}
