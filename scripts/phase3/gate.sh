@@ -42,8 +42,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$gate" in
-  g1 | g2) ;;
-  *) p3_fail "unsupported gate: $gate (defined gates: g1, g2)" ;;
+  g1 | g2 | g3) ;;
+  *) p3_fail "unsupported gate: $gate (defined gates: g1, g2, g3)" ;;
 esac
 
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-/private/tmp/spocky-targets/p3_slice_harness}
