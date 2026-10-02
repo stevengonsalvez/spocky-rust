@@ -1,14 +1,24 @@
 {
  "node": "v22.20.0",
  "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b"
+  }
+ },
  "serverId": "srv_test",
  "hostname": "Stevens-MacBook-Pro-5.local",
  "version": "0.10.0",
  "ports": {
-  "open": 58961,
-  "secured": 58997
+  "open": 65343,
+  "secured": 65424
  },
- "etag": "W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"",
+ "etag": "W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"",
  "cases": [
   {
    "name": "get_health",
@@ -17,7 +27,7 @@
     "GET /api/health HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-eFUjbqVPbTmoq7YY9QrDiTaGFBQ\"\r\nDate: Thu, 01 Oct 2026 23:19:30 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:30.267Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-uVTwhsn4l+PPqNRPthaCtb5eijo\"\r\nDate: Fri, 02 Oct 2026 18:55:57 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:55:57.740Z\"}"
    ],
    "closed": false
   },
@@ -28,7 +38,7 @@
     "GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-3ckEBDT/eKqdlB1NMEyCkHlLM3E\"\r\nDate: Thu, 01 Oct 2026 23:19:30 GMT\r\nConnection: close\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:30.677Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-oIIRKQbGnmOmq5kPeIrxfFBDn44\"\r\nDate: Fri, 02 Oct 2026 18:55:58 GMT\r\nConnection: close\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:55:58.148Z\"}"
    ],
    "closed": true
   },
@@ -39,7 +49,7 @@
     "GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-ZQuJSP2EY9A0aN6yalVCNCH89J0\"\r\nDate: Thu, 01 Oct 2026 23:19:31 GMT\r\nConnection: close\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:31.085Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-pJYZVrym3E9e+NcB3UJ1/SsUco4\"\r\nDate: Fri, 02 Oct 2026 18:55:58 GMT\r\nConnection: close\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:55:58.555Z\"}"
    ],
    "closed": true
   },
@@ -50,7 +60,7 @@
     "GET /api/health HTTP/1.0\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-Q/E4HV/IY/HfVKjWbZS6HrEqWFs\"\r\nDate: Thu, 01 Oct 2026 23:19:31 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:31.490Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-FIJ1QHA9IPiTQqbZiOPg4VFNJQI\"\r\nDate: Fri, 02 Oct 2026 18:55:58 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:55:58.960Z\"}"
    ],
    "closed": false
   },
@@ -62,8 +72,8 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:31 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}",
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:31 GMT\r\nConnection: close\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:55:59 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}",
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:55:59 GMT\r\nConnection: close\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": true
   },
@@ -76,9 +86,9 @@
     "HEAD /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:32 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}",
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:32 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n",
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:32 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:55:59 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}",
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:55:59 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:55:59 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -89,7 +99,7 @@
     "GET /API/STATUS HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:32 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:00 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -100,7 +110,7 @@
     "GET /api/status/ HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:33 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:00 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": false
   },
@@ -111,7 +121,7 @@
     "GET /api/status// HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 151\r\nDate: Thu, 01 Oct 2026 23:19:33 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/status//</pre>\n</body>\n</html>\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 151\r\nDate: Fri, 02 Oct 2026 18:56:01 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/status//</pre>\n</body>\n</html>\n"
    ],
    "closed": false
   },
@@ -122,7 +132,7 @@
     "GET /Api/Health/ HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:33 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:01 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -133,7 +143,7 @@
     "GET /api/status?x=1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:34 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:01 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": false
   },
@@ -141,10 +151,10 @@
    "name": "if_none_match_hit",
    "secure": false,
    "requests": [
-    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\n\r\n"
+    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:34 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:02 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -155,7 +165,7 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: *\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:35 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:02 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -166,7 +176,7 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"0-x\"\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:35 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:03 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": false
   },
@@ -174,10 +184,10 @@
    "name": "if_none_match_list",
    "secure": false,
    "requests": [
-    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"0-x\", W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\n\r\n"
+    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"0-x\", W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:35 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:03 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -185,10 +195,10 @@
    "name": "if_none_match_strong_form",
    "secure": false,
    "requests": [
-    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: \"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\n\r\n"
+    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: \"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:36 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:03 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -196,10 +206,10 @@
    "name": "if_none_match_and_modified_since",
    "secure": false,
    "requests": [
-    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nIf-Modified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n\r\n"
+    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nIf-Modified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:36 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:04 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": false
   },
@@ -207,10 +217,10 @@
    "name": "if_none_match_no_cache",
    "secure": false,
    "requests": [
-    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nCache-Control: no-cache\r\n\r\n"
+    "GET /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nCache-Control: no-cache\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:37 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58961\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:04 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65343\"}"
    ],
    "closed": false
   },
@@ -218,10 +228,10 @@
    "name": "head_if_none_match_hit",
    "secure": false,
    "requests": [
-    "HEAD /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\n\r\n"
+    "HEAD /api/status HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:37 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 304 Not Modified\r\nX-Powered-By: Express\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:05 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -232,7 +242,7 @@
     "HEAD /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-rBVg1rSmR56c/Tul3e6YAffeS9Q\"\r\nDate: Thu, 01 Oct 2026 23:19:38 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-lkmhjnmOypHg0lek4Ass/3xmkos\"\r\nDate: Fri, 02 Oct 2026 18:56:05 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -243,7 +253,7 @@
     "HEAD /nope HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:38 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:05 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -254,7 +264,7 @@
     "HEAD /api/health HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-9bFivmd+8CqZMT1IUIyIWMYGswA\"\r\nDate: Thu, 01 Oct 2026 23:19:38 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-kQ85JOSP/+3hzMh6Xt4urueHgZs\"\r\nDate: Fri, 02 Oct 2026 18:56:06 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -265,7 +275,7 @@
     "GET /nope HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:39 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:06 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -276,7 +286,7 @@
     "GET /public/x.txt HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 151\r\nDate: Thu, 01 Oct 2026 23:19:39 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /public/x.txt</pre>\n</body>\n</html>\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 151\r\nDate: Fri, 02 Oct 2026 18:56:07 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /public/x.txt</pre>\n</body>\n</html>\n"
    ],
    "closed": false
   },
@@ -287,7 +297,7 @@
     "POST /api/status HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 150\r\nDate: Thu, 01 Oct 2026 23:19:40 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/status</pre>\n</body>\n</html>\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 150\r\nDate: Fri, 02 Oct 2026 18:56:07 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/status</pre>\n</body>\n</html>\n"
    ],
    "closed": false
   },
@@ -298,7 +308,7 @@
     "POST /api/status HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 150\r\nDate: Thu, 01 Oct 2026 23:19:40 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/status</pre>\n</body>\n</html>\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nContent-Security-Policy: default-src 'none'\r\nX-Content-Type-Options: nosniff\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 150\r\nDate: Fri, 02 Oct 2026 18:56:07 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/status</pre>\n</body>\n</html>\n"
    ],
    "closed": false
   },
@@ -309,7 +319,7 @@
     "OPTIONS /anything HTTP/1.1\r\nHost: localhost\r\nOrigin: paseo://app\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: paseo://app\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nDate: Thu, 01 Oct 2026 23:19:40 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: paseo://app\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nDate: Fri, 02 Oct 2026 18:56:08 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -317,10 +327,10 @@
    "name": "options_same_port_origin",
    "secure": false,
    "requests": [
-    "OPTIONS /anything HTTP/1.1\r\nHost: localhost\r\nOrigin: http://localhost:58961\r\n\r\n"
+    "OPTIONS /anything HTTP/1.1\r\nHost: localhost\r\nOrigin: http://localhost:65343\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: http://localhost:58961\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nDate: Thu, 01 Oct 2026 23:19:41 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: http://localhost:65343\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nDate: Fri, 02 Oct 2026 18:56:08 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   },
@@ -328,10 +338,10 @@
    "name": "get_allowed_origin",
    "secure": false,
    "requests": [
-    "GET /api/health HTTP/1.1\r\nHost: localhost\r\nOrigin: http://localhost:58961\r\n\r\n"
+    "GET /api/health HTTP/1.1\r\nHost: localhost\r\nOrigin: http://localhost:65343\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: http://localhost:58961\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-CCwnzZt97MyKMC1lspC4B0gK3+s\"\r\nDate: Thu, 01 Oct 2026 23:19:41 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:41.706Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nAccess-Control-Allow-Origin: http://localhost:65343\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nAccess-Control-Allow-Credentials: true\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-knWWI6kgV6LnZogvGP+VJ2eoJQQ\"\r\nDate: Fri, 02 Oct 2026 18:56:09 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:56:09.225Z\"}"
    ],
    "closed": false
   },
@@ -342,7 +352,7 @@
     "GET /api/health HTTP/1.1\r\nHost: localhost\r\nOrigin: http://evil.example\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-PCSUVbhki+mIdozmaB8krVTk1Yk\"\r\nDate: Thu, 01 Oct 2026 23:19:42 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:42.114Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-N7jUgA8hOpQSf3zMivoUh48LwiA\"\r\nDate: Fri, 02 Oct 2026 18:56:09 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:56:09.633Z\"}"
    ],
    "closed": false
   },
@@ -353,7 +363,7 @@
     "GET /api/health HTTP/1.1\r\nHost: evil.example\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 403 Forbidden\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 31\r\nETag: W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\"\r\nDate: Thu, 01 Oct 2026 23:19:42 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Invalid Host header\"}"
+    "HTTP/1.1 403 Forbidden\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 31\r\nETag: W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\"\r\nDate: Fri, 02 Oct 2026 18:56:10 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Invalid Host header\"}"
    ],
    "closed": false
   },
@@ -364,7 +374,7 @@
     "GET /api/health HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 403 Forbidden\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 31\r\nETag: W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\"\r\nDate: Thu, 01 Oct 2026 23:19:42 GMT\r\nConnection: close\r\n\r\n{\"error\":\"Invalid Host header\"}"
+    "HTTP/1.1 403 Forbidden\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 31\r\nETag: W/\"1f-NqqN66y+wMc2D87EuO28QwDGNws\"\r\nDate: Fri, 02 Oct 2026 18:56:10 GMT\r\nConnection: close\r\n\r\n{\"error\":\"Invalid Host header\"}"
    ],
    "closed": true
   },
@@ -375,7 +385,7 @@
     "GET /api/health HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-8wfRyJSwTv16lF8Smwne/2arnPA\"\r\nDate: Thu, 01 Oct 2026 23:19:43 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-01T23:19:43.337Z\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 54\r\nETag: W/\"36-J32UMfuCmD7xSa0qKuIxy/4ueiQ\"\r\nDate: Fri, 02 Oct 2026 18:56:10 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"ok\",\"timestamp\":\"2026-10-02T18:56:10.853Z\"}"
    ],
    "closed": false
   },
@@ -386,7 +396,7 @@
     "GET /API/HEALTH HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:43 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:11 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -397,7 +407,7 @@
     "GET /api/health/ HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Thu, 01 Oct 2026 23:19:44 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
+    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Fri, 02 Oct 2026 18:56:11 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
    ],
    "closed": false
   },
@@ -408,7 +418,7 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Thu, 01 Oct 2026 23:19:44 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
+    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Fri, 02 Oct 2026 18:56:12 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
    ],
    "closed": false
   },
@@ -419,7 +429,7 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-E0l+3D6waWQkMsNj/291pF/c5co\"\r\nDate: Thu, 01 Oct 2026 23:19:45 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:58997\"}"
+    "HTTP/1.1 200 OK\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 133\r\nETag: W/\"85-JOLwcDpJGYV0OxB4X73lPCWfqxo\"\r\nDate: Fri, 02 Oct 2026 18:56:12 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"status\":\"server_info\",\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"listen\":\"127.0.0.1:65424\"}"
    ],
    "closed": false
   },
@@ -430,7 +440,7 @@
     "GET /API/STATUS HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:45 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:13 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -441,7 +451,7 @@
     "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer wrong\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Thu, 01 Oct 2026 23:19:46 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
+    "HTTP/1.1 401 Unauthorized\r\nX-Powered-By: Express\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: 24\r\nETag: W/\"18-XPDV80vbMk4yY1/PADG4jYM4rSI\"\r\nDate: Fri, 02 Oct 2026 18:56:13 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n{\"error\":\"Unauthorized\"}"
    ],
    "closed": false
   },
@@ -452,7 +462,7 @@
     "GET /nope HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:46 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 404 Not Found\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:13 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 0\r\n\r\n"
    ],
    "closed": false
   },
@@ -463,7 +473,7 @@
     "OPTIONS /nope HTTP/1.1\r\nHost: localhost\r\n\r\n"
    ],
    "responses": [
-    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nDate: Thu, 01 Oct 2026 23:19:47 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
+    "HTTP/1.1 204 No Content\r\nX-Powered-By: Express\r\nDate: Fri, 02 Oct 2026 18:56:14 GMT\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n\r\n"
    ],
    "closed": false
   }
