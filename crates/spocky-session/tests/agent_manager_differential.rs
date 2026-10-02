@@ -319,7 +319,10 @@ const fakeClient = (calls, spec) => ({
     calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
     return new FakeSession(spec, calls);
   },
-  async archiveNativeSession(handle) { calls.push(["archiveNativeSession", handle]); },
+  async archiveNativeSession(handle) {
+    calls.push(["archiveNativeSession", handle]);
+    if (spec.archiveFails) throw new Error("native archive failed");
+  },
   async unarchiveNativeSession(handle) { calls.push(["unarchiveNativeSession", handle]); },
   async fetchCatalog(options, context) { calls.push(["fetchCatalog", options, context === undefined ? "no context" : "context"]); return JSON.parse(catalogJson); },
   async isAvailable() {
@@ -802,8 +805,10 @@ const archive = async () => {
   const afterStored = {};
   for (const [name, id] of Object.entries({ parent: agentId, ...ids })) afterStored[name] = await registry.get(id);
   const byHandleCalls = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
   const byHandleRegistry = new AgentStorage(`${home}/archive-handle`, logger);
-  const byHandle = new AgentManager({ logger, registry: byHandleRegistry, clients: { fake: fakeClient(byHandleCalls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const byHandle = new AgentManager({ logger: warnLogger, registry: byHandleRegistry, clients: { fake: fakeClient(byHandleCalls, spec("fake", { archiveFails: true })) }, providerDefinitions: { fake: { enabled: true } } });
   await byHandle.createAgent({ provider: "fake", cwd }, agentId, { labels: {}, workspaceId: "wks_1" });
   await byHandle.closeAgent(agentId);
   await byHandleRegistry.flush();
@@ -811,7 +816,7 @@ const archive = async () => {
   const handle = (await byHandleRegistry.get(agentId)).persistence;
   const unarchived = await outcome(async () => { await byHandle.unarchiveSnapshotByHandle(handle); return null; });
   await byHandleRegistry.flush();
-  return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls } };
+  return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
 process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), archive: await archive() }));
@@ -850,6 +855,8 @@ struct Spec {
     initial_timeline: Option<JsValue>,
     /// `createSession` resolves after this long.
     create_delay: Option<Duration>,
+    /// `archiveNativeSession` rejects.
+    archive_fails: bool,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -863,6 +870,7 @@ fn spec(provider: &str) -> Spec {
         history: None,
         initial_timeline: None,
         create_delay: None,
+        archive_fails: false,
     }
 }
 
@@ -1248,7 +1256,14 @@ impl AgentClient for FakeClient {
             .lock()
             .expect("calls")
             .push(JsValue::Array(vec![text("archiveNativeSession"), handle]));
-        Some(Box::pin(async { Ok(()) }))
+        let fails = self.spec.archive_fails;
+        Some(Box::pin(async move {
+            if fails {
+                Err(AgentError::new("native archive failed"))
+            } else {
+                Ok(())
+            }
+        }))
     }
     fn unarchive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
         self.calls
@@ -2505,11 +2520,28 @@ async fn archive_scenario(cwd: &str, home: &Path) -> JsValue {
     let after_stored = stored_records(&registry).await;
     let by_handle_calls = Calls::default();
     let by_handle_registry = AgentStorage::new(home.join("archive-handle"));
-    let by_handle = manager_with(
-        &by_handle_calls,
-        &by_handle_registry,
-        vec![(spec("fake"), enabled())],
-    );
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let mut failing = spec("fake");
+    failing.archive_fails = true;
+    let by_handle = AgentManager::new(AgentManagerOptions {
+        clients: vec![(
+            "fake".to_owned(),
+            Arc::new(FakeClient {
+                spec: failing,
+                calls: Arc::clone(&by_handle_calls),
+            }) as Arc<dyn AgentClient>,
+        )],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        registry: Some(by_handle_registry.clone()),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
     by_handle
         .create_agent(
             object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
@@ -2561,6 +2593,10 @@ async fn archive_scenario(cwd: &str, home: &Path) -> JsValue {
                 ("unarchived", unarchived),
                 ("record", by_handle_record),
                 ("calls", JsValue::Array(by_handle_calls)),
+                (
+                    "warns",
+                    JsValue::Array(warns.lock().expect("warns").clone()),
+                ),
             ]),
         ),
     ])
