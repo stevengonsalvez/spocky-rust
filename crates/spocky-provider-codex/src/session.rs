@@ -35,13 +35,14 @@ use crate::items::{
 };
 use crate::launch::{self, CODEX_PROVIDER, CodexGates, CustomProvider, ProviderRuntimeSettings};
 use crate::notification::{ItemSource, ParsedNotification, parse_notification};
+use spocky_contracts::js::js_string as contracts_js_string;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 use crate::tools::{
     ExecNotification, ToolMapping, decode_output_delta_chunk, exec_notification_to_tool_call,
 };
 use crate::transport::{
-    AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, Responder, js_truthy,
+    AppServerClient, ClientError, DEFAULT_REQUEST_TIMEOUT, Responder, js_truthy, to_js_value,
 };
 
 const TURN_START_TIMEOUT: Duration = Duration::from_millis(90 * 1000);
@@ -1883,13 +1884,13 @@ fn upgrade(weak: &Weak<Inner>) -> Option<CodexSession> {
     weak.upgrade().map(|inner| CodexSession { inner })
 }
 
-/// `String(value ?? "")` for the provider-option fallbacks.
+/// `String(value ?? "")` for the provider-option fallbacks: `null` is empty,
+/// anything else is `String(value)` (`spocky_contracts::js`), so an array
+/// joins with commas and a number prints as JavaScript does.
 fn js_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
-        Value::String(text) => text.clone(),
-        Value::Object(_) => "[object Object]".to_owned(),
-        other => other.to_string(),
+        other => contracts_js_string(Some(&to_js_value(other))),
     }
 }
 
@@ -4163,5 +4164,18 @@ mod tests {
             unset_if_empty(Some("gpt-6-astra".to_owned())),
             Some("gpt-6-astra".to_owned())
         );
+    }
+
+    #[test]
+    fn provider_option_text_is_javascript_string_of_the_value() {
+        // `String(value ?? "")`: arrays join with commas and numbers print as
+        // JavaScript prints them, where the old helper wrote their JSON.
+        assert_eq!(js_string(&Value::Null), "");
+        assert_eq!(js_string(&json!("on-request")), "on-request");
+        assert_eq!(js_string(&json!(true)), "true");
+        assert_eq!(js_string(&json!(2.0)), "2");
+        assert_eq!(js_string(&json!(1.5)), "1.5");
+        assert_eq!(js_string(&json!(["a", 1, null, ["b", 2]])), "a,1,,b,2");
+        assert_eq!(js_string(&json!({"a": 1})), "[object Object]");
     }
 }
