@@ -98,3 +98,27 @@ Result on 2026-10-02 (branch `p3-g1-wiring` on main `5ea85994`):
 Both daemons ran under `sandbox-exec` with the egress-deny profile, in tmux on
 the lane socket, on disposable homes and random ports. Only recorded PIDs were
 signalled.
+
+The script checks each side before comparing:
+
+- The stub answered exactly one scripted request, with nothing unscripted.
+- The kernel log holds no sandbox `network-outbound` denial for any PID in
+  the side's process tree. The tree is tracked from the daemon PID, plus each
+  codex invocation's PID.
+
+An exit trap stops the stub, the daemon and the exact tmux session, and
+removes the disposable root, on any failure. The whole run is bounded at 900
+seconds.
+
+Run with these checks (out dir
+`scratchpad/au-pkg3` of this lane's session, untracked):
+
+- original: 1 scripted stub request, no egress from 25 tracked PIDs.
+- spocky: 1 scripted stub request, no egress from 11 tracked PIDs.
+
+| File | SHA-256 |
+|---|---|
+| `original/frames.jsonl` (raw) | `aded18b2c7f5553cc0d4acc9a6e3f81ed011b9d6bc212be70d474102bce339d6` |
+| `spocky/frames.jsonl` (raw) | `e2d0eb3becdc2e5b30a98c367da1a1f578eb662de1bee9cc396f097b6ec7ea1e` |
+| `original/masked.jsonl` | `d6b301c11fd83a9431cffc7046fafe62a9d5e153353308b129f0e9a0d92ac958` |
+| `spocky/masked.jsonl` | `d6b301c11fd83a9431cffc7046fafe62a9d5e153353308b129f0e9a0d92ac958` |
