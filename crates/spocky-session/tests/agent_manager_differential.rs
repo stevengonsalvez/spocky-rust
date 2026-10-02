@@ -453,7 +453,7 @@ const turns = async () => {
   await sleep(100);
   await manager.flush();
   await registry.flush();
-  return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
+  return { results, calls, feed, rows: await manager.getTimelineRows(agentId), stored: await registry.get(agentId) };
 };
 
 const permission = async () => {
@@ -1685,6 +1685,10 @@ async fn turns_scenario(cwd: &str, home: &Path) -> JsValue {
         (
             "rows",
             JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+        (
+            "stored",
+            registry.get(AGENT_ID).await.unwrap_or(JsValue::Null),
         ),
     ])
 }
