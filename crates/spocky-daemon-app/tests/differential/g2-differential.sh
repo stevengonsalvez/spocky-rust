@@ -5,7 +5,7 @@
 #   2. sends a second prompt and denies its approval;
 #   3. sends a third prompt whose reply the stub holds open, then cancels
 #      the turn mid-flight.
-# It records every frame it receives except pings and statuses, plus the
+# It records every frame it receives except pong heartbeats, plus the
 # server_info features. That runs once against the pinned daemon and once
 # against spocky-daemon. Per-run ids, timestamps and root paths are masked.
 #
@@ -13,7 +13,8 @@
 # - each side's stub answered exactly the script's requests, with nothing
 #   left loopback;
 # - the persisted agent record after SIGTERM matches;
-# - the server_info features are printed as a diff;
+# - server_info.features are byte-identical except workspaceLabels, the
+#   tracked OPEN gap DWLABEL-001;
 # - the agent_update stream and the stream of every other frame must each
 #   be byte-identical;
 # - the full interleave of the two streams is compared and reported, and a
@@ -187,7 +188,21 @@ else
   diff "$top/original/agent-record.masked.json" "$top/spocky/agent-record.masked.json" | head -20
   exit 1
 fi
-echo "server_info features diff (original vs spocky):"; diff "$top/original/features.json" "$top/spocky/features.json"
+# server_info.features must be byte-identical. The one tracked exception is
+# workspaceLabels (OPEN gap DWLABEL-001: the workspace-labels service is not
+# ported, so spocky-daemon does not advertise it); any other difference fails.
+for side in original spocky; do
+  jq -S 'del(.workspaceLabels)' "$top/$side/features.json" >"$top/$side/features-compared.json"
+done
+if cmp -s "$top/original/features-compared.json" "$top/spocky/features-compared.json" &&
+  [ "$(jq '.workspaceLabels' "$top/original/features.json")" = true ] &&
+  [ "$(jq '.workspaceLabels' "$top/spocky/features.json")" = null ]; then
+  echo "PASS: server_info.features byte-identical except workspaceLabels (DWLABEL-001)"
+else
+  echo "FAIL: server_info.features differ beyond the tracked workspaceLabels gap"
+  diff "$top/original/features.json" "$top/spocky/features.json"
+  exit 1
+fi
 echo "frames: original $(wc -l <"$top/original/masked.jsonl") spocky $(wc -l <"$top/spocky/masked.jsonl")"
 for side in original spocky; do
   for file in frames.jsonl masked.jsonl agent-record.json agent-record.masked.json; do
