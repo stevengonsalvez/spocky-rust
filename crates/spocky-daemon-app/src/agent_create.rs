@@ -241,8 +241,11 @@ pub(crate) async fn start_agent_run(
 /// preceded the send can reply before that). Pinned settles it with
 /// `replaceAgentRun`; that is not ported, so wait, bounded, for the run to
 /// clear. A run that outlives the bound is refused by the caller.
-// ponytail: waits for the run to end instead of interrupting it; swap for
-// AgentManager::replace_agent_run when the session crate ports it.
+// COMPAT(replaceAgentRun): a stand-in for `replaceAgentRun`, which p3_session
+// is porting (AgentManager::replace_agent_run). It waits for the run to end
+// instead of interrupting it. Delete this function, its call in
+// `start_agent_run` and the in-flight refusal after it when the port lands,
+// and call `replace_agent_run` there.
 async fn settle_ended_run(manager: &Arc<AgentManager>, agent_id: &str) {
     let cleared = async {
         while manager.has_in_flight_run(agent_id) {
