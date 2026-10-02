@@ -30,8 +30,8 @@ case "${1:-}" in
 esac
 [ $# -eq 0 ] || p3_fail "unexpected arguments: $*"
 case "$gate" in
-  g1) ;;
-  *) p3_fail "unsupported gate: $gate (defined gates: g1)" ;;
+  g1 | g2) ;;
+  *) p3_fail "unsupported gate: $gate (defined gates: g1, g2)" ;;
 esac
 
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-/private/tmp/spocky-targets/p3_slice_harness}
