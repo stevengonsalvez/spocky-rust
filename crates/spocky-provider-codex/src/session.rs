@@ -3364,7 +3364,6 @@ fn apply_codex_tool_policy(
     config
 }
 
-/// `resolveModelAndThinking()`.
 /// Every use of the model in pinned `resolveModelAndThinking` is a JavaScript
 /// truthiness check (`!model`, `model ? ... : ...`), so an empty string is
 /// unset, not a model id.
@@ -3372,6 +3371,7 @@ fn unset_if_empty(model: Option<String>) -> Option<String> {
     model.filter(|model| !model.is_empty())
 }
 
+/// `resolveModelAndThinking()`.
 fn resolve_model_and_thinking(
     client: &AppServerClient,
     model: Option<String>,
