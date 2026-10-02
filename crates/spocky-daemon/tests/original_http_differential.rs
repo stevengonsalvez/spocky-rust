@@ -165,6 +165,7 @@ fn http_exchanges_match_the_captured_original_daemon_bytes() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/original-http-vectors.json")).unwrap();
     assert_eq!(fixture["node"], "v22.20.0");
+    common::assert_fixture_provenance(&fixture);
     assert!(
         fixture["original"]
             .as_str()
