@@ -146,7 +146,7 @@ fn main() -> ExitCode {
     let storage = Arc::new(AgentStorage::new(paseo_home.join("agents")));
     runtime.block_on(storage.initialize());
     let snapshots = ProviderSnapshotManager::new(ProviderSnapshotManagerOptions {
-        definitions: vec![codex_snapshot_definition(Arc::clone(&codex))],
+        definitions: vec![codex_snapshot_definition(Arc::clone(&codex), &persisted)],
         refresh_timeout_ms: catalog_refresh_timeout_ms(&persisted),
         home: Some(home.clone()),
     });

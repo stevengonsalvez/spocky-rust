@@ -11,9 +11,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use spocky_contracts::js_value;
+use spocky_contracts::js_value::{self, JsValue};
 use spocky_provider_codex::{ProviderCommand, ProviderRuntimeSettings};
 use spocky_session::agent_sdk::AgentClient;
+use spocky_session::provider_catalog::{
+    RegistryCatalog, registry_fetch_catalog, resolve_configured_models,
+};
 use spocky_session::provider_snapshot_manager::SnapshotProviderDefinition;
 
 const CODEX: &str = "codex";
@@ -78,7 +81,39 @@ const CODEX_MODES: &str = r#"[{"id":"auto","label":"Default Permissions","descri
 ///
 /// Never: `CODEX_MODES` is a JSON literal.
 #[must_use]
-pub fn codex_snapshot_definition(client: Arc<dyn AgentClient>) -> SnapshotProviderDefinition {
+pub fn codex_snapshot_definition(
+    client: Arc<dyn AgentClient>,
+    persisted: &Value,
+) -> SnapshotProviderDefinition {
+    let codex_modes = js_value::parse(CODEX_MODES).expect("CODEX_MODES is JSON");
+    let definition_modes = codex_modes
+        .as_array()
+        .map(<[JsValue]>::to_vec)
+        .unwrap_or_default();
+    // `resolveConfiguredModels(provider, modelClient, override.models)`.
+    let override_models = |key: &str| {
+        let models: Vec<JsValue> = persisted
+            .get("agents")
+            .and_then(|agents| agents.get("providers"))
+            .and_then(|providers| providers.get(CODEX))
+            .and_then(|codex| codex.get(key))
+            .and_then(Value::as_array)
+            .map(|models| {
+                models
+                    .iter()
+                    .filter_map(|model| js_value::parse(&model.to_string()).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        resolve_configured_models(CODEX, client.as_ref(), &models)
+    };
+    let fetch_catalog = registry_fetch_catalog(RegistryCatalog {
+        provider: CODEX.to_owned(),
+        definition_modes,
+        profile_models: override_models("models"),
+        additional_models: override_models("additionalModels"),
+        profile_models_are_additive: false,
+    });
     SnapshotProviderDefinition {
         provider: CODEX.to_owned(),
         enabled: true,
@@ -90,9 +125,9 @@ pub fn codex_snapshot_definition(client: Arc<dyn AgentClient>) -> SnapshotProvid
         ),
         icon_svg: None,
         default_mode_id: Some("auto-review".to_owned()),
-        modes: Some(js_value::parse(CODEX_MODES).expect("CODEX_MODES is JSON")),
+        modes: Some(codex_modes),
         client,
-        fetch_catalog: None,
+        fetch_catalog: Some(fetch_catalog),
         resolve_create_config: None,
         is_create_config_unattended: None,
     }
