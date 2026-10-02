@@ -23,3 +23,4 @@ pub mod stream_coalescer;
 pub mod text;
 pub mod timeline;
 pub mod timeline_content;
+pub mod workspace_descriptor;
