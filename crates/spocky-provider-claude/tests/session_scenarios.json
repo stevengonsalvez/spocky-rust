@@ -1,0 +1,1920 @@
+{
+ "basic": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Hello there"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "hi"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "tool_call": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": "Read",
+        "input": {
+         "file_path": "/tmp/a.txt"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "session_id": "sess-1",
+     "message": {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_1",
+        "content": "file contents"
+       }
+      ]
+     }
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "done"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "read a file"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "history"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "bash_tool": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_b",
+        "name": "Bash",
+        "input": {
+         "command": "ls -la",
+         "description": "list"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "session_id": "sess-1",
+     "message": {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_b",
+        "content": "total 0"
+       }
+      ]
+     }
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_e",
+        "name": "Edit",
+        "input": {
+         "file_path": "/tmp/x.ts",
+         "old_string": "a",
+         "new_string": "b"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "session_id": "sess-1",
+     "message": {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_e",
+        "content": "ok",
+        "is_error": true
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "run things"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "streaming": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "stream_event",
+     "session_id": "sess-1",
+     "parent_tool_use_id": null,
+     "event": {
+      "type": "message_start",
+      "message": {
+       "id": "msg-1",
+       "role": "assistant"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "session_id": "sess-1",
+     "parent_tool_use_id": null,
+     "event": {
+      "type": "content_block_start",
+      "index": 0,
+      "content_block": {
+       "type": "text",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "session_id": "sess-1",
+     "parent_tool_use_id": null,
+     "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+       "type": "text_delta",
+       "text": "Hel"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "session_id": "sess-1",
+     "parent_tool_use_id": null,
+     "event": {
+      "type": "content_block_delta",
+      "index": 0,
+      "delta": {
+       "type": "text_delta",
+       "text": "lo"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "session_id": "sess-1",
+     "parent_tool_use_id": null,
+     "event": {
+      "type": "content_block_stop",
+      "index": 0
+     }
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "Hello"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "stream"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "thinking": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "thinking",
+        "thinking": "hmm",
+        "signature": "s"
+       },
+       {
+        "type": "text",
+        "text": "answer"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "think"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "error_result": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "result",
+     "subtype": "error_during_execution",
+     "is_error": true,
+     "errors": [
+      "boom"
+     ],
+     "usage": {
+      "input_tokens": 1,
+      "output_tokens": 1
+     },
+     "session_id": "sess-1",
+     "uuid": "res-e"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "fail"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "stream_ends": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "partial"
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "die"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "emitEnd"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "two_turns": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "one"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ],
+   [
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "two"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-2"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "run",
+    "prompt": "first"
+   },
+   {
+    "op": "run",
+    "prompt": "second"
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "blocks_prompt": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "look"
+     },
+     {
+      "type": "image",
+      "data": "AAAA",
+      "mimeType": "image/png"
+     }
+    ]
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "interrupt": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "interrupt"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "interrupt_then_turn": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ],
+   [
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "again"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-2"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "interrupt"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "next"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "steer": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ],
+   [
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "steered"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-2"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "steer",
+    "prompt": "change course",
+    "options": {
+     "expectedTurnId": "foreground-turn-1"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "steer_wrong_turn": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "steer",
+    "prompt": "x",
+    "options": {
+     "expectedTurnId": "nope"
+    }
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "modes": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "setMode",
+    "mode": "plan"
+   },
+   {
+    "op": "setMode",
+    "mode": "acceptEdits"
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "setMode",
+    "mode": "bogus"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "model_thinking": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "hi"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "setModel",
+    "model": "claude-sonnet-5-5"
+   },
+   {
+    "op": "setThinking",
+    "option": "high"
+   },
+   {
+    "op": "setFeature",
+    "id": "fast_mode",
+    "value": true
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "commands": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "listCommands"
+   },
+   {
+    "op": "close"
+   }
+  ],
+  "commands": [
+   {
+    "name": "compact",
+    "description": "Compact",
+    "argumentHint": "<focus>"
+   },
+   {
+    "name": "review",
+    "description": "Review",
+    "argumentHint": ""
+   }
+  ]
+ },
+ "permission_allow": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_b",
+        "name": "Bash",
+        "input": {
+         "command": "rm x"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "do"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "Bash",
+    "input": {
+     "command": "rm x"
+    },
+    "toolUseID": "toolu_b",
+    "suggestions": []
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "respondPermission",
+    "index": 0,
+    "response": {
+     "behavior": "allow"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "permission_deny": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_b",
+        "name": "Bash",
+        "input": {
+         "command": "rm x"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "do"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "Bash",
+    "input": {
+     "command": "rm x"
+    },
+    "toolUseID": "toolu_b"
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "respondPermission",
+    "index": 0,
+    "response": {
+     "behavior": "deny",
+     "message": "no way",
+     "interrupt": true
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 80
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "permission_abort": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "do"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "Write",
+    "input": {
+     "file_path": "/tmp/a",
+     "content": "x"
+    },
+    "toolUseID": "toolu_w"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "abortCanUseTool",
+    "index": 0
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "permission_close": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "do"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "Bash",
+    "input": {
+     "command": "ls"
+    },
+    "toolUseID": "toolu_c"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "close"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   }
+  ]
+ },
+ "exit_plan_mode": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "plan"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "ExitPlanMode",
+    "input": {
+     "plan": "1. do it"
+    },
+    "toolUseID": "toolu_p"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "respondPermission",
+    "index": 0,
+    "response": {
+     "behavior": "allow"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "rewind_files": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "hi"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "revertFiles",
+    "messageId": "u-1"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "rewind_command": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ],
+   []
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "hi"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "run",
+    "prompt": "/rewind"
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "slash_compact": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "system",
+     "subtype": "status",
+     "status": "compacting",
+     "session_id": "sess-1"
+    },
+    {
+     "type": "system",
+     "subtype": "compact_boundary",
+     "compact_metadata": {
+      "trigger": "manual",
+      "pre_tokens": 100
+     },
+     "session_id": "sess-1"
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "/compact"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ],
+  "commands": [
+   {
+    "name": "compact",
+    "description": "Compact",
+    "argumentHint": ""
+   }
+  ]
+ },
+ "autonomous": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "seed"
+   },
+   {
+    "op": "wait",
+    "ms": 60
+   },
+   {
+    "op": "emit",
+    "message": {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "op": "emit",
+    "message": {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "seed answer"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "op": "emit",
+    "message": {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "emit",
+    "message": {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-9",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "background wake"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "op": "emit",
+    "message": {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-9"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 100
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "subagent_task": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_t",
+        "name": "Task",
+        "input": {
+         "description": "inspect",
+         "prompt": "look",
+         "subagent_type": "general-purpose"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "child text"
+       }
+      ]
+     },
+     "parent_tool_use_id": "toolu_t"
+    },
+    {
+     "type": "user",
+     "session_id": "sess-1",
+     "message": {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_t",
+        "content": "child done"
+       }
+      ]
+     }
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-3",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "final"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "delegate"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "close"
+   }
+  ]
+ }
+}
