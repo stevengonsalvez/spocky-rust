@@ -3479,6 +3479,18 @@ impl CodexProvider {
         }
     }
 
+    /// `resolveDefaultModeId(input)`: `auto-review` when
+    /// `resolveAutoReviewEnabled(input.signal)` is true, else `auto`.
+    /// `signal_present` is whether the input carries a signal: with one the
+    /// auto-review probe is fresh, without it the memo is used.
+    pub fn resolve_default_mode_id(&self, signal_present: bool) -> &'static str {
+        if self.resolve_auto_review_enabled(signal_present) {
+            "auto-review"
+        } else {
+            DEFAULT_CODEX_MODE_ID
+        }
+    }
+
     /// `resolveGoalsEnabled()`: probed on first use, then memoized.
     fn resolve_goals_enabled(&self) -> bool {
         *self.goals_enabled.get_or_init(|| {
@@ -4090,6 +4102,10 @@ mod tests {
         );
         assert!(provider.resolve_auto_review_enabled(true));
         assert_eq!(probes(&log), 11, "a signal still probes afresh");
+        assert_eq!(provider.resolve_default_mode_id(false), "auto-review");
+        assert_eq!(probes(&log), 11, "no signal: the memo answers");
+        assert_eq!(provider.resolve_default_mode_id(true), "auto-review");
+        assert_eq!(probes(&log), 13, "a signal probes afresh");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
