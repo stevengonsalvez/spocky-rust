@@ -14,7 +14,10 @@
 //! set from `spocky-contracts`, since Rust `char::is_whitespace` differs.
 
 use serde_json::{Map, Value, json};
-use spocky_contracts::text::{is_js_whitespace, js_trim};
+use spocky_contracts::js_value::array_index;
+use spocky_contracts::text::{is_js_whitespace, js_length, js_trim};
+
+use crate::transport::js_truthy;
 
 /// Result of mapping a Codex tool item or envelope.
 #[derive(Debug, Clone, PartialEq)]
@@ -792,10 +795,20 @@ fn command_execution_to_tool_call(item: &Map<String, Value>) -> ToolMapping {
 }
 
 /// `mapCodexToolCallFromThreadItem(item, { cwd })` for a normalized item.
+///
+/// A `fileChange` item that passes Paseo's item schema maps to its
+/// `apply_patch` envelope (see [`map_file_change_item`]), but its timeline
+/// detail is Paseo's shared edit-detail branch, which lives in
+/// `spocky_contracts::tool_detail` once it lands, so the item is unported
+/// here. An item the schema rejects is skipped, as Paseo returns `null`.
 #[must_use]
 pub fn tool_call_from_thread_item(item: &Map<String, Value>, item_type: &str) -> ToolMapping {
     match item_type {
         "commandExecution" => command_execution_to_tool_call(item),
+        "fileChange" => match map_file_change_item(item, None) {
+            Ok(None) => ToolMapping::Skip,
+            Ok(Some(_)) | Err(_) => ToolMapping::Unported("thread item fileChange".to_owned()),
+        },
         other => ToolMapping::Unported(format!("thread item {other}")),
     }
 }
@@ -963,6 +976,563 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     output
+}
+
+// ---------------------------------------------------------------------------
+// fileChange items: `mapFileChangeItem` and the apply_patch text helpers of
+// `codex/tool-call-mapper.ts`, `normalizeCodexFilePath`
+// (`codex/tool-call-detail-parser.ts`), and `stripCwdPrefix`
+// (`@getpaseo/protocol/path-utils`).
+// ---------------------------------------------------------------------------
+
+/// `truncateDiffText`'s default limit, in UTF-16 code units.
+const DIFF_TRUNCATE_CHARS: usize = 12_000;
+
+/// A diff text longer than `truncateDiffText`'s 12,000 UTF-16 units. Paseo
+/// would cut it and append a marker; that function is one of the shared
+/// primitives that move to `spocky_contracts::tool_detail`, so a longer text
+/// is reported as unported here instead of being cut by a second copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffTruncationUnported;
+
+/// `truncateDiffText(text)` for a text within its limit.
+fn within_diff_limit(text: &str) -> Result<String, DiffTruncationUnported> {
+    if js_length(text) > DIFF_TRUNCATE_CHARS {
+        Err(DiffTruncationUnported)
+    } else {
+        Ok(text.to_owned())
+    }
+}
+
+/// `String.prototype.trimStart`.
+fn js_trim_start(text: &str) -> &str {
+    text.trim_start_matches(is_js_whitespace)
+}
+
+/// `text.split(/\r?\n/)`.
+fn split_js_lines(text: &str) -> Vec<&str> {
+    let mut parts: Vec<&str> = text.split('\n').collect();
+    let last = parts.len().saturating_sub(1);
+    for part in &mut parts[..last] {
+        if let Some(stripped) = part.strip_suffix('\r') {
+            *part = stripped;
+        }
+    }
+    parts
+}
+
+/// `looksLikeUnifiedDiff`.
+fn looks_like_unified_diff(text: &str) -> bool {
+    let normalized = js_trim_start(text);
+    !normalized.is_empty()
+        && (normalized.starts_with("diff --git")
+            || normalized.starts_with("@@")
+            || normalized.starts_with("--- ")
+            || normalized.starts_with("+++ "))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatchDirectiveKind {
+    Add,
+    Update,
+    Delete,
+}
+
+/// `parseCodexApplyPatchDirective`.
+fn parse_apply_patch_directive(line: &str) -> Option<(PatchDirectiveKind, String)> {
+    let trimmed = js_trim(line);
+    for (prefix, kind) in [
+        ("*** Add File:", PatchDirectiveKind::Add),
+        ("*** Update File:", PatchDirectiveKind::Update),
+        ("*** Delete File:", PatchDirectiveKind::Delete),
+    ] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return Some((kind, js_trim(rest).to_owned()));
+        }
+    }
+    None
+}
+
+/// `looksLikeCodexApplyPatch`.
+fn looks_like_codex_apply_patch(text: &str) -> bool {
+    let normalized = js_trim_start(text);
+    if normalized.is_empty() {
+        return false;
+    }
+    if normalized.starts_with("*** Begin Patch") {
+        return true;
+    }
+    split_js_lines(text)
+        .into_iter()
+        .any(|line| parse_apply_patch_directive(line).is_some())
+}
+
+/// `normalizeDiffHeaderPath`: trim, then drop a run of quotes at each end.
+fn normalize_diff_header_path(raw: &str) -> String {
+    let is_quote = |character: char| character == '"' || character == '\'';
+    js_trim(raw)
+        .trim_start_matches(is_quote)
+        .trim_end_matches(is_quote)
+        .to_owned()
+}
+
+/// `codexApplyPatchToUnifiedDiff`.
+fn codex_apply_patch_to_unified_diff(text: &str) -> String {
+    let normalized_text = text.replace("\r\n", "\n");
+    let mut output: Vec<String> = Vec::new();
+    let mut saw_diff_content = false;
+    for line in normalized_text.split('\n') {
+        if let Some((kind, raw_path)) = parse_apply_patch_directive(line) {
+            let path = normalize_diff_header_path(&raw_path);
+            if !path.is_empty() {
+                if output.last().is_some_and(|last| !last.is_empty()) {
+                    output.push(String::new());
+                }
+                let left = if kind == PatchDirectiveKind::Add {
+                    "/dev/null".to_owned()
+                } else {
+                    format!("a/{path}")
+                };
+                let right = if kind == PatchDirectiveKind::Delete {
+                    "/dev/null".to_owned()
+                } else {
+                    format!("b/{path}")
+                };
+                output.push(format!("diff --git a/{path} b/{path}"));
+                output.push(format!("--- {left}"));
+                output.push(format!("+++ {right}"));
+                saw_diff_content = true;
+            }
+            continue;
+        }
+        let trimmed = js_trim(line);
+        if trimmed == "*** Begin Patch"
+            || trimmed == "*** End Patch"
+            || trimmed == "*** End of File"
+            || trimmed.starts_with("*** Move to:")
+        {
+            continue;
+        }
+        if line.starts_with("@@")
+            || line.starts_with('+')
+            || line.starts_with('-')
+            || line.starts_with(' ')
+            || line.starts_with("\\ No newline at end of file")
+        {
+            output.push(line.to_owned());
+            saw_diff_content = true;
+        }
+    }
+    if !saw_diff_content {
+        return text.to_owned();
+    }
+    let normalized = js_trim(&output.join("\n")).to_owned();
+    if normalized.is_empty() {
+        text.to_owned()
+    } else {
+        normalized
+    }
+}
+
+/// `contentToDeletionDiff`, including its `lines.indexOf(l)` filter: an empty
+/// line is kept only when the first empty line is not the last element.
+fn content_to_deletion_diff(file_path: &str, content: &str) -> String {
+    let normalized = content.replace("\r\n", "\n");
+    let lines: Vec<&str> = normalized.split('\n').collect();
+    let first_empty = lines.iter().position(|line| line.is_empty());
+    let kept: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| !line.is_empty() || first_empty.is_some_and(|first| first + 1 < lines.len()))
+        .collect();
+    let mut output = vec![
+        format!("diff --git a/{file_path} b/{file_path}"),
+        format!("--- a/{file_path}"),
+        "+++ /dev/null".to_owned(),
+    ];
+    if !kept.is_empty() {
+        output.push(format!("@@ -1,{} +0,0 @@", kept.len()));
+        output.extend(kept.iter().map(|line| format!("-{line}")));
+    }
+    output.join("\n")
+}
+
+/// `classifyDiffLikeText`: `(isDiff, text)`.
+fn classify_diff_like_text(text: &str) -> (bool, String) {
+    if looks_like_unified_diff(text) {
+        return (true, text.to_owned());
+    }
+    if looks_like_codex_apply_patch(text) {
+        return (true, codex_apply_patch_to_unified_diff(text));
+    }
+    (false, text.to_owned())
+}
+
+/// `asEditTextFields`: at most one of the two fields is set.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct EditTextFields {
+    unified_diff: Option<String>,
+    new_string: Option<String>,
+}
+
+impl EditTextFields {
+    fn is_empty(&self) -> bool {
+        self.unified_diff.is_none() && self.new_string.is_none()
+    }
+}
+
+fn as_edit_text_fields(text: Option<&str>) -> Result<EditTextFields, DiffTruncationUnported> {
+    let Some(text) = text.filter(|text| !text.is_empty()) else {
+        return Ok(EditTextFields::default());
+    };
+    let (is_diff, classified) = classify_diff_like_text(text);
+    if is_diff {
+        return Ok(EditTextFields {
+            unified_diff: Some(within_diff_limit(&classified)?),
+            new_string: None,
+        });
+    }
+    Ok(EditTextFields {
+        unified_diff: None,
+        new_string: Some(text.to_owned()),
+    })
+}
+
+/// `asEditFileOutputFields`: `(patch, content)`, at most one set.
+fn as_edit_file_output_fields(
+    text: Option<&str>,
+) -> Result<(Option<String>, Option<String>), DiffTruncationUnported> {
+    let Some(text) = text.filter(|text| !text.is_empty()) else {
+        return Ok((None, None));
+    };
+    let (is_diff, classified) = classify_diff_like_text(text);
+    if is_diff {
+        return Ok((Some(within_diff_limit(&classified)?), None));
+    }
+    Ok((None, Some(text.to_owned())))
+}
+
+/// `CodexFileChangeEntry`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileChangeEntry {
+    path: String,
+    kind: Option<String>,
+    diff: Option<String>,
+}
+
+/// `stripCwdPrefix(filePath, cwd)`.
+fn strip_cwd_prefix(file_path: &str, cwd: &str) -> String {
+    if cwd.is_empty() || file_path.is_empty() {
+        return file_path.to_owned();
+    }
+    let normalized_cwd = cwd.replace('\\', "/");
+    let normalized_cwd = normalized_cwd.trim_end_matches('/');
+    let normalized_path = file_path.replace('\\', "/");
+    let prefix = format!("{normalized_cwd}/");
+    if let Some(rest) = normalized_path.strip_prefix(&prefix) {
+        return rest.to_owned();
+    }
+    if normalized_path == normalized_cwd {
+        return ".".to_owned();
+    }
+    file_path.to_owned()
+}
+
+/// `normalizeCodexFilePath(filePath, cwd)`.
+fn normalize_codex_file_path(file_path: &str, cwd: Option<&str>) -> Option<String> {
+    if file_path.is_empty() {
+        return None;
+    }
+    match cwd {
+        Some(cwd) if !cwd.is_empty() => Some(strip_cwd_prefix(file_path, cwd)),
+        _ => Some(file_path.to_owned()),
+    }
+}
+
+/// A string field that is non-empty after trimming, trimmed.
+fn trimmed_non_empty<'a>(entry: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    match entry.get(key) {
+        Some(Value::String(text)) if !js_trim(text).is_empty() => Some(js_trim(text)),
+        _ => None,
+    }
+}
+
+/// `parseFileChangePath`.
+fn parse_file_change_path(
+    entry: &Map<String, Value>,
+    cwd: Option<&str>,
+    fallback_path: Option<&str>,
+) -> Option<String> {
+    let raw = trimmed_non_empty(entry, "path")
+        .or_else(|| trimmed_non_empty(entry, "file_path"))
+        .or_else(|| trimmed_non_empty(entry, "filePath"))
+        .or_else(|| fallback_path.map(js_trim).filter(|path| !path.is_empty()))?;
+    normalize_codex_file_path(raw, cwd)
+}
+
+/// A non-empty string value of `key`.
+fn non_empty_string_field<'a>(entry: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    non_empty_str(entry.get(key))
+}
+
+/// `parseFileChangeKind`: a non-empty string `kind`, else a non-empty string
+/// `type`. Codex 0.159.0 sends `kind` as an object, which gives `None`.
+fn parse_file_change_kind(entry: &Map<String, Value>) -> Option<String> {
+    non_empty_string_field(entry, "kind")
+        .or_else(|| non_empty_string_field(entry, "type"))
+        .map(str::to_owned)
+}
+
+/// `parseFileChangeDiff`: `pickFirstPatchLikeString`.
+fn parse_file_change_diff(entry: &Map<String, Value>) -> Option<String> {
+    [
+        "diff",
+        "patch",
+        "unified_diff",
+        "unifiedDiff",
+        "content",
+        "newString",
+    ]
+    .into_iter()
+    .find_map(|key| non_empty_string_field(entry, key))
+    .map(str::to_owned)
+}
+
+/// `toFileChangeEntry`.
+fn to_file_change_entry(
+    entry: &Map<String, Value>,
+    cwd: Option<&str>,
+    fallback_path: Option<&str>,
+) -> Option<FileChangeEntry> {
+    let path = parse_file_change_path(entry, cwd, fallback_path)?;
+    Some(FileChangeEntry {
+        path,
+        kind: parse_file_change_kind(entry),
+        diff: parse_file_change_diff(entry),
+    })
+}
+
+/// `Object.entries(map)` order: array-index keys ascending, then the rest in
+/// insertion order.
+fn js_entries(map: &Map<String, Value>) -> Vec<(&String, &Value)> {
+    let mut indexed: Vec<(u32, &String, &Value)> = Vec::new();
+    let mut named: Vec<(&String, &Value)> = Vec::new();
+    for (key, value) in map {
+        match array_index(key) {
+            Some(index) => indexed.push((index, key, value)),
+            None => named.push((key, value)),
+        }
+    }
+    indexed.sort_by_key(|(index, _, _)| *index);
+    indexed
+        .into_iter()
+        .map(|(_, key, value)| (key, value))
+        .chain(named)
+        .collect()
+}
+
+/// `parseFileChangeEntries(changes, options)`.
+fn parse_file_change_entries(changes: &Value, cwd: Option<&str>) -> Vec<FileChangeEntry> {
+    if !js_truthy(changes) {
+        return Vec::new();
+    }
+    if let Value::Array(entries) = changes {
+        return entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Value::Object(record) => to_file_change_entry(record, cwd, None),
+                _ => None,
+            })
+            .collect();
+    }
+    let Value::Object(record) = changes else {
+        return Vec::new();
+    };
+    if let Some(files @ Value::Array(_)) = record.get("files") {
+        return parse_file_change_entries(files, cwd);
+    }
+    if let Some(single) = to_file_change_entry(record, cwd, None) {
+        return vec![single];
+    }
+    js_entries(record)
+        .into_iter()
+        .filter_map(|(path, value)| match value {
+            Value::Object(entry) => to_file_change_entry(entry, cwd, Some(path)),
+            Value::String(diff) => {
+                let path = normalize_codex_file_path(js_trim(path), cwd)?;
+                Some(FileChangeEntry {
+                    path,
+                    kind: None,
+                    diff: Some(diff.clone()),
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// `resolveFileChangeTextFields`.
+fn resolve_file_change_text_fields(
+    file: Option<&FileChangeEntry>,
+) -> Result<EditTextFields, DiffTruncationUnported> {
+    let Some(file) = file else {
+        return Ok(EditTextFields::default());
+    };
+    if file.kind.as_deref() == Some("delete") {
+        let unified = match file.diff.as_deref().filter(|diff| !diff.is_empty()) {
+            Some(diff) => {
+                let (is_diff, classified) = classify_diff_like_text(diff);
+                if is_diff {
+                    within_diff_limit(&classified)?
+                } else {
+                    within_diff_limit(&content_to_deletion_diff(&file.path, diff))?
+                }
+            }
+            None => content_to_deletion_diff(&file.path, ""),
+        };
+        return Ok(EditTextFields {
+            unified_diff: Some(unified),
+            new_string: None,
+        });
+    }
+    as_edit_text_fields(file.diff.as_deref())
+}
+
+/// `CodexNormalizedToolCallEnvelope` as `mapFileChangeItem` builds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileChangeEnvelope {
+    pub call_id: String,
+    pub name: &'static str,
+    pub input: Value,
+    pub output: Value,
+    pub status: &'static str,
+    pub error: Value,
+    pub cwd: Value,
+}
+
+impl FileChangeEnvelope {
+    /// The envelope as Paseo's object literal orders it.
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        json!({
+            "callId": self.call_id,
+            "name": self.name,
+            "input": self.input,
+            "output": self.output,
+            "status": self.status,
+            "error": self.error,
+            "cwd": self.cwd,
+        })
+    }
+}
+
+/// `CodexFileChangeItemSchema`: a non-empty string `id` and an optional
+/// string `status`; `error` and `changes` are anything.
+fn file_change_item_ok(item: &Map<String, Value>) -> bool {
+    non_empty_str(item.get("id")).is_some()
+        && matches!(item.get("status"), None | Some(Value::String(_)))
+}
+
+/// `toNullableObject`.
+fn nullable_object(map: Map<String, Value>) -> Value {
+    if map.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(map)
+    }
+}
+
+/// `mapFileChangeItem(item, { cwd })` after `CodexThreadItemSchema` accepted
+/// `item`. `Ok(None)` is the schema rejecting the item (Paseo then returns
+/// `null`); `Err` is a diff text over the `truncateDiffText` limit.
+///
+/// # Errors
+/// Returns [`DiffTruncationUnported`] when a diff text is longer than 12,000
+/// UTF-16 units.
+pub fn map_file_change_item(
+    item: &Map<String, Value>,
+    cwd: Option<&str>,
+) -> Result<Option<FileChangeEnvelope>, DiffTruncationUnported> {
+    if !file_change_item_ok(item) {
+        return Ok(None);
+    }
+    let files = item
+        .get("changes")
+        .map(|changes| parse_file_change_entries(changes, cwd))
+        .unwrap_or_default();
+    let file_ref = |file: &FileChangeEntry, extra: Option<(&str, String)>| {
+        let mut entry = Map::new();
+        entry.insert("path".to_owned(), json!(file.path));
+        if let Some(kind) = &file.kind {
+            entry.insert("kind".to_owned(), json!(kind));
+        }
+        if let Some((key, value)) = extra {
+            entry.insert(key.to_owned(), json!(value));
+        }
+        Value::Object(entry)
+    };
+
+    let mut input = Map::new();
+    if !files.is_empty() {
+        let refs: Vec<Value> = files.iter().map(|file| file_ref(file, None)).collect();
+        input.insert("files".to_owned(), Value::Array(refs));
+    }
+
+    let mut output = Map::new();
+    if !files.is_empty() {
+        let mut entries = Vec::new();
+        for file in &files {
+            let extra = if file.kind.as_deref() == Some("delete") {
+                resolve_file_change_text_fields(Some(file))?
+                    .unified_diff
+                    .map(|patch| ("patch", patch))
+            } else {
+                let (patch, content) = as_edit_file_output_fields(file.diff.as_deref())?;
+                patch
+                    .map(|patch| ("patch", patch))
+                    .or_else(|| content.map(|content| ("content", content)))
+            };
+            entries.push(file_ref(file, extra));
+        }
+        output.insert("files".to_owned(), Value::Array(entries));
+    }
+    let output = nullable_object(output);
+
+    let error = match item.get("error") {
+        None | Some(Value::Null) => Value::Null,
+        Some(error) => error.clone(),
+    };
+    let status = normalize_tool_call_status(
+        item.get("status").and_then(Value::as_str),
+        Some(&error),
+        Some(&output),
+    );
+    let first_file = files.first();
+    let first_text = resolve_file_change_text_fields(first_file)?;
+    if !first_text.is_empty() {
+        if let Some(first) = first_file {
+            input.insert("path".to_owned(), json!(first.path));
+        }
+        if let Some(patch) = &first_text.unified_diff {
+            input.insert("patch".to_owned(), json!(patch));
+        }
+        if let Some(content) = &first_text.new_string {
+            input.insert("content".to_owned(), json!(content));
+        }
+    }
+    Ok(Some(FileChangeEnvelope {
+        call_id: item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        name: "apply_patch",
+        input: nullable_object(input),
+        output,
+        status,
+        error,
+        cwd: cwd.map_or(Value::Null, |cwd| json!(cwd)),
+    }))
 }
 
 #[cfg(test)]
@@ -1186,6 +1756,123 @@ mod tests {
         assert_eq!(
             tool_call_from_thread_item(&record, "fileChange"),
             ToolMapping::Unported("thread item fileChange".to_owned())
+        );
+    }
+
+    fn record(value: &Value) -> &Map<String, Value> {
+        value.as_object().expect("object")
+    }
+
+    #[test]
+    fn strip_cwd_prefix_follows_path_utils() {
+        assert_eq!(strip_cwd_prefix("/w/p/a.txt", "/w/p"), "a.txt");
+        assert_eq!(strip_cwd_prefix("/w/p/a.txt", "/w/p///"), "a.txt");
+        assert_eq!(strip_cwd_prefix("C:\\w\\p\\a.txt", "C:/w/p"), "a.txt");
+        assert_eq!(strip_cwd_prefix("/w/p", "/w/p/"), ".");
+        assert_eq!(strip_cwd_prefix("/other/a.txt", "/w/p"), "/other/a.txt");
+        assert_eq!(strip_cwd_prefix("/w/p/a.txt", ""), "/w/p/a.txt");
+    }
+
+    #[test]
+    fn apply_patch_text_converts_to_a_unified_diff() {
+        let patch = "*** Begin Patch\n*** Add File: 'a.txt'\n+hi\n*** Update File: b.txt\n@@\n-x\n+y\n*** End Patch\n";
+        assert_eq!(
+            codex_apply_patch_to_unified_diff(patch),
+            "diff --git a/a.txt b/a.txt\n--- /dev/null\n+++ b/a.txt\n+hi\n\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@\n-x\n+y"
+        );
+        assert_eq!(codex_apply_patch_to_unified_diff("plain"), "plain");
+    }
+
+    #[test]
+    fn deletion_diff_keeps_pasteds_empty_line_quirk() {
+        // `lines.indexOf("")` is the first empty line, so empty lines stay
+        // unless that first one is the last element.
+        assert_eq!(
+            content_to_deletion_diff("f", "a\n\nb\n"),
+            "diff --git a/f b/f\n--- a/f\n+++ /dev/null\n@@ -1,4 +0,0 @@\n-a\n-\n-b\n-"
+        );
+        assert_eq!(
+            content_to_deletion_diff("f", ""),
+            "diff --git a/f b/f\n--- a/f\n+++ /dev/null"
+        );
+        assert_eq!(
+            content_to_deletion_diff("f", "a"),
+            "diff --git a/f b/f\n--- a/f\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-a"
+        );
+    }
+
+    #[test]
+    fn recorded_codex_patch_item_maps_to_its_envelope() {
+        // The shape real codex 0.159.0 sends: `kind` is an object, so no kind.
+        let item = json!({
+            "type": "fileChange", "id": "call_patch", "status": "inProgress",
+            "changes": [{"path": "/w/outside.txt", "kind": {"type": "add"}, "diff": "hi\n"}]
+        });
+        let envelope = map_file_change_item(record(&item), Some("/w/project"))
+            .expect("within limit")
+            .expect("valid item");
+        assert_eq!(
+            serde_json::to_string(&envelope.to_json()).unwrap(),
+            r#"{"callId":"call_patch","name":"apply_patch","input":{"files":[{"path":"/w/outside.txt"}],"path":"/w/outside.txt","content":"hi\n"},"output":{"files":[{"path":"/w/outside.txt","content":"hi\n"}]},"status":"running","error":null,"cwd":"/w/project"}"#
+        );
+    }
+
+    #[test]
+    fn file_change_entries_cover_every_changes_shape() {
+        let entries = |changes: Value| parse_file_change_entries(&changes, Some("/w"));
+        assert_eq!(entries(json!(null)), []);
+        assert_eq!(entries(json!("text")), []);
+        let paths = |entries: Vec<FileChangeEntry>| -> Vec<String> {
+            entries.into_iter().map(|entry| entry.path).collect()
+        };
+        assert_eq!(
+            paths(entries(
+                json!([{"file_path": "/w/a"}, {"filePath": " /w/b "}, 3])
+            )),
+            ["a", "b"]
+        );
+        assert_eq!(paths(entries(json!({"files": [{"path": "/w/a"}]}))), ["a"]);
+        assert_eq!(paths(entries(json!({"path": "/w/a", "diff": "x"}))), ["a"]);
+        // Keyed by path; array-index keys come first, as `Object.entries`.
+        assert_eq!(
+            paths(entries(
+                json!({"/w/z": "zz", "10": "t", "2": {"diff": "d"}, "/w/y": {"diff": "y"}, "k": 1})
+            )),
+            ["2", "10", "z", "y"]
+        );
+    }
+
+    #[test]
+    fn invalid_file_change_items_are_skipped_and_long_diffs_are_unported() {
+        for item in [
+            json!({"type": "fileChange", "id": "", "changes": []}),
+            json!({"type": "fileChange", "changes": []}),
+            json!({"type": "fileChange", "id": "x", "status": null}),
+            json!({"type": "fileChange", "id": "x", "status": 3}),
+        ] {
+            assert_eq!(
+                map_file_change_item(record(&item), None),
+                Ok(None),
+                "{item}"
+            );
+            assert_eq!(
+                tool_call_from_thread_item(record(&item), "fileChange"),
+                ToolMapping::Skip
+            );
+        }
+        let long = json!({
+            "type": "fileChange", "id": "x",
+            "changes": [{"path": "a", "diff": "+".repeat(12_001), "kind": "update"}]
+        });
+        // `+++ ` makes this look like a diff, so truncation applies.
+        let long_diff = json!({
+            "type": "fileChange", "id": "x",
+            "changes": [{"path": "a", "diff": format!("@@\n{}", "+".repeat(12_001))}]
+        });
+        assert!(map_file_change_item(record(&long), None).is_ok());
+        assert_eq!(
+            map_file_change_item(record(&long_diff), None),
+            Err(DiffTruncationUnported)
         );
     }
 }
