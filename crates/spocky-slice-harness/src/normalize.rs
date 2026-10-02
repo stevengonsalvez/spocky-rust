@@ -724,8 +724,9 @@ fn wall_time_class(
 
 /// The `["content-length","<n>"]` header literal of each Responses stub
 /// request record, in record order, when it equals the UTF-8 byte length of
-/// that record's raw body. A record whose header does not match its body
-/// yields `None`, so it gets no class and its header stays literal.
+/// that record's raw body and the record's `seq` equals its position (so it
+/// is the `stub/<seq>` artifact). Any other record yields `None`, so it gets
+/// no class and its header stays literal.
 fn verified_content_lengths(texts: &[&str]) -> Vec<Option<String>> {
     texts
         .iter()
@@ -738,7 +739,11 @@ fn verified_content_lengths(texts: &[&str]) -> Vec<Option<String>> {
             }
             _ => None,
         })
-        .map(|record| {
+        .enumerate()
+        .map(|(position, record)| {
+            if record.get("seq").and_then(Value::as_u64) != u64::try_from(position).ok() {
+                return None;
+            }
             let body = record.get("body")?.as_str()?;
             let length = body.len().to_string();
             let declared = record["headers"].as_array()?.iter().any(|header| {
@@ -754,9 +759,10 @@ fn verified_content_lengths(texts: &[&str]) -> Vec<Option<String>> {
 }
 
 /// Pairs each stub request's verified content-length header by record
-/// position. Derived from `codex-wall-time`: the header varies only because
-/// an approved clock value in the body varied in length, and the body itself
-/// is still compared after normalization.
+/// position, applied only in that record's own `stub/<seq>` artifact.
+/// Derived from `codex-wall-time`: the header varies only because an
+/// approved clock value in the body varied in length, and the body itself is
+/// still compared after normalization.
 fn content_length_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Vec<ValueClass> {
     verified_content_lengths(&left.texts)
         .into_iter()
@@ -769,7 +775,7 @@ fn content_length_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Vec<Va
                 reason: "stub request content-length verified equal to the raw body byte length; varies only with codex-wall-time".into(),
                 left: vec![left_header],
                 right: vec![right_header],
-                scope: Scope::StubRequests,
+                scope: Scope::Artifact(format!("stub/{index:03}")),
             }),
             _ => None,
         })
@@ -820,6 +826,8 @@ fn send_receipts(texts: &[&str]) -> Result<Vec<(String, String)>, String> {
 /// Pairs send receipt keys by their exact content fingerprint. Discovery
 /// fails unless both sides hold the same set of distinct fingerprints, so a
 /// receipt on one side only, or with different content, is never paired.
+/// Only the file name `agent-requests/<key>.json` is replaced, and only in
+/// receipt state files; the same hex anywhere else stays literal.
 fn receipt_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Result<Vec<ValueClass>, String> {
     let (left_receipts, right_receipts) =
         (send_receipts(&left.texts)?, send_receipts(&right.texts)?);
@@ -846,31 +854,43 @@ fn receipt_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Result<Vec<Va
             Some((left_key, right_key))
         })
         .enumerate()
-        .map(|(index, (left_key, right_key))| {
-            pair(
-                &format!("send-receipt-key-{}", index + 1),
-                NormalizationCategory::GeneratedId,
-                "send receipt file name over a client random message id, paired by exact content fingerprint",
-                left_key.clone(),
-                right_key.clone(),
-            )
+        .map(|(index, (left_key, right_key))| ValueClass {
+            id: format!("send-receipt-key-{}", index + 1),
+            category: NormalizationCategory::GeneratedId,
+            reason: "send receipt file name over a client random message id, paired by exact content fingerprint".into(),
+            left: vec![format!("agent-requests/{left_key}.json")],
+            right: vec![format!("agent-requests/{right_key}.json")],
+            scope: Scope::ReceiptNames,
         })
         .collect())
 }
 
 /// The targets a value class may be applied in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scope {
     /// Every compared text.
     Every,
     /// Only Responses stub request bodies, the `stub/<nnn>` artifacts.
     StubRequests,
+    /// Only the one artifact with this name.
+    Artifact(String),
+    /// Only send receipt state files, named
+    /// `state/<dir>/agent-requests/{send-receipt-key}.json#<n>`.
+    ReceiptNames,
 }
 
 impl Scope {
-    fn admits(self, target: &NormalizationTarget) -> bool {
+    fn admits(&self, target: &NormalizationTarget) -> bool {
         match self {
             Self::Every => true,
+            Self::Artifact(only) => {
+                matches!(target, NormalizationTarget::Artifact(name) if name == only)
+            }
+            Self::ReceiptNames => matches!(
+                target,
+                NormalizationTarget::Artifact(name) | NormalizationTarget::State(name)
+                    if name.contains("agent-requests/{send-receipt-key}.json#")
+            ),
             Self::StubRequests => matches!(
                 target,
                 NormalizationTarget::Artifact(name)
@@ -1888,9 +1908,9 @@ mod tests {
         assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
-    fn receipt(name: &str, key: &str, fingerprint: &str) -> Text {
+    fn receipt(number: usize, key: &str, fingerprint: &str) -> Text {
         artifact(
-            name,
+            &format!("state/paseo-home/agent-requests/{{send-receipt-key}}.json#{number}"),
             format!(
                 "paseo-home/agent-requests/{key}.json\n{{\"fingerprint\":\"{fingerprint}\",\"state\":\"completed\"}}"
             ),
@@ -1921,19 +1941,19 @@ mod tests {
     fn send_receipt_keys_pair_by_exact_fingerprint() {
         let (one_print, two_print) = (sha256_hex("f1"), sha256_hex("f2"));
         let left = vec![
-            receipt("r1", &sha256_hex("k1"), &one_print),
-            receipt("r2", &sha256_hex("k2"), &two_print),
+            receipt(1, &sha256_hex("k1"), &one_print),
+            receipt(2, &sha256_hex("k2"), &two_print),
         ];
         let right = vec![
-            receipt("r1", &sha256_hex("k3"), &one_print),
-            receipt("r2", &sha256_hex("k4"), &two_print),
+            receipt(1, &sha256_hex("k3"), &one_print),
+            receipt(2, &sha256_hex("k4"), &two_print),
         ];
         assert_eq!(equivalent(&left, &right), Ok(true));
         // Right lists the receipts in the other order: keys still pair by
         // fingerprint, so each artifact keeps its content difference.
         let swapped = vec![
-            receipt("r1", &sha256_hex("k4"), &two_print),
-            receipt("r2", &sha256_hex("k3"), &one_print),
+            receipt(1, &sha256_hex("k4"), &two_print),
+            receipt(2, &sha256_hex("k3"), &one_print),
         ];
         assert_eq!(equivalent(&left, &swapped), Ok(false));
     }
@@ -1942,25 +1962,25 @@ mod tests {
     fn send_receipt_on_one_side_only_fails_discovery() {
         let print = sha256_hex("f1");
         let left = vec![
-            receipt("r1", &sha256_hex("k1"), &print),
-            receipt("r2", &sha256_hex("k2"), &sha256_hex("f2")),
+            receipt(1, &sha256_hex("k1"), &print),
+            receipt(2, &sha256_hex("k2"), &sha256_hex("f2")),
         ];
-        let right = vec![receipt("r1", &sha256_hex("k3"), &print)];
+        let right = vec![receipt(1, &sha256_hex("k3"), &print)];
         let error = equivalent(&left, &right).unwrap_err();
         assert!(
             error.contains("send receipt fingerprints differ"),
             "{error}"
         );
         let changed = vec![
-            receipt("r1", &sha256_hex("k3"), &print),
-            receipt("r2", &sha256_hex("k4"), &sha256_hex("f3")),
+            receipt(1, &sha256_hex("k3"), &print),
+            receipt(2, &sha256_hex("k4"), &sha256_hex("f3")),
         ];
         assert!(equivalent(&left, &changed).is_err());
     }
 
-    fn stub_record(body: &str, length: usize) -> String {
+    fn stub_record(seq: usize, body: &str, length: usize) -> String {
         serde_json::json!({
-            "seq": 1,
+            "seq": seq,
             "method": "POST",
             "path": "/v1/responses",
             "headers": [["content-length", length.to_string()]],
@@ -1976,16 +1996,16 @@ mod tests {
     #[test]
     fn verified_stub_content_length_normalizes() {
         let (long, short) = (timed_body("11.1"), timed_body("4.7"));
-        let left = vec![artifact("stub/001", stub_record(&long, long.len()))];
-        let right = vec![artifact("stub/001", stub_record(&short, short.len()))];
+        let left = vec![artifact("stub/000", stub_record(0, &long, long.len()))];
+        let right = vec![artifact("stub/000", stub_record(0, &short, short.len()))];
         assert_eq!(equivalent(&left, &right), Ok(true));
     }
 
     #[test]
     fn stub_content_length_not_matching_its_body_stays_a_difference() {
         let (long, short) = (timed_body("11.1"), timed_body("4.7"));
-        let left = vec![artifact("stub/001", stub_record(&long, long.len() + 5))];
-        let right = vec![artifact("stub/001", stub_record(&short, short.len()))];
+        let left = vec![artifact("stub/000", stub_record(0, &long, long.len() + 5))];
+        let right = vec![artifact("stub/000", stub_record(0, &short, short.len()))];
         assert_eq!(equivalent(&left, &right), Ok(false));
     }
 
@@ -1994,13 +2014,63 @@ mod tests {
         let (long, short) = (timed_body("11.1"), timed_body("4.7"));
         let header = |length: usize| format!(r#"["content-length","{length}"]"#);
         let left = vec![
-            artifact("stub/001", stub_record(&long, long.len())),
+            artifact("stub/000", stub_record(0, &long, long.len())),
             artifact("copy", header(long.len())),
         ];
         let right = vec![
-            artifact("stub/001", stub_record(&short, short.len())),
+            artifact("stub/000", stub_record(0, &short, short.len())),
             artifact("copy", header(short.len())),
         ];
         assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn send_receipt_key_inside_file_contents_stays_literal() {
+        let print = sha256_hex("f1");
+        let (left_key, right_key) = (sha256_hex("k1"), sha256_hex("k3"));
+        let with_note = |key: &str| {
+            let mut text = receipt(1, key, &print);
+            text.text = text
+                .text
+                .replace("\"state\"", &format!("\"note\":\"{key}\",\"state\""));
+            text
+        };
+        assert_eq!(
+            equivalent(
+                &[receipt(1, &left_key, &print)],
+                &[receipt(1, &right_key, &print)]
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            equivalent(&[with_note(&left_key)], &[with_note(&right_key)]),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn unverified_header_with_a_verified_number_in_another_record_differs() {
+        let (long, short) = (timed_body("11.1"), timed_body("4.7"));
+        let same = timed_body("5.0");
+        // Record 1 carries the numbers record 0 verified, but its own body
+        // does not match them, so its headers must stay a difference.
+        let left = vec![
+            artifact("stub/000", stub_record(0, &long, long.len())),
+            artifact("stub/001", stub_record(1, &same, long.len())),
+        ];
+        let right = vec![
+            artifact("stub/000", stub_record(0, &short, short.len())),
+            artifact("stub/001", stub_record(1, &same, short.len())),
+        ];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+        let fixed = vec![
+            left[0].clone(),
+            artifact("stub/001", stub_record(1, &same, same.len())),
+        ];
+        let fixed_right = vec![
+            right[0].clone(),
+            artifact("stub/001", stub_record(1, &same, same.len())),
+        ];
+        assert_eq!(equivalent(&fixed, &fixed_right), Ok(true));
     }
 }
