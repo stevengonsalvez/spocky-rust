@@ -34,7 +34,7 @@ use spocky_session::agent_manager::{
     WaitForAgentOptions, WaitForAgentResult,
 };
 use spocky_session::agent_projection::{build_stored_agent_payload, to_agent_payload};
-use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
+use spocky_session::agent_sdk::{AbortController, AbortReason, AbortSignal, AgentError};
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::clock::random_uuid;
 use spocky_session::creation::CreationService;
@@ -239,6 +239,7 @@ impl SessionHandle for DaemonSession {
             app_version: locked(&self.app_version),
             source,
             modern: self.events.is_modern(source),
+            request_signal: self.events.request_signal(source),
             updates: Arc::clone(&self.updates),
             events: Arc::clone(&self.events),
         });
@@ -301,6 +302,8 @@ pub(crate) struct RequestContext {
     pub(crate) modern: bool,
     pub(crate) updates: Arc<AgentUpdates>,
     pub(crate) events: Arc<EventDelivery>,
+    /// `delivery.requestSignal`: aborts when the requesting socket detaches.
+    pub(crate) request_signal: AbortSignal,
 }
 
 /// `MIN_VERSION_ALL_PROVIDERS`.
@@ -901,7 +904,18 @@ async fn wait_with_timeout(
     agent_id: &str,
     timeout_ms: Option<i64>,
 ) -> Result<WaitForAgentResult, AgentError> {
+    // `AbortSignal.any([timeout, sourceSignal])`.
     let controller = AbortController::default();
+    let source = {
+        let controller = controller.clone();
+        let signal = context.request_signal.clone();
+        context.services.runtime.spawn(async move {
+            signal.wait().await;
+            if let Some(reason) = signal.reason() {
+                controller.abort(reason.clone());
+            }
+        })
+    };
     let timeout = timeout_ms.filter(|millis| *millis > 0).map(|millis| {
         let controller = controller.clone();
         context.services.runtime.spawn(async move {
@@ -926,7 +940,17 @@ async fn wait_with_timeout(
     if let Some(timeout) = timeout {
         timeout.abort();
     }
+    source.abort();
     result
+}
+
+/// A thrown abort's message: the reason's own, as `throwIfAborted` throws it.
+fn abort_message(signal: &AbortSignal) -> String {
+    match signal.reason() {
+        Some(AbortReason::Error(error)) => error.message.clone(),
+        Some(AbortReason::Value(JsValue::String(text))) => text.clone(),
+        _ => "This operation was aborted".to_owned(),
+    }
 }
 
 /// `resolveWaitForFinishError`.
@@ -962,6 +986,10 @@ async fn wait_for_finish(
         payload.insert("lastMessage", last);
         emit(frame("wait_for_finish_response", payload));
     };
+    // `sourceSignal.throwIfAborted()`.
+    if context.request_signal.aborted() {
+        return Err(JsText::new(&abort_message(&context.request_signal)));
+    }
     let agent_id = match resolve_agent(context, request.agent_id.as_str()).await {
         Ok(agent_id) => agent_id,
         Err(error) => {
@@ -1028,6 +1056,8 @@ async fn wait_for_finish(
                 text_or_null(result.last_message.as_deref()),
             );
         }
+        // The requesting socket detached: nothing answers.
+        Err(_) if context.request_signal.aborted() => {}
         Err(error) => {
             let is_abort =
                 error.name == "AbortError" || error.message.to_lowercase().contains("aborted");
