@@ -160,6 +160,8 @@ pub trait Connection: Read + Write + Send + 'static {
     fn remote_address(&self) -> Option<IpAddr>;
     /// Drops the transport without a close frame (`terminate()`).
     fn shutdown(&self);
+    /// `socket.end()`: sends a FIN and keeps the read side open.
+    fn shutdown_write(&self);
 }
 
 impl Connection for TcpStream {
@@ -177,6 +179,9 @@ impl Connection for TcpStream {
     }
     fn shutdown(&self) {
         let _ = TcpStream::shutdown(self, std::net::Shutdown::Both);
+    }
+    fn shutdown_write(&self) {
+        let _ = TcpStream::shutdown(self, std::net::Shutdown::Write);
     }
 }
 
@@ -196,6 +201,9 @@ impl Connection for UnixStream {
     }
     fn shutdown(&self) {
         let _ = UnixStream::shutdown(self, std::net::Shutdown::Both);
+    }
+    fn shutdown_write(&self) {
+        let _ = UnixStream::shutdown(self, std::net::Shutdown::Write);
     }
 }
 
@@ -1111,6 +1119,8 @@ struct SocketTask {
     /// The receiver failed: end the connection once the close frame is out, as
     /// ws does with `socket.end()` after `receiverOnError`.
     end_after_close: bool,
+    /// The FIN is out after a receiver error; input is read and discarded.
+    draining: bool,
     /// `applicationSocketLease` deadline, set by the first ping.
     lease_deadline: Option<Instant>,
     close_details: (Option<u16>, Option<String>),
@@ -1174,6 +1184,7 @@ fn run_socket(
         phase: Phase::Done,
         closing_deadline: None,
         end_after_close: false,
+        draining: false,
         lease_deadline: None,
         close_details: (None, None),
     };
@@ -1251,34 +1262,21 @@ impl SocketTask {
                 return;
             }
             self.check_deadlines();
-            match self.ws.read() {
-                Ok(Message::Text(text)) => self.on_data(text.as_str()),
-                Ok(Message::Binary(bytes)) => self.on_data(&String::from_utf8_lossy(&bytes)),
-                Ok(Message::Close(frame)) => {
-                    self.close_details = (
-                        frame.as_ref().map(|frame| u16::from(frame.code)),
-                        frame.map(|frame| frame.reason.to_string()),
-                    );
+            if self.draining {
+                // After a receiver error ws ends its side and goes on reading
+                // and discarding until the peer closes or the close timer fires.
+                let mut discard = [0_u8; 4096];
+                match self.ws.get_mut().read(&mut discard) {
+                    Ok(0) => return,
+                    Ok(_) => {}
+                    Err(error) if is_would_block(&error) => {}
+                    Err(_) => return,
                 }
-                Ok(_) => {}
-                Err(WsError::Io(error))
-                    if matches!(
-                        error.kind(),
-                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                    ) => {}
-                Err(WsError::Capacity(CapacityError::MessageTooLong { .. })) => {
-                    // ws 8.20.0 `receiverOnError` closes with the status code only.
-                    self.close(WS_CLOSE_MAX_PAYLOAD, "");
-                    self.phase = Phase::Done;
-                    self.end_after_close = true;
-                }
-                Err(WsError::Utf8(_)) => {
-                    self.close(1007, "");
-                    self.phase = Phase::Done;
-                    self.end_after_close = true;
-                }
-                // ConnectionClosed, AlreadyClosed and every other error end the connection.
-                Err(_) => return,
+                continue;
+            }
+            let result = self.ws.read();
+            if !self.handle_read(result) {
+                return;
             }
             match self.ws.flush() {
                 Ok(()) => {
@@ -1291,6 +1289,36 @@ impl SocketTask {
                 Err(_) => return,
             }
         }
+    }
+
+    /// What one read from the socket means. `false` ends the connection.
+    fn handle_read(&mut self, result: Result<Message, WsError>) -> bool {
+        match result {
+            Ok(Message::Text(text)) => self.on_data(text.as_str()),
+            Ok(Message::Binary(bytes)) => self.on_data(&String::from_utf8_lossy(&bytes)),
+            Ok(Message::Close(frame)) => {
+                self.close_details = (
+                    frame.as_ref().map(|frame| u16::from(frame.code)),
+                    frame.map(|frame| frame.reason.to_string()),
+                );
+            }
+            Ok(_) => {}
+            Err(WsError::Io(error)) if is_would_block(&error) => {}
+            Err(WsError::Capacity(CapacityError::MessageTooLong { .. })) => {
+                // ws 8.20.0 `receiverOnError` closes with the status code only.
+                self.close(WS_CLOSE_MAX_PAYLOAD, "");
+                self.phase = Phase::Done;
+                self.end_after_close = true;
+            }
+            Err(WsError::Utf8(_)) => {
+                self.close(1007, "");
+                self.phase = Phase::Done;
+                self.end_after_close = true;
+            }
+            // ConnectionClosed, AlreadyClosed and every other error end the connection.
+            Err(_) => return false,
+        }
+        true
     }
 
     /// Writes queued frames; `false` ends the connection.
@@ -1337,9 +1365,12 @@ impl SocketTask {
                     self.closing_deadline =
                         Some(Instant::now() + self.shared.config.timeouts.close);
                     if self.end_after_close {
+                        // `socket.end()`: a FIN, not a drop. The read side stays open
+                        // and what the peer still sends is discarded, so an unread
+                        // tail cannot turn the close into a reset.
                         let _ = self.ws.flush();
-                        self.ws.get_mut().shutdown();
-                        return false;
+                        self.ws.get_mut().shutdown_write();
+                        self.draining = true;
                     }
                 }
                 Ok(Outbound::Terminate) => {
