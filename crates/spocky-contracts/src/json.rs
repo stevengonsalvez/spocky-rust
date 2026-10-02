@@ -12,6 +12,7 @@
 //! Numbers are doubles written with `Number.prototype.toString`; strings are
 //! JavaScript text and may hold lone surrogates (see [`crate::js_value`]).
 
+use std::borrow::Cow;
 use std::fmt;
 
 use indexmap::IndexMap;
@@ -25,7 +26,7 @@ pub use crate::js_value::array_index;
 /// zod 4 drops an own `__proto__` property from `z.record`, `.passthrough()`
 /// extras, and `z.json()` at any depth, without validating its value.
 pub const PROTO_KEY: &str = "__proto__";
-use crate::js_value::{JsObject, JsTextUnit, JsValue, js_text_scalars};
+use crate::js_value::{JsObject, JsTextUnit, JsValue, js_text_canonical_cow, js_text_scalars};
 use crate::number::JsNumber;
 
 /// Any JSON value, written as `JSON.stringify` writes the parsed object.
@@ -482,14 +483,20 @@ impl<V> JsRecord<V> {
     }
 
     /// Assigns `record[key] = value` with JavaScript semantics: an existing key
-    /// keeps its position.
+    /// keeps its position. A key is the same property as another with the
+    /// same UTF-16 code units, so it is stored in canonical form (see
+    /// [`crate::js_value::js_text_eq`]).
     pub fn insert(&mut self, key: String, value: V) {
+        let key = match js_text_canonical_cow(&key) {
+            Cow::Borrowed(_) => key,
+            Cow::Owned(canonical) => canonical,
+        };
         self.entries.insert(key, value);
     }
 
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&V> {
-        self.entries.get(key)
+        self.entries.get(js_text_canonical_cow(key).as_ref())
     }
 
     #[must_use]
