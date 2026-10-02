@@ -1082,6 +1082,15 @@
           "leadVerification": "combined gate with the codex range: spocky-provider-codex, spocky-slice-harness and spocky-daemon-app 246 passed 1 ignored (daemon-app real codex, SPOCKY_REAL_CODEX unset there), clippy -D warnings, fmt check, cargo check --workspace --all-targets"
         },
         {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "7bc96695..fdf96ce5 (5 commits): pinned SIGTERM graceful stop (close agents and re-persist records), shutdown module",
+          "integrationHead": "f05feb7b",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-fdf96ce5.txt)",
+          "leadVerification": "crates, scripts and Cargo files byte-identical to fdf96ce5 (the branch tip of G1 run g1-20261002T030650Z); gated: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "followUps": ["P3 move stop_agents inside the transport force-exit window", "P3 test a timed-out agent close"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
