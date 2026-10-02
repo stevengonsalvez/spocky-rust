@@ -57,7 +57,7 @@ fn array(value: Option<&JsValue>) -> &[JsValue] {
 }
 
 /// `buildAgentPrompt(text, images, attachments)`.
-fn build_agent_prompt(
+pub(crate) fn build_agent_prompt(
     prompt: &str,
     images: Option<&JsValue>,
     attachments: Option<&JsValue>,
@@ -196,9 +196,60 @@ async fn resolve_intent(services: &Services, request: &JsObject) -> Result<Inten
     })
 }
 
-/// `startCreatedAgentInitialPrompt`: `startAgentRun` (the out-of-band
-/// intercept, else the run drained in the background) then, for a started
-/// turn, `waitForAgentRunStartWithTimeout`.
+/// `startAgentRun(agentManager, agentId, prompt, logger, options)`: the
+/// out-of-band intercept, else a run drained in the background. `true` is
+/// the `turn_started` disposition. With `replace_running`, an in-flight run
+/// would be replaced (`replaceAgentRun`), which is not ported and fails.
+pub(crate) fn start_agent_run(
+    manager: &Arc<AgentManager>,
+    agent_id: &str,
+    prompt: AgentPromptInput,
+    run_options: Option<AgentRunOptions>,
+    replace_running: bool,
+) -> Result<bool, String> {
+    if manager
+        .try_run_out_of_band(agent_id, &prompt, run_options.as_ref())
+        .map_err(|error| error.message)?
+    {
+        return Ok(false);
+    }
+    if replace_running && manager.has_in_flight_run(agent_id) {
+        return Err(
+            "Replacing an in-flight agent run is not ported in spocky-daemon-app yet".to_owned(),
+        );
+    }
+    let mut stream = manager
+        .stream_agent(agent_id, prompt, run_options)
+        .map_err(|error| error.message)?;
+    // `drainAgentRunIterator`: events reach clients through the manager's
+    // subscribers; a failed run is the baseline's logged "Agent stream
+    // failed".
+    tokio::spawn(async move { while let Some(Ok(_)) = stream.next().await {} });
+    Ok(true)
+}
+
+/// `waitForAgentRunStartWithTimeout(agentManager, agentId)`.
+pub(crate) async fn wait_for_run_start(
+    manager: &Arc<AgentManager>,
+    agent_id: &str,
+) -> Result<(), String> {
+    let provider = manager
+        .get_agent(agent_id)
+        .map_or_else(|| "provider".to_owned(), |agent| agent.provider);
+    match tokio::time::timeout(
+        AGENT_RUN_START_TIMEOUT,
+        manager.wait_for_agent_run_start(agent_id, None),
+    )
+    .await
+    {
+        Ok(started) => started.map_err(|error| error.message),
+        Err(_) => Err(format!(
+            "{provider} run did not start within 60 seconds (phase: run start)"
+        )),
+    }
+}
+
+/// `startCreatedAgentInitialPrompt`.
 async fn start_initial_prompt(
     manager: &Arc<AgentManager>,
     snapshot: &ManagedAgentSnapshot,
@@ -206,33 +257,8 @@ async fn start_initial_prompt(
     run_options: Option<AgentRunOptions>,
 ) -> Result<ManagedAgentSnapshot, String> {
     let agent_id = snapshot.id.as_str();
-    let out_of_band = manager
-        .try_run_out_of_band(agent_id, &prompt, run_options.as_ref())
-        .map_err(|error| error.message)?;
-    if !out_of_band {
-        let mut stream = manager
-            .stream_agent(agent_id, prompt, run_options)
-            .map_err(|error| error.message)?;
-        // `drainAgentRunIterator`: events reach clients through the manager's
-        // subscribers; a failed run is the baseline's logged "Agent stream
-        // failed".
-        tokio::spawn(async move { while let Some(Ok(_)) = stream.next().await {} });
-        let provider = manager
-            .get_agent(agent_id)
-            .map_or_else(|| "provider".to_owned(), |agent| agent.provider);
-        match tokio::time::timeout(
-            AGENT_RUN_START_TIMEOUT,
-            manager.wait_for_agent_run_start(agent_id, None),
-        )
-        .await
-        {
-            Ok(started) => started.map_err(|error| error.message)?,
-            Err(_) => {
-                return Err(format!(
-                    "{provider} run did not start within 60 seconds (phase: run start)"
-                ));
-            }
-        }
+    if start_agent_run(manager, agent_id, prompt, run_options, false)? {
+        wait_for_run_start(manager, agent_id).await?;
     }
     Ok(manager
         .get_agent(agent_id)
