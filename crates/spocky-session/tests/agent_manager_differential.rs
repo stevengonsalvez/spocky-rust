@@ -35,6 +35,10 @@
 //!   pending run, through a slow start, a failed start, an abort mid-wait
 //!   and before the wait, and after the run finished.
 //!
+//! - `outofband`: `tryRunOutOfBand` declined, a `/goal` command with a
+//!   client message id whose handler emits a timeline item and a usage
+//!   event, a failing handler, and an unknown agent.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves, and a leading
@@ -69,8 +73,8 @@ use spocky_session::agent_sdk::{
     AbortController, AbortReason, AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError,
     AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentResumePurpose,
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
-    FetchCatalogOptions, ImportedTimelineEntry, ProviderRefreshContext, StreamCallback,
-    Unsubscribe,
+    FetchCatalogOptions, ImportedTimelineEntry, OutOfBandHandler, ProviderRefreshContext,
+    StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::timeline::FetchDirection;
@@ -246,6 +250,17 @@ class FakeSession {
     return { turnId: turnIdOf(events) };
   }
   async run() { throw new Error("unused"); }
+  tryHandleOutOfBand(prompt) {
+    this.calls.push(["tryHandleOutOfBand", prompt]);
+    if (typeof prompt !== "string" || !prompt.startsWith("/goal")) return null;
+    return {
+      run: async ({ emit }) => {
+        if (prompt === "/goal fail") throw new Error("goal broke");
+        emit({ type: "timeline", provider: "fake", item: { type: "assistant_message", text: "Goal paused." } });
+        emit({ type: "usage_updated", provider: "fake", usage: { inputTokens: 1 } });
+      },
+    };
+  }
   async *streamHistory() { for (const event of this.spec.history ?? []) yield event; }
   async getRuntimeInfo() { return JSON.parse(runtimeInfoJson); }
   async getAvailableModes() { return JSON.parse(modesJson); }
@@ -652,7 +667,26 @@ const runstart = async () => {
   return { results, calls };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart() }));
+const outofband = async () => {
+  const calls = [];
+  const registry = new AgentStorage(`${home}/outofband`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const results = [];
+  results.push(await outcome(async () => manager.tryRunOutOfBand(agentId, "hello")));
+  results.push(await outcome(async () => manager.tryRunOutOfBand(agentId, "/goal pause", { clientMessageId: "client-oob" })));
+  await sleep(50);
+  results.push(await outcome(async () => manager.tryRunOutOfBand(agentId, "/goal fail", { clientMessageId: "" })));
+  await sleep(50);
+  results.push(await outcome(async () => manager.tryRunOutOfBand(unknownId, "/goal pause")));
+  await sleep(50);
+  await manager.flush();
+  await registry.flush();
+  return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -775,7 +809,43 @@ impl FakeSession {
     }
 }
 
+/// The `/goal` handler of the fake session's `tryHandleOutOfBand`.
+struct GoalHandler {
+    fail: bool,
+}
+
+impl OutOfBandHandler for GoalHandler {
+    fn run(self: Box<Self>, emit: StreamCallback) -> BoxFuture<'static, AgentResult<()>> {
+        Box::pin(async move {
+            if self.fail {
+                return Err(AgentError::new("goal broke"));
+            }
+            emit(json(
+                r#"{"type":"timeline","provider":"fake","item":{"type":"assistant_message","text":"Goal paused."}}"#,
+            ));
+            emit(json(
+                r#"{"type":"usage_updated","provider":"fake","usage":{"inputTokens":1}}"#,
+            ));
+            Ok(())
+        })
+    }
+}
+
 impl AgentSession for FakeSession {
+    fn try_handle_out_of_band(
+        &self,
+        prompt: &AgentPromptInput,
+    ) -> Option<Option<Box<dyn OutOfBandHandler>>> {
+        self.record(vec![text("tryHandleOutOfBand"), prompt_value(prompt)]);
+        Some(match prompt {
+            AgentPromptInput::Text(text) if text.starts_with("/goal") => {
+                Some(Box::new(GoalHandler {
+                    fail: text == "/goal fail",
+                }) as Box<dyn OutOfBandHandler>)
+            }
+            _ => None,
+        })
+    }
     fn provider(&self) -> String {
         self.spec.provider.clone()
     }
@@ -2134,8 +2204,60 @@ async fn scenarios_match_pinned_manager() {
         ("resume", resume_scenario(&cwd, &rust_home.0).await),
         ("titles", titles_scenario(&cwd, &rust_home.0).await),
         ("runstart", runstart_scenario(&cwd, &rust_home.0).await),
+        ("outofband", outofband_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+async fn outofband_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("outofband"));
+    let manager = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let attempt = |id: &str, prompt: &str, client_message_id: Option<&str>| {
+        let options = client_message_id.map(|id| AgentRunOptions {
+            client_message_id: Some(id.to_owned()),
+            ..AgentRunOptions::default()
+        });
+        outcome(
+            manager
+                .try_run_out_of_band(
+                    id,
+                    &AgentPromptInput::Text(prompt.to_owned()),
+                    options.as_ref(),
+                )
+                .map(JsValue::Bool),
+        )
+    };
+    let pause = Duration::from_millis(50);
+    let mut results = vec![attempt(AGENT_ID, "hello", None)];
+    results.push(attempt(AGENT_ID, "/goal pause", Some("client-oob")));
+    tokio::time::sleep(pause).await;
+    results.push(attempt(AGENT_ID, "/goal fail", Some("")));
+    tokio::time::sleep(pause).await;
+    results.push(attempt(UNKNOWN_ID, "/goal pause", None));
+    tokio::time::sleep(pause).await;
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+    ])
 }
 
 /// `runAgent` registers its pending run synchronously: polls the run once so
