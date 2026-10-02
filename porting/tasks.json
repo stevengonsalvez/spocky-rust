@@ -1239,6 +1239,19 @@
           "change": "Process slip recorded: lead commit aa36b46 contains both Cargo.toml and Cargo.lock, breaking the one-file-per-commit rule. A concurrent git index lock failed the Cargo.toml commit while the file stayed staged, so the next commit took both. Left in place rather than rewriting signed main history."
         }
       ],
+      "gateRuns": [
+        {
+          "gate": "G1",
+          "date": "2026-10-02",
+          "mainHead": "b8c2516a",
+          "evidence": "p3-slice-harness g1-20261002T025545Z, parity verdict SHA-256 57f1fde9...",
+          "selfCheck": "PASS, original versus original, 82 rules",
+          "parity": "FAIL with one difference: every step exits 0 on both sides and codex-io is byte-identical (11 --version, 3 app-server), but after SIGTERM the agent record lastStatus is 'closed' in the original and 'idle' in Spocky",
+          "cause": "the original closes agents and re-persists their records on graceful shutdown (agent-manager.ts:3713, agent-projections.ts:87); the spocky-daemon binary does not run that sequence",
+          "routed": "p3_g1_wiring: port the pinned SIGTERM shutdown sequence into the spocky-daemon binary",
+          "status": "G1 NOT passed"
+        }
+      ],
       "reviews": [], "repairs": [], "trackedGaps": [
         {
           "date": "2026-10-01",
