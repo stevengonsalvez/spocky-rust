@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use spocky_contracts::frame::{FrameError, parse_frame};
+use spocky_contracts::js::truthy;
 use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::json::{JsonValue, js_wire_text};
 use spocky_contracts::number::PositiveInt;
@@ -480,12 +481,10 @@ async fn live_agent_payloads(context: &RequestContext) -> Result<Vec<JsValue>, S
     Ok(payloads)
 }
 
+/// `Boolean(record[key])`: JavaScript truthiness, so `internal: false` and
+/// `archivedAt: null` are falsy.
 fn truthy_text(record: &JsValue, key: &str) -> bool {
-    match record.get(key) {
-        Some(JsValue::String(text)) => !text.is_empty(),
-        Some(JsValue::Null | JsValue::Undefined) | None => false,
-        Some(_) => true,
-    }
+    truthy(record.get(key))
 }
 
 /// `listAgentPayloads` for `fetch_agents_request`.
@@ -1242,8 +1241,23 @@ async fn fetch_agent_timeline(
 
 #[cfg(test)]
 mod tests {
-    use super::{MIN_VERSION_ALL_PROVIDERS, app_version_at_least, wait_for_finish_error};
+    use super::{
+        MIN_VERSION_ALL_PROVIDERS, app_version_at_least, truthy_text, wait_for_finish_error,
+    };
     use spocky_contracts::js_value::{JsValue, parse};
+
+    #[test]
+    fn stored_record_flags_use_javascript_truthiness() {
+        let record =
+            parse(r#"{"internal":false,"archivedAt":null,"title":"","labels":{},"other":true}"#)
+                .unwrap();
+        assert!(!truthy_text(&record, "internal"));
+        assert!(!truthy_text(&record, "archivedAt"));
+        assert!(!truthy_text(&record, "title"));
+        assert!(!truthy_text(&record, "missing"));
+        assert!(truthy_text(&record, "labels"));
+        assert!(truthy_text(&record, "other"));
+    }
 
     #[test]
     fn app_version_gate_matches_is_app_version_at_least() {
