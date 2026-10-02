@@ -200,7 +200,7 @@ async fn resolve_intent(services: &Services, request: &JsObject) -> Result<Inten
 /// `startAgentRun(agentManager, agentId, prompt, logger, options)`: the
 /// out-of-band intercept, else a run drained in the background. `true` is
 /// the `turn_started` disposition. With `replace_running`, an in-flight run
-/// would be replaced (`replaceAgentRun`), which is not ported and fails.
+/// is replaced (`replaceAgentRun`).
 pub(crate) async fn start_agent_run(
     manager: &Arc<AgentManager>,
     agent_id: &str,
@@ -214,45 +214,21 @@ pub(crate) async fn start_agent_run(
     {
         return Ok(false);
     }
-    // The baseline settles the run before it notifies subscribers, so a send
-    // that follows a finished wait never meets the run it ended; here the
-    // run's last state change may still be dispatching.
-    if replace_running && manager.has_in_flight_run(agent_id) {
-        manager.dispatched().await;
-        settle_ended_run(manager, agent_id).await;
+    // `startOrReplaceRun`: `replaced` is read once, with no wait before it.
+    let replaced = replace_running && manager.has_in_flight_run(agent_id);
+    let mut stream = if replaced {
+        manager
+            .replace_agent_run(agent_id, prompt, run_options)
+            .await
+    } else {
+        manager.stream_agent(agent_id, prompt, run_options)
     }
-    if replace_running && manager.has_in_flight_run(agent_id) {
-        return Err(
-            "Replacing an in-flight agent run is not ported in spocky-daemon-app yet".to_owned(),
-        );
-    }
-    let mut stream = manager
-        .stream_agent(agent_id, prompt, run_options)
-        .map_err(|error| error.message)?;
+    .map_err(|error| error.message)?;
     // `drainAgentRunIterator`: events reach clients through the manager's
     // subscribers; a failed run is the baseline's logged "Agent stream
     // failed".
     tokio::spawn(async move { while let Some(Ok(_)) = stream.next().await {} });
     Ok(true)
-}
-
-/// A send's `replaceRunning` meets a run that is still in flight, most often
-/// one whose turn has just ended and whose stream is closing (the wait that
-/// preceded the send can reply before that). Pinned settles it with
-/// `replaceAgentRun`; that is not ported, so wait, bounded, for the run to
-/// clear. A run that outlives the bound is refused by the caller.
-// COMPAT(replaceAgentRun): a stand-in for `replaceAgentRun`, which p3_session
-// is porting (AgentManager::replace_agent_run). It waits for the run to end
-// instead of interrupting it. Delete this function, its call in
-// `start_agent_run` and the in-flight refusal after it when the port lands,
-// and call `replace_agent_run` there.
-async fn settle_ended_run(manager: &Arc<AgentManager>, agent_id: &str) {
-    let cleared = async {
-        while manager.has_in_flight_run(agent_id) {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        }
-    };
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), cleared).await;
 }
 
 /// `waitForAgentRunStartWithTimeout(agentManager, agentId)`.
