@@ -1281,6 +1281,14 @@
           "class": "send-receipt-key (generated id)",
           "scope": "file name agent-requests/<sha256(['send',agentId,messageId])>.json where messageId is a client-side randomUUID; files are paired by exact content fingerprint and only the name is masked; name derivation is proven separately by the receipts differential",
           "approvedBy": "coordinator"
+        },
+        {
+          "date": "2026-10-02",
+          "gate": "G2",
+          "class": "stub-content-length (derived from codex-wall-time)",
+          "scope": "the stub request content-length header, only in stub/<nnn>, and only when it equals that side's raw body byte length; needed because the header changes when a wall-time value crosses 10 s on one side",
+          "trigger": "G2 original-versus-original run passed 2 of 3; the one failure was exactly this header (193 rules, 0 check failures); the harness reruns until 3 consecutive passes",
+          "approvedBy": "coordinator"
         }
       ],
       "gateRuns": [
