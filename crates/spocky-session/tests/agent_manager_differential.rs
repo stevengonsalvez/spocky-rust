@@ -44,6 +44,12 @@
 //!   timeline broadcast), a record without a persistence handle taking the
 //!   create path, an unavailable provider, and a missing record.
 //!
+//! - `replace`: `replaceAgentRun` on an idle agent, on a running one (its run
+//!   is interrupted, then the prompt streams), on one whose run finishes by
+//!   itself while the replacement waits, with a run still starting, and with
+//!   a cancellation that is never acknowledged (the replacement fails, and
+//!   its mark is cleared when the held run later ends).
+//!
 //! - `archive`: `archiveAgent` on a parent whose children are archived
 //!   with it (live and stored-only), detached (another workspace, an open
 //!   tab) or left alone; `unarchiveSnapshot` with a workspace and label
@@ -210,6 +216,32 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","item":{"type":"assistant_message","text":"old answer"},"timestamp":""},
     {"type":"timeline","provider":"fake","item":{"type":"tool_call","callId":"h-1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}
   ],
+  "rpIdle": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-13"},
+    {"type":"timeline","provider":"fake","turnId":"turn-13","item":{"type":"assistant_message","text":"idle replace"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-13"}
+  ],
+  "rpAfter": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-15"},
+    {"type":"timeline","provider":"fake","turnId":"turn-15","item":{"type":"assistant_message","text":"replaced"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-15"}
+  ],
+  "rpFinishing": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-14"},
+    {"type":"timeline","provider":"fake","turnId":"turn-14","item":{"type":"assistant_message","text":"finishing"}},
+    {"type":"__delay","ms":150},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-14"}
+  ],
+  "rpAfterFinish": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-16"},
+    {"type":"timeline","provider":"fake","turnId":"turn-16","item":{"type":"assistant_message","text":"after finish"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-16"}
+  ],
+  "rpHeld": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-17"},
+    {"type":"__delay","ms":400},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-17"}
+  ],
   "permission": [
     {"type":"turn_started","provider":"fake","turnId":"turn-6"},
     {"type":"__delay","ms":100},
@@ -302,6 +334,7 @@ class FakeSession {
   describePersistence() { return JSON.parse(persistenceJson); }
   async interrupt() {
     this.calls.push(["interrupt"]);
+    if (this.spec.interruptHang) await new Promise(() => {});
     if (this.spec.interrupt) this.emitLater(this.spec.interrupt, 10);
   }
   async close() { this.calls.push(["close"]); }
@@ -772,6 +805,63 @@ const loading = async () => {
   return { results, calls, feed };
 };
 
+const replaceScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const build = async (name, turns, specExtra, managerExtra = {}) => {
+    const calls = [];
+    const registry = new AgentStorage(`${home}/replace-${name}`, logger);
+    const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake", { turns, ...specExtra })) }, providerDefinitions: { fake: { enabled: true } }, ...managerExtra });
+    const feed = recordFeed(manager);
+    await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+    return { calls, registry, manager, feed };
+  };
+  const finish = async ({ calls, registry, manager, feed }, extra) => {
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    return { ...extra, calls, feed, agent: toAgentPayload(manager.getAgent(agentId)), rows: await manager.getTimelineRows(agentId) };
+  };
+  const running = await build("running", [scripted.rpIdle, scripted.long, scripted.rpAfter], { interrupt: scripted.interrupt });
+  const idleEvents = await collect(await running.manager.replaceAgentRun(agentId, "idle prompt"), []);
+  await sleep(50);
+  const old = running.manager.streamAgent(agentId, "long task");
+  const oldEvents = [(await old.next()).value];
+  await sleep(50);
+  const replacement = await running.manager.replaceAgentRun(agentId, "replace it");
+  await collect(old, oldEvents);
+  const newEvents = await collect(replacement, []);
+  const a = await finish(running, { idleEvents, oldEvents, newEvents });
+  const finishing = await build("finishing", [scripted.rpFinishing, scripted.rpAfterFinish], {});
+  const first = finishing.manager.streamAgent(agentId, "finishing");
+  const firstEvents = [(await first.next()).value];
+  await sleep(30);
+  const startedAt = Date.now();
+  const second = await finishing.manager.replaceAgentRun(agentId, "while finishing");
+  const waited = Date.now() - startedAt >= 80;
+  await collect(first, firstEvents);
+  const secondEvents = await collect(second, []);
+  const b = await finish(finishing, { firstEvents, secondEvents, waited });
+  const refused = await build("refused", [scripted.rpHeld], { interruptHang: true }, { rescueTimeouts: { interruptSessionMs: 80 } });
+  const held = refused.manager.streamAgent(agentId, "long task");
+  const heldEvents = [(await held.next()).value];
+  await sleep(50);
+  const failure = await outcome(async () => await refused.manager.replaceAgentRun(agentId, "never"));
+  const again = await outcome(async () => { refused.manager.streamAgent(agentId, "again"); return null; });
+  await collect(held, heldEvents);
+  const c = await finish(refused, { heldEvents, failure, again });
+  const starting = await build("starting", [scripted.slowStart, scripted.rpAfterFinish], {});
+  const slow = starting.manager.streamAgent(agentId, "slow");
+  const slowEvents = [];
+  const slowDone = collect(slow, slowEvents);
+  await sleep(100);
+  const afterSlow = await starting.manager.replaceAgentRun(agentId, "while starting");
+  await slowDone;
+  const afterSlowEvents = await collect(afterSlow, []);
+  const d = await finish(starting, { slowEvents, afterSlowEvents });
+  return { a, b, c, d };
+};
+
 const archive = async () => {
   const PARENT_LABEL = "paseo.parent-agent-id";
   const ids = { same: "00000000-0000-4000-8000-0000000000e1", other: "00000000-0000-4000-8000-0000000000e2", tab: "00000000-0000-4000-8000-0000000000e3", stored: "00000000-0000-4000-8000-0000000000e4" };
@@ -819,7 +909,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -857,6 +947,8 @@ struct Spec {
     create_delay: Option<Duration>,
     /// `archiveNativeSession` rejects.
     archive_fails: bool,
+    /// `interrupt` never resolves.
+    interrupt_hang: bool,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -871,6 +963,7 @@ fn spec(provider: &str) -> Spec {
         initial_timeline: None,
         create_delay: None,
         archive_fails: false,
+        interrupt_hang: false,
     }
 }
 
@@ -1120,7 +1213,13 @@ impl AgentSession for FakeSession {
         if let Some(events) = self.spec.interrupt.clone() {
             self.emit_later(events, 10);
         }
-        Box::pin(async { Ok(()) })
+        let hang = self.spec.interrupt_hang;
+        Box::pin(async move {
+            if hang {
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        })
     }
     fn close(&self) -> BoxFuture<'_, AgentResult<()>> {
         self.calls
@@ -2382,9 +2481,240 @@ async fn scenarios_match_pinned_manager() {
         ("outofband", outofband_scenario(&cwd, &rust_home.0).await),
         ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
+        ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+async fn collect_stream(mut stream: TurnEventStream, events: &mut Vec<JsValue>) {
+    while let Some(event) = stream.next().await {
+        events.push(event.expect("event"));
+    }
+}
+
+async fn replace_manager(
+    name: &str,
+    turns: &[&str],
+    home: &Path,
+    cwd: &str,
+    configure: impl FnOnce(&mut Spec, &mut AgentManagerOptions),
+) -> (AgentManager, AgentStorage, Calls, Feed) {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join(format!("replace-{name}")));
+    let mut fake = spec("fake");
+    scripted(&fake, turns);
+    let mut options = AgentManagerOptions::default();
+    configure(&mut fake, &mut options);
+    let client = Arc::new(FakeClient {
+        spec: fake,
+        calls: Arc::clone(&calls),
+    }) as Arc<dyn AgentClient>;
+    options.clients = vec![("fake".to_owned(), client)];
+    options.provider_definitions = vec![("fake".to_owned(), enabled())];
+    options.registry = Some(registry.clone());
+    let manager = AgentManager::new(options);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    (manager, registry, calls, feed)
+}
+
+async fn replace_finish(
+    manager: &AgentManager,
+    registry: &AgentStorage,
+    calls: &Calls,
+    feed: &Feed,
+    mut extra: Vec<(&'static str, JsValue)>,
+) -> JsValue {
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let agent = manager.get_agent(AGENT_ID).expect("agent");
+    extra.push((
+        "calls",
+        JsValue::Array(calls.lock().expect("calls").clone()),
+    ));
+    extra.push(("feed", JsValue::Array(feed.lock().expect("feed").clone())));
+    extra.push((
+        "agent",
+        to_agent_payload(&agent.payload_view(), None).expect("payload"),
+    ));
+    extra.push((
+        "rows",
+        JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+    ));
+    object(extra)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn replace_scenario(cwd: &str, home: &Path) -> JsValue {
+    let scripted_turns = json(SCENARIO_TURNS);
+    let interrupt = scripted_turns.get("interrupt").cloned();
+    let text_prompt = |prompt: &str| AgentPromptInput::Text(prompt.to_owned());
+    let to_array = |events: Vec<JsValue>| JsValue::Array(events);
+
+    let (manager, registry, calls, feed) = replace_manager(
+        "running",
+        &["rpIdle", "long", "rpAfter"],
+        home,
+        cwd,
+        |fake, _| fake.interrupt = interrupt,
+    )
+    .await;
+    let mut idle_events = Vec::new();
+    collect_stream(
+        manager
+            .replace_agent_run(AGENT_ID, text_prompt("idle prompt"), None)
+            .await
+            .expect("idle replace"),
+        &mut idle_events,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let mut old = manager
+        .stream_agent(AGENT_ID, text_prompt("long task"), None)
+        .expect("old stream");
+    let mut old_events = vec![old.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let replacement = manager
+        .replace_agent_run(AGENT_ID, text_prompt("replace it"), None)
+        .await
+        .expect("replace");
+    collect_stream(old, &mut old_events).await;
+    let mut new_events = Vec::new();
+    collect_stream(replacement, &mut new_events).await;
+    let a = replace_finish(
+        &manager,
+        &registry,
+        &calls,
+        &feed,
+        vec![
+            ("idleEvents", to_array(idle_events)),
+            ("oldEvents", to_array(old_events)),
+            ("newEvents", to_array(new_events)),
+        ],
+    )
+    .await;
+
+    let (manager, registry, calls, feed) = replace_manager(
+        "finishing",
+        &["rpFinishing", "rpAfterFinish"],
+        home,
+        cwd,
+        |_, _| {},
+    )
+    .await;
+    let mut first = manager
+        .stream_agent(AGENT_ID, text_prompt("finishing"), None)
+        .expect("first stream");
+    let mut first_events = vec![first.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let started_at = std::time::Instant::now();
+    let second = manager
+        .replace_agent_run(AGENT_ID, text_prompt("while finishing"), None)
+        .await
+        .expect("replace");
+    let waited = started_at.elapsed() >= Duration::from_millis(80);
+    collect_stream(first, &mut first_events).await;
+    let mut second_events = Vec::new();
+    collect_stream(second, &mut second_events).await;
+    let b = replace_finish(
+        &manager,
+        &registry,
+        &calls,
+        &feed,
+        vec![
+            ("firstEvents", to_array(first_events)),
+            ("secondEvents", to_array(second_events)),
+            ("waited", JsValue::Bool(waited)),
+        ],
+    )
+    .await;
+
+    let (manager, registry, calls, feed) =
+        replace_manager("refused", &["rpHeld"], home, cwd, |fake, options| {
+            fake.interrupt_hang = true;
+            options.rescue_interrupt_session_ms = Some(80);
+        })
+        .await;
+    let mut held = manager
+        .stream_agent(AGENT_ID, text_prompt("long task"), None)
+        .expect("held stream");
+    let held_events = vec![held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let failure = match manager
+        .replace_agent_run(AGENT_ID, text_prompt("never"), None)
+        .await
+    {
+        Ok(_) => outcome(Ok(JsValue::Null)),
+        Err(error) => outcome(Err(error)),
+    };
+    let again = outcome(
+        manager
+            .stream_agent(AGENT_ID, text_prompt("again"), None)
+            .map(|_| JsValue::Null),
+    );
+    let mut held_events = held_events;
+    collect_stream(held, &mut held_events).await;
+    let c = replace_finish(
+        &manager,
+        &registry,
+        &calls,
+        &feed,
+        vec![
+            ("heldEvents", to_array(held_events)),
+            ("failure", failure),
+            ("again", again),
+        ],
+    )
+    .await;
+
+    let (manager, registry, calls, feed) = replace_manager(
+        "starting",
+        &["slowStart", "rpAfterFinish"],
+        home,
+        cwd,
+        |_, _| {},
+    )
+    .await;
+    let slow = manager
+        .stream_agent(AGENT_ID, text_prompt("slow"), None)
+        .expect("slow stream");
+    let slow_done = tokio::spawn(async move {
+        let mut events = Vec::new();
+        collect_stream(slow, &mut events).await;
+        events
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let after_slow = manager
+        .replace_agent_run(AGENT_ID, text_prompt("while starting"), None)
+        .await
+        .expect("replace");
+    let slow_events = slow_done.await.expect("slow events");
+    let mut after_slow_events = Vec::new();
+    collect_stream(after_slow, &mut after_slow_events).await;
+    let d = replace_finish(
+        &manager,
+        &registry,
+        &calls,
+        &feed,
+        vec![
+            ("slowEvents", to_array(slow_events)),
+            ("afterSlowEvents", to_array(after_slow_events)),
+        ],
+    )
+    .await;
+    object(vec![("a", a), ("b", b), ("c", c), ("d", d)])
 }
 
 #[allow(
