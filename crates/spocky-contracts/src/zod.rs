@@ -13,6 +13,8 @@
 //! depend on them; [`verdict`] also builds the parsed output: shape-ordered
 //! objects, passthrough keys, defaults, and transform results.
 
+pub mod output;
+
 use std::borrow::Cow;
 
 use crate::js_value::{JsObject, JsValue, js_number, parse, stringify_pretty};
