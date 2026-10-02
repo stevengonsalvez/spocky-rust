@@ -24,7 +24,6 @@ use spocky_session::agent_sdk::{AgentPromptInput, AgentRunOptions};
 use spocky_session::creation::{CreationError, CreationInput, CreationTarget, OnReady};
 use spocky_session::paths::{expand_tilde, resolve_from_cwd};
 use spocky_session::provider_snapshot_manager::ResolveProviderCreateConfigOptions;
-use tokio::sync::oneshot;
 
 use crate::agent_updates::AgentUpdates;
 use crate::request::Emit;
@@ -197,8 +196,9 @@ async fn resolve_intent(services: &Services, request: &JsObject) -> Result<Inten
     })
 }
 
-/// `startCreatedAgentInitialPrompt`: starts the run, drains it in the
-/// background as `startAgentRun` does, and waits for the run to start.
+/// `startCreatedAgentInitialPrompt`: `startAgentRun` (the out-of-band
+/// intercept, else the run drained in the background) then, for a started
+/// turn, `waitForAgentRunStartWithTimeout`.
 async fn start_initial_prompt(
     manager: &Arc<AgentManager>,
     snapshot: &ManagedAgentSnapshot,
@@ -206,33 +206,32 @@ async fn start_initial_prompt(
     run_options: Option<AgentRunOptions>,
 ) -> Result<ManagedAgentSnapshot, String> {
     let agent_id = snapshot.id.as_str();
-    let mut stream = manager
-        .stream_agent(agent_id, prompt, run_options)
+    let out_of_band = manager
+        .try_run_out_of_band(agent_id, &prompt, run_options.as_ref())
         .map_err(|error| error.message)?;
-    let (started_tx, started_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        // ponytail: the first event marks the run start (turn_started or the
-        // start failure); swap for AgentManager::wait_for_agent_run_start
-        // once the session crate exposes it.
-        let first = stream.next().await;
-        let _ = started_tx.send(match first {
-            Some(Ok(_)) => Ok(()),
-            Some(Err(error)) => Err(error.message),
-            None => Err(String::new()),
-        });
-        while let Some(Ok(_)) = stream.next().await {}
-    });
-    let provider = manager
-        .get_agent(agent_id)
-        .map_or_else(|| "provider".to_owned(), |agent| agent.provider);
-    match tokio::time::timeout(AGENT_RUN_START_TIMEOUT, started_rx).await {
-        Ok(Ok(Ok(()))) => {}
-        Ok(Ok(Err(message))) if !message.is_empty() => return Err(message),
-        Ok(_) => return Err(format!("Agent {agent_id} run finished before starting")),
-        Err(_) => {
-            return Err(format!(
-                "{provider} run did not start within 60 seconds (phase: run start)"
-            ));
+    if !out_of_band {
+        let mut stream = manager
+            .stream_agent(agent_id, prompt, run_options)
+            .map_err(|error| error.message)?;
+        // `drainAgentRunIterator`: events reach clients through the manager's
+        // subscribers; a failed run is the baseline's logged "Agent stream
+        // failed".
+        tokio::spawn(async move { while let Some(Ok(_)) = stream.next().await {} });
+        let provider = manager
+            .get_agent(agent_id)
+            .map_or_else(|| "provider".to_owned(), |agent| agent.provider);
+        match tokio::time::timeout(
+            AGENT_RUN_START_TIMEOUT,
+            manager.wait_for_agent_run_start(agent_id, None),
+        )
+        .await
+        {
+            Ok(started) => started.map_err(|error| error.message)?,
+            Err(_) => {
+                return Err(format!(
+                    "{provider} run did not start within 60 seconds (phase: run start)"
+                ));
+            }
         }
     }
     Ok(manager
