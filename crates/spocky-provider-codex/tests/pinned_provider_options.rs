@@ -102,6 +102,14 @@ fn valid_cases() -> Vec<(&'static str, Option<Value>, &'static str)> {
             ),
             "auto",
         ),
+        ("null options", Some(Value::Null), "auto"),
+        (
+            "writable root with U+10FFFF",
+            Some(
+                json!({"sandbox_workspace_write": {"writable_roots": ["/a\u{10FFFF}b", "\u{10FFFF}", "\u{10FFFF}\u{10FFFF}", "\u{10FFFF}\u{F0000}"]}}),
+            ),
+            "auto",
+        ),
         ("empty options", Some(json!({})), "auto"),
         ("absent options", None, "auto"),
         (
@@ -123,6 +131,10 @@ fn valid_cases() -> Vec<(&'static str, Option<Value>, &'static str)> {
 /// have been written against `String()` or a raw comparison.
 fn rejected_cases() -> Vec<(&'static str, Value)> {
     vec![
+        ("string options", json!("workspace-write")),
+        ("array options", json!([{"sandbox_mode": "read-only"}])),
+        ("number options", json!(7)),
+        ("boolean options", json!(false)),
         (
             "array policy",
             json!({"approval_policy": ["on-request"], "sandbox_mode": "workspace-write"}),
