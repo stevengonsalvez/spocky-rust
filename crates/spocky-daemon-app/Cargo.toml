@@ -11,6 +11,7 @@ serde_json = { version = "1.0.145", features = ["preserve_order"] }
 sha2 = "0.10.9"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-daemon = { path = "../spocky-daemon" }
+spocky-message-receipts = { path = "../spocky-message-receipts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 spocky-store = { path = "../spocky-store" }

@@ -22,6 +22,7 @@ use spocky_daemon_app::provider::{
 use spocky_daemon_app::session::{DaemonBackend, Services};
 use spocky_daemon_app::shutdown::stop_agents;
 use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
+use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions, ProviderDefinition};
 use spocky_session::agent_sdk::AgentClient;
 use spocky_session::agent_storage::AgentStorage;
@@ -202,6 +203,7 @@ fn main() -> ExitCode {
         provisioning,
         creation,
         snapshots,
+        receipts: MessageReceipts::new(paseo_home.join("agent-requests").to_string_lossy()),
         paseo_home,
         home: home_dir,
     });

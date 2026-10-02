@@ -25,6 +25,7 @@ use spocky_contracts::ws::DaemonPermission;
 use spocky_daemon::session_api::{
     ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SessionSink, SocketId,
 };
+use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_identity::{StoredAgentRef, resolve_agent_identifier};
 use spocky_session::agent_manager::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot, SubscribeOptions,
@@ -50,6 +51,7 @@ use crate::agent_directory::{
     AGENTS, CursorError, agent_sort, checkout_from_persisted_workspace_placement, compare,
     compare_with_cursor, decode_cursor, encode_cursor, matches_agent_updates_filter,
 };
+use crate::agent_message::send_agent_message;
 use crate::agent_updates::AgentUpdates;
 use crate::authorization::SessionAuthorization;
 use crate::events::EventDelivery;
@@ -69,6 +71,8 @@ pub struct Services {
     pub creation: CreationService,
     /// `providerSnapshotManager`.
     pub snapshots: ProviderSnapshotManager,
+    /// `messageReceipts` (`<paseoHome>/agent-requests`).
+    pub receipts: MessageReceipts,
     pub paseo_home: PathBuf,
     /// `os.homedir()`, for tilde expansion.
     pub home: String,
@@ -292,7 +296,7 @@ pub(crate) struct RequestContext {
     app_version: Option<String>,
     pub(crate) source: SocketId,
     pub(crate) modern: bool,
-    updates: Arc<AgentUpdates>,
+    pub(crate) updates: Arc<AgentUpdates>,
     pub(crate) events: Arc<EventDelivery>,
 }
 
@@ -362,6 +366,10 @@ async fn route(
         }
         SessionInbound::FetchAgents(request) => fetch_agents(&context, request, &emit).await,
         SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
+        SessionInbound::SendAgentMessage(request) => {
+            send_agent_message(&context, request, &emit).await;
+            Ok(())
+        }
         SessionInbound::CancelAgent(request) => {
             cancel_agent(&context, request, &emit).await;
             Ok(())
@@ -778,7 +786,10 @@ fn text_or_null(value: Option<&str>) -> JsValue {
 }
 
 /// `resolveAgentIdentifier` over the stored records and the live agents.
-async fn resolve_agent(context: &RequestContext, identifier: &str) -> Result<String, String> {
+pub(crate) async fn resolve_agent(
+    context: &RequestContext,
+    identifier: &str,
+) -> Result<String, String> {
     let stored = context.services.storage.list().await;
     let refs: Vec<StoredAgentRef<'_>> = stored
         .iter()
@@ -1031,7 +1042,7 @@ async fn wait_for_finish(
 
 /// `ensureAgentLoaded` for a live agent. Loading a stored agent resumes it
 /// from persistence, which arrives with the manager's resume port.
-async fn ensure_agent_loaded(
+pub(crate) async fn ensure_agent_loaded(
     context: &RequestContext,
     agent_id: &str,
 ) -> Result<ManagedAgentSnapshot, String> {
