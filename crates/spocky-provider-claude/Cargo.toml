@@ -8,13 +8,16 @@ rust-version = "1.94"
 [dependencies]
 jiff = "0.2"
 sha1 = "0.10.7"
+sha2 = "0.10.9"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
+tokio = { version = "1.53.1", features = ["sync", "time", "rt", "macros", "process", "io-util"] }
+unicode-normalization = "0.1.25"
+uuid = { version = "1.26.1", features = ["v4"] }
 
 [dev-dependencies]
-sha2 = "0.10.9"
-uuid = { version = "1.26.1", features = ["v4"] }
+tokio = { version = "1.53.1", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "process", "io-util"] }
 
 [lints.rust]
 unsafe_code = "forbid"
