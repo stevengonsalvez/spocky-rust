@@ -15,6 +15,8 @@ pub mod config;
 #[rustfmt::skip]
 pub mod config_schema;
 pub mod creation;
+#[rustfmt::skip]
+pub mod creation_schema;
 pub mod field;
 pub mod frame;
 pub mod id;
