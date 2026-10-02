@@ -726,6 +726,32 @@ fn an_upstream_500_fails_the_turn_with_codexs_message() {
 }
 
 #[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn an_auto_review_session_starts_its_thread_and_reports_the_mode() {
+    // The `thread/start` answer to an auto-review session carries
+    // `approvalsReviewer: "auto_review"`; it is the recorded input of the
+    // provider-option differential (`tests/fixtures/provider_options.json`).
+    let codex = support::real_codex();
+    let stub = ResponsesStub::start(vec![]);
+    let root = DisposableRoot::new("auto-review-start");
+    let provider = stub_provider(&root, &stub, &codex);
+    let session = provider
+        .create_session(
+            spocky_provider_codex::SessionConfig {
+                mode_id: Some("auto-review".to_owned()),
+                ..manager_full_access_config(&root, &provider)
+            },
+            None,
+            false,
+        )
+        .expect("create session");
+    let info = session.runtime_info().expect("runtime info");
+    assert_eq!(info["modeId"], json!("auto-review"));
+    assert!(stub.requests().is_empty(), "no model request is made");
+    session.close().expect("close");
+}
+
+#[test]
 fn fixture_digests_match_and_a_changed_or_unlisted_fixture_fails() {
     for fixture in ["g2_approvals.json", "g4_upstream_500.json"] {
         support::assert_fixture_digest(fixture);
