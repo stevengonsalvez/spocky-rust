@@ -8,8 +8,11 @@
 //!
 //! A spocky right side is also checked against the codex invocation order of
 //! the original observations: each `--order-reference` side (the self-check
-//! sides) plus this run's original left side. A pair every original agrees
-//! on and the spocky side inverts fails the verdict.
+//! sides), the original sides of the latest [`ORDER_HISTORY`] earlier runs
+//! with the same identity whose self-check passed, and this run's original
+//! left side. A pair every original agrees on and the spocky side inverts
+//! fails the verdict. Every pair run writes `order.json` with its identity,
+//! the references it used, and the pairs excluded as unstable.
 //!
 //! Exit 0 only when both sides pass every positive check, no process
 //! survives, and the normalized comparison is equivalent. Exit 1 on any
@@ -20,9 +23,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde_json::Value;
-use spocky_slice_harness::compare::{compare_sides, differing_artifacts};
+use spocky_slice_harness::compare::{Verdict, compare_sides, differing_artifacts, stable_pairs};
 use spocky_slice_harness::gates;
+use spocky_slice_harness::normalize::sha256_hex;
 use spocky_slice_harness::side::{DaemonKind, Tools, run_side};
+use spocky_slice_harness::side::{GateSpec, SideRun};
 
 const USAGE: &str = "usage: spocky-slice-gate <gate> --left <original|spocky> --right <original|spocky> --paseo-root <dir> --node-bin <dir> --codex <path> --stub <path> [--spocky-daemon <path>] [--order-reference <side.json>]... --evidence <dir>";
 
@@ -120,6 +125,124 @@ fn recorded_order(path: &Path) -> Result<Vec<String>, String> {
         ))
 }
 
+/// Earlier runs whose self-check sides join the codex order references.
+const ORDER_HISTORY: usize = 2;
+
+/// What a run's original sides were observed with: the gate, the pinned
+/// Paseo build (its directory name carries the commit), the pinned codex,
+/// and the SHA-256 of the gate fixture (stub script, steps, and checks).
+/// Observations of different identities are never mixed.
+fn identity(gate: &GateSpec, tools: &Tools) -> Value {
+    let script = serde_json::to_string(&gate.script).unwrap_or_default();
+    serde_json::json!({
+        "gate": gate.id,
+        "baseline": tools.paseo_root.file_name().map(|name| name.to_string_lossy().into_owned()),
+        "codex": tools.codex.display().to_string(),
+        "fixtureSha256": sha256_hex(&format!("{script}\n{:?}\n{:?}", gate.steps, gate.checks)),
+    })
+}
+
+/// Original `side.json` paths of the latest [`ORDER_HISTORY`] runs beside
+/// `run` (newest first by name) whose self-check passed with the same
+/// identity. Runs without a matching `self-check/order.json` are skipped.
+fn order_history(run: &Path, identity: &Value) -> Vec<PathBuf> {
+    let Some(phase) = run.parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(phase) else {
+        return Vec::new();
+    };
+    let mut runs: Vec<PathBuf> = entries
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| path != run)
+        .collect();
+    runs.sort();
+    runs.reverse();
+    let read = |path: PathBuf| -> Option<Value> {
+        serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+    };
+    runs.into_iter()
+        .filter(|dir| {
+            let check = dir.join("self-check");
+            read(check.join("order.json")).is_some_and(|order| order["identity"] == *identity)
+                && read(check.join("verdict.json")).is_some_and(|verdict| verdict["pass"] == true)
+        })
+        .take(ORDER_HISTORY)
+        .flat_map(|dir| {
+            ["left-original", "right-original"]
+                .map(|side| dir.join("self-check").join(side).join("side.json"))
+        })
+        .collect()
+}
+
+/// Label pairs present in every reference whose order the references do
+/// not agree on, as `a ~ b`.
+fn unstable_pairs(references: &[&[String]]) -> Vec<String> {
+    let stable = stable_pairs(references);
+    let Some(first) = references.first() else {
+        return Vec::new();
+    };
+    let common: Vec<&String> = first
+        .iter()
+        .filter(|label| references.iter().all(|order| order.contains(label)))
+        .collect();
+    let mut unstable = Vec::new();
+    for (index, before) in common.iter().enumerate() {
+        for after in &common[index + 1..] {
+            if !stable.contains(&((*before).clone(), (*after).clone())) {
+                unstable.push(format!("{before} ~ {after}"));
+            }
+        }
+    }
+    unstable
+}
+
+/// Applies the codex order check to a spocky right side and returns the
+/// references used and the pairs excluded as unstable.
+fn check_order(
+    options: &Options,
+    reference_orders: Vec<Vec<String>>,
+    (left, left_dir): (&SideRun, &Path),
+    right: &SideRun,
+    identity: &Value,
+    verdict: &mut Verdict,
+) -> (Vec<String>, Vec<String>) {
+    let mut used: Vec<String> = Vec::new();
+    let run = options.evidence.parent().unwrap_or(&options.evidence);
+    let mut orders: Vec<Vec<String>> = Vec::new();
+    for path in options.order_references.iter().zip(reference_orders) {
+        used.push(path.0.display().to_string());
+        orders.push(path.1);
+    }
+    for path in order_history(run, identity) {
+        match recorded_order(&path) {
+            Ok(order) => {
+                used.push(path.display().to_string());
+                orders.push(order);
+            }
+            Err(error) => eprintln!("spocky-slice-gate: order history skipped: {error}"),
+        }
+    }
+    let mut references: Vec<&[String]> = orders.iter().map(Vec::as_slice).collect();
+    if left.kind == DaemonKind::Original {
+        used.push(left_dir.join("side.json").display().to_string());
+        references.push(&left.codex_order);
+    }
+    verdict.apply_order_check(&references, &right.codex_order);
+    let unstable = unstable_pairs(&references);
+    verdict.order_check = format!(
+        "{}; references {}; unstable pairs excluded: {}",
+        verdict.order_check,
+        used.join(", "),
+        if unstable.is_empty() {
+            "none".to_owned()
+        } else {
+            unstable.join(", ")
+        }
+    );
+    (used, unstable)
+}
+
 fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, bytes).map_err(|error| format!("write {}: {error}", path.display()))
@@ -157,15 +280,27 @@ fn run() -> Result<bool, String> {
     );
     let right = run_side(&gate, options.right, &options.tools, &right_dir)?;
     let mut outcome = compare_sides(&gate, &left, &right);
-    if right.kind == DaemonKind::Spocky {
-        let mut references: Vec<&[String]> = reference_orders.iter().map(Vec::as_slice).collect();
-        if left.kind == DaemonKind::Original {
-            references.push(&left.codex_order);
-        }
-        outcome
-            .verdict
-            .apply_order_check(&references, &right.codex_order);
-    }
+    let identity = identity(&gate, &options.tools);
+    let (used, unstable) = if right.kind == DaemonKind::Spocky {
+        check_order(
+            &options,
+            reference_orders,
+            (&left, &left_dir),
+            &right,
+            &identity,
+            &mut outcome.verdict,
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    write_json(
+        &options.evidence.join("order.json"),
+        &serde_json::json!({
+            "identity": identity,
+            "references": used,
+            "unstablePairs": unstable,
+        }),
+    )?;
     write_json(&options.evidence.join("rules.json"), &outcome.rules)?;
     // Named transforms live beside the manifest, which stays a plain
     // spocky-differential manifest that can be replayed as is.
@@ -225,5 +360,65 @@ fn main() -> ExitCode {
             eprintln!("spocky-slice-gate: {error}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path, text: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+
+    fn earlier_run(phase: &Path, name: &str, identity: &Value, pass: bool) {
+        let check = phase.join(name).join("self-check");
+        write(
+            &check.join("order.json"),
+            &serde_json::json!({ "identity": identity }).to_string(),
+        );
+        write(
+            &check.join("verdict.json"),
+            &serde_json::json!({ "pass": pass }).to_string(),
+        );
+    }
+
+    #[test]
+    fn order_history_takes_the_latest_passing_runs_of_the_same_identity() {
+        let phase =
+            std::env::temp_dir().join(format!("spocky-p3-order-history-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&phase);
+        let identity = serde_json::json!({ "gate": "g1", "fixtureSha256": "a" });
+        let other = serde_json::json!({ "gate": "g1", "fixtureSha256": "b" });
+        earlier_run(&phase, "g1-20261002T010000Z", &identity, true);
+        earlier_run(&phase, "g1-20261002T020000Z", &identity, true);
+        earlier_run(&phase, "g1-20261002T030000Z", &identity, false);
+        earlier_run(&phase, "g1-20261002T040000Z", &other, true);
+        earlier_run(&phase, "g1-20261002T050000Z", &identity, true);
+        fs::create_dir_all(phase.join("g1-20261002T060000Z/no-order")).unwrap();
+        let run = phase.join("g1-20261002T070000Z");
+        earlier_run(&phase, "g1-20261002T070000Z", &identity, true);
+        let history: Vec<String> = order_history(&run, &identity)
+            .iter()
+            .map(|path| path.strip_prefix(&phase).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            history,
+            [
+                "g1-20261002T050000Z/self-check/left-original/side.json",
+                "g1-20261002T050000Z/self-check/right-original/side.json",
+                "g1-20261002T020000Z/self-check/left-original/side.json",
+                "g1-20261002T020000Z/self-check/right-original/side.json",
+            ]
+        );
+        fs::remove_dir_all(&phase).unwrap();
+    }
+
+    #[test]
+    fn unstable_pairs_name_what_the_originals_disagree_on() {
+        let one = ["a#1", "b#1", "c#1"].map(str::to_owned);
+        let two = ["a#1", "c#1", "b#1"].map(str::to_owned);
+        assert_eq!(unstable_pairs(&[&one, &two, &one]), ["b#1 ~ c#1"]);
     }
 }
