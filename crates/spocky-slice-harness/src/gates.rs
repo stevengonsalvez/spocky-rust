@@ -508,7 +508,14 @@ pub fn g4_http500() -> GateSpec {
             step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
         ],
         checks: vec![
-            Check::ExitsAre(&[("run", 1)]),
+            Check::AllExitZero,
+            // The pinned CLI reports the failed turn in the run result, with
+            // exit code 0.
+            Check::JsonString {
+                step: "run",
+                pointer: "/status",
+                expected: "error",
+            },
             Check::StubExactlyConsumed,
             Check::DaemonExit(0),
         ],
@@ -656,7 +663,7 @@ pub fn g4_socketdrop() -> GateSpec {
             ..step(
                 "probe",
                 vec![Host, Project, Lit(G4_PROMPT_HOLD)],
-                None,
+                Some(("workspace", "/workspaceId")),
                 None,
             )
         }],
