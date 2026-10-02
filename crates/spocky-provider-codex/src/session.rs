@@ -1309,15 +1309,23 @@ impl CodexSession {
                 .provider_options
                 .as_ref()
                 .and_then(|options| options.get(key))
+        };
+        // `approvalPolicy ?? String(providerOptions.approval_policy ?? "")`:
+        // the policy fallback is wrapped in `String()`, the sandbox is not.
+        let approval_policy = approval_policy.unwrap_or_else(|| {
+            provider_option("approval_policy")
                 .map(js_string)
                 .unwrap_or_default()
-        };
-        let approval_policy = approval_policy.unwrap_or_else(|| provider_option("approval_policy"));
-        let sandbox = sandbox.unwrap_or_else(|| provider_option("sandbox_mode"));
-        if matches!(reviewer, Some("auto_review" | "guardian_subagent"))
-            && approval_policy == "on-request"
-            && sandbox == "workspace-write"
-        {
+        });
+        // `sandbox ?? providerOptions.sandbox_mode ?? ""` is compared raw
+        // (`=== "workspace-write"`), so only the exact string matches.
+        let sandbox_is_workspace_write =
+            sandbox_is_workspace_write(sandbox.as_deref(), provider_option("sandbox_mode"));
+        if should_promote_thread_response_to_auto_review(
+            reviewer,
+            &approval_policy,
+            sandbox_is_workspace_write,
+        ) {
             "auto-review".clone_into(&mut state.current_mode);
             state.cached_runtime_info = None;
         }
@@ -1894,9 +1902,33 @@ fn upgrade(weak: &Weak<Inner>) -> Option<CodexSession> {
     weak.upgrade().map(|inner| CodexSession { inner })
 }
 
-/// `String(value ?? "")` for the provider-option fallbacks: `null` is empty,
-/// anything else is `String(value)` (`spocky_contracts::js`), so an array
-/// joins with commas and a number prints as JavaScript does.
+/// `(sandbox ?? providerOptions.sandbox_mode ?? "") === "workspace-write"`:
+/// the preset sandbox if there is one, else the option, compared raw. Only
+/// the exact string matches; an array, object, number or `null` never does
+/// (no `String()` is applied here, unlike the approval policy).
+fn sandbox_is_workspace_write(preset: Option<&str>, option: Option<&Value>) -> bool {
+    match preset {
+        Some(preset) => preset == "workspace-write",
+        None => option.and_then(Value::as_str) == Some("workspace-write"),
+    }
+}
+
+/// `shouldPromoteThreadResponseToAutoReview`: an auto-review reviewer on an
+/// on-request policy in a workspace-write sandbox.
+fn should_promote_thread_response_to_auto_review(
+    reviewer: Option<&str>,
+    approval_policy: &str,
+    sandbox_is_workspace_write: bool,
+) -> bool {
+    matches!(reviewer, Some("auto_review" | "guardian_subagent"))
+        && approval_policy == "on-request"
+        && sandbox_is_workspace_write
+}
+
+/// `String(value ?? "")`, as the `approval_policy` fallback is written: `null`
+/// is empty, anything else is `String(value)` (`spocky_contracts::js`), so an
+/// array joins with commas and a number prints as JavaScript does. Only use
+/// this where Paseo calls `String()`; other fallbacks are used raw.
 fn js_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
@@ -3420,6 +3452,12 @@ fn to_codex_mcp_config(server: &Value) -> Value {
     Value::Object(output)
 }
 
+/// A value as a JavaScript property key (`String(value)`); a missing value is
+/// `undefined`.
+fn property_key(value: Option<&Value>) -> String {
+    contracts_js_string(value.map(to_js_value).as_ref())
+}
+
 /// `applyCodexToolPolicy(config, toolPolicy)`.
 fn apply_codex_tool_policy(
     mut config: Map<String, Value>,
@@ -3432,11 +3470,13 @@ fn apply_codex_tool_policy(
         Some(Value::Object(servers)) => servers.clone(),
         _ => Map::new(),
     };
-    let mut grants: Vec<(String, Vec<String>)> = Vec::new();
+    // `grantsByServer`: a `Map` keyed by the grant's own `server` value (a
+    // missing one is `undefined`), each holding the grants' own `tool`
+    // values. Nothing is stringified until a value becomes a property key.
+    let mut grants: Vec<(Option<&Value>, Vec<Option<&Value>>)> = Vec::new();
     if let Some(Value::Array(preapproved)) = policy.get("preapproved") {
         for grant in preapproved {
-            let server = grant.get("server").map(js_string).unwrap_or_default();
-            let tool = grant.get("tool").map(js_string).unwrap_or_default();
+            let (server, tool) = (grant.get("server"), grant.get("tool"));
             match grants.iter_mut().find(|(name, _)| *name == server) {
                 Some((_, tools)) => tools.push(tool),
                 None => grants.push((server, vec![tool])),
@@ -3444,18 +3484,23 @@ fn apply_codex_tool_policy(
         }
     }
     for (server, tools) in grants {
-        let mut server_config = match servers.get(&server) {
+        let server_key = property_key(server);
+        let mut server_config = match servers.get(&server_key) {
             Some(Value::Object(existing)) => existing.clone(),
             _ => Map::new(),
         };
         let approvals: Map<String, Value> = tools
             .iter()
-            .map(|tool| (tool.clone(), json!({"approval_mode": "approve"})))
+            .map(|tool| (property_key(*tool), json!({"approval_mode": "approve"})))
             .collect();
-        server_config.insert("enabled_tools".to_owned(), json!(tools));
+        let enabled: Vec<Value> = tools
+            .iter()
+            .map(|tool| tool.cloned().unwrap_or(Value::Null))
+            .collect();
+        server_config.insert("enabled_tools".to_owned(), Value::Array(enabled));
         server_config.insert("default_tools_approval_mode".to_owned(), json!("prompt"));
         server_config.insert("tools".to_owned(), Value::Object(approvals));
-        servers.insert(server, Value::Object(server_config));
+        servers.insert(server_key, Value::Object(server_config));
     }
     config.insert("mcp_servers".to_owned(), Value::Object(servers));
     config
@@ -4263,9 +4308,10 @@ mod tests {
     }
 
     #[test]
-    fn provider_option_text_is_javascript_string_of_the_value() {
-        // `String(value ?? "")`: arrays join with commas and numbers print as
-        // JavaScript prints them, where the old helper wrote their JSON.
+    fn approval_policy_fallback_is_javascript_string_of_the_value() {
+        // `String(providerOptions.approval_policy ?? "")`: arrays join with
+        // commas and numbers print as JavaScript prints them, where the old
+        // helper wrote their JSON.
         assert_eq!(js_string(&Value::Null), "");
         assert_eq!(js_string(&json!("on-request")), "on-request");
         assert_eq!(js_string(&json!(true)), "true");
@@ -4273,5 +4319,53 @@ mod tests {
         assert_eq!(js_string(&json!(1.5)), "1.5");
         assert_eq!(js_string(&json!(["a", 1, null, ["b", 2]])), "a,1,,b,2");
         assert_eq!(js_string(&json!({"a": 1})), "[object Object]");
+    }
+
+    #[test]
+    fn the_sandbox_fallback_is_compared_raw_not_stringified() {
+        let ws = "workspace-write";
+        assert!(sandbox_is_workspace_write(Some(ws), None));
+        assert!(!sandbox_is_workspace_write(
+            Some("read-only"),
+            Some(&json!(ws))
+        ));
+        assert!(sandbox_is_workspace_write(None, Some(&json!(ws))));
+        // `String(["workspace-write"])` is "workspace-write", but the array
+        // itself is not `=== "workspace-write"`.
+        assert!(!sandbox_is_workspace_write(None, Some(&json!([ws]))));
+        assert!(!sandbox_is_workspace_write(None, Some(&json!({"a": ws}))));
+        assert!(!sandbox_is_workspace_write(None, Some(&json!(1))));
+        assert!(!sandbox_is_workspace_write(None, Some(&Value::Null)));
+        assert!(!sandbox_is_workspace_write(None, None));
+    }
+
+    #[test]
+    fn promotion_needs_the_reviewer_the_policy_and_the_sandbox() {
+        let promote = should_promote_thread_response_to_auto_review;
+        assert!(promote(Some("auto_review"), "on-request", true));
+        assert!(promote(Some("guardian_subagent"), "on-request", true));
+        assert!(!promote(Some("user"), "on-request", true));
+        assert!(!promote(None, "on-request", true));
+        assert!(!promote(Some("auto_review"), "never", true));
+        assert!(!promote(Some("auto_review"), "on-request", false));
+    }
+
+    #[test]
+    fn tool_policy_uses_grant_values_raw_and_coerces_only_property_keys() {
+        // Paseo keeps `grant.server` and `grant.tool` as given: the `Map` is
+        // keyed by the server value itself and `enabled_tools` holds the tool
+        // values; only the object keys are `String(value)`.
+        let configured = apply_codex_tool_policy(
+            Map::new(),
+            Some(&json!({"preapproved": [
+                {"server": "a", "tool": 1},
+                {"server": "a", "tool": ["x", "y"]},
+                {"tool": "t"}
+            ]})),
+        );
+        assert_eq!(
+            serde_json::to_string(&Value::Object(configured)).unwrap(),
+            r#"{"mcp_servers":{"a":{"enabled_tools":[1,["x","y"]],"default_tools_approval_mode":"prompt","tools":{"1":{"approval_mode":"approve"},"x,y":{"approval_mode":"approve"}}},"undefined":{"enabled_tools":["t"],"default_tools_approval_mode":"prompt","tools":{"t":{"approval_mode":"approve"}}}}}"#
+        );
     }
 }
