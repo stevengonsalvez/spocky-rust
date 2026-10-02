@@ -119,6 +119,24 @@ const MAPPER_CASES: &[(&str, &str)] = &[
         "completed",
         r#"{"callId":null,"name":"read_file","input":{"file_path":"README.md"},"output":{"content":"hello"}}"#,
     ),
+    // An own `__proto__` key from JSON.parse: in a passthrough object, in
+    // plan metadata, and in plain metadata.
+    (
+        "completed",
+        r#"{"callId":"w","name":"WebSearch","input":{"query":"q"},"output":{"query":"q","durationSeconds":1,"results":[{"tool_use_id":"t","content":[{"title":"a","url":"u","__proto__":"pp","extra":1}],"__proto__":{"y":1},"z":2}]}}"#,
+    ),
+    (
+        "completed",
+        r#"{"name":"ExitPlanMode","callId":"p","input":{"plan":"x"},"metadata":{"__proto__":{"a":1},"k":1}}"#,
+    ),
+    (
+        "running",
+        r#"{"name":"Bash","callId":"c","input":{"command":"ls"},"metadata":{"__proto__":"s","k":1}}"#,
+    ),
+    (
+        "failed",
+        r#"{"name":"Bash","callId":"c","input":{"command":"ls"},"error":"e","metadata":{"__proto__":null,"k":1}}"#,
+    ),
     // Plans: metadata merge, a non-string plan, and a failed plan's error.
     (
         "completed",
@@ -312,6 +330,11 @@ const MAPPER_CASES: &[(&str, &str)] = &[
 /// stands for both null and absent, as `?? null` makes them equal.
 const DETAIL_CASES: &[(&str, &str, &str)] = &[
     ("", r#"{"a":1}"#, "2"),
+    (
+        "web_search",
+        r#"{"query":"q"}"#,
+        r#"{"query":"q","durationSeconds":1,"results":[{"tool_use_id":"t","content":[{"title":"a","url":"u","__proto__":"pp"}],"__proto__":{"y":1}}]}"#,
+    ),
     ("Edit", r#"{"file_path":"/f","patch":"PATCH"}"#, "null"),
     (
         "apply_patch",
@@ -338,6 +361,52 @@ const PARTIAL_CASES: &[&str] = &[
     r#"{"a":tru"#,
     "{\"a\u{2028}\":\u{3000}1\u{feff}}",
 ];
+
+/// Detail cases built at run time: `truncateDiffText` at its 12000-unit limit,
+/// with a surrogate pair on the cut.
+fn generated_detail_cases() -> Vec<(String, String, String)> {
+    let patch = |text: String| {
+        (
+            "Edit".to_owned(),
+            format!(
+                r#"{{"file_path":"/f","patch":{}}}"#,
+                stringify(&JsValue::String(text))
+            ),
+            "null".to_owned(),
+        )
+    };
+    vec![
+        patch("x".repeat(11_999)),
+        patch("x".repeat(12_000)),
+        patch("x".repeat(12_001)),
+        patch("x".repeat(30_000)),
+        patch(format!("{}\u{1f600}{}", "x".repeat(11_999), "y".repeat(5))),
+        patch(format!("{}\u{1f600}{}", "x".repeat(11_998), "y".repeat(5))),
+        patch(format!("{}\u{20ac}", "\u{20ac}".repeat(12_000))),
+        (
+            "apply_patch".to_owned(),
+            r#"{"path":"/f"}"#.to_owned(),
+            format!(
+                r#"{{"path":"/f","unified_diff":{}}}"#,
+                stringify(&JsValue::String("d".repeat(12_001)))
+            ),
+        ),
+    ]
+}
+
+fn detail_cases() -> Vec<(String, String, String)> {
+    DETAIL_CASES
+        .iter()
+        .map(|(name, input, output)| {
+            (
+                (*name).to_owned(),
+                (*input).to_owned(),
+                (*output).to_owned(),
+            )
+        })
+        .chain(generated_detail_cases())
+        .collect()
+}
 
 const NODE_SCRIPT: &str = r#"
 const [dist, mapperJson, detailJson, partialJson] = process.argv.slice(1);
@@ -385,6 +454,10 @@ const PINNED_MODULES: &[(&str, &str)] = &[
         "c2e99061f5fa571579f6384e48330f12384bd559aa0ce975daec4fddabcc4b08",
     ),
     (
+        "../../../protocol/dist/tool-name-normalization.js",
+        "7e2123e11ee9ddb683c3008ea1a9ee2794a120124a42f72537d552084c29b921",
+    ),
+    (
         "server/agent/providers/claude/partial-json.js",
         "882aca46cc529af7b930be1869faf7146fb33e03ca4bbc0cc978fd3ced00291f",
     ),
@@ -417,11 +490,11 @@ fn rust_output() -> String {
             _ => map_canceled(&mapper),
         }));
     }
-    for (name, input, output) in DETAIL_CASES {
-        let input = parse(input).expect("input JSON");
-        let output = parse(output).expect("output JSON");
+    for (name, input, output) in detail_cases() {
+        let input = parse(&input).expect("input JSON");
+        let output = parse(&output).expect("output JSON");
         out.push(line(
-            derive_claude_tool_detail(name, Some(&input), Some(&output)).map(Some),
+            derive_claude_tool_detail(&name, Some(&input), Some(&output)).map(Some),
         ));
     }
     for input in PARTIAL_CASES {
@@ -452,18 +525,20 @@ fn tool_calls_match_the_pinned_mapper() {
         return;
     };
     support::assert_pinned_modules(&dist, PINNED_MODULES);
+    // The mapper's schemas run on this zod; its quirks are reproduced.
+    let zod = std::fs::read_to_string(dist.join("../../../../node_modules/zod/package.json"))
+        .expect("pinned zod package.json");
+    assert!(zod.contains(r#""version": "4.4.3""#), "zod is not 4.4.3");
     let mapper = json_list(
         MAPPER_CASES
             .iter()
             .map(|(status, params)| vec![(*status).to_owned(), (*params).to_owned()]),
     );
-    let detail = json_list(DETAIL_CASES.iter().map(|(name, input, output)| {
-        vec![
-            (*name).to_owned(),
-            (*input).to_owned(),
-            (*output).to_owned(),
-        ]
-    }));
+    let detail = json_list(
+        detail_cases()
+            .into_iter()
+            .map(|(name, input, output)| vec![name, input, output]),
+    );
     let partial = stringify(&JsValue::Array(
         PARTIAL_CASES
             .iter()
