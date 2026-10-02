@@ -16,9 +16,18 @@
 # - the server_info frame is byte-identical, key order included, except
 #   features.workspaceLabels, the tracked OPEN gap DWLABEL-001;
 # - the agent_update stream and the stream of every other frame must each
-#   be byte-identical;
-# - the full interleave of the two streams is compared and reported, and a
-#   difference fails the run.
+#   be byte-identical to that stream in at least one pinned run (the pinned
+#   daemon itself varies between runs in a few update frames, so no single
+#   pinned run is the reference);
+# - the interleave of the two streams: the pinned daemon is run
+#   ORIGINAL_RUNS times (default 5), the frame pairs whose order holds in
+#   every pinned run are kept (the same stable-pair partial order the
+#   harness uses for codex-io), and spocky must keep every one of them. A
+#   pair that pinned itself reorders between runs is not compared. Only
+#   frames present in every pinned run form pairs; spocky must contain all
+#   of those and no frame that no pinned run produced.
+#
+# Every check runs; any failure makes the exit status 1.
 #
 # Each daemon runs under sandbox-exec (loopback egress only) in a named tmux
 # session on the lane's own socket, on a disposable home and a random port
@@ -26,7 +35,8 @@
 # trap cleans up on any failure. The whole run is bounded at 900 seconds.
 #
 # Usage: g2-differential.sh <out-dir>
-# Env: STUB_SCRIPT, the harness G2 stub script JSON (gates.rs g2_script).
+# Env: ORIGINAL_RUNS, how many pinned runs give the stable pairs (default 5).
+#      STUB_SCRIPT, the harness G2 stub script JSON (gates.rs g2_script).
 #      STUB_BIN, a responses stub that honours hold_ms (default
 #      $CARGO_TARGET_DIR/debug/spocky-responses-stub).
 #      CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_g1_wiring).
@@ -171,7 +181,14 @@ mask() {
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
 
+original_runs=${ORIGINAL_RUNS:-5}
+status=0
 run_side original "$top/original"
+n=2
+while [ "$n" -le "$original_runs" ]; do
+  run_side original "$top/original-$n"
+  n=$((n + 1))
+done
 run_side spocky "$top/spocky"
 for side in original spocky; do
   [ -s "$top/$side/frames.jsonl" ] || { echo "FAIL: $side recorded no frames"; exit 1; }
@@ -187,7 +204,7 @@ if cmp -s "$top/original/agent-record.masked.json" "$top/spocky/agent-record.mas
 else
   echo "FAIL: persisted agent records differ"
   diff "$top/original/agent-record.masked.json" "$top/spocky/agent-record.masked.json" | head -20
-  exit 1
+  status=1
 fi
 # The server_info frame must be byte-identical, wire key order included,
 # except one tracked key: features.workspaceLabels (OPEN gap DWLABEL-001: the
@@ -206,7 +223,7 @@ if cmp -s "$top/original/server-info-compared.json" "$top/spocky/server-info-com
 else
   echo "FAIL: server_info frame differs beyond the tracked workspaceLabels gap"
   diff "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json"
-  exit 1
+  status=1
 fi
 echo "frames: original $(wc -l <"$top/original/masked.jsonl") spocky $(wc -l <"$top/spocky/masked.jsonl")"
 for side in original spocky; do
@@ -214,30 +231,86 @@ for side in original spocky; do
     printf 'sha256 %s  %s/%s\n' "$(shasum -a 256 "$top/$side/$file" | cut -d' ' -f1)" "$side" "$file"
   done
 done
-status=0
+split_streams() {
+  grep -F '"type":"agent_update"' "$1/masked.jsonl" >"$1/updates.jsonl"
+  grep -vF '"type":"agent_update"' "$1/masked.jsonl" >"$1/replies.jsonl"
+}
+pinned_dirs="$top/original"
+n=2
+while [ "$n" -le "$original_runs" ]; do pinned_dirs="$pinned_dirs $top/original-$n"; n=$((n + 1)); done
+for dir in $pinned_dirs "$top/spocky"; do
+  [ "$dir" = "$top/original" ] || [ "$dir" = "$top/spocky" ] || {
+    tail -n +2 "$dir/frames.jsonl" >"$dir/frames-only.jsonl"
+    mask "$dir/frames-only.jsonl" >"$dir/masked.jsonl"
+  }
+  split_streams "$dir"
+done
 for stream in updates replies; do
-  for side in original spocky; do
-    if [ "$stream" = updates ]; then
-      grep -F '"type":"agent_update"' "$top/$side/masked.jsonl" >"$top/$side/$stream.jsonl"
-    else
-      grep -vF '"type":"agent_update"' "$top/$side/masked.jsonl" >"$top/$side/$stream.jsonl"
-    fi
+  matched=""
+  for dir in $pinned_dirs; do
+    if cmp -s "$dir/$stream.jsonl" "$top/spocky/$stream.jsonl"; then matched="$matched $(basename "$dir")"; fi
   done
-  if cmp -s "$top/original/$stream.jsonl" "$top/spocky/$stream.jsonl"; then
-    echo "PASS: $stream stream byte-identical ($(wc -l <"$top/original/$stream.jsonl" | tr -d ' ') frames)"
+  if [ -n "$matched" ]; then
+    echo "PASS: $stream stream byte-identical to pinned run(s):$matched ($(wc -l <"$top/spocky/$stream.jsonl" | tr -d ' ') frames)"
   else
-    echo "FAIL: $stream stream differs"
+    echo "FAIL: $stream stream matches none of the $original_runs pinned runs; against the first:"
     diff "$top/original/$stream.jsonl" "$top/spocky/$stream.jsonl" | head -20
     status=1
   fi
 done
-if cmp -s "$top/original/masked.jsonl" "$top/spocky/masked.jsonl"; then
-  echo "PASS: full interleave byte-identical"
-else
-  echo "FAIL: interleave differs (agent_update position relative to replies):"
-  jq -c '.type' "$top/original/masked.jsonl" >"$top/original/types.txt"
-  jq -c '.type' "$top/spocky/masked.jsonl" >"$top/spocky/types.txt"
-  diff "$top/original/types.txt" "$top/spocky/types.txt"
-  status=1
-fi
+# Stable-pair partial order. A frame is its masked text plus how many equal
+# frames came before it; a pair (a, b) is stable when a precedes b in every
+# pinned run.
+runs="$top/original/masked.jsonl"
+for n in $(seq 2 "$original_runs"); do runs="$runs $top/original-$n/masked.jsonl"; done
+python3 - "$top/spocky/masked.jsonl" $runs <<'PY' || status=1
+import collections, sys
+
+def keyed(path):
+    seen = collections.Counter()
+    keys = []
+    for line in open(path):
+        line = line.rstrip("\n")
+        seen[line] += 1
+        keys.append((line, seen[line]))
+    return keys
+
+spocky = keyed(sys.argv[1])
+pinned = [keyed(path) for path in sys.argv[2:]]
+if len(pinned) < 5:
+    print(f"FAIL: {len(pinned)} pinned runs; the stable-pair check needs at least 5")
+    sys.exit(1)
+common = set(pinned[0]).intersection(*map(set, pinned[1:]))
+seen = set(pinned[0]).union(*map(set, pinned[1:]))
+if not common <= set(spocky):
+    print("FAIL: spocky lacks frames every pinned run has:")
+    for key in sorted(common - set(spocky))[:5]:
+        print("  missing:", key[0][:110])
+    sys.exit(1)
+if not set(spocky) <= seen:
+    print("FAIL: spocky sent frames no pinned run produced:")
+    for key in sorted(set(spocky) - seen)[:5]:
+        print("  extra:", key[0][:110])
+    sys.exit(1)
+frames = common
+positions = [{key: index for index, key in enumerate(run)} for run in pinned]
+where = {key: index for index, key in enumerate(spocky)}
+stable = 0
+broken = []
+for first in frames:
+    for second in frames:
+        if first != second and all(run[first] < run[second] for run in positions):
+            stable += 1
+            if not where[first] < where[second]:
+                broken.append((first, second))
+print(f"interleave: {len(pinned)} pinned runs, {len(common)} frames in all of them "
+      f"({len(seen) - len(common)} in only some), {stable} stable ordered pairs; "
+      f"spocky broke {len(broken)}")
+for (first, _), (second, _) in broken[:10]:
+    print("  spocky reorders:", first[:90], "->", second[:90])
+if broken:
+    print("FAIL: spocky does not keep every stable pinned frame order")
+    sys.exit(1)
+print("PASS: spocky keeps every stable pinned frame order")
+PY
 exit "$status"
