@@ -39,6 +39,10 @@
 //!   client message id whose handler emits a timeline item and a usage
 //!   event, a failing handler, and an unknown agent.
 //!
+//! - `shutdown`: `flush` does not wait for an in-flight `createAgent`
+//!   (its `createSession` held 150 ms), `flushForShutdown` does, and a
+//!   registration after `prepareForShutdown` is refused.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
 //! `startTurn` that long before it resolves, and a leading
@@ -284,6 +288,7 @@ const fakeClient = (calls, spec) => ({
   capabilities: spec.capabilities,
   async createSession(config, launchContext, options) {
     calls.push(["createSession", config, launchContext ?? null, options ?? null]);
+    if (spec.createDelay) await sleep(spec.createDelay);
     return new FakeSession(spec, calls);
   },
   async resumeSession(handle, overrides, launchContext, options) {
@@ -686,7 +691,32 @@ const outofband = async () => {
   return { results, calls, feed, rows: await manager.getTimelineRows(agentId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband() }));
+const shutdown = async () => {
+  const calls = [];
+  const registry = new AgentStorage(`${home}/shutdown`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake", { createDelay: 150 })) }, providerDefinitions: { fake: { enabled: true } } });
+  const order = [];
+  const create = (id, name) => manager.createAgent({ provider: "fake", cwd }, id, {}).then(
+    () => { order.push(`created ${name}`); },
+    (error) => { order.push(`failed ${name}: ${error.message}`); },
+  );
+  const first = create(agentId, "first");
+  await sleep(20);
+  await manager.flush();
+  order.push("flush done");
+  await first;
+  const second = create(otherId, "second");
+  await sleep(20);
+  manager.prepareForShutdown();
+  await manager.flushForShutdown();
+  order.push("flushForShutdown done");
+  await second;
+  await create(unknownId, "third");
+  await registry.flush();
+  return { order, calls };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -720,6 +750,8 @@ struct Spec {
     history: Option<JsValue>,
     /// `session.initialTimeline`: `[{ item, timestamp }]`.
     initial_timeline: Option<JsValue>,
+    /// `createSession` resolves after this long.
+    create_delay: Option<Duration>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -732,6 +764,7 @@ fn spec(provider: &str) -> Spec {
         interrupt: None,
         history: None,
         initial_timeline: None,
+        create_delay: None,
     }
 }
 
@@ -1042,7 +1075,13 @@ impl AgentClient for FakeClient {
             listeners: Arc::new(Mutex::new(Vec::new())),
             calls: Arc::clone(&self.calls),
         };
-        Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
+        let delay = self.spec.create_delay;
+        Box::pin(async move {
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
+            }
+            Ok(Arc::new(session) as Arc<dyn AgentSession>)
+        })
     }
     fn resume_session(
         &self,
@@ -2205,8 +2244,57 @@ async fn scenarios_match_pinned_manager() {
         ("titles", titles_scenario(&cwd, &rust_home.0).await),
         ("runstart", runstart_scenario(&cwd, &rust_home.0).await),
         ("outofband", outofband_scenario(&cwd, &rust_home.0).await),
+        ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+async fn shutdown_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("shutdown"));
+    let mut fake = spec("fake");
+    fake.create_delay = Some(Duration::from_millis(150));
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let create = |id: &'static str, name: &'static str| {
+        let manager = manager.clone();
+        let order = Arc::clone(&order);
+        let cwd = cwd.to_owned();
+        tokio::spawn(async move {
+            let line = match manager
+                .create_agent(
+                    object(vec![("provider", text("fake")), ("cwd", text(&cwd))]),
+                    Some(id.to_owned()),
+                    CreateAgentOptions::default(),
+                )
+                .await
+            {
+                Ok(_) => format!("created {name}"),
+                Err(error) => format!("failed {name}: {}", error.message),
+            };
+            order.lock().expect("order").push(JsValue::String(line));
+        })
+    };
+    let push = |line: &str| order.lock().expect("order").push(text(line));
+    let first = create(AGENT_ID, "first");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    manager.flush().await;
+    push("flush done");
+    first.await.expect("first");
+    let second = create(OTHER_ID, "second");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    manager.prepare_for_shutdown();
+    manager.flush_for_shutdown().await;
+    push("flushForShutdown done");
+    second.await.expect("second");
+    create(UNKNOWN_ID, "third").await.expect("third");
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let order = order.lock().expect("order").clone();
+    object(vec![
+        ("order", JsValue::Array(order)),
+        ("calls", JsValue::Array(calls)),
+    ])
 }
 
 async fn outofband_scenario(cwd: &str, home: &Path) -> JsValue {
