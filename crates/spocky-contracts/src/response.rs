@@ -291,3 +291,30 @@ pub struct AgentPermissionResolved {
     )]
     pub subscription_id: Option<JsText>,
 }
+
+/// `status: "agent_resumed"` (`session.ts:4438-4448`, and `4511-4521` for
+/// an import): `agentId, requestId, timelineSize, agent` after `status`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentResumedStatus {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+    /// `agentManager.getTimeline(id).length`.
+    #[serde(rename = "timelineSize")]
+    pub timeline_size: usize,
+    pub agent: AgentSnapshot,
+}
+
+/// `status: "agent_refreshed"` (`session.ts:4585-4594`): `agentId,
+/// requestId, timelineSize` after `status`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AgentRefreshedStatus {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+    /// `agentManager.getTimeline(id).length`.
+    #[serde(rename = "timelineSize")]
+    pub timeline_size: usize,
+}
