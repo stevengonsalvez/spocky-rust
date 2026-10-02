@@ -79,3 +79,22 @@ handles an event synchronously, so a whole agent's queued events go first.
   and is filtered by `sessionID` (`opencode-agent.ts` around line 2318), so one
   chunk can deliver two sessions' events in the same tick.
 - Plugin providers that multiplex sessions: reachable for the same reason.
+
+## Case: provider snapshot manager, concurrent loads
+
+The same class reaches `spocky_session::provider_snapshot_manager`. When two
+catalogue loads run at once (two providers warmed together, or more same-
+provider targets than the discovery limit of four lets through), node orders
+their `getCatalogCacheKey`, `isAvailable`, `fetchCatalog` calls and `change`
+events by microtask depth; Rust orders them by tokio task scheduling. Each
+load's own call sequence and the call counts match node, and a single load
+per step matches exactly (`provider_snapshot_differential`).
+
+- Blocks: multi-provider gates. Does not block G1 (one provider, codex).
+- Reproduction: in `crates/spocky-session/tests/provider_snapshot_differential.rs`,
+  change the first `{"op":"snapshot","cwd":"/w1"}` step to an uncached
+  target (`"/w9"`) and run
+  `cargo test -p spocky-session --test provider_snapshot_differential`.
+  `getSnapshot` warms codex and claude together, and the `settle` step's
+  log shows claude's `change /w9` before codex's `isAvailable` in Rust and
+  after it in node.
