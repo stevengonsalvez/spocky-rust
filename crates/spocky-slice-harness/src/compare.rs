@@ -19,7 +19,7 @@ use spocky_differential::{
 
 use crate::normalize::{
     SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
-    preimage_digests, rules_for, value_classes,
+    preimage_digests, root_slug, rules_for, value_classes,
 };
 use crate::side::{CapturedFile, Exit, GateSpec, SideRun, StepRun, failed_checks};
 
@@ -178,6 +178,7 @@ pub fn canonical_state(
     state: &[CapturedFile],
     all_texts: &[&str],
     preimages: &[(&'static str, String)],
+    root: &str,
 ) -> Vec<Artifact> {
     let found = distinct_ids(all_texts, &SLICE_SHAPES);
     let mut derived = derived_digests(&found, all_texts);
@@ -194,10 +195,28 @@ pub fn canonical_state(
         })
         .collect();
     keyed.sort();
+    // Name each file by its masked path and its occurrence number among files
+    // with that masked path, never by global index: a file present on one side
+    // only then shows as its own difference instead of shifting every later
+    // file's name (and breaking the rules bound to those names).
+    let slug = root_slug(root);
+    let mut seen: Vec<(String, usize)> = Vec::new();
     keyed
         .into_iter()
-        .enumerate()
-        .map(|(index, (_, _, bytes))| Artifact::new(format!("state/{index:03}"), bytes))
+        .map(|(masked_path, _, bytes)| {
+            let path = masked_path
+                .replace(&slug, "{root-slug}")
+                .replace(root, "{root}");
+            let number = if let Some((_, count)) = seen.iter_mut().find(|(known, _)| *known == path)
+            {
+                *count += 1;
+                *count
+            } else {
+                seen.push((path.clone(), 1));
+                1
+            };
+            Artifact::new(format!("state/{path}#{number}"), bytes)
+        })
         .collect()
 }
 
@@ -279,6 +298,11 @@ pub struct Verdict {
     pub expected_counts: ExecutionCounts,
     pub rule_count: usize,
     pub transforms: Vec<Transform>,
+    /// Whether the normalized comparison ran. When false, `differences` is
+    /// empty because nothing was compared, not because nothing differed.
+    pub compared: bool,
+    /// `compared`, or `skipped: <reason>` when discovery or comparison failed.
+    pub comparison: String,
 }
 
 /// Comparison output: the verdict and, when comparison ran, the manifest.
@@ -322,7 +346,12 @@ fn prepare_side(
         )
         .collect();
     let raw_refs: Vec<&str> = raw_texts.iter().map(String::as_str).collect();
-    let state = canonical_state(&side.state, &raw_refs, &side.preimages);
+    let state = canonical_state(
+        &side.state,
+        &raw_refs,
+        &side.preimages,
+        side.root.trim_end_matches('/'),
+    );
     let counts = ExecutionCounts {
         fixtures: executed_fixtures(side),
         assertions: u64::try_from(gate.checks.len() - failed_checks(gate, side).len()).unwrap_or(0),
@@ -400,6 +429,13 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         && survivors.is_empty()
         && harness_errors.is_empty();
     let transforms = vec![client_metadata_transform(left, right)];
+    let compared = manifest.is_some();
+    let comparison = match (&discovery_error, &comparison_error) {
+        (Some(error), _) => format!("skipped: rule discovery failed: {error}"),
+        (None, Some(error)) => format!("skipped: comparison failed: {error}"),
+        (None, None) if compared => "compared".to_owned(),
+        (None, None) => "skipped: no comparison manifest".to_owned(),
+    };
     Outcome {
         verdict: Verdict {
             gate: gate.id.to_owned(),
@@ -415,6 +451,8 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
             expected_counts,
             rule_count: rules.len(),
             transforms: transforms.clone(),
+            compared,
+            comparison,
         },
         manifest,
         rules,
@@ -439,14 +477,17 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
         if let (ObservationSlot::Value(left), ObservationSlot::Value(right)) =
             (slot_left, slot_right)
         {
-            for index in 0..left.len().max(right.len()) {
-                match (left.get(index), right.get(index)) {
-                    (Some(a), Some(b)) if a == b => {}
-                    (Some(a), Some(b)) if a.name == b.name => names.push(a.name.clone()),
-                    (Some(a), Some(b)) => names.push(format!("{} vs {}", a.name, b.name)),
-                    (Some(a), None) => names.push(format!("{} (left only)", a.name)),
-                    (None, Some(b)) => names.push(format!("{} (right only)", b.name)),
-                    (None, None) => {}
+            // Matched by name, so one missing file never misaligns the rest.
+            for artifact in left {
+                match right.iter().find(|other| other.name == artifact.name) {
+                    Some(other) if other.bytes == artifact.bytes => {}
+                    Some(_) => names.push(artifact.name.clone()),
+                    None => names.push(format!("{} (left only)", artifact.name)),
+                }
+            }
+            for artifact in right {
+                if !left.iter().any(|other| other.name == artifact.name) {
+                    names.push(format!("{} (right only)", artifact.name));
                 }
             }
         }
@@ -670,6 +711,48 @@ mod tests {
                 "{left_body} vs {right_body}"
             );
         }
+    }
+
+    #[test]
+    fn skipped_comparison_never_reads_as_zero_differences() {
+        // One generated id on the left, none on the right: discovery fails.
+        let (left, mut right) = pair();
+        right.steps[0].stdout = format!("{{\"cwd\":\"{}/project\"}}\n", right.root).into_bytes();
+        right.state.clear();
+        let verdict = compared_only(&left, &right);
+        assert!(!verdict.pass);
+        assert!(!verdict.compared);
+        assert!(verdict.differences.is_empty());
+        assert!(
+            verdict.comparison.starts_with("skipped: "),
+            "{}",
+            verdict.comparison
+        );
+        let equal = compared_only(&pair().0, &pair().0);
+        assert!(equal.compared);
+        assert_eq!(equal.comparison, "compared");
+    }
+
+    #[test]
+    fn extra_state_file_does_not_shift_other_names() {
+        let (mut left, right) = pair();
+        for index in 0..2 {
+            left.state.push(CapturedFile {
+                path: "codex-io/invocation".into(),
+                bytes: format!("argv:\n--version\nstdin:\n{index}").into_bytes(),
+            });
+        }
+        let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
+        assert_eq!(outcome.verdict.comparison, "compared");
+        assert!(differs_at(&outcome.verdict, "state"));
+        let differing = differing_artifacts(outcome.manifest.as_ref().unwrap());
+        assert_eq!(
+            differing,
+            vec![
+                "state/codex-io/invocation#1 (left only)".to_owned(),
+                "state/codex-io/invocation#2 (left only)".to_owned(),
+            ]
+        );
     }
 
     #[test]
