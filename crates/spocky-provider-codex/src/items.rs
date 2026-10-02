@@ -14,6 +14,7 @@
 use serde_json::{Map, Value, json};
 
 use spocky_contracts::js::js_string;
+use spocky_contracts::js_value::js_text_to_utf8;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 use crate::transport::to_js_value;
@@ -396,20 +397,23 @@ fn reasoning_item(record: &Map<String, Value>) -> Option<Value> {
     }
 }
 
-/// `Array.isArray(value) ? value.join("\n") : ""`.
+/// `Array.isArray(value) ? value.join("\n") : ""`, as UTF-8 text: the joined
+/// JavaScript text leaves the value domain here (`js_text_to_utf8`).
 fn js_join_array(value: Option<&Value>) -> String {
     let Some(Value::Array(entries)) = value else {
         return String::new();
     };
-    entries
-        .iter()
-        .map(js_array_element_string)
-        .collect::<Vec<_>>()
-        .join("\n")
+    js_text_to_utf8(
+        &entries
+            .iter()
+            .map(js_array_element_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 /// `Array.prototype.join` element conversion: `null` is empty, anything else
-/// is `String(value)` (`spocky_contracts::js`).
+/// is `String(value)` (`spocky_contracts::js`), as JavaScript text.
 fn js_array_element_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
@@ -524,6 +528,20 @@ mod tests {
             ThreadItemMapping::Item(item) => item,
             other => panic!("expected item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn joined_text_leaves_the_value_domain_as_utf8() {
+        let entries = json!([
+            "a\u{10FFFF}b",
+            ["x\u{10FFFF}", 2],
+            null,
+            "\u{10FFFF}\u{10FFFF}"
+        ]);
+        assert_eq!(
+            js_join_array(Some(&entries)),
+            "a\u{10FFFF}b\nx\u{10FFFF},2\n\n\u{10FFFF}\u{10FFFF}"
+        );
     }
 
     fn paseo_usage() -> Value {
