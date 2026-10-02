@@ -408,10 +408,16 @@ pub const APP_SERVER_PIDS: &str = "app-server.pids";
 /// Codex launch (`--version` probes and `app-server` spawns), in order.
 pub const CODEX_ARGV_LOG: &str = "codex-argv.log";
 
-/// Aborts the test process if it is still alive at the deadline. A blocked
-/// test thread cannot be stopped any other way, and abort skips `Drop`, so
-/// first it stops the app-servers recorded under `root` and deletes `root`.
-/// Dropping it disarms it.
+/// Exit status of a test process the watchdog ended. The watchdog exits
+/// rather than calling `abort()`: macOS writes a crash report to
+/// `~/Library/Logs/DiagnosticReports` for every `abort()`, including the
+/// deliberate ones its own tests provoke, which would bury a real crash.
+pub const WATCHDOG_EXIT_CODE: i32 = 70;
+
+/// Ends the test process (with [`WATCHDOG_EXIT_CODE`]) if it is still alive
+/// at the deadline. A blocked test thread cannot be stopped any other way,
+/// and exiting skips `Drop`, so first it stops the app-servers recorded under
+/// `root` and deletes `root`. Dropping it disarms it.
 pub struct Watchdog {
     done: Arc<(Mutex<bool>, Condvar)>,
 }
@@ -431,13 +437,13 @@ impl Watchdog {
                 .wait_timeout_while(flag.lock().unwrap(), limit, |finished| !*finished)
                 .unwrap();
             if !*finished {
-                eprintln!("real-codex test '{label}' exceeded its {limit:?} deadline; aborting");
+                eprintln!("real-codex test '{label}' exceeded its {limit:?} deadline; exiting");
                 if let Some(root) = root {
                     eprintln!("disposable root: {}", root.display());
                     stop_recorded_app_servers(&root);
                     let _ = std::fs::remove_dir_all(&root);
                 }
-                std::process::abort();
+                std::process::exit(WATCHDOG_EXIT_CODE);
             }
         });
         Self { done }

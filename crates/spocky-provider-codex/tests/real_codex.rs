@@ -381,7 +381,7 @@ fn a_subscriber_can_interrupt_from_inside_turn_started() {
 #[test]
 fn watchdog_child() {
     match std::env::var("SPOCKY_P3_WATCHDOG_CHILD").as_deref() {
-        Ok("abort") => {
+        Ok("deadline") => {
             let _watchdog = support::Watchdog::arm("watchdog-child", Duration::from_millis(200));
             std::thread::sleep(Duration::from_secs(30));
         }
@@ -454,22 +454,25 @@ fn rerun(test: &str, extra: &[&str], env: &[(&str, Option<&str>)]) -> (ExitStatu
 }
 
 #[test]
-fn watchdog_aborts_a_test_past_its_deadline() {
-    use std::os::unix::process::ExitStatusExt;
+fn watchdog_ends_a_test_past_its_deadline() {
     let (status, output) = rerun(
         "watchdog_child",
         &[],
-        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("abort"))],
+        &[("SPOCKY_P3_WATCHDOG_CHILD", Some("deadline"))],
     );
-    assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
+    assert_eq!(
+        status.code(),
+        Some(support::WATCHDOG_EXIT_CODE),
+        "watchdog exit status, got {status:?}"
+    );
     assert!(
-        output.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; aborting"),
+        output.contains("real-codex test 'watchdog-child' exceeded its 200ms deadline; exiting"),
         "{output}"
     );
 }
 
 #[test]
-fn a_dropped_watchdog_does_not_abort() {
+fn a_dropped_watchdog_does_not_end_the_test() {
     let (status, output) = rerun(
         "watchdog_child",
         &[],
@@ -479,8 +482,7 @@ fn a_dropped_watchdog_does_not_abort() {
 }
 
 #[test]
-fn watchdog_stops_recorded_groups_and_deletes_the_root_before_abort() {
-    use std::os::unix::process::ExitStatusExt;
+fn watchdog_stops_recorded_groups_and_deletes_the_root_before_exit() {
     let (status, output) = rerun(
         "watchdog_child",
         &[],
@@ -508,7 +510,11 @@ fn watchdog_stops_recorded_groups_and_deletes_the_root_before_abort() {
             .args(["-s", "KILL", &leader.to_string()])
             .status();
     }
-    assert_eq!(status.signal(), Some(6), "SIGABRT, got {status:?}");
+    assert_eq!(
+        status.code(),
+        Some(support::WATCHDOG_EXIT_CODE),
+        "watchdog exit status, got {status:?}"
+    );
     assert!(
         output.contains(&format!(
             "sending SIGTERM to app-server process group {leader}"
