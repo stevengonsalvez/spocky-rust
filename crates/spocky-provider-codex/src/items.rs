@@ -13,7 +13,10 @@
 
 use serde_json::{Map, Value, json};
 
+use spocky_contracts::js::js_string;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
+
+use crate::transport::to_js_value;
 
 /// Result of mapping one Codex thread item.
 #[derive(Debug, Clone, PartialEq)]
@@ -405,19 +408,12 @@ fn js_join_array(value: Option<&Value>) -> String {
         .join("\n")
 }
 
-/// `Array.prototype.join` element conversion.
+/// `Array.prototype.join` element conversion: `null` is empty, anything else
+/// is `String(value)` (`spocky_contracts::js`).
 fn js_array_element_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
-        Value::Bool(flag) => flag.to_string(),
-        Value::Number(number) => crate::notification::js_number_to_string(number),
-        Value::String(text) => text.clone(),
-        Value::Array(entries) => entries
-            .iter()
-            .map(js_array_element_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".to_owned(),
+        other => js_string(Some(&to_js_value(other))),
     }
 }
 
