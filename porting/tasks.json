@@ -247,6 +247,7 @@
       "g1Interim": "2026-10-02 coordinator: codex_agent.rs passes the refresh signal through with an INTERIM first-fetch-unsignalled rule until p3_session confirms the pinned refresh signal; G1 must NOT be marked passed while this interim is in. RESOLVED in principle 2026-10-02: p3_session proved from source that the pinned unsignalled codex catalog comes from AgentManager.normalizeConfig calling resolveDefaultModelId with no fetchCatalog context (agent-manager.ts:5127-5134), and every snapshot-manager refresh passes a signal; wiring replaces the interim counter with context.is_some(), no session seam change. The hold lifts when that wiring commit lands on main. LIFTED 2026-10-02: 06f55a49 landed directly by coordinator decision as b8c2516a (fetch_catalog_signalled(None, context.is_some())); gated: spocky-daemon-app 44 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
       "openPortGaps": [
         "OPEN, not blocking G2 (2026-10-02): pinned emits wait_for_finish_response before the agent_update from the same state change, and spocky sometimes emits the update first; to be made exact after the reset with a reply-first barrier",
+        "SERVER-INFO-CAPABILITIES, OPEN (2026-10-02): spocky server_info has no capabilities object ({voice: {dictation, voice} with disabled reasons}) because spocky-daemon daemon.rs:440 hard-codes None; found by the raw-JSON wire compare. After the reset: p3_daemon_transport plus p3_g1_wiring, with the cross-crate seam owned by the lead",
         "OPEN, not blocking G2 (2026-10-02): server_info.features.workspaceLabels is true in pinned and absent in spocky, hard-coded off at spocky-daemon daemon.rs:436 because the workspace-labels service is unported",
         "P5 OPEN (2026-10-02): forwardLiveAgent and agent_update fan-out frames are not emitted; the pinned CLI ignores them, so G1 is unaffected, but the wire differs from the original"
       ],
@@ -1115,6 +1116,15 @@
           "beforeG2Acceptance": ["P2 the G2 subscriber skips status frames", "P2 the serverInfoFeatures diff is printed, not asserted"]
         },
         {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "478cfb21..5ba1bbd1 (3 commits): G2 subscriber records status frames, serverInfo features asserted with DWLABEL-001, post-create forward ordering",
+          "integrationHead": "f2063165",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-5ba1bbd1.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-daemon-app 46 passed 1 ignored, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "followUps": ["P2 the features compare uses jq -S, which hides key order (wiring fixing)"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
@@ -1330,7 +1340,8 @@
             "harness partial-order check: content-sorted codex-io hides order differences between distinct records (p3_slice_harness P2)",
             "codex resolveDefaultModeId not exposed by spocky-provider-codex; adapter returns None (before P5)",
             "DLOG-001: no daemon.log file sink",
-            "post-G1 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline"
+            "post-G1 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline",
+            "the G1 agent_update wire differential compared zod-parsed frames (subscribeRawMessages); it must be re-recorded as raw JSON per the PORTING.md evidence rule; the G1 gate verdict itself compares CLI output and is unaffected"
           ]
         }
       ],
