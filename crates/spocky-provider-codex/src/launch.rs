@@ -290,14 +290,61 @@ fn version_at(text: &str) -> Option<[u64; 3]> {
     Some(parts)
 }
 
-/// Codex launch gates resolved once per provider client.
+/// The launch gates a session is created with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodexGates {
     pub goals_enabled: bool,
     pub auto_review_enabled: bool,
 }
 
-/// `resolveGoalsEnabled` and `resolveAutoReviewEnabled`.
+/// The probe inside `resolveGoalsEnabled`: `resolveCodexLaunchPrefix`, then
+/// `resolveBinaryVersion`, then the 0.128.0 gate. Any failure is `false`.
+/// The provider memoizes the result.
+#[must_use]
+pub fn probe_goals_enabled(
+    settings: Option<&ProviderRuntimeSettings>,
+    base_env: &[(OsString, OsString)],
+) -> bool {
+    resolve_launch_prefix(settings, base_env).is_ok_and(|prefix| {
+        version_at_least(
+            &resolve_binary_version(&prefix.command, base_env),
+            GOALS_MIN_VERSION,
+        )
+    })
+}
+
+/// `probeAutoReviewEnabled(signal)`: `resolveCodexLaunchPrefix`, then
+/// `resolveBinaryVersion`, then the 0.115.0 gate. A failure is `false`,
+/// except that a passed `deadline` (Paseo's aborted signal) checked after
+/// the prefix and again at the end returns `None`, as Paseo rethrows
+/// `signal.reason`.
+///
+/// ponytail: Paseo also kills the version exec on abort; here it runs to its
+/// own 5 s bound before the deadline check. Pass the deadline into
+/// `run_bounded` if a late catalog abort must return sooner.
+#[must_use]
+pub fn probe_auto_review_enabled(
+    settings: Option<&ProviderRuntimeSettings>,
+    base_env: &[(OsString, OsString)],
+    deadline: Option<Instant>,
+) -> Option<bool> {
+    let passed = || deadline.is_some_and(|deadline| Instant::now() >= deadline);
+    let enabled = match resolve_launch_prefix(settings, base_env) {
+        Ok(prefix) => {
+            if passed() {
+                return None;
+            }
+            version_at_least(
+                &resolve_binary_version(&prefix.command, base_env),
+                AUTO_REVIEW_MIN_VERSION,
+            )
+        }
+        Err(_) => false,
+    };
+    (!passed()).then_some(enabled)
+}
+
+/// `resolveGoalsEnabled` and `resolveAutoReviewEnabled` from one probe.
 #[must_use]
 pub fn resolve_gates(
     settings: Option<&ProviderRuntimeSettings>,
@@ -766,6 +813,82 @@ mod tests {
         assert_eq!(lookup("CODEX_HOME").as_deref(), Some("/launch"));
         assert_eq!(lookup("CLAUDECODE"), None);
         assert_eq!(lookup("PASEO_NODE_ENV"), None);
+    }
+
+    /// A Codex stand-in that appends its argv to `log` and prints `version`.
+    fn recording_codex(dir: &Path, version: &str) -> (ProviderRuntimeSettings, std::path::PathBuf) {
+        std::fs::create_dir_all(dir).unwrap();
+        let log = dir.join("argv.log");
+        let script = dir.join("codex");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\necho '{version}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&script)
+            .status()
+            .unwrap();
+        let settings = ProviderRuntimeSettings {
+            command: Some(ProviderCommand::Replace {
+                argv: vec![script.to_string_lossy().into_owned()],
+            }),
+            env: None,
+        };
+        (settings, log)
+    }
+
+    fn logged(log: &Path) -> Vec<String> {
+        std::fs::read_to_string(log)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn each_gate_probe_runs_the_prefix_then_the_version() {
+        let dir = std::env::temp_dir().join(format!("spocky-gates-{}", std::process::id()));
+        let (settings, log) = recording_codex(&dir, "codex-cli 0.120.0");
+        let env = base_env();
+        assert!(
+            !probe_goals_enabled(Some(&settings), &env),
+            "0.120.0 < 0.128.0"
+        );
+        assert_eq!(logged(&log), ["--version", "--version"]);
+        assert_eq!(
+            probe_auto_review_enabled(Some(&settings), &env, None),
+            Some(true),
+            "0.120.0 >= 0.115.0"
+        );
+        assert_eq!(logged(&log).len(), 4);
+        // A passed deadline stops after the prefix probe, as Paseo's
+        // `throwIfAborted` does.
+        assert_eq!(
+            probe_auto_review_enabled(Some(&settings), &env, Some(Instant::now())),
+            None
+        );
+        assert_eq!(logged(&log).len(), 5);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_codex_disables_both_gates() {
+        let settings = ProviderRuntimeSettings {
+            command: Some(ProviderCommand::Replace {
+                argv: vec!["/nonexistent/codex".to_owned()],
+            }),
+            env: None,
+        };
+        assert!(!probe_goals_enabled(Some(&settings), &base_env()));
+        assert_eq!(
+            probe_auto_review_enabled(Some(&settings), &base_env(), None),
+            Some(false)
+        );
     }
 
     #[test]
