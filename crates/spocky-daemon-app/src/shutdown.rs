@@ -61,9 +61,6 @@ async fn join_all<F: Future<Output = ()>>(futures: impl Iterator<Item = F>) {
 pub async fn stop_agents(services: &Services) {
     services.manager.prepare_for_shutdown();
     close_all_agents(services).await;
-    // ponytail: `flush()` covers the coalescer and background tasks;
-    // `flushForShutdown` also waits for in-flight agent registrations
-    // (request 27 to p3_session). Swap when it lands.
-    services.manager.flush().await;
+    services.manager.flush_for_shutdown().await;
     services.storage.flush().await;
 }
