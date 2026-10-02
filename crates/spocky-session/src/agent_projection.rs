@@ -581,3 +581,155 @@ pub fn to_agent_payload(
     payload.insert("attentionTimestamp", timestamp);
     Ok(JsValue::Object(payload))
 }
+
+/// `value ?? null`.
+fn or_null(value: Option<&JsValue>) -> JsValue {
+    match value {
+        None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Null,
+        Some(value) => value.clone(),
+    }
+}
+
+/// `new Date(text).toISOString()`, or its `RangeError`.
+fn iso_date(value: &JsValue) -> Result<String, crate::agent_sdk::AgentError> {
+    value
+        .as_str()
+        .and_then(spocky_store::time::parse_iso_millis)
+        .map(iso_from_millis)
+        .ok_or_else(|| crate::agent_sdk::AgentError {
+            name: "RangeError".to_owned(),
+            message: "Invalid time value".to_owned(),
+        })
+}
+
+/// `buildStoredRuntimeInfo(record)`.
+fn build_stored_runtime_info(record: &JsValue) -> Option<JsValue> {
+    let runtime_info = record.get("runtimeInfo").filter(|ri| truthy(Some(ri)))?;
+    let mut out = JsObject::new();
+    out.insert("provider", field(runtime_info, "provider"));
+    out.insert("sessionId", field(runtime_info, "sessionId"));
+    for key in ["model", "thinkingOptionId", "modeId"] {
+        if runtime_info.get(key).is_some() {
+            out.insert(key, or_null(runtime_info.get(key)));
+        }
+    }
+    if let Some(extra) = runtime_info
+        .get("extra")
+        .filter(|extra| truthy(Some(extra)))
+    {
+        out.insert("extra", extra.clone());
+    }
+    Some(JsValue::Object(out))
+}
+
+/// `normalizeLabels(labels)`: the string-valued labels.
+fn normalize_labels(labels: Option<&JsValue>) -> JsValue {
+    let mut out = JsObject::new();
+    if let Some(JsValue::Object(labels)) = labels {
+        for (key, value) in labels.iter() {
+            if matches!(value, JsValue::String(_)) {
+                out.insert(key, value.clone());
+            }
+        }
+    }
+    JsValue::Object(out)
+}
+
+/// `buildStoredAgentPayload(record, validProviders)`: the wire payload of a
+/// stored agent that is not loaded.
+///
+/// # Errors
+///
+/// The `RangeError` of `toISOString` for an invalid stored date.
+pub fn build_stored_agent_payload(
+    record: &JsValue,
+    valid_providers: &[String],
+) -> Result<JsValue, crate::agent_sdk::AgentError> {
+    use crate::persistence_hooks::{
+        is_stored_agent_provider_available, resolve_stored_agent_updated_at,
+        to_agent_persistence_handle,
+    };
+    let created_at = iso_date(&field(record, "createdAt"))?;
+    let updated_at = iso_date(&resolve_stored_agent_updated_at(record))?;
+    let last_user_message_at = match record
+        .get("lastUserMessageAt")
+        .filter(|at| truthy(Some(at)))
+    {
+        Some(at) => JsValue::String(iso_date(at)?),
+        None => JsValue::Null,
+    };
+    let runtime_info = build_stored_runtime_info(record);
+    let provider_available = is_stored_agent_provider_available(record, Some(valid_providers));
+    let handle = provider_available
+        .then(|| to_agent_persistence_handle(valid_providers, record.get("persistence")))
+        .flatten();
+    let config = record.get("config");
+    let configured_thinking = or_null(config.and_then(|config| config.get("thinkingOptionId")));
+    let mut payload = JsObject::new();
+    payload.insert("id", field(record, "id"));
+    payload.insert("provider", field(record, "provider"));
+    payload.insert("cwd", field(record, "cwd"));
+    if let Some(workspace_id) = record.get("workspaceId").filter(|id| truthy(Some(id))) {
+        payload.insert("workspaceId", workspace_id.clone());
+    }
+    payload.insert(
+        "model",
+        or_null(config.and_then(|config| config.get("model"))),
+    );
+    payload.insert("thinkingOptionId", configured_thinking.clone());
+    payload.insert(
+        "effectiveThinkingOptionId",
+        resolve_effective_thinking_option_id(
+            runtime_info.as_ref().unwrap_or(&JsValue::Undefined),
+            &configured_thinking,
+        ),
+    );
+    if let Some(runtime_info) = runtime_info {
+        payload.insert("runtimeInfo", runtime_info);
+    }
+    payload.insert("createdAt", text(&created_at));
+    payload.insert("updatedAt", text(&updated_at));
+    payload.insert("lastUserMessageAt", last_user_message_at);
+    payload.insert("status", field(record, "lastStatus"));
+    let mut capabilities = JsObject::new();
+    for (key, value) in [
+        ("supportsStreaming", false),
+        ("supportsSessionPersistence", true),
+        ("supportsDynamicModes", false),
+        ("supportsMcpServers", false),
+        ("supportsReasoningStream", false),
+        ("supportsToolInvocations", true),
+        ("supportsRewindConversation", false),
+        ("supportsRewindFiles", false),
+        ("supportsRewindBoth", false),
+    ] {
+        capabilities.insert(key, JsValue::Bool(value));
+    }
+    payload.insert("capabilities", JsValue::Object(capabilities));
+    payload.insert("currentModeId", or_null(record.get("lastModeId")));
+    payload.insert("availableModes", JsValue::Array(Vec::new()));
+    payload.insert("pendingPermissions", JsValue::Array(Vec::new()));
+    payload.insert(
+        "persistence",
+        project_persistence_handle_for_wire(handle.as_ref()),
+    );
+    payload.insert("title", or_null(record.get("title")));
+    payload.insert(
+        "requiresAttention",
+        match record.get("requiresAttention") {
+            None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Bool(false),
+            Some(value) => value.clone(),
+        },
+    );
+    payload.insert("attentionReason", or_null(record.get("attentionReason")));
+    payload.insert(
+        "attentionTimestamp",
+        or_null(record.get("attentionTimestamp")),
+    );
+    payload.insert("archivedAt", or_null(record.get("archivedAt")));
+    payload.insert("labels", normalize_labels(record.get("labels")));
+    if !provider_available {
+        payload.insert("providerUnavailable", JsValue::Bool(true));
+    }
+    Ok(JsValue::Object(payload))
+}
