@@ -67,9 +67,9 @@ fn read_usage(usage: Option<&JsValue>) -> Option<f64> {
 }
 
 /// Looks up a parent tool call's input by `tool_use` id.
-pub type ToolInputLookup = Box<dyn Fn(&str) -> Option<JsObject> + Send + Sync>;
+pub type ToolInputLookup = Box<dyn Fn(&str) -> Option<JsObject>>;
 /// Reads a workflow's result text from its output file.
-pub type WorkflowResultReader = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+pub type WorkflowResultReader = Box<dyn Fn(&str) -> Option<String>>;
 
 /// `ClaudeTaskProtocolSource`.
 pub struct ClaudeTaskProtocolSource {
