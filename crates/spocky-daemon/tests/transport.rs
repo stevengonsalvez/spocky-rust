@@ -1248,6 +1248,12 @@ fn receiver_errors_close_with_the_code_and_an_empty_reason() {
         next_json(&mut ws);
         ws.get_mut().write_all(&raw).unwrap();
         assert_eq!(next_close(&mut ws), (expected, String::new()));
+        // ws ends the connection after the close frame of a receiver error.
+        ws.get_mut()
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(ws.get_mut().read(&mut byte).unwrap(), 0, "end of stream");
     }
     harness.finish();
 }
