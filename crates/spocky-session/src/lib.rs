@@ -20,6 +20,7 @@ pub mod git;
 pub mod git_remote;
 pub mod paths;
 pub mod project_key;
+pub mod provider_catalog;
 pub mod provider_snapshot_manager;
 pub mod provider_subagents;
 pub mod provisioning;
