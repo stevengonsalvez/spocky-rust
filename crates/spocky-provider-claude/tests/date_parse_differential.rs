@@ -322,11 +322,53 @@ const corpus = JSON.parse(process.argv[2]);
 process.stdout.write(corpus.map((text) => `RESULT ${String(Date.parse(text))}`).join("\n") + "\n");
 "#;
 
+/// A tzdb release as a number: year times 26 plus the letter, so
+/// consecutive releases (`2025a`, `2025b`, `2026a`) differ by one.
+fn release_ordinal(version: &str) -> i32 {
+    let digits: String = version.chars().take_while(char::is_ascii_digit).collect();
+    let letter = version[digits.len()..]
+        .chars()
+        .next()
+        .filter(char::is_ascii_lowercase)
+        .expect("a tzdb version ends its year with a letter");
+    let year: i32 = digits.parse().expect("a tzdb year");
+    year * 26 + i32::from(u8::try_from(letter).expect("ASCII") - b'a')
+}
+
+/// The host's tzdb release, from the zoneinfo directory the zone lookup reads.
+fn host_tzdb_version() -> String {
+    if let Ok(version) = std::fs::read_to_string("/usr/share/zoneinfo/+VERSION") {
+        return version.trim().to_owned();
+    }
+    let zi = std::fs::read_to_string("/usr/share/zoneinfo/tzdata.zi")
+        .expect("host tzdb version: no +VERSION and no tzdata.zi");
+    zi.lines()
+        .next()
+        .and_then(|line| line.strip_prefix("# version "))
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_alphanumeric()).next())
+        .expect("tzdata.zi header")
+        .to_owned()
+}
+
 #[test]
 fn date_parse_matches_v8_in_every_zone() {
     let Some((node, dist)) = support::pinned() else {
         return;
     };
+    // Both sides read zone rules from their own tzdb; a gap of more than one
+    // release can move a transition, so it fails the run instead of a case.
+    let host = host_tzdb_version();
+    let node_version = support::run_node(
+        &node,
+        &dist,
+        "process.stdout.write(process.versions.tz)",
+        &[],
+    );
+    println!("tzdb: host {host}, node ICU {node_version}");
+    assert!(
+        (release_ordinal(&host) - release_ordinal(&node_version)).abs() <= 1,
+        "host tzdb {host} and node tzdata {node_version} differ by more than a release"
+    );
     let corpus = corpus();
     let json = spocky_contracts::js_value::stringify(&spocky_contracts::js_value::JsValue::Array(
         corpus
