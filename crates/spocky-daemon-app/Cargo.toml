@@ -9,10 +9,11 @@ rust-version = "1.94"
 base64 = "0.22"
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 spocky-contracts = { path = "../spocky-contracts" }
+spocky-daemon = { path = "../spocky-daemon" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 spocky-store = { path = "../spocky-store" }
-tokio = { version = "1.53.1", features = ["rt"] }
+tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync"] }
 
 [dev-dependencies]
 sha2 = "0.10.9"
