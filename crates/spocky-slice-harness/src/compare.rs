@@ -518,6 +518,7 @@ mod tests {
                 name: "run",
                 args: Vec::new(),
                 capture: None,
+                wait_for_stub_requests: None,
             }],
             checks,
             preimages: |_| Vec::new(),

@@ -13,6 +13,22 @@ pub const G1_PROMPT: &str = "Reply with the single word READY.";
 /// The scripted assistant reply for G1.
 pub const G1_REPLY: &str = "READY";
 
+fn completed(response_id: &str) -> serde_json::Value {
+    json!({
+        "type": "response.completed",
+        "response": {
+            "id": response_id,
+            "usage": {
+                "input_tokens": 0,
+                "input_tokens_details": null,
+                "output_tokens": 0,
+                "output_tokens_details": null,
+                "total_tokens": 0
+            }
+        }
+    })
+}
+
 fn completed_turn(response_id: &str, message_id: &str, text: &str) -> ScriptedReply {
     ScriptedReply {
         status: 200,
@@ -27,21 +43,74 @@ fn completed_turn(response_id: &str, message_id: &str, text: &str) -> ScriptedRe
                     "content": [{"type": "output_text", "text": text}]
                 }
             }),
-            json!({
-                "type": "response.completed",
-                "response": {
-                    "id": response_id,
-                    "usage": {
-                        "input_tokens": 0,
-                        "input_tokens_details": null,
-                        "output_tokens": 0,
-                        "output_tokens_details": null,
-                        "total_tokens": 0
-                    }
-                }
-            }),
+            completed(response_id),
         ],
         json: None,
+        hold_ms: None,
+    }
+}
+
+/// A turn whose only output is a code-mode `exec` cell running one shell
+/// command with `sandbox_permissions: "require_escalated"`, which codex must
+/// route to the user for approval in `auto` mode (approval policy
+/// `on-request`). The cell waits up to 300 s instead of yielding early, and
+/// returns a fixed text so no timing reaches the next request.
+fn approval_turn(
+    response_id: &str,
+    call_id: &str,
+    command: &str,
+    justification: &str,
+) -> ScriptedReply {
+    let source = format!(
+        "// @exec: {{\"yield_time_ms\": 300000}}\n\
+         await tools.exec_command({{cmd: {command}, sandbox_permissions: \"require_escalated\", justification: {justification}}});\n\
+         text(\"done\");",
+        command = serde_json::Value::from(command),
+        justification = serde_json::Value::from(justification),
+    );
+    ScriptedReply {
+        status: 200,
+        events: vec![
+            json!({"type": "response.created", "response": {"id": response_id}}),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "custom_tool_call",
+                    "id": format!("ctc_{call_id}"),
+                    "status": "completed",
+                    "call_id": call_id,
+                    "name": "exec",
+                    "input": source
+                }
+            }),
+            completed(response_id),
+        ],
+        json: None,
+        hold_ms: None,
+    }
+}
+
+/// A turn that starts and then stays in flight, so `stop` cancels it mid-turn.
+fn held_turn(response_id: &str) -> ScriptedReply {
+    ScriptedReply {
+        status: 200,
+        events: vec![json!({"type": "response.created", "response": {"id": response_id}})],
+        json: None,
+        hold_ms: Some(120_000),
+    }
+}
+
+fn step(
+    name: &'static str,
+    args: Vec<Arg>,
+    capture: Option<(&'static str, &'static str)>,
+    wait_for_stub_requests: Option<usize>,
+) -> StepSpec {
+    StepSpec {
+        name,
+        args,
+        capture,
+        wait_for_stub_requests,
     }
 }
 
@@ -69,6 +138,7 @@ pub fn g1() -> GateSpec {
                     Project,
                 ],
                 capture: Some(("workspace", "/workspaceId")),
+                wait_for_stub_requests: None,
             },
             StepSpec {
                 name: "run",
@@ -85,21 +155,25 @@ pub fn g1() -> GateSpec {
                     Lit(G1_PROMPT),
                 ],
                 capture: Some(("agent", "/agentId")),
+                wait_for_stub_requests: None,
             },
             StepSpec {
                 name: "logs",
                 args: vec![Lit("logs"), Host, Lit("--json"), Captured("agent")],
                 capture: None,
+                wait_for_stub_requests: None,
             },
             StepSpec {
                 name: "ls",
                 args: vec![Lit("ls"), Host, Lit("--json"), Lit("-a")],
                 capture: None,
+                wait_for_stub_requests: None,
             },
             StepSpec {
                 name: "inspect",
                 args: vec![Lit("inspect"), Host, Lit("--json"), Captured("agent")],
                 capture: None,
+                wait_for_stub_requests: None,
             },
         ],
         checks: vec![
@@ -121,11 +195,14 @@ pub fn g1() -> GateSpec {
     }
 }
 
-/// Creation request fingerprint preimages for G1, exactly as
-/// `creation/index.ts` digests them: the request minus `requestId`, `type`,
-/// `subscribe`, and `idempotencyKey`, keys sorted at every level.
-#[must_use]
-pub fn g1_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+/// Creation request fingerprint preimages, exactly as `creation/index.ts`
+/// digests them: the request minus `requestId`, `type`, `subscribe`, and
+/// `idempotencyKey`, keys sorted at every level.
+fn creation_preimages(
+    captured: &BTreeMap<&'static str, String>,
+    mode: &str,
+    prompt: &str,
+) -> Vec<(&'static str, String)> {
     let mut preimages = Vec::new();
     let Some(project) = captured.get("project") else {
         return preimages;
@@ -138,8 +215,8 @@ pub fn g1_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static 
         preimages.push((
             "agent-create-request",
             json!({
-                "config": {"cwd": project, "modeId": "full-access", "provider": "codex"},
-                "initialPrompt": G1_PROMPT,
+                "config": {"cwd": project, "modeId": mode, "provider": "codex"},
+                "initialPrompt": prompt,
                 "labels": {},
                 "workspaceId": workspace
             })
@@ -149,11 +226,202 @@ pub fn g1_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static 
     preimages
 }
 
+/// G1 creation fingerprint preimages.
+#[must_use]
+pub fn g1_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "full-access", G1_PROMPT)
+}
+
+/// The G2 prompt whose shell call is allowed.
+pub const G2_PROMPT_ALLOW: &str = "Run the G2 allow probe.";
+/// The G2 prompt whose shell call is denied.
+pub const G2_PROMPT_DENY: &str = "Run the G2 deny probe.";
+/// The G2 prompt whose turn is cancelled mid-flight.
+pub const G2_PROMPT_HOLD: &str = "Start the G2 cancel probe.";
+/// Scripted reply after the allowed call.
+pub const G2_REPLY_ALLOWED: &str = "ALLOWED";
+/// Scripted reply after the denied call.
+pub const G2_REPLY_DENIED: &str = "DENIED";
+
+/// G2 creation fingerprint preimages.
+#[must_use]
+pub fn g2_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "auto", G2_PROMPT_ALLOW)
+}
+
+/// G2: permission and cancel in `--mode auto`. A scripted shell call needs
+/// approval: `permit ls` then `permit allow`; a second needs approval:
+/// `permit ls` then `permit deny`; a third turn is held in flight and
+/// cancelled with `stop`. Then `logs`, `ls -a`, and `inspect`.
+#[must_use]
+pub fn g2() -> GateSpec {
+    GateSpec {
+        id: "g2",
+        script: g2_script(),
+        steps: g2_steps(),
+        checks: g2_checks(),
+        preimages: g2_preimages,
+    }
+}
+
+fn g2_script() -> Script {
+    Script {
+        responses: vec![
+            approval_turn(
+                "resp_g2_1",
+                "call_g2_allow",
+                "printf G2-ALLOW",
+                "G2 allow probe",
+            ),
+            completed_turn("resp_g2_2", "msg_g2_2", G2_REPLY_ALLOWED),
+            approval_turn(
+                "resp_g2_3",
+                "call_g2_deny",
+                "printf G2-DENY",
+                "G2 deny probe",
+            ),
+            completed_turn("resp_g2_4", "msg_g2_4", G2_REPLY_DENIED),
+            held_turn("resp_g2_5"),
+        ],
+    }
+}
+
+/// `<command words> --host <host> --json`, then `rest`.
+fn cli(command: &[&'static str], rest: Vec<Arg>) -> Vec<Arg> {
+    let mut args: Vec<Arg> = command.iter().map(|word| Arg::Lit(word)).collect();
+    args.push(Arg::Host);
+    args.push(Arg::Lit("--json"));
+    args.extend(rest);
+    args
+}
+
+fn g2_steps() -> Vec<StepSpec> {
+    use Arg::{Captured, Lit, Project};
+    let agent = || Captured("agent");
+    vec![
+        step(
+            "workspace-create",
+            cli(
+                &["workspace", "create"],
+                vec![Lit("--isolation"), Lit("local"), Lit("--path"), Project],
+            ),
+            Some(("workspace", "/workspaceId")),
+            None,
+        ),
+        step(
+            "run",
+            cli(
+                &["run"],
+                vec![
+                    Lit("--provider"),
+                    Lit("codex"),
+                    Lit("--mode"),
+                    Lit("auto"),
+                    Lit("--workspace"),
+                    Captured("workspace"),
+                    Lit(G2_PROMPT_ALLOW),
+                ],
+            ),
+            Some(("agent", "/agentId")),
+            None,
+        ),
+        step(
+            "permit-ls-allow",
+            cli(&["permit", "ls"], vec![]),
+            Some(("permission_allow", "/0/id")),
+            None,
+        ),
+        step(
+            "permit-allow",
+            cli(
+                &["permit", "allow"],
+                vec![agent(), Captured("permission_allow")],
+            ),
+            None,
+            None,
+        ),
+        step(
+            "wait-allowed",
+            cli(&["wait"], vec![Lit("--timeout"), Lit("120"), agent()]),
+            None,
+            None,
+        ),
+        step(
+            "send-deny",
+            cli(&["send"], vec![agent(), Lit(G2_PROMPT_DENY)]),
+            None,
+            None,
+        ),
+        step(
+            "permit-ls-deny",
+            cli(&["permit", "ls"], vec![]),
+            Some(("permission_deny", "/0/id")),
+            None,
+        ),
+        step(
+            "permit-deny",
+            cli(
+                &["permit", "deny"],
+                vec![agent(), Captured("permission_deny")],
+            ),
+            None,
+            None,
+        ),
+        step(
+            "wait-denied",
+            cli(&["wait"], vec![Lit("--timeout"), Lit("120"), agent()]),
+            None,
+            None,
+        ),
+        step(
+            "send-hold",
+            cli(
+                &["send"],
+                vec![Lit("--no-wait"), agent(), Lit(G2_PROMPT_HOLD)],
+            ),
+            None,
+            None,
+        ),
+        // Cancel mid-turn: only once codex is streaming the held reply.
+        step("stop", cli(&["stop"], vec![agent()]), None, Some(5)),
+        step("logs", cli(&["logs"], vec![agent()]), None, None),
+        step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
+        step("inspect", cli(&["inspect"], vec![agent()]), None, None),
+    ]
+}
+
+fn g2_checks() -> Vec<Check> {
+    vec![
+        Check::AllExitZero,
+        Check::JsonString {
+            step: "run",
+            pointer: "/status",
+            expected: "permission",
+        },
+        Check::JsonString {
+            step: "send-deny",
+            pointer: "/status",
+            expected: "permission",
+        },
+        Check::StdoutLine {
+            step: "logs",
+            line: G2_REPLY_ALLOWED,
+        },
+        Check::StdoutLine {
+            step: "logs",
+            line: G2_REPLY_DENIED,
+        },
+        Check::StubExactlyConsumed,
+        Check::DaemonExit(0),
+    ]
+}
+
 /// Looks up a gate by id.
 #[must_use]
 pub fn by_id(id: &str) -> Option<GateSpec> {
     match id {
         "g1" => Some(g1()),
+        "g2" => Some(g2()),
         _ => None,
     }
 }
@@ -165,6 +433,9 @@ mod tests {
 
     #[test]
     fn g1_script_is_valid_and_steps_capture_before_use() {
+        for gate in [g1(), g2()] {
+            assert_capture_before_use(&gate);
+        }
         let gate = g1();
         assert!(validate_script(&gate.script).is_ok());
         let mut captured: Vec<&str> = Vec::new();
@@ -182,7 +453,7 @@ mod tests {
                 captured.push(key);
             }
         }
-        assert!(by_id("g2").is_none());
+        assert!(by_id("g3").is_none());
         assert!(G1_PROMPT.contains(G1_REPLY));
         assert!(gate.checks.contains(&Check::StdoutLine {
             step: "logs",
@@ -194,6 +465,66 @@ mod tests {
                 .iter()
                 .any(|check| matches!(check, Check::StdoutContains { .. }))
         );
+    }
+
+    fn assert_capture_before_use(gate: &GateSpec) {
+        assert!(validate_script(&gate.script).is_ok(), "{}", gate.id);
+        let mut captured: Vec<&str> = vec!["project"];
+        for step in &gate.steps {
+            for arg in &step.args {
+                if let Arg::Captured(key) = arg {
+                    assert!(
+                        captured.contains(key),
+                        "{} {} uses {key} before capture",
+                        gate.id,
+                        step.name
+                    );
+                }
+            }
+            if let Some((key, _)) = step.capture {
+                captured.push(key);
+            }
+        }
+    }
+
+    #[test]
+    fn g2_scripts_approvals_and_a_held_turn_and_stops_mid_turn() {
+        let gate = g2();
+        let holds: Vec<Option<u64>> = gate
+            .script
+            .responses
+            .iter()
+            .map(|reply| reply.hold_ms)
+            .collect();
+        assert_eq!(holds, vec![None, None, None, None, Some(120_000)]);
+        let calls: Vec<String> = gate
+            .script
+            .responses
+            .iter()
+            .flat_map(|reply| &reply.events)
+            .filter(|event| event["item"]["type"] == "custom_tool_call")
+            .map(|event| event["item"]["input"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            calls
+                .iter()
+                .all(|source| source.contains("sandbox_permissions: \"require_escalated\""))
+        );
+        assert!(
+            calls[0].contains("\"printf G2-ALLOW\"") && calls[1].contains("\"printf G2-DENY\"")
+        );
+        let stop = gate.steps.iter().find(|step| step.name == "stop").unwrap();
+        assert_eq!(
+            stop.wait_for_stub_requests,
+            Some(gate.script.responses.len())
+        );
+        let preimages = g2_preimages(&BTreeMap::from([
+            ("project", "/p".to_owned()),
+            ("workspace", "wks_0123456789abcdef".to_owned()),
+        ]));
+        assert!(preimages[1].1.contains(r#""modeId":"auto""#));
+        assert!(preimages[1].1.contains(G2_PROMPT_ALLOW));
     }
 
     #[test]

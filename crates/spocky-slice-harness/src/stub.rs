@@ -38,7 +38,14 @@ pub struct ScriptedReply {
     /// Plain JSON body, used instead of events for error replies.
     #[serde(default)]
     pub json: Option<Value>,
+    /// Keep the stream open this long after the events, with no
+    /// `content-length`, so the turn stays in flight (for cancel mid-turn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_ms: Option<u64>,
 }
+
+/// Longest a scripted reply may hold its stream open.
+pub const MAX_HOLD_MS: u64 = 600_000;
 
 /// The ordered replies for one gate run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,6 +126,9 @@ impl From<io::Error> for StubError {
 /// JSON body, has neither, or holds an event without a string `type`.
 pub fn validate_script(script: &Script) -> Result<(), String> {
     for (index, reply) in script.responses.iter().enumerate() {
+        if reply.hold_ms.is_some_and(|hold| hold > MAX_HOLD_MS) {
+            return Err(format!("reply {index} holds longer than {MAX_HOLD_MS} ms"));
+        }
         if !(100..=599).contains(&reply.status) {
             return Err(format!("reply {index} has invalid status {}", reply.status));
         }
@@ -127,6 +137,11 @@ pub fn validate_script(script: &Script) -> Result<(), String> {
                 return Err(format!("reply {index} has both events and json"));
             }
             (None, true) => return Err(format!("reply {index} has neither events nor json")),
+            (Some(_), _) if reply.hold_ms.is_some() => {
+                return Err(format!(
+                    "reply {index} holds a json body; only event streams hold"
+                ));
+            }
             _ => {}
         }
         for (event_index, event) in reply.events.iter().enumerate() {
@@ -300,7 +315,7 @@ fn answer(
     state: &Mutex<State>,
     incoming: Incoming,
 ) -> Result<(), StubError> {
-    let (status, content_type, payload) = {
+    let (status, content_type, payload, hold_ms) = {
         let mut state = state
             .lock()
             .map_err(|_| StubError::Malformed("stub state lock poisoned".into()))?;
@@ -336,19 +351,30 @@ fn answer(
         line.push(b'\n');
         state.record.write_all(&line)?;
         state.record.flush()?;
-        match failure {
+        let hold_ms = scripted.and_then(|index| state.script.responses[index].hold_ms);
+        let (status, content_type, payload) = match failure {
             Some(message) => failure_reply(&message),
             None => reply_for(&state.script, scripted),
-        }
+        };
+        (status, content_type, payload, hold_ms)
+    };
+    let length = if hold_ms.is_some() {
+        String::new()
+    } else {
+        format!("content-length: {}\r\n", payload.len())
     };
     let head = format!(
-        "HTTP/1.1 {status} {}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {}\r\ncontent-type: {content_type}\r\n{length}connection: close\r\n\r\n",
         reason(status),
-        payload.len()
     );
     stream.write_all(head.as_bytes())?;
     stream.write_all(&payload)?;
     stream.flush()?;
+    if let Some(hold) = hold_ms {
+        // The client cancels by dropping the connection; the stub process is
+        // stopped at side end, so this never outlives the side.
+        thread::sleep(Duration::from_millis(hold.min(MAX_HOLD_MS)));
+    }
     Ok(())
 }
 
@@ -533,6 +559,7 @@ mod tests {
             status,
             events,
             json,
+            hold_ms: None,
         };
         let cases = [
             reply(99, vec![json!({"type": "x"})], None),
@@ -620,6 +647,7 @@ mod tests {
                 status: 200,
                 events: vec![json!({"type": "response.created"})],
                 json: None,
+                hold_ms: None,
             }],
         }
     }
@@ -690,6 +718,75 @@ mod tests {
     }
 
     #[test]
+    fn held_reply_streams_events_and_keeps_the_connection_open() {
+        let script = Script {
+            responses: vec![ScriptedReply {
+                status: 200,
+                events: vec![json!({"type": "response.created"})],
+                json: None,
+                hold_ms: Some(5_000),
+            }],
+        };
+        let (port, path) = start(Limits::default(), script, line!());
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .write_all(b"POST /v1/responses HTTP/1.1\r\ncontent-length: 2\r\n\r\n{}")
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(1_500)))
+            .unwrap();
+        let mut received = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let still_open = loop {
+            match stream.read(&mut buffer) {
+                Ok(0) => break false,
+                Ok(count) => received.extend_from_slice(&buffer[..count]),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break true;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        };
+        let text = String::from_utf8(received).unwrap();
+        assert!(still_open, "held stream closed early");
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(!text.contains("content-length"));
+        assert!(
+            text.ends_with("event: response.created\ndata: {\"type\":\"response.created\"}\n\n")
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn holds_are_bounded_and_only_for_event_streams() {
+        let held = |events: Vec<Value>, json, hold_ms| Script {
+            responses: vec![ScriptedReply {
+                status: 200,
+                events,
+                json,
+                hold_ms,
+            }],
+        };
+        assert!(
+            validate_script(&held(vec![json!({"type": "x"})], None, Some(MAX_HOLD_MS))).is_ok()
+        );
+        assert!(
+            validate_script(&held(
+                vec![json!({"type": "x"})],
+                None,
+                Some(MAX_HOLD_MS + 1)
+            ))
+            .is_err()
+        );
+        assert!(validate_script(&held(vec![], Some(json!({})), Some(1))).is_err());
+    }
+
+    #[test]
     fn serves_script_in_order_and_records_every_request() {
         let directory = std::env::temp_dir().join(format!(
             "spocky-stub-test-{}-{}",
@@ -704,11 +801,13 @@ mod tests {
                     status: 200,
                     events: vec![json!({"type": "response.created"})],
                     json: None,
+                    hold_ms: None,
                 },
                 ScriptedReply {
                     status: 500,
                     events: vec![],
                     json: Some(json!({"error": {"message": "boom"}})),
+                    hold_ms: None,
                 },
             ],
         };

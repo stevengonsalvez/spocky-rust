@@ -105,7 +105,14 @@ pub struct StepSpec {
     pub args: Vec<Arg>,
     /// Captures a JSON string from stdout as (key, JSON pointer).
     pub capture: Option<(&'static str, &'static str)>,
+    /// Before running, wait (bounded) until the stub has recorded at least
+    /// this many requests, so a step lands at a fixed point in the turn
+    /// (for example `stop` while a held reply keeps the turn in flight).
+    pub wait_for_stub_requests: Option<usize>,
 }
+
+/// Longest a step waits for the stub to reach its request count.
+const STUB_WAIT: Duration = Duration::from_secs(120);
 
 /// A positive per-side assertion. Equality between sides is not enough: both
 /// sides failing the same way must still fail the gate.
@@ -1429,6 +1436,17 @@ fn run_in_layout(
                 continue;
             }
         };
+        if let Some(count) = step.wait_for_stub_requests
+            && !wait_until(STUB_WAIT, || stub_records(layout).len() >= count)
+        {
+            let reason = format!(
+                "stub reached {} of {count} requests within {} s",
+                stub_records(layout).len(),
+                STUB_WAIT.as_secs()
+            );
+            steps.push(not_run(step.name, argv, reason));
+            continue;
+        }
         let (stdout, stderr, exit) = run_tracked(
             &mut cli_command(tools, layout, &environment, &argv),
             STEP_TIMEOUT,
