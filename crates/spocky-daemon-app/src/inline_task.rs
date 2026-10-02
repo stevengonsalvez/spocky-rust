@@ -11,9 +11,9 @@
 //!
 //! The caller is the connection's reader thread (`server.rs:1427`), where a
 //! panic would close the socket; pinned keeps a throwing handler from closing
-//! it, and a panic in a spawned task was contained by the runtime. The inline
-//! poll catches a panic the same way: the handler is dropped, its request
-//! gets no reply, and the connection stays open.
+//! it, and a panic in a spawned task was contained by the runtime. Every poll
+//! catches a panic the same way: the handler is dropped, its request gets no
+//! reply, and the connection stays open.
 
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -29,14 +29,22 @@ struct Task {
 }
 
 impl Task {
+    /// Polls the future once. A panic ends the task, whether it comes in the
+    /// inline segment or in a later poll on the runtime: the future is
+    /// dropped, so a later wake finds nothing to poll, and the lock is never
+    /// poisoned.
     fn poll(self: &Arc<Self>) {
         let waker = Waker::from(Arc::clone(self));
         let mut context = Context::from_waker(&waker);
         let mut slot = self.future.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(future) = slot.as_mut()
-            && future.as_mut().poll(&mut context) == Poll::Ready(())
-        {
-            *slot = None;
+        let Some(future) = slot.as_mut() else {
+            return;
+        };
+        // The panic message is already out through the panic hook, as it is
+        // for a spawned task.
+        match catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(&mut context))) {
+            Ok(Poll::Pending) => {}
+            Ok(Poll::Ready(())) | Err(_) => *slot = None,
         }
     }
 }
@@ -51,19 +59,15 @@ impl Wake for Task {
 }
 
 /// Runs `task` up to its first pending await now, on this thread, with
-/// `runtime` entered; the rest runs on `runtime`. A panic before that await
-/// ends the task and does not reach the caller.
+/// `runtime` entered; the rest runs on `runtime`. A panic in any poll ends the
+/// task and does not reach the caller.
 pub fn start_inline(runtime: &Handle, task: impl Future<Output = ()> + Send + 'static) {
     let _entered = runtime.enter();
     let task = Arc::new(Task {
         future: Mutex::new(Some(Box::pin(task))),
         runtime: runtime.clone(),
     });
-    if catch_unwind(AssertUnwindSafe(|| task.poll())).is_err() {
-        // The panic message is already out through the panic hook, as it is
-        // for a spawned task; the half-run handler is dropped.
-        *task.future.lock().unwrap_or_else(PoisonError::into_inner) = None;
-    }
+    task.poll();
 }
 
 #[cfg(test)]
@@ -154,5 +158,35 @@ mod tests {
         });
         finished.await.unwrap();
         assert_eq!(*log.lock().unwrap(), ["next"]);
+    }
+
+    #[tokio::test]
+    async fn a_panic_after_the_first_await_ends_the_task_for_good() {
+        use std::future::poll_fn;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::{Poll, Waker};
+
+        let polls = Arc::new(AtomicUsize::new(0));
+        let waker: Arc<Mutex<Option<Waker>>> = Arc::new(Mutex::new(None));
+        let (seen_polls, seen_waker) = (Arc::clone(&polls), Arc::clone(&waker));
+        start_inline(
+            &Handle::current(),
+            poll_fn(move |context| {
+                if seen_polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    *seen_waker.lock().unwrap() = Some(context.waker().clone());
+                    return Poll::Pending;
+                }
+                panic!("a handler failed after its first await");
+            }),
+        );
+        let wake = || waker.lock().unwrap().clone().unwrap().wake();
+        // The first wake polls on the runtime and panics there.
+        wake();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        // A later wake finds the task gone: the panicked future is not polled.
+        wake();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
     }
 }
