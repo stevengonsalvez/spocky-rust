@@ -144,7 +144,7 @@ impl AgentManager {
     }
 
     /// `closeAgentRuntime(agentId)`.
-    async fn close_agent_runtime(&self, agent_id: &str) -> Result<(), AgentError> {
+    pub(super) async fn close_agent_runtime(&self, agent_id: &str) -> Result<(), AgentError> {
         let session = {
             let state = self.lock();
             let agent = Self::require_agent(&state, agent_id)?;
