@@ -1429,7 +1429,8 @@
           "run": "g3-20261002T072732Z",
           "selfCheck": "PASS, original versus original, first run: 108 rules, 0 differences, 7 steps exit 0, a real daemon restart, timeline rebuilt from thread/read",
           "status": "FIXTURE-READY, NOT a G3 pass: no spocky parity run yet",
-          "spockyNeeds": "after restart pinned codex runs app-server --enable goals with thread/loaded/list, thread/resume, thread/read, then turn/start for the send; spocky needs the wiring resume and refresh dispatch and the codex thread/read hydration path (session resume and hydration are ported)"
+          "spockyNeeds": "CORRECTED 2026-10-02: after the restart the G3 CLI steps (ls -a, inspect, send, logs) never send resume_agent_request or refresh_agent_request (only 'agent reload' calls refreshAgent). G3 runs through stored-agent loading: ensureAgentLoaded (agent-loading.ts:63-152), the persistence hooks (buildConfigOverrides, toAgentPersistenceHandle and the rest) and buildStoredAgentPayload (agent-projections.ts:198), none of which exist in Rust yet. p3_session ports them at low burn; p3_g1_wiring wires them in. The codex thread/loaded/list, thread/resume and thread/read path already exists in spocky-provider-codex; pinned codex runs app-server --enable goals with thread/loaded/list, thread/resume, thread/read, then turn/start for the send",
+          "afterResetNotOnG3Path": ["resume_agent_request and refresh_agent_request handlers", "unarchive and archive snapshot", "reloadAgentSession"]
         }
       ],
       "reviews": [], "repairs": [], "trackedGaps": [
