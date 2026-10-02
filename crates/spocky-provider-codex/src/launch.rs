@@ -344,25 +344,6 @@ pub fn probe_auto_review_enabled(
     (!passed()).then_some(enabled)
 }
 
-/// `resolveGoalsEnabled` and `resolveAutoReviewEnabled` from one probe.
-#[must_use]
-pub fn resolve_gates(
-    settings: Option<&ProviderRuntimeSettings>,
-    base_env: &[(OsString, OsString)],
-) -> CodexGates {
-    let Ok(prefix) = resolve_launch_prefix(settings, base_env) else {
-        return CodexGates {
-            goals_enabled: false,
-            auto_review_enabled: false,
-        };
-    };
-    let version = resolve_binary_version(&prefix.command, base_env);
-    CodexGates {
-        goals_enabled: version_at_least(&version, GOALS_MIN_VERSION),
-        auto_review_enabled: version_at_least(&version, AUTO_REVIEW_MIN_VERSION),
-    }
-}
-
 /// The env a provider child receives: base env, then `runtimeSettings.env`,
 /// then the launch env, minus parent-session and runtime-control keys.
 #[must_use]
