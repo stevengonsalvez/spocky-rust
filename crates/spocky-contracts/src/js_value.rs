@@ -113,6 +113,45 @@ pub fn js_text_scalars(text: &str) -> impl Iterator<Item = JsTextUnit> + '_ {
     })
 }
 
+/// Whether `text` holds an escaped high surrogate directly followed by an
+/// escaped low one, so it is not in canonical form.
+fn needs_pairing(text: &str) -> bool {
+    if !text.contains(JS_TEXT_ESCAPE) {
+        return false;
+    }
+    let mut after_high = false;
+    for unit in js_text_units(text) {
+        match unit {
+            JsTextUnit::LoneSurrogate(0xDC00..=0xDFFF) if after_high => return true,
+            JsTextUnit::LoneSurrogate(0xD800..=0xDBFF) => after_high = true,
+            _ => after_high = false,
+        }
+    }
+    false
+}
+
+/// `text` in canonical form, borrowed when it already is. Text without an
+/// escape, nearly all text, costs one scan.
+#[must_use]
+pub fn js_text_canonical_cow(text: &str) -> std::borrow::Cow<'_, str> {
+    if needs_pairing(text) {
+        std::borrow::Cow::Owned(js_text_canonical(text))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+/// JavaScript string equality (`===`, and Map and Set key identity) for
+/// text in the value encoding: the same UTF-16 code units, which two
+/// representations can have when concatenation joins a high and a low
+/// surrogate.
+#[must_use]
+pub fn js_text_eq(left: &str, right: &str) -> bool {
+    left == right
+        || ((left.contains(JS_TEXT_ESCAPE) || right.contains(JS_TEXT_ESCAPE))
+            && js_text_canonical_cow(left) == js_text_canonical_cow(right))
+}
+
 /// The canonical form of JavaScript text: a pair of escaped surrogates
 /// that JavaScript reads as one character is that character.
 #[must_use]
@@ -202,10 +241,15 @@ impl JsObject {
         Self::default()
     }
 
-    /// `object[key] = value`: an existing key keeps its position.
+    /// `object[key] = value`: an existing key keeps its position. A key is
+    /// the same property as another with the same code units, so it is
+    /// stored in canonical form and every stored key is canonical.
     // ponytail: linear key lookup, O(n^2) for very wide objects; add an index if profiles show it.
     pub fn insert(&mut self, key: impl Into<String>, value: JsValue) {
-        let key = key.into();
+        let mut key = key.into();
+        if needs_pairing(&key) {
+            key = js_text_canonical(&key);
+        }
         match self
             .entries
             .iter_mut()
@@ -218,9 +262,10 @@ impl JsObject {
 
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&JsValue> {
+        let key = js_text_canonical_cow(key);
         self.entries
             .iter()
-            .find(|(existing, _)| existing == key)
+            .find(|(existing, _)| *existing == *key)
             .map(|(_, value)| value)
     }
 
@@ -415,7 +460,7 @@ impl PartialEq for JsValue {
             match (left, right) {
                 (Self::Undefined, Self::Undefined) | (Self::Null, Self::Null) => {}
                 (Self::Bool(a), Self::Bool(b)) if a == b => {}
-                (Self::String(a), Self::String(b)) if a == b => {}
+                (Self::String(a), Self::String(b)) if js_text_eq(a, b) => {}
                 (Self::Number(a), Self::Number(b)) if a == b => {}
                 (Self::Array(a), Self::Array(b)) if a.len() == b.len() => {
                     pending.extend(a.iter().zip(b));
