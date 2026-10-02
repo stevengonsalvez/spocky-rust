@@ -19,6 +19,7 @@
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
 //! | `wall-clock-<format>-<n>` | wall clock | the n-th group of instants of one format inside the run window, paired by occurrence position; a group may merge distinct literals only within the format's resolution (same millisecond for `iso-frac3` and `epoch-ms`) |
 //! | `codex-wall-time` | wall clock | Codex's measured tool cell duration `Wall time <d+>.<d> seconds`, applied only in Responses stub request bodies (`stub/<nnn>`) |
+//! | `cli-relative-age` | wall clock | the pinned CLI's rendering of an agent's age, `"created": "just now"` or `"created": "<n> <unit> ago"`, applied only in step stdout artifacts (`.../stdout`); the createdAt instant stays compared in state and `inspect` |
 //! | `stub-content-length-<n>` | wall clock | the n-th stub request's `["content-length","<n>"]` header, only where it equals that side's raw body byte length; applied only in `stub/<nnn>` |
 //!
 //! A class whose left and right values are identical emits no rule: the value
@@ -722,6 +723,76 @@ fn wall_time_class(
     }))
 }
 
+/// Every `"created": "<age>"` the pinned CLI printed, in scan order with
+/// repeats, where `<age>` is exactly `just now` or `<digits> <unit> ago` with
+/// `<unit>` one of second(s), minute(s), hour(s), day(s) (the CLI prints
+/// plurals even for 1).
+#[must_use]
+pub fn relative_ages(texts: &[&str]) -> Vec<String> {
+    const KEY: &str = "\"created\": \"";
+    let mut found = Vec::new();
+    for text in texts {
+        let mut rest = *text;
+        while let Some(at) = rest.find(KEY) {
+            let after = &rest[at + KEY.len()..];
+            let Some(close) = after.find('"') else {
+                break;
+            };
+            let age = &after[..close];
+            let is_age = age == "just now"
+                || age.strip_suffix(" ago").is_some_and(|counted| {
+                    counted.split_once(' ').is_some_and(|(count, unit)| {
+                        !count.is_empty()
+                            && count.bytes().all(|byte| byte.is_ascii_digit())
+                            && matches!(
+                                unit,
+                                "second"
+                                    | "seconds"
+                                    | "minute"
+                                    | "minutes"
+                                    | "hour"
+                                    | "hours"
+                                    | "day"
+                                    | "days"
+                            )
+                    })
+                });
+            if is_age {
+                found.push(format!("{KEY}{age}\""));
+            }
+            rest = &after[close + 1..];
+        }
+    }
+    found
+}
+
+/// One class for every rendered age, applied only in step stdout artifacts.
+/// The pinned CLI renders it on both sides; a Spocky CLI would need its age
+/// rendering proved separately with a fixed clock. Discovery counts the
+/// occurrences in every text, so a one-sided occurrence fails; a target that
+/// holds the age on one side only gets no rule and still differs.
+fn relative_age_class(
+    left: &SideInput<'_>,
+    right: &SideInput<'_>,
+) -> Result<Option<ValueClass>, String> {
+    let (left_ages, right_ages) = (relative_ages(&left.texts), relative_ages(&right.texts));
+    if left_ages.len() != right_ages.len() {
+        return Err(format!(
+            "cli relative age occurrence count differs: left {} right {}",
+            left_ages.len(),
+            right_ages.len()
+        ));
+    }
+    Ok((!left_ages.is_empty()).then(|| ValueClass {
+        id: "cli-relative-age".into(),
+        category: NormalizationCategory::WallClock,
+        reason: "pinned CLI relative age text of createdAt in step stdout".into(),
+        left: left_ages,
+        right: right_ages,
+        scope: Scope::StepStdout,
+    }))
+}
+
 /// The `["content-length","<n>"]` header literal of each Responses stub
 /// request record, in record order, when it equals the UTF-8 byte length of
 /// that record's raw body and the record's `seq` equals its position (so it
@@ -872,6 +943,8 @@ pub enum Scope {
     Every,
     /// Only Responses stub request bodies, the `stub/<nnn>` artifacts.
     StubRequests,
+    /// Only step stdout artifacts, named `step-<nn>-<name>/stdout`.
+    StepStdout,
     /// Only the one artifact with this name.
     Artifact(String),
     /// Only send receipt state files, named
@@ -883,6 +956,10 @@ impl Scope {
     fn admits(&self, target: &NormalizationTarget) -> bool {
         match self {
             Self::Every => true,
+            Self::StepStdout => matches!(
+                target,
+                NormalizationTarget::Artifact(name) if name.ends_with("/stdout")
+            ),
             Self::Artifact(only) => {
                 matches!(target, NormalizationTarget::Artifact(name) if name == only)
             }
@@ -1162,6 +1239,7 @@ pub fn value_classes(
         )?);
     }
     classes.extend(wall_time_class(left, right)?);
+    classes.extend(relative_age_class(left, right)?);
     classes.extend(content_length_classes(left, right));
     Ok(classes)
 }
@@ -2072,5 +2150,64 @@ mod tests {
             artifact("stub/001", stub_record(1, &same, same.len())),
         ];
         assert_eq!(equivalent(&fixed, &fixed_right), Ok(true));
+    }
+
+    #[test]
+    fn relative_age_matches_only_the_exact_renderings() {
+        let text = r#"{"created": "just now"} {"created": "1 minutes ago"} {"created": "5 seconds ago"}
+            {"created": "2 hour ago"} {"created": "3 days ago"} {"created": "yesterday"}
+            {"created": "3 weeks ago"} {"created": " 3 days ago"} {"created": "just now!"}
+            {"created":"just now"} {"created": "x minutes ago"} {"created": "7  hours ago"}"#;
+        assert_eq!(
+            relative_ages(&[text]),
+            [
+                r#""created": "just now""#,
+                r#""created": "1 minutes ago""#,
+                r#""created": "5 seconds ago""#,
+                r#""created": "2 hour ago""#,
+                r#""created": "3 days ago""#,
+            ]
+        );
+    }
+
+    fn listing(age: &str) -> String {
+        format!("[\n  {{\n    \"status\": \"error\",\n    \"created\": \"{age}\"\n  }}\n]\n")
+    }
+
+    #[test]
+    fn relative_age_normalizes_only_in_step_stdout() {
+        let left = vec![artifact("step-04-ls/stdout", listing("just now"))];
+        let right = vec![artifact("step-04-ls/stdout", listing("1 minutes ago"))];
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // The same text in any other artifact stays a difference.
+        let left = vec![artifact("step-04-ls/stderr", listing("just now"))];
+        let right = vec![artifact("step-04-ls/stderr", listing("1 minutes ago"))];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+        // Only the age is masked: other content still decides.
+        let left = vec![artifact("step-04-ls/stdout", listing("just now"))];
+        let right = vec![artifact(
+            "step-04-ls/stdout",
+            listing("1 minutes ago").replace("error", "idle"),
+        )];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn a_one_sided_or_extra_relative_age_fails() {
+        let aged = artifact("step-04-ls/stdout", listing("just now"));
+        let plain = artifact("step-04-ls/stdout", "[]\n".into());
+        // One side has an age the other lacks: discovery fails.
+        assert!(equivalent(std::slice::from_ref(&aged), std::slice::from_ref(&plain)).is_err());
+        // Equal totals in different artifacts: the artifact holding it on
+        // one side only gets no rule and still differs.
+        let left = vec![aged.clone(), artifact("step-05-ls/stdout", "[]\n".into())];
+        let right = vec![plain, artifact("step-05-ls/stdout", listing("2 days ago"))];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+        // Two on one side, one on the other.
+        let left = vec![artifact(
+            "step-04-ls/stdout",
+            format!("{}{}", listing("just now"), listing("just now")),
+        )];
+        assert!(equivalent(&left, &[aged]).is_err());
     }
 }
