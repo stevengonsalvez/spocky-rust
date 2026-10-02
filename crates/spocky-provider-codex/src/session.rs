@@ -3427,6 +3427,17 @@ fn resolve_model_and_thinking(
     Ok((model, thinking))
 }
 
+/// The signal passed to a provider call aborted before it finished. Paseo
+/// rethrows `signal.reason` here, so the caller raises that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Aborted;
+
+impl std::fmt::Display for Aborted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The operation was aborted")
+    }
+}
+
 /// `CodexAppServerAgentClient`: owns launch settings and the version gates,
 /// and creates sessions.
 pub struct CodexProvider {
@@ -3462,7 +3473,7 @@ impl CodexProvider {
     pub fn gates(&self) -> CodexGates {
         CodexGates {
             goals_enabled: self.resolve_goals_enabled(),
-            auto_review_enabled: self.resolve_auto_review_enabled(false),
+            auto_review_enabled: self.resolve_auto_review_enabled(None).unwrap_or(false),
         }
     }
 
@@ -3480,15 +3491,25 @@ impl CodexProvider {
     }
 
     /// `resolveDefaultModeId(input)`: `auto-review` when
-    /// `resolveAutoReviewEnabled(input.signal)` is true, else `auto`.
-    /// `signal_present` is whether the input carries a signal: with one the
-    /// auto-review probe is fresh, without it the memo is used.
-    pub fn resolve_default_mode_id(&self, signal_present: bool) -> &'static str {
-        if self.resolve_auto_review_enabled(signal_present) {
+    /// `resolveAutoReviewEnabled(input.signal)` is true, else `auto`. With a
+    /// signal (`abort` is its `aborted` check) the auto-review probe is fresh
+    /// and, as in Paseo's `probeAutoReviewEnabled`, aborts after the launch
+    /// prefix probe and after the version probe; without one the memo is
+    /// used.
+    ///
+    /// # Errors
+    /// Returns [`Aborted`] when the signal aborted; the caller raises
+    /// `signal.reason`, as Paseo rethrows it.
+    pub fn resolve_default_mode_id(
+        &self,
+        abort: Option<launch::AbortCheck<'_>>,
+    ) -> Result<&'static str, Aborted> {
+        let enabled = self.resolve_auto_review_enabled(abort).ok_or(Aborted)?;
+        Ok(if enabled {
             "auto-review"
         } else {
             DEFAULT_CODEX_MODE_ID
-        }
+        })
     }
 
     /// `resolveGoalsEnabled()`: probed on first use, then memoized.
@@ -3499,14 +3520,21 @@ impl CodexProvider {
     }
 
     /// `resolveAutoReviewEnabled(signal)`: memoized only without a signal;
-    /// with one, a fresh probe on every call.
-    fn resolve_auto_review_enabled(&self, signal_present: bool) -> bool {
-        if signal_present {
-            return self.probe_auto_review_enabled(None).unwrap_or(false);
+    /// with one (`abort` is its `aborted` check), a fresh probe on every
+    /// call, and `None` when the signal aborted.
+    fn resolve_auto_review_enabled(&self, abort: Option<launch::AbortCheck<'_>>) -> Option<bool> {
+        if abort.is_some() {
+            return launch::probe_auto_review_abortable(
+                self.runtime_settings.as_ref(),
+                &self.base_env,
+                abort,
+            );
         }
-        *self
-            .auto_review_enabled
-            .get_or_init(|| self.probe_auto_review_enabled(None).unwrap_or(false))
+        Some(
+            *self
+                .auto_review_enabled
+                .get_or_init(|| self.probe_auto_review_enabled(None).unwrap_or(false)),
+        )
     }
 
     fn probe_auto_review_enabled(&self, deadline: Option<Instant>) -> Option<bool> {
@@ -3547,7 +3575,7 @@ impl CodexProvider {
                 if signal_present {
                     self.probe_auto_review_enabled(deadline)
                 } else {
-                    Some(self.resolve_auto_review_enabled(false))
+                    self.resolve_auto_review_enabled(None)
                 }
             });
             let models = self.catalog_models(deadline);
@@ -4078,8 +4106,14 @@ mod tests {
         assert_eq!(provider.is_available(), Ok(true));
         assert_eq!(probes(&log), 1, "isAvailable: one prefix probe");
         // A signalled auto-review probe never fills the memo.
-        assert!(provider.resolve_auto_review_enabled(true));
-        assert!(provider.resolve_auto_review_enabled(true));
+        assert_eq!(
+            provider.resolve_auto_review_enabled(Some(&|| false)),
+            Some(true)
+        );
+        assert_eq!(
+            provider.resolve_auto_review_enabled(Some(&|| false)),
+            Some(true)
+        );
         assert_eq!(probes(&log), 5, "two fresh prefix plus version probes");
         assert_eq!(
             provider.gates(),
@@ -4094,18 +4128,30 @@ mod tests {
             "first create: goals and auto-review probed"
         );
         provider.gates();
-        assert!(provider.resolve_auto_review_enabled(false));
+        assert_eq!(provider.resolve_auto_review_enabled(None), Some(true));
         assert_eq!(
             probes(&log),
             9,
             "later creates and unsignalled calls hit both memos"
         );
-        assert!(provider.resolve_auto_review_enabled(true));
+        assert_eq!(
+            provider.resolve_auto_review_enabled(Some(&|| false)),
+            Some(true)
+        );
         assert_eq!(probes(&log), 11, "a signal still probes afresh");
-        assert_eq!(provider.resolve_default_mode_id(false), "auto-review");
+        assert_eq!(provider.resolve_default_mode_id(None), Ok("auto-review"));
         assert_eq!(probes(&log), 11, "no signal: the memo answers");
-        assert_eq!(provider.resolve_default_mode_id(true), "auto-review");
+        assert_eq!(
+            provider.resolve_default_mode_id(Some(&|| false)),
+            Ok("auto-review")
+        );
         assert_eq!(probes(&log), 13, "a signal probes afresh");
+        assert_eq!(
+            provider.resolve_default_mode_id(Some(&|| true)),
+            Err(Aborted),
+            "an aborted signal raises"
+        );
+        assert_eq!(probes(&log), 14, "only the launch prefix probe ran");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
