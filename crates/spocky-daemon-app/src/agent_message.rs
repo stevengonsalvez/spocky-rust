@@ -2,9 +2,9 @@
 //! `handleSendAgentMessageRequest` handles it, over `MessageReceipts` and
 //! `agent-prompt.ts` `sendPromptToAgent` and `startAgentRun`.
 //!
-//! An archived agent (`unarchiveAgentState`), the `steer` active-turn
-//! behavior (`steerOrReplaceActiveTurn`), and replacing an in-flight run are
-//! not ported; those sends fail loudly. A send whose socket went away still
+//! An archived agent (`unarchiveAgentState`) and the `steer` active-turn
+//! behavior (`steerOrReplaceActiveTurn`) are not ported; those sends fail
+//! loudly. A send whose socket went away still
 //! answers, where the baseline returns silently on the aborted request
 //! signal.
 
