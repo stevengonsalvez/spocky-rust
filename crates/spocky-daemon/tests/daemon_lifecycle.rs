@@ -14,7 +14,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spocky_daemon::daemon::{DaemonEnv, NoSessionBackend, resolve_paseo_home, start};
 use spocky_daemon::listen::resolve_listen_address;
+use spocky_daemon::listen::{ListenTarget, format_listen_target};
 use spocky_daemon::log::{Logger, NullLogger};
+use spocky_daemon::session_api::{SessionBackend, SessionHandle, SessionOpen};
 use tungstenite::Message;
 use tungstenite::client::IntoClientRequest;
 
@@ -148,6 +150,51 @@ fn a_started_daemon_publishes_its_identity_and_serves_hello() {
     assert!(!home.join("local-credential").exists());
     assert!(!home.join("paseo.pid").exists());
     assert!(home.join("server-id").exists());
+}
+
+/// Records what `SessionBackend::listening` is told, and otherwise does what
+/// `NoSessionBackend` does.
+#[derive(Default)]
+struct ListeningBackend {
+    told: std::sync::Mutex<Vec<ListenTarget>>,
+}
+
+impl SessionBackend for ListeningBackend {
+    fn open(&self, open: SessionOpen) -> Arc<dyn SessionHandle> {
+        NoSessionBackend.open(open)
+    }
+    fn validate_inbound(&self, message: &Value) -> Result<(), String> {
+        NoSessionBackend.validate_inbound(message)
+    }
+    fn listening(&self, bound: &ListenTarget) {
+        self.told.lock().unwrap().push(bound.clone());
+    }
+}
+
+/// `bootstrap.ts` sets the agent MCP base url from the bound address in the
+/// `'listening'` handler, which is not the configured port for a `:0` listener.
+#[test]
+fn the_backend_is_told_the_bound_address_after_a_port_zero_bind() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    write_config(&home, &json!({"listen": "127.0.0.1:0"}));
+    let backend = Arc::new(ListeningBackend::default());
+    let logger: Arc<dyn Logger> = Arc::new(NullLogger);
+    let daemon = start(
+        &env(&home, &[]),
+        Arc::clone(&backend) as Arc<dyn SessionBackend>,
+        &logger,
+    )
+    .unwrap();
+    let told = backend.told.lock().unwrap().clone();
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let ListenTarget::Tcp { host, port } = &told[0] else {
+        panic!("expected a TCP target, got {:?}", told[0]);
+    };
+    assert_eq!(host, "127.0.0.1");
+    assert!(*port != 0 && *port != 6767 && *port != 6768, "{told:?}");
+    assert_eq!(format_listen_target(&told[0]), daemon.listen());
+    daemon.stop();
 }
 
 #[test]
