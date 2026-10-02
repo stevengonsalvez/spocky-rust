@@ -61,8 +61,8 @@ pub struct AgentUpdates {
     queue: mpsc::UnboundedSender<Queued>,
 }
 
-/// A live agent to publish, and who waits for it.
-type Queued = (ManagedAgentSnapshot, Option<oneshot::Sender<()>>);
+/// A live agent to publish (none for a flush marker), and who waits for it.
+type Queued = (Option<ManagedAgentSnapshot>, Option<oneshot::Sender<()>>);
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -194,7 +194,9 @@ impl AgentUpdates {
         let worker_services = Arc::clone(services);
         services.runtime.spawn(async move {
             while let Some((agent, done)) = updates.recv().await {
-                worker.publish(&worker_services, &agent).await;
+                if let Some(agent) = agent {
+                    worker.publish(&worker_services, &agent).await;
+                }
                 if let Some(done) = done {
                     let _ = done.send(());
                 }
@@ -295,7 +297,7 @@ impl AgentUpdates {
     /// workspace update the baseline queues otherwise has no observer here.
     pub fn forward_live_agent(&self, agent: &ManagedAgentSnapshot) {
         if !lock(&self.shared.subscriptions).is_empty() {
-            let _ = self.queue.send((agent.clone(), None));
+            let _ = self.queue.send((Some(agent.clone()), None));
         }
     }
 
@@ -305,8 +307,22 @@ impl AgentUpdates {
             return;
         }
         let (done, published) = oneshot::channel();
-        if self.queue.send((agent.clone(), Some(done))).is_ok() {
+        if self.queue.send((Some(agent.clone()), Some(done))).is_ok() {
             let _ = published.await;
+        }
+    }
+
+    /// Returns once every update queued so far is out. The baseline
+    /// publishes a live update within the microtasks that follow the
+    /// agent's state change, before a request handler awaiting the same
+    /// change replies; a reply that waits here keeps that order.
+    pub async fn flush(&self) {
+        if lock(&self.shared.subscriptions).is_empty() {
+            return;
+        }
+        let (done, flushed) = oneshot::channel();
+        if self.queue.send((None, Some(done))).is_ok() {
+            let _ = flushed.await;
         }
     }
 }
