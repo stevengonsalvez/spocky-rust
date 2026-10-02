@@ -201,7 +201,7 @@ pub(crate) async fn send_agent_message(
     };
     // The run's state changes reach subscribers before this reply.
     context.services.manager.dispatched().await;
-    context.updates.flush().await;
+    context.updates.flush(&agent_id).await;
     match outcome {
         Ok(()) => respond(emit, request_id, &agent_id, None),
         // `if (this.delivery.requestSignal.aborted) return;`

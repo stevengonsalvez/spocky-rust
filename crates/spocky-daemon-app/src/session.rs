@@ -55,7 +55,7 @@ use crate::agent_directory::{
     compare_with_cursor, decode_cursor, encode_cursor, matches_agent_updates_filter,
 };
 use crate::agent_message::send_agent_message;
-use crate::agent_updates::AgentUpdates;
+use crate::agent_updates::{AgentUpdates, WaitGuard};
 use crate::authorization::SessionAuthorization;
 use crate::events::EventDelivery;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
@@ -977,6 +977,18 @@ fn wait_for_finish_error(status: &str, final_agent: Option<&JsValue>) -> JsValue
     }
 }
 
+/// Registers the wait with the update service: updates its state changes
+/// wake are held behind its reply (`handleWaitForFinish` replies within
+/// microtasks of the change that settles it).
+fn begin_reply_wait(context: &RequestContext, agent_id: &str) -> WaitGuard {
+    let manager = &context.services.manager;
+    let running = manager
+        .get_agent(agent_id)
+        .is_some_and(|agent| agent.lifecycle == AgentLifecycle::Running)
+        || manager.has_in_flight_run(agent_id);
+    context.updates.begin_wait(agent_id, running)
+}
+
 /// `handleWaitForFinish`. The request's own abort signal (released or
 /// disconnected requests) arrives with `SessionDelivery`; until then only the
 /// timeout aborts the wait.
@@ -1042,7 +1054,7 @@ async fn wait_for_finish(
         };
     }
     // Updates that would settle this wait go out after its reply.
-    let _reply_pending = context.updates.begin_wait(&agent_id);
+    let _reply_pending = begin_reply_wait(context, &agent_id);
     let result =
         wait_with_timeout(context, &agent_id, request.timeout_ms.map(PositiveInt::get)).await;
     let disappeared = || JsText::new(&format!("Agent {agent_id} disappeared while waiting"));

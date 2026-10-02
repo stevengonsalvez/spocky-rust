@@ -219,6 +219,7 @@ pub(crate) async fn start_agent_run(
     // run's last state change may still be dispatching.
     if replace_running && manager.has_in_flight_run(agent_id) {
         manager.dispatched().await;
+        settle_ended_run(manager, agent_id).await;
     }
     if replace_running && manager.has_in_flight_run(agent_id) {
         return Err(
@@ -233,6 +234,22 @@ pub(crate) async fn start_agent_run(
     // failed".
     tokio::spawn(async move { while let Some(Ok(_)) = stream.next().await {} });
     Ok(true)
+}
+
+/// A send's `replaceRunning` meets a run that is still in flight, most often
+/// one whose turn has just ended and whose stream is closing (the wait that
+/// preceded the send can reply before that). Pinned settles it with
+/// `replaceAgentRun`; that is not ported, so wait, bounded, for the run to
+/// clear. A run that outlives the bound is refused by the caller.
+// ponytail: waits for the run to end instead of interrupting it; swap for
+// AgentManager::replace_agent_run when the session crate ports it.
+async fn settle_ended_run(manager: &Arc<AgentManager>, agent_id: &str) {
+    let cleared = async {
+        while manager.has_in_flight_run(agent_id) {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), cleared).await;
 }
 
 /// `waitForAgentRunStartWithTimeout(agentManager, agentId)`.
@@ -367,6 +384,10 @@ async fn create_session_agent(
         .create_agent(JsValue::Object(session_config), agent_id, options)
         .await
         .map_err(|error| error.message)?;
+    // The agent's registration states reach subscribers before the creation
+    // update that carries its payload.
+    services.manager.dispatched().await;
+    updates.flush(&snapshot.id).await;
     on_ready(agent_payload(&services, &snapshot).await?)
         .await
         .map_err(|error| error.message)?;

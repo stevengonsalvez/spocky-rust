@@ -71,6 +71,9 @@ pub(crate) async fn cancel_agent(
         }
         return;
     };
+    // The cancelled run's state changes reach subscribers before this reply.
+    context.services.manager.dispatched().await;
+    context.updates.flush(agent_id).await;
     let agent = match context.services.manager.get_agent(agent_id) {
         Some(agent) => agent_payload(&context.services, &agent)
             .await

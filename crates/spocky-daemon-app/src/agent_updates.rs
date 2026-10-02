@@ -15,13 +15,15 @@ use serde_json::Value;
 use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::request::AgentDirectoryFilter;
 use spocky_daemon::session_api::{SessionSink, SocketId};
-use spocky_session::agent_manager::ManagedAgentSnapshot;
+use spocky_session::agent_manager::{AgentLifecycle, ManagedAgentSnapshot};
 use spocky_session::clock::random_uuid;
 use spocky_store::time::parse_iso_millis;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::agent_directory::matches_agent_updates_filter;
 use crate::authorization::SessionAuthorization;
+pub use crate::reply_window::WaitGuard;
+use crate::reply_window::{Dispatched, Job, Tails, Waits};
 use crate::session::{Services, agent_payload, placement_for_workspace, to_frame};
 
 /// `isProviderVisibleToClient` for the owning socket.
@@ -45,85 +47,7 @@ pub struct Owner {
     pub response_id: String,
 }
 
-/// Which `wait_for_finish` requests are in flight per agent. Pinned
-/// `session.ts` emits a wait's reply within a few microtasks of the state
-/// change that settles it, while that change's `agent_update` goes through
-/// storage, placement and registry awaits, so the reply always comes first.
-/// Rust's scheduling carries no such ordering, so an update that would
-/// settle a wait is held until the waits on its agent have replied.
-#[derive(Default)]
-struct ReplyBarrier {
-    waits: Mutex<HashMap<String, usize>>,
-    replied: tokio::sync::Notify,
-}
-
-/// How long a settling update waits for a reply that may not be coming (a
-/// wait that this change does not wake).
-// ponytail: fixed bound; a wait that the change does not settle delays the
-// update by up to this long. Tie the hold to the wait's own wake if that bites.
-const REPLY_HOLD: std::time::Duration = std::time::Duration::from_secs(2);
-
-impl ReplyBarrier {
-    fn begin(&self, agent_id: &str) {
-        *lock(&self.waits).entry(agent_id.to_owned()).or_default() += 1;
-    }
-
-    fn end(&self, agent_id: &str) {
-        let mut waits = lock(&self.waits);
-        if let Some(count) = waits.get_mut(agent_id) {
-            *count -= 1;
-            if *count == 0 {
-                waits.remove(agent_id);
-            }
-        }
-        drop(waits);
-        self.replied.notify_waiters();
-    }
-
-    fn pending(&self, agent_id: &str) -> bool {
-        lock(&self.waits).contains_key(agent_id)
-    }
-
-    /// Returns once no wait on `agent_id` is in flight, or after `bound`.
-    async fn hold(&self, agent_id: &str, bound: std::time::Duration) {
-        let held = async {
-            loop {
-                let released = self.replied.notified();
-                if !self.pending(agent_id) {
-                    return;
-                }
-                released.await;
-            }
-        };
-        let _ = tokio::time::timeout(bound, held).await;
-    }
-}
-
-/// A `wait_for_finish` in flight; dropping it is its reply being out.
-pub struct WaitGuard {
-    barrier: Arc<ReplyBarrier>,
-    agent_id: String,
-}
-
-impl Drop for WaitGuard {
-    fn drop(&mut self) {
-        self.barrier.end(&self.agent_id);
-    }
-}
-
-/// Whether an agent payload is a state that settles a `wait_for_finish`:
-/// idle, error, or waiting on a permission.
-fn settles_a_wait(payload: &JsValue) -> bool {
-    let status = payload.get("status").and_then(JsValue::as_str);
-    let permissions = payload
-        .get("pendingPermissions")
-        .and_then(JsValue::as_array)
-        .is_some_and(|permissions| !permissions.is_empty());
-    matches!(status, Some("idle" | "error")) || permissions
-}
-
 struct Shared {
-    barrier: Arc<ReplyBarrier>,
     subscriptions: Mutex<Vec<Subscription>>,
     sink: Arc<dyn SessionSink>,
     authorization: Arc<SessionAuthorization>,
@@ -133,14 +57,30 @@ struct Shared {
 /// The session's `AgentUpdatesService`.
 pub struct AgentUpdates {
     shared: Arc<Shared>,
-    /// `liveAgentUpdateTails`: one worker drains updates in arrival order.
-    // ponytail: one queue for every agent, where the baseline chains per
-    // agent; split by agent id if one slow enrichment must not delay others.
-    queue: mpsc::UnboundedSender<Queued>,
+    /// `liveAgentUpdateTails`: one ordered queue per agent.
+    tails: Tails<ManagedAgentSnapshot>,
+    /// The `wait_for_finish` requests in flight, whose replies the updates
+    /// they wake are held behind.
+    waits: Arc<Waits>,
 }
 
-/// A live agent to publish (none for a flush marker), and who waits for it.
-type Queued = (Option<ManagedAgentSnapshot>, Option<oneshot::Sender<()>>);
+/// How long an update held behind a woken wait's reply waits for it.
+const REPLY_HOLD: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What a dispatched agent state says about its agent.
+fn dispatched(agent: &ManagedAgentSnapshot) -> Dispatched {
+    let turn = agent.active_foreground_turn_id.is_some();
+    let permission = !agent.pending_permissions.is_empty();
+    Dispatched {
+        agent_id: agent.id.clone(),
+        active: agent.lifecycle == AgentLifecycle::Running || turn,
+        settles: permission
+            || (matches!(
+                agent.lifecycle,
+                AgentLifecycle::Idle | AgentLifecycle::Error
+            ) && !turn),
+    }
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -219,9 +159,6 @@ impl Shared {
         let Ok(payload) = agent_payload(services, agent).await else {
             return;
         };
-        if settles_a_wait(&payload) && self.barrier.pending(&agent.id) {
-            self.barrier.hold(&agent.id, REPLY_HOLD).await;
-        }
         let project = match payload.get("workspaceId").and_then(JsValue::as_str) {
             Some(workspace_id) if !workspace_id.is_empty() => {
                 placement_for_workspace(services, workspace_id).await
@@ -265,26 +202,27 @@ impl AgentUpdates {
         provider_visible: ProviderVisible,
     ) -> Self {
         let shared = Arc::new(Shared {
-            barrier: Arc::new(ReplyBarrier::default()),
             subscriptions: Mutex::new(Vec::new()),
             sink,
             authorization,
             provider_visible,
         });
-        let (queue, mut updates) = mpsc::unbounded_channel::<Queued>();
         let worker = Arc::clone(&shared);
         let worker_services = Arc::clone(services);
-        services.runtime.spawn(async move {
-            while let Some((agent, done)) = updates.recv().await {
-                if let Some(agent) = agent {
-                    worker.publish(&worker_services, &agent).await;
-                }
-                if let Some(done) = done {
-                    let _ = done.send(());
-                }
-            }
-        });
-        Self { shared, queue }
+        let tails = Tails::new(
+            services.runtime.clone(),
+            REPLY_HOLD,
+            Arc::new(move |agent: ManagedAgentSnapshot| {
+                let shared = Arc::clone(&worker);
+                let services = Arc::clone(&worker_services);
+                Box::pin(async move { shared.publish(&services, &agent).await })
+            }),
+        );
+        Self {
+            shared,
+            tails,
+            waits: Arc::new(Waits::default()),
+        }
     }
 
     /// `delivery.begin("agents", requestedId, ...)` then `beginSubscription`.
@@ -360,15 +298,11 @@ impl AgentUpdates {
         }
     }
 
-    /// Registers a `wait_for_finish` on `agent_id`; hold it until the reply
-    /// is sent.
+    /// Registers a `wait_for_finish` on `agent_id`, running now or not; hold
+    /// the guard until the reply is sent.
     #[must_use]
-    pub fn begin_wait(&self, agent_id: &str) -> WaitGuard {
-        self.shared.barrier.begin(agent_id);
-        WaitGuard {
-            barrier: Arc::clone(&self.shared.barrier),
-            agent_id: agent_id.to_owned(),
-        }
+    pub fn begin_wait(&self, agent_id: &str, active: bool) -> WaitGuard {
+        self.waits.begin(agent_id, active)
     }
 
     /// `owner.release()`: `clearSubscription(id)`.
@@ -386,36 +320,48 @@ impl AgentUpdates {
         lock(&self.shared.subscriptions).clear();
     }
 
-    /// `forwardLiveAgent(agent)`: queued only while someone observes, as the
-    /// workspace update the baseline queues otherwise has no observer here.
+    /// `forwardLiveAgent(agent)`, called inside the state change's dispatch.
+    /// The waits this change wakes are found now, so the update is held
+    /// behind exactly their replies; it is queued only while someone
+    /// observes, as the workspace update the baseline queues otherwise has
+    /// no observer here.
     pub fn forward_live_agent(&self, agent: &ManagedAgentSnapshot) {
+        let holds = self.waits.dispatch(&dispatched(agent));
         if !lock(&self.shared.subscriptions).is_empty() {
-            let _ = self.queue.send((Some(agent.clone()), None));
+            self.tails.submit(
+                &agent.id,
+                Job {
+                    item: Some(agent.clone()),
+                    holds,
+                    done: None,
+                },
+            );
         }
     }
 
     /// `await forwardLiveAgent(agent)`: returns once the update is out.
     pub async fn forward_live_agent_and_wait(&self, agent: &ManagedAgentSnapshot) {
+        let holds = self.waits.dispatch(&dispatched(agent));
         if lock(&self.shared.subscriptions).is_empty() {
             return;
         }
         let (done, published) = oneshot::channel();
-        if self.queue.send((Some(agent.clone()), Some(done))).is_ok() {
-            let _ = published.await;
-        }
+        self.tails.submit(
+            &agent.id,
+            Job {
+                item: Some(agent.clone()),
+                holds,
+                done: Some(done),
+            },
+        );
+        let _ = published.await;
     }
 
-    /// Returns once every update queued so far is out. The baseline
-    /// publishes a live update within the microtasks that follow the
-    /// agent's state change, before a request handler awaiting the same
-    /// change replies; a reply that waits here keeps that order.
-    pub async fn flush(&self) {
-        if lock(&self.shared.subscriptions).is_empty() {
-            return;
-        }
-        let (done, flushed) = oneshot::channel();
-        if self.queue.send((None, Some(done))).is_ok() {
-            let _ = flushed.await;
+    /// Returns once every update queued for `agent_id` so far is out, so a
+    /// reply that follows the agent's state changes goes after their updates.
+    pub async fn flush(&self, agent_id: &str) {
+        if !lock(&self.shared.subscriptions).is_empty() {
+            self.tails.flush(agent_id).await;
         }
     }
 }
@@ -430,10 +376,10 @@ mod tests {
     use spocky_contracts::js_value::{JsObject, parse};
     use spocky_contracts::ws::DaemonPermission;
     use spocky_daemon::session_api::{SessionSink, SocketId};
-    use tokio::sync::mpsc;
 
-    use super::{AgentUpdates, ReplyBarrier, Shared, settles_a_wait};
+    use super::{AgentUpdates, Shared};
     use crate::authorization::SessionAuthorization;
+    use crate::reply_window::{Tails, Waits};
 
     #[derive(Default)]
     struct Recorder(Mutex<Vec<(SocketId, String)>>);
@@ -452,13 +398,17 @@ mod tests {
         let sink: Arc<dyn SessionSink> = Arc::clone(sink) as Arc<dyn SessionSink>;
         AgentUpdates {
             shared: Arc::new(Shared {
-                barrier: Arc::new(ReplyBarrier::default()),
                 subscriptions: Mutex::new(Vec::new()),
                 sink,
                 authorization: Arc::new(SessionAuthorization::new(&DaemonPermission::ALL)),
                 provider_visible: Arc::new(|provider| provider != "hidden"),
             }),
-            queue: mpsc::unbounded_channel().0,
+            tails: Tails::new(
+                tokio::runtime::Handle::current(),
+                Duration::from_secs(1),
+                Arc::new(|_| Box::pin(async {})),
+            ),
+            waits: Arc::new(Waits::default()),
         }
     }
 
@@ -477,54 +427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_settling_update_waits_for_the_reply() {
-        let barrier = Arc::new(ReplyBarrier::default());
-        barrier.begin("a");
-        let held = {
-            let barrier = Arc::clone(&barrier);
-            tokio::spawn(async move { barrier.hold("a", Duration::from_secs(30)).await })
-        };
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!held.is_finished());
-        barrier.end("a");
-        held.await.unwrap();
-        assert!(!barrier.pending("a"));
-    }
-
-    #[tokio::test]
-    async fn the_hold_is_bounded_and_other_agents_are_free() {
-        let barrier = ReplyBarrier::default();
-        barrier.begin("a");
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            barrier.hold("b", Duration::from_secs(30)),
-        )
-        .await
-        .expect("no wait on b");
-        barrier.hold("a", Duration::from_millis(30)).await;
-        assert!(
-            barrier.pending("a"),
-            "the bound passed with the wait still open"
-        );
-    }
-
-    #[test]
-    fn idle_error_and_permission_states_settle_a_wait() {
-        let payload = |text| parse(text).unwrap();
-        assert!(settles_a_wait(&payload(
-            r#"{"status":"idle","pendingPermissions":[]}"#
-        )));
-        assert!(settles_a_wait(&payload(r#"{"status":"error"}"#)));
-        assert!(settles_a_wait(&payload(
-            r#"{"status":"running","pendingPermissions":[{"id":"p"}]}"#
-        )));
-        assert!(!settles_a_wait(&payload(
-            r#"{"status":"running","pendingPermissions":[]}"#
-        )));
-    }
-
-    #[test]
-    fn modern_sockets_get_host_ids_and_legacy_ids_are_honored() {
+    async fn modern_sockets_get_host_ids_and_legacy_ids_are_honored() {
         let sink = Arc::new(Recorder::default());
         let updates = updates(&sink);
         assert_eq!(
@@ -547,8 +450,8 @@ mod tests {
         assert_eq!(updates.shared.subscriptions.lock().unwrap().len(), 2);
     }
 
-    #[test]
-    fn bootstrapped_updates_flush_in_first_arrival_order_skipping_stale_upserts() {
+    #[tokio::test]
+    async fn bootstrapped_updates_flush_in_first_arrival_order_skipping_stale_upserts() {
         let sink = Arc::new(Recorder::default());
         let updates = updates(&sink);
         let owner = updates.begin(7, true, true, None, None).unwrap();
@@ -581,8 +484,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn legacy_payloads_carry_no_subscription_id_and_detach_stops_delivery() {
+    #[tokio::test]
+    async fn legacy_payloads_carry_no_subscription_id_and_detach_stops_delivery() {
         let sink = Arc::new(Recorder::default());
         let updates = updates(&sink);
         let owner = updates.begin(3, false, true, None, None).unwrap();
