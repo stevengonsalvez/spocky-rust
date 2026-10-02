@@ -11,9 +11,8 @@
 //! that: `sandbox_mode` is one of three strings and `approval_policy` a
 //! string enum or a `{granular}` object. A value outside it (an array, a
 //! number, a boolean, another object) never reaches the fallbacks; the pinned
-//! constructor throws. The second test pins that down against the pinned
-//! build. The Rust provider does not validate `providerOptions` yet, so those
-//! inputs are not compared here.
+//! constructor throws a `ZodError`. The second test has the Rust constructor
+//! reject each such value with the same `ZodError` message, compared as text.
 
 mod support;
 
@@ -68,6 +67,18 @@ fn valid_cases() -> Vec<(&'static str, Option<Value>, &'static str)> {
         (
             "no policy option",
             Some(json!({"sandbox_mode": ws})),
+            "auto",
+        ),
+        (
+            "network proxy policy",
+            Some(
+                json!({"features": {"network_proxy": {"enabled": true, "proxy_url": "http://127.0.0.1:1", "domains": {"a.com": "allow"}, "unix_sockets": {}}, "multi_agent_v2": false}, "web_search": "cached", "sandbox_workspace_write": {"writable_roots": ["/a"], "exclude_slash_tmp": true}}),
+            ),
+            "auto",
+        ),
+        (
+            "network proxy flag",
+            Some(json!({"features": {"network_proxy": true}})),
             "auto",
         ),
         ("empty options", Some(json!({})), "auto"),
@@ -134,6 +145,85 @@ fn rejected_cases() -> Vec<(&'static str, Value)> {
         (
             "unknown option key",
             json!({"approval_policy": "on-request", "sandbox_mode": "workspace-write", "extra": 1}),
+        ),
+    ]
+}
+
+/// Nested objects of the schema, each strict, and several issues at once.
+fn rejected_nested_cases() -> Vec<(&'static str, Value)> {
+    vec![
+        ("two unknown option keys", json!({"extra": 1, "other": [2]})),
+        (
+            "unknown policy string",
+            json!({"approval_policy": "on_request"}),
+        ),
+        (
+            "granular with unknown key",
+            json!({"approval_policy": {"granular": {"rules": true, "bogus": 1}}}),
+        ),
+        (
+            "granular with non-boolean",
+            json!({"approval_policy": {"granular": {"rules": "yes"}}}),
+        ),
+        ("granular missing in object", json!({"approval_policy": {}})),
+        (
+            "granular next to extra key",
+            json!({"approval_policy": {"granular": {}, "other": 1}}),
+        ),
+        (
+            "workspace-write not an object",
+            json!({"sandbox_workspace_write": "yes"}),
+        ),
+        (
+            "workspace-write unknown key",
+            json!({"sandbox_workspace_write": {"network": true}}),
+        ),
+        (
+            "writable roots not strings",
+            json!({"sandbox_workspace_write": {"writable_roots": ["/a", 2, null]}}),
+        ),
+        (
+            "writable roots not an array",
+            json!({"sandbox_workspace_write": {"writable_roots": "/a"}}),
+        ),
+        (
+            "workspace-write non-boolean flags",
+            json!({"sandbox_workspace_write": {"network_access": 1, "exclude_slash_tmp": "x", "exclude_tmpdir_env_var": null}}),
+        ),
+        ("unknown web search", json!({"web_search": "on"})),
+        ("web search number", json!({"web_search": 1})),
+        ("features not an object", json!({"features": []})),
+        (
+            "features unknown key",
+            json!({"features": {"multi_agent_v3": true}}),
+        ),
+        (
+            "multi agent not boolean",
+            json!({"features": {"multi_agent_v2": "true"}}),
+        ),
+        (
+            "network proxy string",
+            json!({"features": {"network_proxy": "on"}}),
+        ),
+        (
+            "network proxy unknown key",
+            json!({"features": {"network_proxy": {"enabled": true, "proxy": "x"}}}),
+        ),
+        (
+            "network proxy bad field types",
+            json!({"features": {"network_proxy": {"enabled": "yes", "proxy_url": 3, "enable_socks5": 0}}}),
+        ),
+        (
+            "network proxy bad domains",
+            json!({"features": {"network_proxy": {"domains": {"a.com": "maybe", "b.com": 1}}}}),
+        ),
+        (
+            "network proxy domains not a record",
+            json!({"features": {"network_proxy": {"unix_sockets": ["allow"]}}}),
+        ),
+        (
+            "several bad options at once",
+            json!({"approval_policy": 3, "sandbox_mode": "x", "web_search": false, "features": {"multi_agent_v2": 1}, "extra": true}),
         ),
     ]
 }
@@ -210,13 +300,20 @@ fn provider_option_fallbacks_match_pinned() {
 
 #[test]
 #[ignore = "needs the pinned Paseo build; run with --include-ignored"]
-fn pinned_rejects_provider_options_outside_its_schema() {
+fn rejected_provider_options_match_pinned_zod_error() {
     support::assert_fixture_digest(FIXTURE);
-    for (name, options) in rejected_cases() {
+    for (name, options) in rejected_cases().into_iter().chain(rejected_nested_cases()) {
         let root = DisposableRoot::new("provider-options-rejected");
         let pinned = pinned_info(Some(&options), &root);
         let line: Value =
             serde_json::from_str(&pinned).unwrap_or_else(|_| panic!("{name}: {pinned}"));
         assert_eq!(line["error"]["name"], json!("ZodError"), "{name}: {pinned}");
+        let rust = rust_info(Some(&options), &root).expect_err(name);
+        // The message is the issue list as zod prints it, compared as text.
+        assert_eq!(
+            Value::String(rust),
+            line["error"]["message"],
+            "{name}: createSession error differs from pinned"
+        );
     }
 }
