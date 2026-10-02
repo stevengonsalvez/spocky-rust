@@ -37,6 +37,7 @@ use crate::launch::{self, CODEX_PROVIDER, CodexGates, CustomProvider, ProviderRu
 use crate::notification::{ItemSource, ParsedNotification, parse_notification};
 use crate::options::parse_provider_options;
 use spocky_contracts::js::js_string as contracts_js_string;
+use spocky_contracts::js_value::js_text_to_utf8;
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 use crate::tools::{
@@ -1917,11 +1918,12 @@ fn should_promote_thread_response_to_auto_review(
 /// `String(value ?? "")`, as the `approval_policy` fallback is written: `null`
 /// is empty, anything else is `String(value)` (`spocky_contracts::js`), so an
 /// array joins with commas and a number prints as JavaScript does. Only use
-/// this where Paseo calls `String()`; other fallbacks are used raw.
+/// this where Paseo calls `String()`; other fallbacks are used raw. The text
+/// leaves the value domain here (`js_text_to_utf8`).
 fn js_string(value: &Value) -> String {
     match value {
         Value::Null => String::new(),
-        other => contracts_js_string(Some(&to_js_value(other))),
+        other => js_text_to_utf8(&contracts_js_string(Some(&to_js_value(other)))),
     }
 }
 
@@ -3442,9 +3444,10 @@ fn to_codex_mcp_config(server: &Value) -> Value {
 }
 
 /// A value as a JavaScript property key (`String(value)`); a missing value is
-/// `undefined`.
+/// `undefined`. The key leaves the value domain here (`js_text_to_utf8`), so it
+/// equals the JSON key it names.
 fn property_key(value: Option<&Value>) -> String {
-    contracts_js_string(value.map(to_js_value).as_ref())
+    js_text_to_utf8(&contracts_js_string(value.map(to_js_value).as_ref()))
 }
 
 /// `applyCodexToolPolicy(config, toolPolicy)`.
@@ -4293,6 +4296,16 @@ mod tests {
         assert_eq!(
             unset_if_empty(Some("gpt-6-astra".to_owned())),
             Some("gpt-6-astra".to_owned())
+        );
+    }
+
+    #[test]
+    fn string_coercions_leave_the_value_domain_as_utf8() {
+        assert_eq!(js_string(&json!("a\u{10FFFF}b")), "a\u{10FFFF}b");
+        assert_eq!(js_string(&json!(["\u{10FFFF}", "x"])), "\u{10FFFF},x");
+        assert_eq!(
+            property_key(Some(&json!("srv\u{10FFFF}\u{10FFFF}"))),
+            "srv\u{10FFFF}\u{10FFFF}"
         );
     }
 
