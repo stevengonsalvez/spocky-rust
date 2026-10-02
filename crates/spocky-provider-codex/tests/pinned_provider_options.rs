@@ -102,6 +102,13 @@ fn valid_cases() -> Vec<(&'static str, Option<Value>, &'static str)> {
             ),
             "auto",
         ),
+        (
+            "integer-like record keys",
+            Some(
+                json!({"features": {"network_proxy": {"domains": {"b.com": "deny", "10": "allow", "2": "deny", "a.com": "allow"}, "unix_sockets": {"10": "allow", "9": "deny"}}}}),
+            ),
+            "auto",
+        ),
         ("null options", Some(Value::Null), "auto"),
         (
             "writable root with U+10FFFF",
