@@ -176,7 +176,7 @@
       "model": "claude-opus-5-5",
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-session",
-      "paths": ["crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/"],
+      "paths": ["crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/", "evidence/phase3/session-interleave-gap.*", "scripts/phase3/session-interleave-gap.sh"],
       "decisions": [
         "2026-10-01 coordinator: port the Node fs rename error text 'EISDIR: illegal operation on a directory, rename <tmp> -> <path>' (code, uv description, syscall, paths) in crates/spocky-store atomic.rs; it reaches createAgent callers; node-verified tests, only temp paths normalized",
         "2026-10-01 coordinator: BREAKING seam in crates/spocky-session/src/agent_sdk.rs, AbortReason {Value, Error(AgentError)}, so abortMessage sees Error reasons and the default DOMException text 'This operation was aborted'; session writer drafts before and after signatures to the lead; lead lands it in one atomic commit with the provider-codex and daemon-app call-site fixes after the session resend PASS"
@@ -949,6 +949,49 @@
           "integrationHead": "7099d692",
           "review": "integration reviewer PASS (verdicts/p3_session-c945806c.txt)",
           "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 57 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "71696308 (1 commit, scripts/phase3/gate.sh): build spocky-daemon from package spocky-daemon-app",
+          "integrationHead": "a6800035",
+          "review": "landed directly without a reviewer pass by coordinator decision; one file, signed, sh -n OK"
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "160394d..17ecc53 (10 commits): createAgent plugin before-hook with no plugins, provider launch input differential, setTitle, hasInFlightRun, zod issues for rejected create configs, cross-agent interleave evidence and rerun script",
+          "integrationHead": "landed with wiring batch, main 7e16d90e",
+          "review": "integration reviewer PASS (verdicts p3_session-66ffc2d, -383d381, -17ecc53)",
+          "pathsAccepted": "evidence/phase3/session-interleave-gap.* and scripts/phase3/session-interleave-gap.sh accepted as lane paths",
+          "divergences": ["DIV-004 create-hook Outcome::TooDeep boundary is the zod port's, recorded in porting/inventory-summary.md in the DIV-001 family"],
+          "followUps": ["P3 scripts/phase3/session-interleave-gap.sh must run cargo through the build gate under gtimeout"]
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "7c7fa999..6c5871d7 (13 commits, landed as 11): handlers awaited like handleRequest, fetch_agents directory helpers, session backend, fetch_agent, wait_for_finish, fetch_agent_timeline, production spocky-daemon binary, server id and agent MCP settings at startup",
+          "integrationHead": "7e16d90e",
+          "review": "integration reviewer BLOCK (verdicts/p3_g1_wiring-6c5871d7.txt); coordinator decision 2026-10-02: land for G1 with c1d1fbc8+b4fee406 and 5a81e37b+b944e57e folded into justified atomic manifest and lock commits",
+          "leadVerification": "spocky-daemon-app tree and Cargo.lock identical to 6c5871d7; gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-session plus spocky-daemon-app 92 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets, cargo build -p spocky-daemon-app --bin spocky-daemon",
+          "followUps": ["post-G1: dedicated original-versus-Rust handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline (cursor base64url, ordering, filters, error frames); until then the G1 gate covers them end to end by byte-comparing pinned CLI logs, ls -a and inspect output", "P3 spocky-daemon.rs:72 agent MCP base URL should use the bound port, not the configured one"]
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-02",
+          "sourceRange": "43132c92..fc0d71c5 (6 commits): sha2 at runtime, vendored pinned OpenCode bridge plugin bundle (byte-identical), bootstrap home writes before listening, fresh-home state differential evidence",
+          "integrationHead": "landed with harness decoy range, main 130640e4",
+          "review": "integration reviewer PASS (verdicts/p3_g1_wiring-fc0d71c5.txt)",
+          "openState": "P2: Rust writes no daemon.log while the original writes the pino file log; a real state difference outside the G1 comparison, owned by DLOG-001, which stays OPEN until the file log lands"
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "39c04c0..8e08863 (2 commits): reap the argv decoy group and assert no leak, name the argv decoy",
+          "integrationHead": "130640e4",
+          "review": "integration reviewer PASS",
+          "leadVerification": "gated with the wiring range above: spocky-daemon-app plus spocky-slice-harness 111 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets, spocky-daemon bin build",
+          "followUps": ["P3 post-G1: drop guard for decoy processes"]
         },
         {
           "lane": "p3_session",
