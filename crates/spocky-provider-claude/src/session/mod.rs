@@ -880,6 +880,9 @@ impl ClaudeSession {
     pub(crate) async fn await_with_timeout<T>(future: Option<LocalBoxFuture<'static, T>>) {
         if let Some(future) = future {
             let _ = tokio::time::timeout(Duration::from_millis(3000), future).await;
+            // `await` yields to queued jobs even for a settled promise: the
+            // pump's reaction to a closed stream runs before the caller resumes.
+            tokio::task::yield_now().await;
         }
     }
 
@@ -891,7 +894,7 @@ impl ClaudeSession {
         if let Some(token) = cancel {
             let _ = self.request_cancel(token);
         }
-        let (query, input) = {
+        let input = {
             let mut state = self.state.borrow_mut();
             state.subscribers.clear();
             state.active_foreground_turn_id = None;
@@ -901,17 +904,22 @@ impl ClaudeSession {
             state.cancel_current_turn = None;
             state.turn_state = TurnState::Idle;
             state.sidechain_tracker.clear();
-            (state.query.clone(), state.input.clone())
+            state.input.clone()
         };
         self.task_protocol_source.borrow_mut().reset();
         if let Some(input) = &input {
             input.end();
         }
+        // `this.query` is read again at each step: the pump clears it once the
+        // closed stream ends.
+        let query = self.state.borrow().query.clone();
         if let Some(query) = &query {
             query.close();
-            Self::await_with_timeout(Some(query.interrupt())).await;
-            Self::await_with_timeout(Some(query.return_())).await;
         }
+        let query = self.state.borrow().query.clone();
+        Self::await_with_timeout(query.map(|query| query.interrupt())).await;
+        let query = self.state.borrow().query.clone();
+        Self::await_with_timeout(query.map(|query| query.return_())).await;
         let child = {
             let mut state = self.state.borrow_mut();
             state.query = None;
