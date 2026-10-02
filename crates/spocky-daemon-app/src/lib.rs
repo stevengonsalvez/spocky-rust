@@ -5,6 +5,7 @@
 
 pub mod agent_create;
 pub mod agent_directory;
+pub mod agent_updates;
 pub mod authorization;
 pub mod bootstrap;
 pub mod codex_agent;

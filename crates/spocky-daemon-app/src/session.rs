@@ -6,6 +6,7 @@
 //! owned-subscription rules (which frames a modern socket may receive) are
 //! the session lane's port and are not applied here yet.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +27,8 @@ use spocky_daemon::session_api::{
 };
 use spocky_session::agent_identity::{StoredAgentRef, resolve_agent_identifier};
 use spocky_session::agent_manager::{
-    AgentLifecycle, AgentManager, ManagedAgentSnapshot, WaitForAgentOptions, WaitForAgentResult,
+    AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot, SubscribeOptions,
+    WaitForAgentOptions, WaitForAgentResult,
 };
 use spocky_session::agent_projection::to_agent_payload;
 use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
@@ -39,11 +41,13 @@ use spocky_store::registry::{
     PersistedProjectRecord, PersistedWorkspaceRecord, resolve_project_display_name,
     resolve_workspace_display_name,
 };
+use spocky_store::time::parse_iso_millis;
 
 use crate::agent_directory::{
     AGENTS, CursorError, agent_sort, checkout_from_persisted_workspace_placement, compare,
     compare_with_cursor, decode_cursor, encode_cursor, matches_agent_updates_filter,
 };
+use crate::agent_updates::AgentUpdates;
 use crate::authorization::SessionAuthorization;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
 use crate::workspace_handlers::{fetch_workspaces, workspace_create};
@@ -83,12 +87,54 @@ fn inbound(message: &Value) -> Result<SessionInbound, FrameError> {
 
 impl SessionBackend for DaemonBackend {
     fn open(&self, open: SessionOpen) -> Arc<dyn SessionHandle> {
+        let authorization = Arc::new(SessionAuthorization::new(&open.permissions));
+        let capabilities = Arc::new(Mutex::new(open.client_capabilities));
+        let app_version = Arc::new(Mutex::new(open.app_version));
+        let visible_capabilities = Arc::clone(&capabilities);
+        let visible_app_version = Arc::clone(&app_version);
+        let updates = Arc::new(AgentUpdates::new(
+            &self.services,
+            Arc::clone(&open.sink),
+            Arc::clone(&authorization),
+            Arc::new(move |provider: &str| {
+                provider_visible(
+                    locked(&visible_capabilities).as_ref(),
+                    locked(&visible_app_version).as_deref(),
+                    provider,
+                )
+            }),
+        ));
+        // ponytail: subscribed for the session's lifetime, where the baseline
+        // subscribes while a producer has demand (`refreshObservationProducers`);
+        // without a subscription `forwardLiveAgent` has no observer either way.
+        let forward = Arc::downgrade(&updates);
+        let unsubscribe = self
+            .services
+            .manager
+            .subscribe(
+                Arc::new(move |event: &AgentManagerEvent| {
+                    if let AgentManagerEvent::AgentState(agent) = event
+                        && let Some(updates) = forward.upgrade()
+                    {
+                        updates.forward_live_agent(agent);
+                    }
+                }),
+                SubscribeOptions {
+                    agent_id: None,
+                    replay_state: Some(false),
+                },
+            )
+            .map(|unsubscribe| Box::new(unsubscribe) as Box<dyn FnOnce() + Send>)
+            .ok();
         Arc::new(DaemonSession {
             id: random_uuid(),
-            authorization: Arc::new(SessionAuthorization::new(&open.permissions)),
+            authorization,
             permissions: open.permissions,
-            capabilities: Mutex::new(open.client_capabilities),
-            app_version: Mutex::new(open.app_version),
+            capabilities,
+            app_version,
+            modern_sources: Mutex::new(HashMap::new()),
+            updates,
+            unsubscribe_agent_events: Mutex::new(unsubscribe),
             sink: open.sink,
             services: Arc::clone(&self.services),
         })
@@ -106,8 +152,13 @@ pub struct DaemonSession {
     id: String,
     authorization: Arc<SessionAuthorization>,
     permissions: Vec<DaemonPermission>,
-    capabilities: Mutex<Option<Value>>,
-    app_version: Mutex<Option<String>>,
+    capabilities: Arc<Mutex<Option<Value>>>,
+    app_version: Arc<Mutex<Option<String>>>,
+    /// `SessionDelivery` sources: whether each socket owns its subscriptions
+    /// (`owned_subscriptions`).
+    modern_sources: Mutex<HashMap<SocketId, bool>>,
+    updates: Arc<AgentUpdates>,
+    unsubscribe_agent_events: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     sink: Arc<dyn SessionSink>,
     services: Arc<Services>,
 }
@@ -137,9 +188,18 @@ impl SessionHandle for DaemonSession {
     fn update_client_capabilities(
         &self,
         capabilities: Option<&Value>,
-        _source: SocketId,
+        source: SocketId,
         app_version: Option<&str>,
     ) {
+        // `delivery.attach(source, modern)`: the first hello decides.
+        self.modern_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(source)
+            .or_insert_with(|| {
+                capabilities.and_then(|caps| caps.get("owned_subscriptions"))
+                    == Some(&Value::Bool(true))
+            });
         set(&self.capabilities, capabilities.cloned());
         if let Some(app_version) = app_version {
             set(&self.app_version, Some(app_version.to_owned()));
@@ -160,6 +220,15 @@ impl SessionHandle for DaemonSession {
             services: Arc::clone(&self.services),
             capabilities: locked(&self.capabilities),
             app_version: locked(&self.app_version),
+            source,
+            modern: self
+                .modern_sources
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&source)
+                .copied()
+                .unwrap_or(false),
+            updates: Arc::clone(&self.updates),
         });
         self.services.runtime.spawn(handle_request(
             Arc::clone(&self.authorization),
@@ -188,9 +257,25 @@ impl SessionHandle for DaemonSession {
         self.sink.send_to_source(source, &frame);
     }
 
-    fn socket_detached(&self, _source: SocketId) {}
+    fn socket_detached(&self, source: SocketId) {
+        self.updates.detach(source);
+        self.modern_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&source);
+    }
 
-    fn cleanup(&self) {}
+    fn cleanup(&self) {
+        let unsubscribe = self
+            .unsubscribe_agent_events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(unsubscribe) = unsubscribe {
+            unsubscribe();
+        }
+        self.updates.dispose();
+    }
 }
 
 /// What one request's handler can reach: the shared services and the
@@ -199,6 +284,9 @@ pub(crate) struct RequestContext {
     pub(crate) services: Arc<Services>,
     capabilities: Option<Value>,
     app_version: Option<String>,
+    source: SocketId,
+    modern: bool,
+    updates: Arc<AgentUpdates>,
 }
 
 /// `MIN_VERSION_ALL_PROVIDERS`.
@@ -235,10 +323,23 @@ impl RequestContext {
 
     /// `isProviderVisibleToClient`.
     fn provider_visible(&self, provider: &str) -> bool {
-        self.supports("all_providers")
-            || app_version_at_least(self.app_version.as_deref(), MIN_VERSION_ALL_PROVIDERS)
-            || LEGACY_PROVIDER_IDS.contains(&provider)
+        provider_visible(
+            self.capabilities.as_ref(),
+            self.app_version.as_deref(),
+            provider,
+        )
     }
+}
+
+/// `isProviderVisibleToClient` for a client's capabilities and app version.
+fn provider_visible(
+    capabilities: Option<&Value>,
+    app_version: Option<&str>,
+    provider: &str,
+) -> bool {
+    capabilities.and_then(|caps| caps.get("all_providers")) == Some(&Value::Bool(true))
+        || app_version_at_least(app_version, MIN_VERSION_ALL_PROVIDERS)
+        || LEGACY_PROVIDER_IDS.contains(&provider)
 }
 
 /// `dispatchInboundMessage` for the slice's requests.
@@ -252,10 +353,7 @@ async fn route(
             emit(pong(ping, now_millis()));
             Ok(())
         }
-        SessionInbound::FetchAgents(request) => {
-            fetch_agents(&context, request, &emit).await;
-            Ok(())
-        }
+        SessionInbound::FetchAgents(request) => fetch_agents(&context, request, &emit).await,
         SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
         SessionInbound::WorkspaceCreate(request) => {
             workspace_create(&context, *request, &emit).await;
@@ -520,21 +618,60 @@ async fn list_fetch_agents_entries(
     Ok(payload)
 }
 
-/// `handleFetchAgents` without a subscription or directory sync.
-async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emit: &Emit) {
-    let outcome = if request.subscribe.is_some() || request.sync.is_some() {
-        Err((
-            "fetch_agents subscriptions and sync are not ported in spocky-daemon-app yet"
-                .to_owned(),
-            "fetch_agents_failed",
-        ))
-    } else {
-        list_fetch_agents_entries(context, &request).await
+/// `handleFetchAgents` without directory sync.
+async fn fetch_agents(
+    context: &RequestContext,
+    request: FetchAgentsRequest,
+    emit: &Emit,
+) -> Result<(), JsText> {
+    if request.sync.is_some() {
+        return Err(JsText::new(
+            "fetch_agents directory sync is not ported in spocky-daemon-app yet",
+        ));
+    }
+    let owner = match &request.subscribe {
+        Some(subscribe) => Some(
+            context
+                .updates
+                .begin(
+                    context.source,
+                    context.modern,
+                    !request.request_id.as_str().is_empty(),
+                    subscribe.subscription_id.as_ref().map(JsText::as_str),
+                    request.filter.clone(),
+                )
+                .map_err(|message| JsText::new(&message))?,
+        ),
+        None => None,
     };
+    let outcome = list_fetch_agents_entries(context, &request).await;
     let mut payload = JsObject::new();
     payload.insert("requestId", js_text(&request.request_id));
     match outcome {
         Ok(listing) => {
+            if let Some(owner) = &owner {
+                payload.insert("subscriptionId", JsValue::String(owner.response_id.clone()));
+            }
+            let mut snapshot_updated_at = HashMap::new();
+            for entry in listing
+                .get("entries")
+                .and_then(JsValue::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let agent = entry.get("agent");
+                if let (Some(id), Some(updated_at)) = (
+                    agent
+                        .and_then(|agent| agent.get("id"))
+                        .and_then(JsValue::as_str),
+                    agent
+                        .and_then(|agent| agent.get("updatedAt"))
+                        .and_then(JsValue::as_str)
+                        .and_then(parse_iso_millis),
+                ) {
+                    snapshot_updated_at.insert(id.to_owned(), updated_at);
+                }
+            }
             for (key, value) in listing.iter() {
                 payload.insert(key, value.clone());
             }
@@ -542,8 +679,16 @@ async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emi
             frame.insert("type", JsValue::String("fetch_agents_response".to_owned()));
             frame.insert("payload", JsValue::Object(payload));
             emit(to_frame(JsValue::Object(frame)));
+            if let Some(owner) = &owner {
+                context
+                    .updates
+                    .flush_bootstrapped(&owner.id, &snapshot_updated_at);
+            }
         }
         Err((message, code)) => {
+            if let Some(owner) = &owner {
+                context.updates.clear(&owner.id);
+            }
             let mut error = JsObject::new();
             error.insert("requestId", js_text(&request.request_id));
             error.insert(
@@ -558,6 +703,7 @@ async fn fetch_agents(context: &RequestContext, request: FetchAgentsRequest, emi
             emit(to_frame(JsValue::Object(frame)));
         }
     }
+    Ok(())
 }
 
 /// The error while `buildStoredAgentPayload` (agent-projections.ts) is not
@@ -627,9 +773,8 @@ async fn agent_payload_by_id(
 }
 
 /// `buildProjectPlacementForWorkspaceId`.
-async fn placement_for_workspace(context: &RequestContext, workspace_id: &str) -> JsValue {
-    let workspace = context
-        .services
+pub(crate) async fn placement_for_workspace(services: &Services, workspace_id: &str) -> JsValue {
+    let workspace = services
         .provisioning
         .workspaces
         .lock()
@@ -638,8 +783,7 @@ async fn placement_for_workspace(context: &RequestContext, workspace_id: &str) -
     let Some(workspace) = workspace else {
         return JsValue::Null;
     };
-    let project = context
-        .services
+    let project = services
         .provisioning
         .projects
         .lock()
@@ -681,7 +825,7 @@ async fn fetch_agent(
     };
     let project = match agent.get("workspaceId").and_then(JsValue::as_str) {
         Some(workspace_id) if !workspace_id.is_empty() => {
-            placement_for_workspace(context, workspace_id).await
+            placement_for_workspace(&context.services, workspace_id).await
         }
         _ => JsValue::Null,
     };
