@@ -11,7 +11,9 @@
 # session on the lane's own socket, on a disposable home and a random port
 # that is never 6767 or 6768. Only recorded PIDs are signalled, and an exit
 # trap stops the stub, the daemon and the exact tmux session and removes the
-# root on any failure. Each side must leave no sandbox network-outbound
+# root on any failure. After the client finishes, each daemon gets SIGTERM by
+# its recorded PID; its persisted agent record must say lastStatus "closed"
+# and match the other side's byte for byte after masking. Each side must leave no sandbox network-outbound
 # denial in the kernel log for its process tree, and the stub must have
 # answered exactly its one scripted request. The whole run is bounded at
 # 900 seconds.
@@ -120,6 +122,14 @@ i=0; while [ $i -lt 60 ]; do cli ls --host "127.0.0.1:$port" --json >/dev/null 2
 mark ready
 mark subscriber; env -i $ENVV $GT --kill-after=5 200 "$NODE_BIN/node" $here/agent-update-subscriber.mjs "$PASEO_ROOT" "127.0.0.1:$port" "$root/project" >"$out/frames.jsonl" 2>"$out/subscriber.err"; echo "subscriber exit=$?"
 mark stop
+# SIGTERM by recorded PID: the graceful stop closes every agent and persists
+# its record, which must then match across sides.
+kill -TERM "$pid" 2>/dev/null
+i=0; while [ $i -lt 150 ] && [ ! -s "$root/daemon.exit" ]; do sleep 0.1; i=$((i+1)); done
+[ -s "$root/daemon.exit" ] || { echo "FAIL: $side daemon did not exit within 15s of SIGTERM"; exit 1; }
+records=$(find "$root/paseo-home/agents" -name '*.json' -type f | sort)
+[ "$(printf '%s\n' "$records" | grep -c .)" = 1 ] || { echo "FAIL: $side persisted $(printf '%s\n' "$records" | grep -c .) agent records"; exit 1; }
+cp $records "$out/agent-record.json"
 cp "$root/stub/record.jsonl" "$out/stub-record.jsonl"
 cp "$root/daemon.out" "$out/daemon.out"; cp "$root/paseo-home/daemon.log" "$out/daemon.log" 2>/dev/null
 daemon_root=$root
@@ -156,10 +166,20 @@ run_side spocky "$top/spocky"
 for side in original spocky; do
   [ -s "$top/$side/frames.jsonl" ] || { echo "FAIL: $side recorded no frames"; exit 1; }
   mask "$top/$side/frames.jsonl" >"$top/$side/masked.jsonl"
+  mask "$top/$side/agent-record.json" >"$top/$side/agent-record.masked.json"
+  [ "$(jq -r .lastStatus "$top/$side/agent-record.json")" = closed ] ||
+    { echo "FAIL: $side agent record lastStatus is $(jq -r .lastStatus "$top/$side/agent-record.json"), not closed"; exit 1; }
 done
+if cmp -s "$top/original/agent-record.masked.json" "$top/spocky/agent-record.masked.json"; then
+  echo "PASS: persisted agent records are byte-identical after masking (lastStatus closed)"
+else
+  echo "FAIL: persisted agent records differ"
+  diff "$top/original/agent-record.masked.json" "$top/spocky/agent-record.masked.json" | head -20
+  exit 1
+fi
 echo "frames: original $(wc -l <"$top/original/masked.jsonl") spocky $(wc -l <"$top/spocky/masked.jsonl")"
 for side in original spocky; do
-  for file in frames.jsonl masked.jsonl; do
+  for file in frames.jsonl masked.jsonl agent-record.json agent-record.masked.json; do
     printf 'sha256 %s  %s/%s\n' "$(shasum -a 256 "$top/$side/$file" | cut -d' ' -f1)" "$side" "$file"
   done
 done
