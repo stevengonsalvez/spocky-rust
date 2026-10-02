@@ -1,17 +1,30 @@
 // G2 subscribed-client recorder: subscribe to fetch_agents, create a codex
 // agent in auto mode whose first turn asks to run a command, allow it,
-// send a second prompt whose turn asks again, deny it. Prints the frames
-// this client receives (except pong heartbeats) in arrival order as JSON
-// lines, statuses included.
+// send a second prompt whose turn asks again, deny it, then cancel a held
+// turn. Prints the exact wire text of every frame this client receives
+// (except pong heartbeats), statuses included, in arrival order: the
+// server_info frame first, then the rest.
+//
+// The client's own message listeners see zod-parsed frames, whose key order
+// and extra keys are not the wire's, so the raw JSON text is taken where the
+// client's transport hands it to `handleJsonPayload`. A throwaway first
+// connection exposes the client class so the hook is in place before the
+// recorded connection's handshake.
 const [, , paseoRoot, host, project, allowPrompt, denyPrompt, holdPrompt] = process.argv;
 const { connectToDaemon } = await import(`${paseoRoot}/packages/cli/dist/utils/client.js`);
-const client = await connectToDaemon({ target: { kind: "endpoint", host } });
-const frames = [];
-const skip = new Set(["pong"]);
-client.subscribeRawMessages((message) => {
-  if (!skip.has(message.type)) frames.push(message);
-});
-const step = (name) => frames.push({ step: name });
+const target = { kind: "endpoint", host };
+const probe = await connectToDaemon({ target });
+const prototype = Object.getPrototypeOf(probe);
+await probe.close();
+const raw = [];
+const handleJsonPayload = prototype.handleJsonPayload;
+prototype.handleJsonPayload = function (payload, length) {
+  if (this !== probe) raw.push(payload);
+  return handleJsonPayload.call(this, payload, length);
+};
+const client = await connectToDaemon({ target });
+const steps = [];
+const step = (name) => steps.push(name);
 await client.fetchAgents({ subscribe: {} });
 const created = await client.createWorkspace({ source: { kind: "directory", path: project } });
 const agent = await client.createAgent({
@@ -50,8 +63,18 @@ if (holdPrompt) {
   step(`cancelled:${cancelled.status}`);
 }
 await new Promise((resolve) => setTimeout(resolve, 1500));
-console.log(JSON.stringify({ serverInfoFeatures: client.lastServerInfoMessage?.features ?? null }));
-for (const frame of frames) if (!frame.step) console.log(JSON.stringify(frame));
-console.error(JSON.stringify(frames.filter((frame) => frame.step).map((frame) => frame.step)));
+const inner = (text) => {
+  const frame = JSON.parse(text);
+  return frame.type === "session" && frame.message ? frame.message : frame;
+};
+const isServerInfo = (message) =>
+  message.type === "status" && message.payload?.status === "server_info";
+const serverInfo = raw.filter((text) => isServerInfo(inner(text)));
+console.log(serverInfo[0] ?? "null");
+for (const text of raw) {
+  const message = inner(text);
+  if (message.type !== "pong" && !isServerInfo(message)) console.log(text);
+}
+console.error(JSON.stringify(steps));
 await client.close();
 process.exit(0);

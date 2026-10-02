@@ -5,16 +5,16 @@
 #   2. sends a second prompt and denies its approval;
 #   3. sends a third prompt whose reply the stub holds open, then cancels
 #      the turn mid-flight.
-# It records every frame it receives except pong heartbeats, plus the
-# server_info features. That runs once against the pinned daemon and once
+# It records the exact wire text of every frame it receives except pong
+# heartbeats, the server_info frame included. That runs once against the pinned daemon and once
 # against spocky-daemon. Per-run ids, timestamps and root paths are masked.
 #
 # Checks, in order:
 # - each side's stub answered exactly the script's requests, with nothing
 #   left loopback;
 # - the persisted agent record after SIGTERM matches;
-# - server_info.features are byte-identical except workspaceLabels, the
-#   tracked OPEN gap DWLABEL-001;
+# - the server_info frame is byte-identical, key order included, except
+#   features.workspaceLabels, the tracked OPEN gap DWLABEL-001;
 # - the agent_update stream and the stream of every other frame must each
 #   be byte-identical;
 # - the full interleave of the two streams is compared and reported, and a
@@ -167,6 +167,7 @@ mask() {
     -e 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<UUID>/g' \
     -e 's/wks_[0-9a-f]+/<WKS>/g' \
     -e 's/prj_[0-9a-f]+/<PRJ>/g' \
+    -e 's/srv_[A-Za-z0-9]+/<SRV>/g' \
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
 
@@ -174,7 +175,7 @@ run_side original "$top/original"
 run_side spocky "$top/spocky"
 for side in original spocky; do
   [ -s "$top/$side/frames.jsonl" ] || { echo "FAIL: $side recorded no frames"; exit 1; }
-  head -1 "$top/$side/frames.jsonl" | jq -S .serverInfoFeatures >"$top/$side/features.json"
+  head -1 "$top/$side/frames.jsonl" >"$top/$side/server-info.json"
   tail -n +2 "$top/$side/frames.jsonl" >"$top/$side/frames-only.jsonl"
   mask "$top/$side/frames-only.jsonl" >"$top/$side/masked.jsonl"
   mask "$top/$side/agent-record.json" >"$top/$side/agent-record.masked.json"
@@ -188,19 +189,23 @@ else
   diff "$top/original/agent-record.masked.json" "$top/spocky/agent-record.masked.json" | head -20
   exit 1
 fi
-# server_info.features must be byte-identical. The one tracked exception is
-# workspaceLabels (OPEN gap DWLABEL-001: the workspace-labels service is not
-# ported, so spocky-daemon does not advertise it); any other difference fails.
+# The server_info frame must be byte-identical, wire key order included,
+# except one tracked key: features.workspaceLabels (OPEN gap DWLABEL-001: the
+# workspace-labels service is not ported, so spocky-daemon does not
+# advertise it). jq -c keeps key order; any other difference fails.
+info_path='if .message then .message.payload.features else .payload.features end'
 for side in original spocky; do
-  jq -S 'del(.workspaceLabels)' "$top/$side/features.json" >"$top/$side/features-compared.json"
+  mask "$top/$side/server-info.json" |
+    jq -c 'if .message then del(.message.payload.features.workspaceLabels) else del(.payload.features.workspaceLabels) end' \
+    >"$top/$side/server-info-compared.json"
 done
-if cmp -s "$top/original/features-compared.json" "$top/spocky/features-compared.json" &&
-  [ "$(jq '.workspaceLabels' "$top/original/features.json")" = true ] &&
-  [ "$(jq '.workspaceLabels' "$top/spocky/features.json")" = null ]; then
-  echo "PASS: server_info.features byte-identical except workspaceLabels (DWLABEL-001)"
+if cmp -s "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json" &&
+  [ "$(jq "$info_path | .workspaceLabels" "$top/original/server-info.json")" = true ] &&
+  [ "$(jq "$info_path | .workspaceLabels" "$top/spocky/server-info.json")" = null ]; then
+  echo "PASS: server_info frame byte-identical except features.workspaceLabels (DWLABEL-001)"
 else
-  echo "FAIL: server_info.features differ beyond the tracked workspaceLabels gap"
-  diff "$top/original/features.json" "$top/spocky/features.json"
+  echo "FAIL: server_info frame differs beyond the tracked workspaceLabels gap"
+  diff "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json"
   exit 1
 fi
 echo "frames: original $(wc -l <"$top/original/masked.jsonl") spocky $(wc -l <"$top/spocky/masked.jsonl")"
