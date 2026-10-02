@@ -1134,6 +1134,36 @@
           "leadVerification": "harness crate, scripts and evidence identical to 35283fc0; gated: spocky-slice-harness tests --test-threads=1, clippy -D warnings, fmt check, cargo check --workspace --all-targets"
         },
         {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "ac2d59aa..c2af765e (5 commits, landed as 4): codex invocations recorded in shim arrival order, parity fails on an inverted pair whose order is stable on the original sides, decoy drop guard",
+          "integrationHead": "d88b13b9",
+          "review": "integration reviewer PASS (verdicts/p3_slice_harness-c2af765e.txt)",
+          "leadChanges": ["ac2d59aa folded into 377221fa: the new arrival-order field fails E0063 until the compare.rs test fixtures set it"],
+          "leadVerification": "gated: spocky-slice-harness 99 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "closes": "p3_slice_harness P2 content sorting hides order differences (partial-order check landed)",
+          "followUps": ["P3 a stable label missing from spocky does not count as an inversion; the content compare still catches the count"]
+        },
+        {
+          "lane": "p3_contracts",
+          "date": "2026-10-02",
+          "sourceRange": "f56a56b2..27372b03 (8 commits, G3-1): persistence handles, session config overrides, ResumeAgent and RefreshAgent SessionInbound variants, AgentResumed and AgentRefreshed status frames, zod generator and regenerated schemas, goldens 140 to 149",
+          "integrationHead": "landed together with harness 2f3fc6d0..12953360; main 0f5756b2",
+          "review": "integration reviewer PASS (verdicts/p3_contracts-27372b03.txt)",
+          "leadChanges": ["f11311da landed atomic with the spocky-daemon-app arms in authorization.rs and request.rs: resume_agent_request and refresh_agent_request need workspace.write (operation-permissions.ts:158, :162) and carry a required requestId"],
+          "generatorCheck": "2026-10-02 lead: in the disposable paseo-rewrite clone at 5de45e208690b0efc51c59a585ae9729325a9204 with the slice-harness node_modules and protocol dist, contracts-zod.mjs --check reports zod_schemas.rs current and contracts-capture.mjs --check matches all 149 cases",
+          "followUps": ["P3 generator renumbers SHARED_<n> constants, adding diff noise to regenerated zod_schemas.rs"]
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
+          "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
+          "integrationHead": "0f5756b2",
+          "review": "integration reviewer PASS (verdicts/p3_slice_harness-12953360.txt)",
+          "leadVerification": "combined gate with contracts G3-1: spocky-contracts, spocky-daemon-app and spocky-slice-harness 201 passed 1 ignored --test-threads=1, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "followUps": ["P3 hash-based identity: codex and node binary digests plus the baseline commit", "P3 identity unit tests"]
+        },
+        {
           "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
