@@ -1,12 +1,12 @@
 //! `provider-history-timestamps.ts` and the `Date` operations the replay
 //! sources use: `Date.parse`, `new Date(value).toISOString()`.
 //!
-//! `Date.parse` is [`crate::date_parse::date_parse`]: V8's ECMAScript and
+//! `Date.parse` is [`spocky_contracts::js::date_parse`]: V8's ECMAScript and
 //! legacy parsers, with offset-less date-times in the host's local zone.
 
 use spocky_contracts::text::js_trim;
 
-pub use crate::date_parse::date_parse;
+pub use spocky_contracts::js::date_parse;
 
 /// ECMAScript time values span +/-8.64e15 ms.
 const MAX_TIME_MILLIS: f64 = 8_640_000_000_000_000.0;
