@@ -424,12 +424,112 @@ fn g2_checks() -> Vec<Check> {
     ]
 }
 
+/// The G3 prompt answered before the daemon restarts.
+pub const G3_PROMPT_BEFORE: &str = "Reply with the single word BEFORE.";
+/// The G3 prompt sent after the daemon restarts.
+pub const G3_PROMPT_AFTER: &str = "Reply with the single word AFTER.";
+/// Scripted reply to the first G3 turn.
+pub const G3_REPLY_BEFORE: &str = "BEFORE";
+/// Scripted reply to the G3 turn after the restart.
+pub const G3_REPLY_AFTER: &str = "AFTER";
+
+/// G3 creation fingerprint preimages.
+#[must_use]
+pub fn g3_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "full-access", G3_PROMPT_BEFORE)
+}
+
+/// G3: daemon stop and start on the same home. One completed turn, a
+/// restart, then `ls -a`, `inspect`, `send` of a second turn to the same
+/// agent, and `logs`, whose first turn the restarted daemon can only rebuild
+/// from the persisted Codex thread (`thread/read`).
+#[must_use]
+pub fn g3() -> GateSpec {
+    use Arg::{Captured, Lit, Project};
+    let agent = || Captured("agent");
+    GateSpec {
+        id: "g3",
+        script: Script {
+            responses: vec![
+                completed_turn("resp_g3_1", "msg_g3_1", G3_REPLY_BEFORE),
+                completed_turn("resp_g3_2", "msg_g3_2", G3_REPLY_AFTER),
+            ],
+        },
+        steps: vec![
+            step(
+                "workspace-create",
+                cli(
+                    &["workspace", "create"],
+                    vec![Lit("--isolation"), Lit("local"), Lit("--path"), Project],
+                ),
+                Some(("workspace", "/workspaceId")),
+                None,
+            ),
+            step(
+                "run",
+                cli(
+                    &["run"],
+                    vec![
+                        Lit("--provider"),
+                        Lit("codex"),
+                        Lit("--mode"),
+                        Lit("full-access"),
+                        Lit("--workspace"),
+                        Captured("workspace"),
+                        Lit(G3_PROMPT_BEFORE),
+                    ],
+                ),
+                Some(("agent", "/agentId")),
+                None,
+            ),
+            StepSpec {
+                daemon_restart: true,
+                ..step("daemon-restart", Vec::new(), None, None)
+            },
+            step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
+            step("inspect", cli(&["inspect"], vec![agent()]), None, None),
+            step(
+                "send",
+                cli(&["send"], vec![agent(), Lit(G3_PROMPT_AFTER)]),
+                None,
+                None,
+            ),
+            step("logs", cli(&["logs"], vec![agent()]), None, None),
+        ],
+        checks: vec![
+            Check::AllExitZero,
+            Check::JsonString {
+                step: "run",
+                pointer: "/status",
+                expected: "completed",
+            },
+            Check::JsonString {
+                step: "send",
+                pointer: "/status",
+                expected: "completed",
+            },
+            Check::StdoutLine {
+                step: "logs",
+                line: G3_REPLY_BEFORE,
+            },
+            Check::StdoutLine {
+                step: "logs",
+                line: G3_REPLY_AFTER,
+            },
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g3_preimages,
+    }
+}
+
 /// Looks up a gate by id.
 #[must_use]
 pub fn by_id(id: &str) -> Option<GateSpec> {
     match id {
         "g1" => Some(g1()),
         "g2" => Some(g2()),
+        "g3" => Some(g3()),
         _ => None,
     }
 }
@@ -461,7 +561,7 @@ mod tests {
                 captured.push(key);
             }
         }
-        assert!(by_id("g3").is_none());
+        assert!(by_id("g4").is_none());
         assert!(G1_PROMPT.contains(G1_REPLY));
         assert!(gate.checks.contains(&Check::StdoutLine {
             step: "logs",
@@ -493,6 +593,39 @@ mod tests {
                 captured.push(key);
             }
         }
+    }
+
+    #[test]
+    fn g3_restarts_between_the_two_turns() {
+        let gate = g3();
+        assert_capture_before_use(&gate);
+        let names: Vec<&str> = gate.steps.iter().map(|step| step.name).collect();
+        assert_eq!(
+            names,
+            [
+                "workspace-create",
+                "run",
+                "daemon-restart",
+                "ls",
+                "inspect",
+                "send",
+                "logs"
+            ]
+        );
+        let restarts: Vec<&StepSpec> = gate
+            .steps
+            .iter()
+            .filter(|step| step.daemon_restart)
+            .collect();
+        assert_eq!(restarts.len(), 1);
+        assert!(restarts[0].args.is_empty());
+        assert_eq!(gate.script.responses.len(), 2);
+        assert!(by_id("g3").is_some());
+        let preimages = g3_preimages(&BTreeMap::from([
+            ("project", "/p".to_owned()),
+            ("workspace", "wks_0123456789abcdef".to_owned()),
+        ]));
+        assert!(preimages[1].1.contains(G3_PROMPT_BEFORE));
     }
 
     #[test]
