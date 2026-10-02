@@ -1,12 +1,13 @@
 // G2 subscribed-client recorder: subscribe to fetch_agents, create a codex
 // agent in auto mode whose first turn asks to run a command, allow it,
 // send a second prompt whose turn asks again, deny it. Prints the frames
-// this client receives (except pings) in arrival order as JSON lines.
+// this client receives (except pong heartbeats) in arrival order as JSON
+// lines, statuses included.
 const [, , paseoRoot, host, project, allowPrompt, denyPrompt, holdPrompt] = process.argv;
 const { connectToDaemon } = await import(`${paseoRoot}/packages/cli/dist/utils/client.js`);
 const client = await connectToDaemon({ target: { kind: "endpoint", host } });
 const frames = [];
-const skip = new Set(["pong", "status"]);
+const skip = new Set(["pong"]);
 client.subscribeRawMessages((message) => {
   if (!skip.has(message.type)) frames.push(message);
 });
