@@ -638,6 +638,12 @@ pub trait AgentClient: Send + Sync {
     ) -> Option<BoxFuture<'_, AgentResult<Vec<ImportableProviderSession>>>> {
         None
     }
+    /// Whether the client has `importSession` (the JS check is
+    /// `client.importSession` being present). A client that implements
+    /// [`Self::import_session`] must return `true` here.
+    fn supports_import_session(&self) -> bool {
+        false
+    }
     /// `importSession?(input, context)`.
     fn import_session(
         &self,
