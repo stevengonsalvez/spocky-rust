@@ -1451,6 +1451,27 @@
           "status": "FIXTURE-READY, NOT a G3 pass: no spocky parity run yet",
           "spockyNeeds": "CORRECTED 2026-10-02: after the restart the G3 CLI steps (ls -a, inspect, send, logs) never send resume_agent_request or refresh_agent_request (only 'agent reload' calls refreshAgent). G3 runs through stored-agent loading: ensureAgentLoaded (agent-loading.ts:63-152), the persistence hooks (buildConfigOverrides, toAgentPersistenceHandle and the rest) and buildStoredAgentPayload (agent-projections.ts:198), none of which exist in Rust yet. p3_session ports them at low burn; p3_g1_wiring wires them in. The codex thread/loaded/list, thread/resume and thread/read path already exists in spocky-provider-codex; pinned codex runs app-server --enable goals with thread/loaded/list, thread/resume, thread/read, then turn/start for the send",
           "afterResetNotOnG3Path": ["resume_agent_request and refresh_agent_request handlers", "unarchive and archive snapshot", "reloadAgentSession"]
+        },
+        {
+          "gate": "G3",
+          "date": "2026-10-02",
+          "mainHead": "f50f75a90f502eb2e5f2f674480320c35c354574 (code identical to 2ccf4826; the delta is porting/tasks.json only)",
+          "run": "g3-20261002T092853Z",
+          "evidence": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-slice-harness/evidence/raw/phase3/g3-20261002T092853Z-f50f75a9",
+          "parity": "PASS, original versus spocky: compared, 0 differences, 0 check failures, 0 survivors, 0 harness errors, 0 order inversions; verdict.json SHA-256 9d78a346fa40c58431268ae5c9c6c4f056ea99fcdfbf84166bf501a4fc5f2f9f",
+          "selfCheck": "PASS, original versus original, 0 differences; verdict.json SHA-256 a637bc99412d5dc440b35fc9e5a5430eeab4cd4c5a266b29fca2e02823f72f92",
+          "rules": "108, approved classes only: generated_id 78, temporary_path 18, wall_clock 12; one transform, codex-client-metadata-key-order (client_metadata key order in codex stub request bodies only, as accepted for G2; codex emits that order itself; raw data retained)",
+          "orderCheck": "7 original references, 208 stable pairs, 0 inversions; 2 racy --version and app-server pairs excluded",
+          "steps": "all 8 steps exit 0 on all 4 sides; codex-io method counts identical on all 4 sides, including thread/loaded/list 3, thread/resume 1, thread/read 1",
+          "verification": "coordinator verified the evidence independently; lead recomputed both verdict.json SHA-256s (both match, both pass true with 108 rules and empty differing.txt) and confirmed 2ccf4826..f50f75a9 changes only porting/tasks.json",
+          "status": "G3 PASSED",
+          "openTrackedDeviations": [
+            "SessionBackend stop-hook seam order (lead seam)",
+            "wait_for_finish_response versus agent_update reply interleave barrier",
+            "DLOG-001 daemon.log file sink",
+            "SESSION-INTERLEAVE cross-agent same-tick ordering",
+            "unarchive not ported: archived agents error before loading"
+          ]
         }
       ],
       "reviews": [], "repairs": [], "trackedGaps": [
