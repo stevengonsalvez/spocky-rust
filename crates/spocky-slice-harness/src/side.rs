@@ -175,7 +175,8 @@ pub enum Check {
         line: &'static str,
     },
     /// Every step and the readiness probe exited 0, except the listed steps,
-    /// which must each exit with exactly the listed code.
+    /// which must each exit with exactly the listed code. A negative code
+    /// `-n` means killed by signal `n` (a disconnected client is `-9`).
     ExitsAre(&'static [(&'static str, i32)]),
     /// Every scripted reply was consumed and no unscripted request arrived.
     StubExactlyConsumed,
@@ -1884,15 +1885,22 @@ pub fn failed_checks(gate: &GateSpec, side: &SideRun) -> Vec<String> {
             Check::ExitsAre(expected) => std::iter::once(&side.readiness)
                 .chain(&side.steps)
                 .find_map(|step| {
-                    let want = expected
-                        .iter()
-                        .find(|(name, _)| *name == step.name)
-                        .map_or(0, |(_, code)| *code);
-                    (step.exit != Exit::Code(want)).then(|| {
+                    let want = expected.iter().find(|(name, _)| *name == step.name).map_or(
+                        Exit::Code(0),
+                        |(_, code)| {
+                            if *code < 0 {
+                                Exit::Signal(-code)
+                            } else {
+                                Exit::Code(*code)
+                            }
+                        },
+                    );
+                    (step.exit != want).then(|| {
                         format!(
-                            "{}: {}, expected exit {want}",
+                            "{}: {}, expected {}",
                             step.name,
-                            step.exit.render()
+                            step.exit.render(),
+                            want.render()
                         )
                     })
                 }),
@@ -2604,6 +2612,14 @@ mod tests {
             1
         );
         assert_eq!(failed(&[], vec![step("run", 1)]).len(), 1);
+        // A negative code means a signal.
+        let killed = StepRun {
+            exit: Exit::Signal(9),
+            ..step("send", 0)
+        };
+        assert!(failed(&[("send", -9)], vec![killed.clone()]).is_empty());
+        assert_eq!(failed(&[("send", -15)], vec![killed.clone()]).len(), 1);
+        assert_eq!(failed(&[], vec![killed]).len(), 1);
     }
 
     #[test]
