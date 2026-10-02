@@ -155,6 +155,12 @@
       "effort": "high",
       "worktree": "/Users/stevengonsalvez/orca/workspaces/paseo-rust/p3-slice-harness",
       "paths": ["crates/spocky-slice-harness/", "scripts/phase3/", "evidence/phase3/gate*"],
+      "harnessNotes": [
+        "2026-10-02: the G1 harness matches codex-io records by content (argv plus stdin, sorted), so concurrent probe races cannot flip the verdict"
+      ],
+      "trackedGaps": [
+        "P2, not blocking G1 (2026-10-02): content sorting hides order differences between distinct records; the earlier wiring catalog/session/catalog misorder would have passed. Closes when a partial-order check verifies record pairs whose relative order stays stable across N original-versus-original runs"
+      ],
       "delegation": "forbidden",
       "state": "running; lane row in evidence/phase3/slice-plan.md section 5"
     },
@@ -233,6 +239,7 @@
       "paths": ["crates/spocky-daemon-app/", "evidence/phase3/g1-wiring.md", "Cargo.lock (entries from this crate only)"],
       "pathsWidened": "2026-10-01 coordinator decision after reviewer P3 (verdicts/p3_g1_wiring-e6d1ba3.txt)",
       "decisions": ["2026-10-02 coordinator, G1 blocker: p3_g1_wiring ports the create.ts and session.ts glue plus workspace.create and fetch_workspaces in spocky-daemon-app, with a seam for resolveCreateConfig, which p3_session provides through its provider-snapshot-manager port"],
+      "g1Interim": "2026-10-02 coordinator: codex_agent.rs passes the refresh signal through with an INTERIM first-fetch-unsignalled rule until p3_session confirms the pinned refresh signal; G1 must NOT be marked passed while this interim is in",
       "openPortGaps": [
         "P5 OPEN (2026-10-02): forwardLiveAgent and agent_update fan-out frames are not emitted; the pinned CLI ignores them, so G1 is unaffected, but the wire differs from the original"
       ],
