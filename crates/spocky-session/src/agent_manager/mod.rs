@@ -21,6 +21,7 @@
 //! archive, steer, replace, cancel, rewind, permission responses, and the
 //! per-field setters.
 
+mod archive;
 mod create;
 mod events;
 mod lifecycle;
@@ -33,6 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
+pub use archive::{AgentArchivedCallback, DetachedAgent, UnarchiveUpdates};
 pub use create::{CreateAgentOptions, ResumeAgentOptions};
 pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
@@ -244,6 +246,8 @@ pub struct AgentManagerOptions {
     pub id_factory: Option<IdFactory>,
     pub registry: Option<AgentStorage>,
     pub on_agent_attention: Option<AttentionCallback>,
+    /// `onAgentArchived`.
+    pub on_agent_archived: Option<AgentArchivedCallback>,
     pub on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub mcp_base_url: Option<String>,
     pub mcp_auth_token: Option<String>,
@@ -357,6 +361,7 @@ pub(crate) struct Inner {
     pub(crate) id_factory: IdFactory,
     pub(crate) registry: Option<AgentStorage>,
     pub(crate) on_agent_attention: Option<AttentionCallback>,
+    pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
     pub(crate) on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub(crate) mcp_auth_token: Option<String>,
     pub(crate) resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
@@ -486,6 +491,7 @@ impl AgentManager {
                     .unwrap_or_else(|| Arc::new(crate::clock::random_uuid)),
                 registry: options.registry,
                 on_agent_attention: options.on_agent_attention,
+                on_agent_archived: options.on_agent_archived,
                 on_workspace_state_may_have_changed: options.on_workspace_state_may_have_changed,
                 mcp_auth_token: options.mcp_auth_token,
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
