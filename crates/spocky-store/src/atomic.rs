@@ -137,7 +137,11 @@ fn mkdirp_parent(path: &str) -> &str {
 /// `fs.promises.mkdir(directory, { recursive: true })`: node's
 /// `MKDirpAsync`. Missing parents are created first; a failure reports the
 /// directory whose `mkdir` failed.
-fn mkdirp(directory: &str) -> Result<(), FsError> {
+///
+/// # Errors
+///
+/// Returns node's error for the `mkdir` that failed.
+pub fn mkdirp(directory: &str) -> Result<(), FsError> {
     let mut stack = vec![directory.to_owned()];
     while let Some(path) = stack.pop() {
         let Err(mut error) = fs::create_dir(&path) else {
