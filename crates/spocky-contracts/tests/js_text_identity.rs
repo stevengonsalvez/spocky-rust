@@ -16,6 +16,7 @@ use spocky_contracts::js::{js_string, strict_equals};
 use spocky_contracts::js_value::{
     JsObject, JsValue, js_text_canonical, js_text_eq, js_text_from_utf16, parse,
 };
+use spocky_contracts::json::JsRecord;
 use spocky_contracts::text::JsText;
 
 /// One node run: `a + b` against the literal `c`.
@@ -188,6 +189,40 @@ fn concatenated_strings_equal_their_literals_like_node() {
             strict,
             "{label}"
         );
+    }
+}
+
+/// `JsRecord` keys follow the same identity as object keys: the node run's
+/// `object[joined] = 1; object[literal]`, the key count after both, and the
+/// reverse lookup.
+#[test]
+fn record_keys_are_code_unit_identical() {
+    for Case {
+        a,
+        b,
+        c,
+        strict,
+        object_get,
+        object_keys,
+        ..
+    } in CASES
+    {
+        let (a, b, literal) = (string(a), string(b), string(c));
+        let joined = format!("{}{}", text(&a), text(&b));
+        let literal = text(&literal);
+        let label = format!("{joined:?} vs {literal:?}");
+        let mut record: JsRecord<i32> = JsRecord::new();
+        record.insert(joined.clone(), 1);
+        assert_eq!(record.get(&literal).copied(), object_get, "{label}");
+        record.insert(literal.clone(), 2);
+        assert_eq!(record.len(), object_keys, "{label}");
+        let mut reverse: JsRecord<i32> = JsRecord::new();
+        reverse.insert(literal, 1);
+        assert_eq!(reverse.get(&joined).is_some(), strict, "{label}");
+        // Stored keys are canonical, so they read as plain strings.
+        for (key, _) in record.iter() {
+            assert_eq!(key.as_str(), js_text_canonical(key), "{label}");
+        }
     }
 }
 
