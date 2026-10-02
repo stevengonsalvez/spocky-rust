@@ -181,6 +181,7 @@ mask() {
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
 
+echo "commit: $(git -C "$here" rev-parse HEAD)"
 original_runs=${ORIGINAL_RUNS:-5}
 status=0
 run_side original "$top/original"
