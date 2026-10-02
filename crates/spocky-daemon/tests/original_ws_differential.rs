@@ -307,9 +307,12 @@ fn normalize(event: &Value, captured_host: &str, local_host: &str) -> Value {
         && let Some(text) = event["text"].as_str()
         && text.contains("\"status\":\"server_info\"")
     {
+        // Only the `hostname` field's value and the tracked `workspaceLabels`
+        // feature are rewritten.
+        let field = |name: &str| format!("\"hostname\":{}", serde_json::to_string(name).unwrap());
         let text = text
-            .replace(local_host, captured_host)
-            .replace("\"workspaceLabels\":true,", "");
+            .replacen(&field(local_host), &field(captured_host), 1)
+            .replacen("\"workspaceLabels\":true,", "", 1);
         event["text"] = Value::String(text);
     }
     event
