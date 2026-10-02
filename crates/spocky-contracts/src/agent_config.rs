@@ -144,6 +144,69 @@ pub struct AgentSessionConfig {
     pub mcp_servers: Option<JsRecord<McpServerConfig>>,
 }
 
+/// `AgentSessionConfigSchema.partial()`, the `resume_agent_request`
+/// overrides: every key optional, in the same zod output order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionConfigOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub provider: Option<JsText>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub cwd: Option<JsText>,
+    #[serde(
+        rename = "modeId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub mode_id: Option<JsText>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub model: Option<JsText>,
+    #[serde(
+        rename = "thinkingOptionId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub thinking_option_id: Option<JsText>,
+    #[serde(
+        rename = "featureValues",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub feature_values: Option<JsRecord<JsonValue>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub title: Option<Nullable<ExplicitAgentTitle>>,
+    #[serde(
+        rename = "providerOptions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub provider_options: Option<JsRecord<ZodJson>>,
+    #[serde(
+        rename = "toolPolicy",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub tool_policy: Option<ToolPolicy>,
+    #[serde(
+        rename = "systemPrompt",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub system_prompt: Option<JsText>,
+    #[serde(
+        rename = "mcpServers",
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional"
+    )]
+    pub mcp_servers: Option<JsRecord<McpServerConfig>>,
+}
+
 /// `GitSetupOptionsSchema.action`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitSetupAction {
