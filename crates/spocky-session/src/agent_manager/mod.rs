@@ -878,6 +878,16 @@ impl AgentManager {
 
     /// `trackAgentRegistrationOperation`: the registration counts as in
     /// flight until the returned guard drops.
+    ///
+    /// Ceiling: the guard lives inside the `create_agent` and
+    /// `resume_agent_from_persistence` futures, so a registration counts only
+    /// while its future is polled. A caller that drops one of those futures
+    /// before it settles (a request handler aborted by a closed socket, a
+    /// `tokio::select!` or timeout around the call, a task cancelled at
+    /// shutdown) ends the count early, where the baseline's promise keeps
+    /// running and `flushForShutdown` waits for it. Run registrations in
+    /// their own spawned task, as the daemon's create path does, to keep the
+    /// baseline's behavior.
     pub(crate) fn track_agent_registration(&self) -> RegistrationGuard {
         self.inner.registration_tasks.fetch_add(1, Ordering::SeqCst);
         RegistrationGuard(Arc::clone(&self.inner))
