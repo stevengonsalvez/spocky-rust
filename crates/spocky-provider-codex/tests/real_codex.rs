@@ -678,3 +678,49 @@ fn g1_launch_probes_match_the_pinned_client() {
         "launch sequence differs from pinned"
     );
 }
+
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn an_upstream_500_fails_the_turn_with_codexs_message() {
+    // G4: the model endpoint answers HTTP 500. Codex's own retries are off
+    // (see `failing_stub_provider`), so the first failure ends the turn.
+    let codex = support::real_codex();
+    let stub = ResponsesStub::start(vec![Reply::ServerError {
+        body: json!({"error": {"message": "boom"}}),
+    }]);
+    let root = DisposableRoot::new("upstream-500");
+    let provider = support::failing_stub_provider(&root, &stub, &codex);
+    let session = provider
+        .create_session(manager_full_access_config(&root, &provider), None, false)
+        .expect("create session");
+    let events = Events::attach(&session);
+    session.runtime_info().expect("runtime info");
+    session
+        .start_turn(
+            &Prompt::Text("Say hello".to_owned()),
+            &RunOptions::default(),
+        )
+        .expect("start turn");
+    let failed = events.wait_for("turn_failed", WAIT);
+    assert_eq!(
+        compact(&failed),
+        compact(&json!({
+            "type": "turn_failed",
+            "provider": "codex",
+            "error": "We\u{2019}re currently experiencing high demand, which may cause temporary errors.",
+            "turnId": "codex-turn-0"
+        }))
+    );
+    let types: Vec<String> = events
+        .snapshot()
+        .iter()
+        .map(|event| event["type"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        types,
+        ["thread_started", "turn_started", "timeline", "turn_failed"]
+    );
+    assert_eq!(stub.requests().len(), 1, "one upstream request, no retry");
+    assert_eq!(session.unported(), Vec::<String>::new());
+    session.close().expect("close");
+}
