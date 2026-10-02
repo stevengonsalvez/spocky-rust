@@ -16,6 +16,7 @@ use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOpt
 use crate::agent_prompt::submitted_prompt_text;
 use crate::agent_sdk::{
     AbortReason, AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
+    StreamCallback,
 };
 use spocky_contracts::js::{js_string, truthy};
 
@@ -681,6 +682,114 @@ impl AgentManager {
             permission,
             last_message: self.get_last_assistant_message(agent_id),
         })
+    }
+}
+
+impl AgentManager {
+    /// `tryRunOutOfBand(agentId, prompt, options)`: whether the session took
+    /// the prompt as a side-effect command (such as `/goal pause`) that runs
+    /// without a foreground turn. Its events persist and broadcast like
+    /// timeline events; a failure becomes an `[Error]` assistant message.
+    ///
+    /// # Errors
+    ///
+    /// `requireSessionAgent`'s errors for an unknown agent or one without a
+    /// session.
+    pub fn try_run_out_of_band(
+        &self,
+        agent_id: &str,
+        prompt: &AgentPromptInput,
+        options: Option<&AgentRunOptions>,
+    ) -> Result<bool, AgentError> {
+        let (id, provider, session) = {
+            let state = self.lock();
+            let agent = Self::require_agent(&state, agent_id)?;
+            let id = agent.snapshot.id.clone();
+            let Some(session) = agent.session.clone() else {
+                return Err(AgentError::new(format!(
+                    "Agent '{id}' has no managed session"
+                )));
+            };
+            (id, agent.snapshot.provider.clone(), session)
+        };
+        let Some(Some(handler)) = session.try_handle_out_of_band(prompt) else {
+            return Ok(false);
+        };
+        if let Some(client_message_id) = options
+            .and_then(|options| options.client_message_id.clone())
+            .filter(|id| !id.is_empty())
+        {
+            let mut state = self.lock();
+            self.record_submitted_prompt_locked(
+                &mut state,
+                &id,
+                SubmittedPrompt {
+                    text: submitted_prompt_text(prompt),
+                    client_message_id,
+                    message_id: None,
+                    provider_message_id: None,
+                    turn_id: None,
+                },
+            )?;
+            self.emit_state_locked(&mut state, &id, true);
+        }
+        let manager = self.clone();
+        let emit_id = id.clone();
+        let dispatch: StreamCallback = Arc::new(move |event: JsValue| {
+            manager.dispatch_out_of_band(&emit_id, &event);
+        });
+        let manager = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = handler.run(Arc::clone(&dispatch)).await {
+                let mut item = JsObject::new();
+                item.insert("type", JsValue::String("assistant_message".to_owned()));
+                item.insert(
+                    "text",
+                    JsValue::String(format!("[Error] {}", error.message)),
+                );
+                let mut event = JsObject::new();
+                event.insert("type", JsValue::String("timeline".to_owned()));
+                event.insert("provider", JsValue::String(provider));
+                event.insert("item", JsValue::Object(item));
+                manager.dispatch_out_of_band(&id, &JsValue::Object(event));
+            }
+        });
+        Ok(true)
+    }
+
+    /// The `dispatch` of `tryRunOutOfBand`: timeline items are recorded and
+    /// broadcast with their row; other events are broadcast only.
+    fn dispatch_out_of_band(&self, agent_id: &str, event: &JsValue) {
+        let mut state = self.lock();
+        if event_type(event) == Some("timeline") {
+            if let Some(agent) = state.agent_mut(agent_id) {
+                touch_updated_at(&mut agent.snapshot);
+            }
+            let item = event.get("item").cloned().unwrap_or(JsValue::Undefined);
+            let Ok(row) =
+                Self::record_timeline_locked(&mut state, agent_id, item, None, None, None)
+            else {
+                return;
+            };
+            let epoch = state.timeline.epoch(agent_id).ok().map(str::to_owned);
+            let _ = self.dispatch_stream_locked(
+                &state,
+                agent_id,
+                event,
+                Some(row.seq),
+                epoch,
+                Some(row.timestamp),
+            );
+            return;
+        }
+        let _ = self.dispatch_stream_locked(
+            &state,
+            agent_id,
+            event,
+            None,
+            None,
+            Some(crate::clock::now_iso()),
+        );
     }
 }
 
