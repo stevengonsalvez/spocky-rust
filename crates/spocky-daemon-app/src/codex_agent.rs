@@ -66,6 +66,26 @@ fn to_object(value: &JsValue, what: &str) -> AgentResult<Map<String, Value>> {
     }
 }
 
+/// The resume overrides as the provider reads them. An own key holding
+/// `undefined` stays present as `null`: `{ ...handle.metadata, ...overrides }`
+/// lets that key wipe the stored value, and the provider reads `null` as
+/// absent, where `JSON.stringify` would drop the key and keep the stored one.
+fn overrides_object(value: &JsValue) -> AgentResult<Map<String, Value>> {
+    let JsValue::Object(object) = value else {
+        return to_object(value, "overrides");
+    };
+    object
+        .iter()
+        .map(|(key, entry)| {
+            let entry = match entry {
+                JsValue::Undefined => Value::Null,
+                entry => to_json(entry)?,
+            };
+            Ok((key.to_owned(), entry))
+        })
+        .collect()
+}
+
 /// `launchContext?.env`; non-string entries never occur in a valid
 /// `Record<string, string>` and are skipped.
 fn launch_env(context: Option<&AgentLaunchContext>) -> Option<BTreeMap<String, String>> {
@@ -488,7 +508,7 @@ impl AgentClient for CodexAgentClient {
         Box::pin(async move {
             let handle = resume_handle(&handle)?;
             let overrides = match overrides {
-                Some(overrides) => to_object(&overrides, "overrides")?,
+                Some(overrides) => overrides_object(&overrides)?,
                 None => Map::new(),
             };
             let env = launch_env(launch_context.as_ref());
@@ -570,7 +590,7 @@ mod tests {
         AgentClient, AgentLaunchContext, AgentPromptInput, AgentRunOptions, AgentSession,
     };
 
-    use super::{CodexAgentClient, CodexAgentSession, launch_env, resume_handle};
+    use super::{CodexAgentClient, CodexAgentSession, launch_env, overrides_object, resume_handle};
 
     /// Session options whose spawn always fails, so no app-server starts.
     fn test_options(mode: &str) -> SessionOptions {
@@ -642,6 +662,18 @@ mod tests {
             Some(&json!({"turn": {"status": "completed", "error": null}})),
         );
         assert_eq!(texts(&events).len(), 1);
+    }
+
+    #[test]
+    fn undefined_overrides_stay_present_as_null() {
+        let mut overrides = JsObject::new();
+        overrides.insert("provider", JsValue::String("codex".to_owned()));
+        overrides.insert("model", JsValue::Undefined);
+        let object = overrides_object(&JsValue::Object(overrides)).unwrap();
+        assert_eq!(
+            serde_json::Value::Object(object).to_string(),
+            r#"{"provider":"codex","model":null}"#
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
