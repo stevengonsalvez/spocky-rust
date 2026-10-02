@@ -6,13 +6,16 @@
 use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentStatus;
-use crate::agent_config::{AgentSessionConfig, CreateAgentWorktreeTarget, GitSetupOptions};
+use crate::agent_config::{
+    AgentSessionConfig, AgentSessionConfigOverrides, CreateAgentWorktreeTarget, GitSetupOptions,
+};
 use crate::attachment::{AgentAttachment, ImageAttachment, LenientAttachments};
-use crate::field::{Nullable, optional};
+use crate::field::{Nullable, nullable, optional};
 use crate::id::{WorkspaceId, ZodUuid};
 use crate::json::{JsRecord, JsonValue, deserialize_tagged};
 use crate::literal::string_literal;
 use crate::number::{NonNegativeInt, PageLimit, PositiveInt};
+use crate::snapshot::PersistenceHandle;
 use crate::text::{BoundedString, JsText, NonEmptyString};
 
 /// `z.string().min(1).max(512)`, the creation idempotency key.
@@ -840,4 +843,24 @@ pub struct CancelAgentRequest {
         with = "optional"
     )]
     pub request_id: Option<JsText>,
+}
+
+/// `ResumeAgentRequestMessageSchema`: `handle` is required and nullable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResumeAgentRequest {
+    #[serde(with = "nullable")]
+    pub handle: Option<PersistenceHandle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
+    pub overrides: Option<AgentSessionConfigOverrides>,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
+}
+
+/// `RefreshAgentRequestMessageSchema`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefreshAgentRequest {
+    #[serde(rename = "agentId")]
+    pub agent_id: JsText,
+    #[serde(rename = "requestId")]
+    pub request_id: JsText,
 }
