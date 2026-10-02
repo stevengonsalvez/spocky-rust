@@ -12,6 +12,7 @@ pub mod authorization;
 pub mod bootstrap;
 pub mod codex_agent;
 pub mod events;
+pub mod inline_task;
 pub mod provider;
 pub mod reply_window;
 pub mod request;
