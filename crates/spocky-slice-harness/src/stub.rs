@@ -42,10 +42,17 @@ pub struct ScriptedReply {
     /// `content-length`, so the turn stays in flight (for cancel mid-turn).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold_ms: Option<u64>,
+    /// Wait this long after recording the request before replying, so the
+    /// turn is in flight with nothing streamed yet (for client disconnect).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u64>,
 }
 
 /// Longest a scripted reply may hold its stream open.
 pub const MAX_HOLD_MS: u64 = 600_000;
+
+/// Longest a scripted reply may wait before replying.
+pub const MAX_DELAY_MS: u64 = 60_000;
 
 /// The ordered replies for one gate run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,6 +135,11 @@ pub fn validate_script(script: &Script) -> Result<(), String> {
     for (index, reply) in script.responses.iter().enumerate() {
         if reply.hold_ms.is_some_and(|hold| hold > MAX_HOLD_MS) {
             return Err(format!("reply {index} holds longer than {MAX_HOLD_MS} ms"));
+        }
+        if reply.delay_ms.is_some_and(|delay| delay > MAX_DELAY_MS) {
+            return Err(format!(
+                "reply {index} delays longer than {MAX_DELAY_MS} ms"
+            ));
         }
         if !(100..=599).contains(&reply.status) {
             return Err(format!("reply {index} has invalid status {}", reply.status));
@@ -315,7 +327,7 @@ fn answer(
     state: &Mutex<State>,
     incoming: Incoming,
 ) -> Result<(), StubError> {
-    let (status, content_type, payload, hold_ms) = {
+    let (status, content_type, payload, hold_ms, delay_ms) = {
         let mut state = state
             .lock()
             .map_err(|_| StubError::Malformed("stub state lock poisoned".into()))?;
@@ -352,12 +364,18 @@ fn answer(
         state.record.write_all(&line)?;
         state.record.flush()?;
         let hold_ms = scripted.and_then(|index| state.script.responses[index].hold_ms);
+        let delay_ms = scripted.and_then(|index| state.script.responses[index].delay_ms);
         let (status, content_type, payload) = match failure {
             Some(message) => failure_reply(&message),
             None => reply_for(&state.script, scripted),
         };
-        (status, content_type, payload, hold_ms)
+        (status, content_type, payload, hold_ms, delay_ms)
     };
+    // The request is already recorded, so a gate waiting on the request
+    // count sees the turn in flight for the whole delay.
+    if let Some(delay) = delay_ms {
+        thread::sleep(Duration::from_millis(delay.min(MAX_DELAY_MS)));
+    }
     let length = if hold_ms.is_some() {
         String::new()
     } else {
@@ -560,6 +578,7 @@ mod tests {
             events,
             json,
             hold_ms: None,
+            delay_ms: None,
         };
         let cases = [
             reply(99, vec![json!({"type": "x"})], None),
@@ -648,6 +667,7 @@ mod tests {
                 events: vec![json!({"type": "response.created"})],
                 json: None,
                 hold_ms: None,
+                delay_ms: None,
             }],
         }
     }
@@ -725,6 +745,7 @@ mod tests {
                 events: vec![json!({"type": "response.created"})],
                 json: None,
                 hold_ms: Some(5_000),
+                delay_ms: None,
             }],
         };
         let (port, path) = start(Limits::default(), script, line!());
@@ -763,6 +784,51 @@ mod tests {
     }
 
     #[test]
+    fn delayed_reply_is_recorded_first_and_answered_after_the_delay() {
+        let script = Script {
+            responses: vec![ScriptedReply {
+                status: 200,
+                events: vec![json!({"type": "response.created"})],
+                json: None,
+                hold_ms: None,
+                delay_ms: Some(1_500),
+            }],
+        };
+        let (port, path) = start(Limits::default(), script, line!());
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let sent = std::time::Instant::now();
+        stream
+            .write_all(b"POST /v1/responses HTTP/1.1\r\ncontent-length: 2\r\n\r\n{}")
+            .unwrap();
+        // Recorded while the reply is still delayed.
+        let recorded = (0..40).any(|_| {
+            thread::sleep(Duration::from_millis(25));
+            std::fs::read_to_string(&path).is_ok_and(|text| text.lines().count() == 1)
+        });
+        assert!(recorded && sent.elapsed() < Duration::from_millis(1_500));
+        let mut text = String::new();
+        stream.read_to_string(&mut text).unwrap();
+        assert!(sent.elapsed() >= Duration::from_millis(1_500));
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn delays_are_bounded() {
+        let delayed = |delay_ms| Script {
+            responses: vec![ScriptedReply {
+                status: 200,
+                events: vec![json!({"type": "x"})],
+                json: None,
+                hold_ms: None,
+                delay_ms,
+            }],
+        };
+        assert!(validate_script(&delayed(Some(MAX_DELAY_MS))).is_ok());
+        assert!(validate_script(&delayed(Some(MAX_DELAY_MS + 1))).is_err());
+    }
+
+    #[test]
     fn holds_are_bounded_and_only_for_event_streams() {
         let held = |events: Vec<Value>, json, hold_ms| Script {
             responses: vec![ScriptedReply {
@@ -770,6 +836,7 @@ mod tests {
                 events,
                 json,
                 hold_ms,
+                delay_ms: None,
             }],
         };
         assert!(
@@ -802,12 +869,14 @@ mod tests {
                     events: vec![json!({"type": "response.created"})],
                     json: None,
                     hold_ms: None,
+                    delay_ms: None,
                 },
                 ScriptedReply {
                     status: 500,
                     events: vec![],
                     json: Some(json!({"error": {"message": "boom"}})),
                     hold_ms: None,
+                    delay_ms: None,
                 },
             ],
         };

@@ -47,6 +47,7 @@ fn completed_turn(response_id: &str, message_id: &str, text: &str) -> ScriptedRe
         ],
         json: None,
         hold_ms: None,
+        delay_ms: None,
     }
 }
 
@@ -87,6 +88,7 @@ fn approval_turn(
         ],
         json: None,
         hold_ms: None,
+        delay_ms: None,
     }
 }
 
@@ -97,6 +99,7 @@ fn held_turn(response_id: &str) -> ScriptedReply {
         events: vec![json!({"type": "response.created", "response": {"id": response_id}})],
         json: None,
         hold_ms: Some(120_000),
+        delay_ms: None,
     }
 }
 
