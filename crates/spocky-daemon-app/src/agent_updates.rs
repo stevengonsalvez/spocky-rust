@@ -18,7 +18,7 @@ use spocky_daemon::session_api::{SessionSink, SocketId};
 use spocky_session::agent_manager::ManagedAgentSnapshot;
 use spocky_session::clock::random_uuid;
 use spocky_store::time::parse_iso_millis;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::agent_directory::matches_agent_updates_filter;
 use crate::authorization::SessionAuthorization;
@@ -58,8 +58,11 @@ pub struct AgentUpdates {
     /// `liveAgentUpdateTails`: one worker drains updates in arrival order.
     // ponytail: one queue for every agent, where the baseline chains per
     // agent; split by agent id if one slow enrichment must not delay others.
-    queue: mpsc::UnboundedSender<ManagedAgentSnapshot>,
+    queue: mpsc::UnboundedSender<Queued>,
 }
+
+/// A live agent to publish, and who waits for it.
+type Queued = (ManagedAgentSnapshot, Option<oneshot::Sender<()>>);
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -186,12 +189,15 @@ impl AgentUpdates {
             authorization,
             provider_visible,
         });
-        let (queue, mut updates) = mpsc::unbounded_channel::<ManagedAgentSnapshot>();
+        let (queue, mut updates) = mpsc::unbounded_channel::<Queued>();
         let worker = Arc::clone(&shared);
         let worker_services = Arc::clone(services);
         services.runtime.spawn(async move {
-            while let Some(agent) = updates.recv().await {
+            while let Some((agent, done)) = updates.recv().await {
                 worker.publish(&worker_services, &agent).await;
+                if let Some(done) = done {
+                    let _ = done.send(());
+                }
             }
         });
         Self { shared, queue }
@@ -289,7 +295,18 @@ impl AgentUpdates {
     /// workspace update the baseline queues otherwise has no observer here.
     pub fn forward_live_agent(&self, agent: &ManagedAgentSnapshot) {
         if !lock(&self.shared.subscriptions).is_empty() {
-            let _ = self.queue.send(agent.clone());
+            let _ = self.queue.send((agent.clone(), None));
+        }
+    }
+
+    /// `await forwardLiveAgent(agent)`: returns once the update is out.
+    pub async fn forward_live_agent_and_wait(&self, agent: &ManagedAgentSnapshot) {
+        if lock(&self.shared.subscriptions).is_empty() {
+            return;
+        }
+        let (done, published) = oneshot::channel();
+        if self.queue.send((agent.clone(), Some(done))).is_ok() {
+            let _ = published.await;
         }
     }
 }
