@@ -669,6 +669,13 @@ pub fn write_record_file(base: &Path, record: &JsValue) -> Result<PathBuf, Store
     Ok(path)
 }
 
+/// The entries of `directory` in `fs.readdir` order: libuv sorts them with
+/// `strcmp` on the raw name bytes (`uv__fs_scandir_sort` in
+/// `src/unix/fs.c`, libuv 1.51.0 as shipped in node v22.20.0), on every
+/// Unix file system and in every locale. Names compare as unsigned bytes,
+/// valid UTF-8 or not.
+// ponytail: libuv's Windows `fs__scandir` does not sort, so on Windows node's
+// order is the file system's; this port keeps the Unix order there too.
 fn sorted_entries(directory: &Path) -> Vec<(PathBuf, fs::FileType)> {
     let Ok(entries) = fs::read_dir(directory) else {
         return Vec::new();
@@ -701,4 +708,47 @@ fn read_record(path: &Path) -> Result<JsValue, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let parsed = parse(&String::from_utf8_lossy(&bytes)).map_err(|error| error.to_string())?;
     parse_stored_agent_record(&parsed).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::ffi::OsStrExt;
+
+    use super::sorted_entries;
+
+    /// libuv's `uv__fs_scandir_sort` is `strcmp` on the raw name bytes: no
+    /// locale, no case folding, and names that are not UTF-8 sort by byte.
+    #[test]
+    fn directory_entries_sort_by_raw_name_bytes() {
+        let directory = std::env::temp_dir().join(format!(
+            "spocky-sorted-entries-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&directory).expect("directory");
+        let mut names: Vec<Vec<u8>> = ["zeta", "_us", "Beta", "alpha", "\u{e9}", "a-b", "ab"]
+            .iter()
+            .map(|name| name.as_bytes().to_vec())
+            .collect();
+        // APFS only accepts UTF-8 names; other file systems take any bytes.
+        if cfg!(not(target_vendor = "apple")) {
+            names.push(b"\xff\xfe".to_vec());
+        }
+        for name in &names {
+            let path = directory.join(std::ffi::OsStr::from_bytes(name));
+            std::fs::write(path, b"").expect("file");
+        }
+        let listed: Vec<Vec<u8>> = sorted_entries(&directory)
+            .iter()
+            .map(|(path, _)| path.file_name().expect("name").as_bytes().to_vec())
+            .collect();
+        std::fs::remove_dir_all(&directory).expect("remove");
+        names.sort();
+        assert_eq!(listed, names);
+        assert_eq!(listed[0], b"Beta");
+        assert_eq!(listed[1], b"_us");
+    }
 }
