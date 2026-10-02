@@ -329,6 +329,10 @@ function cases() {
     // A ping in the same chunk as the hello is rejected while the bcrypt compare runs.
     ["hello_right_password_and_ping_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1", { auth: { kind: "password", password: "secret" } }), '{"type":"ping"}']]]],
     ["hello_right_password_and_ping_sent_later", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "secret" } })], ["wait", 1500], ["text", "a", '{"type":"ping"}']]],
+    // A wrong password with a frame in the same chunk: the frame closes the pending
+    // connection first, and the later rejection is suppressed, so nothing but the
+    // close is sent (no hello.rejected frame).
+    ["hello_wrong_password_and_ping_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1", { auth: { kind: "password", password: "wrong" } }), '{"type":"ping"}']]]],
     ["hello_local_credential_kind_without_credential", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "localCredential", token: "x".repeat(43) } })]]],
     ["hello_bad_auth_shape", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "magic" } })]]],
     ["protocol_mismatch_without_auth", [["connect", "a"], ["text", "a", hello("c1", { protocolVersion: 2 })]]],
