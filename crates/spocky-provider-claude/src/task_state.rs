@@ -286,7 +286,7 @@ fn retained_task_status(task: &JsObject) -> &'static str {
         Some("completed") => "completed",
         Some("in_progress") => "in_progress",
         Some("pending") => "pending",
-        _ if spocky_session::js::truthy(task.get("completed")) => "completed",
+        _ if spocky_contracts::js::truthy(task.get("completed")) => "completed",
         _ => "pending",
     }
 }

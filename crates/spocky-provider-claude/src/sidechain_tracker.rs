@@ -454,7 +454,7 @@ fn extract_tool_results(
             output: Some(&output),
             metadata: None,
         };
-        let tool_call = if spocky_session::js::truthy(block.get("is_error")) {
+        let tool_call = if spocky_contracts::js::truthy(block.get("is_error")) {
             map_failed(&params, Some(block))?
         } else {
             map_completed(&params)?
@@ -523,7 +523,7 @@ fn extract_action_candidates(message: &JsValue) -> Vec<ActionCandidate> {
             };
             let index = event.get("index").and_then(JsValue::as_f64).map_or_else(
                 || "0".to_owned(),
-                |index| spocky_session::js::js_string(Some(&JsValue::Number(index))),
+                |index| spocky_contracts::js::js_string(Some(&JsValue::Number(index))),
             );
             let key =
                 read_trimmed(block.get("id")).unwrap_or_else(|| format!("stream:{name}:{index}"));

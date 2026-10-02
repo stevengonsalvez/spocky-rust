@@ -538,7 +538,7 @@ fn from_code_point(code: f64) -> Result<String, AgentError> {
             name: "RangeError".to_owned(),
             message: format!(
                 "Invalid code point {}",
-                spocky_session::js::js_string(Some(&JsValue::Number(code)))
+                spocky_contracts::js::js_string(Some(&JsValue::Number(code)))
             ),
         });
     }
@@ -1001,7 +1001,7 @@ fn search_output_fields(detail: &mut JsObject, output: Option<&JsObject>) {
         return;
     };
     let has = |key: &str| output.get(key).is_some();
-    let truthy = |key: &str| spocky_session::js::truthy(output.get(key));
+    let truthy = |key: &str| spocky_contracts::js::truthy(output.get(key));
     let set = |detail: &mut JsObject, key: &str, value: Option<&JsValue>| {
         detail.insert(key, value.cloned().unwrap_or(JsValue::Undefined));
     };
@@ -1098,14 +1098,14 @@ fn member<'a>(record: Option<&'a JsObject>, key: &str) -> Option<&'a JsValue> {
 fn fetch_detail(input: Option<&JsObject>, output: Option<&JsObject>) -> Option<JsValue> {
     let read = member;
     let url = read(input, "url").or_else(|| read(output, "url"))?;
-    if !spocky_session::js::truthy(Some(url)) {
+    if !spocky_contracts::js::truthy(Some(url)) {
         return None;
     }
     let mut detail = JsObject::new();
     detail.insert("type", text("fetch"));
     detail.insert("url", url.clone());
     let put_truthy = |detail: &mut JsObject, key: &str, value: Option<&JsValue>| {
-        if spocky_session::js::truthy(value) {
+        if spocky_contracts::js::truthy(value) {
             detail.insert(key, value.cloned().unwrap_or(JsValue::Undefined));
         }
     };

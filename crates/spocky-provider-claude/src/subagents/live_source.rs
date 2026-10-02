@@ -33,7 +33,7 @@ fn read_string(value: Option<&JsValue>) -> Option<String> {
 }
 
 fn truthy(value: Option<&JsValue>) -> bool {
-    spocky_session::js::truthy(value)
+    spocky_contracts::js::truthy(value)
 }
 
 /// `mapTaskStatus(status)`.

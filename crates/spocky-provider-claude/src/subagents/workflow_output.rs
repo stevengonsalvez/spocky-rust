@@ -66,7 +66,7 @@ pub fn format_claude_workflow_result(result: &JsValue) -> Option<String> {
     let text = match unwrap_single_value(result) {
         JsValue::String(text) => spocky_contracts::text::js_trim(text).to_owned(),
         value @ (JsValue::Number(_) | JsValue::Bool(_)) => {
-            spocky_session::js::js_string(Some(value))
+            spocky_contracts::js::js_string(Some(value))
         }
         JsValue::Null | JsValue::Undefined => return None,
         value => format!("```json\n{}\n```", stringify_pretty(value)),
