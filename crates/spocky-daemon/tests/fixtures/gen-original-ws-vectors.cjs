@@ -333,6 +333,9 @@ function cases() {
     ["hello_bad_auth_shape", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "magic" } })]]],
     ["protocol_mismatch_without_auth", [["connect", "a"], ["text", "a", hello("c1", { protocolVersion: 2 })]]],
     ["bearer_subprotocol_right", [["connect", "a", { "Sec-WebSocket-Protocol": "paseo.bearer.secret" }], ["text", "a", hello("c1")], ["text", "a", '{"type":"ping"}']]],
+    // A credential on the upgrade request admits the hello without awaiting anything,
+    // so a frame in the same chunk is not rejected.
+    ["bearer_subprotocol_hello_and_ping_in_one_chunk", [["connect", "a", { "Sec-WebSocket-Protocol": "paseo.bearer.secret" }], ["texts", "a", [hello("c1"), '{"type":"ping"}']]]],
     ["bearer_subprotocol_wrong", [["connect", "a", { "Sec-WebSocket-Protocol": "paseo.bearer.wrong" }], ["text", "a", hello("c1")]]],
     ["authorization_header_right", [["connect", "a", { Authorization: "Bearer secret" }], ["text", "a", hello("c1")]]],
     ["authorization_header_wrong", [["connect", "a", { Authorization: "Bearer wrong" }], ["text", "a", hello("c1")]]],
