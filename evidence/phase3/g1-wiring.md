@@ -28,3 +28,41 @@ values, and a gate run that hit it would show an `rpc_error` the original
 daemon never sends, so the gate would fail rather than hide it.
 
 Test: `request::tests::a_panicking_handler_becomes_handler_error`.
+
+## Fresh-home bootstrap state
+
+The pinned original daemon (`node packages/cli/dist/index.js daemon run`
+from the `5de45e2` build, Node v22.20.0) and `spocky-daemon` each booted on a
+fresh disposable home with the same `config.json` (same loopback port, relay,
+dictation, and voice mode off), served one pinned `paseo ls --json`, and were
+stopped with SIGTERM. Both ran under `sandbox-exec` with the egress-deny
+profile, in tmux on the lane socket, with only recorded PIDs signalled. Both
+exited 0 and printed `[]`.
+
+The home trees were listed as path, mode, size, and SHA-256:
+
+| Entry | Original | Spocky |
+|---|---|---|
+| `.` | dir 700 | dir 700 |
+| `config.json` | 600, 138 bytes, same SHA-256 | same |
+| `runtime/`, `runtime/opencode/` | dir 755 | dir 755 |
+| `runtime/opencode/paseo-a88cef53...872.mjs` | 644, 547817 bytes, SHA-256 `a88cef53578dcb32cfa4af17e13e44c84751a30e5c19f847733904dd84eda872` | identical |
+| `schedules/` | dir 755 | dir 755 |
+| `cli-client-id`, `daemon-keypair.json`, `server-id` | 600, same sizes | 600, same sizes, generated content differs per run |
+| `daemon.log` | 644 | absent |
+
+The generated files are the per-run identities the G1 harness normalizes.
+`daemon.log` is the pino file log, written by the transport's logger; the G1
+gate does not compare it (`gate-g1.md`, Not compared) and its parity belongs
+to `DLOG-001`.
+
+The `runtime/opencode` file comes from `assets/opencode-bridge-plugin.bundle.mjs`,
+a byte-for-byte copy of the pinned build's
+`server/agent/providers/opencode/bridge-plugin.bundle.mjs`, written
+atomically before the daemon listens, as `OpenCodeBridge.start` does. The
+`schedules` directory is the schedule store `ScheduleService.start` creates;
+the schedule service itself is outside the slice.
+
+Raw trees (untracked, scratchpad `fh2/`): original SHA-256
+`f89b14d105e400e690f2d36b33213708a165fe63b0453b14debea268111259d5`, Spocky
+SHA-256 `221efd587a63678b0921f2844ba856c5c4ecde5ab7e5451612e728df598abcfc`.
