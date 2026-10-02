@@ -21,7 +21,7 @@ use spocky_session::agent_identity::resolve_create_agent_titles;
 use spocky_session::agent_labels::PARENT_AGENT_ID_LABEL;
 use spocky_session::agent_manager::{AgentManager, CreateAgentOptions, ManagedAgentSnapshot};
 use spocky_session::agent_projection::build_stored_agent_payload;
-use spocky_session::agent_sdk::{AgentPromptInput, AgentRunOptions};
+use spocky_session::agent_sdk::{AbortSignal, AgentPromptInput, AgentRunOptions};
 use spocky_session::creation::{CreationError, CreationInput, CreationTarget, OnReady};
 use spocky_session::paths::{expand_tilde, resolve_from_cwd};
 use spocky_session::provider_snapshot_manager::ResolveProviderCreateConfigOptions;
@@ -233,13 +233,14 @@ pub(crate) fn start_agent_run(
 pub(crate) async fn wait_for_run_start(
     manager: &Arc<AgentManager>,
     agent_id: &str,
+    signal: Option<AbortSignal>,
 ) -> Result<(), String> {
     let provider = manager
         .get_agent(agent_id)
         .map_or_else(|| "provider".to_owned(), |agent| agent.provider);
     match tokio::time::timeout(
         AGENT_RUN_START_TIMEOUT,
-        manager.wait_for_agent_run_start(agent_id, None),
+        manager.wait_for_agent_run_start(agent_id, signal),
     )
     .await
     {
@@ -259,7 +260,7 @@ async fn start_initial_prompt(
 ) -> Result<ManagedAgentSnapshot, String> {
     let agent_id = snapshot.id.as_str();
     if start_agent_run(manager, agent_id, prompt, run_options, false)? {
-        wait_for_run_start(manager, agent_id).await?;
+        wait_for_run_start(manager, agent_id, None).await?;
     }
     Ok(manager
         .get_agent(agent_id)

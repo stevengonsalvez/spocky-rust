@@ -116,7 +116,7 @@ async fn send_prompt(delivery: &SendDelivery) -> Result<(), String> {
         run_options,
         true,
     )? {
-        wait_for_run_start(manager, agent_id).await?;
+        wait_for_run_start(manager, agent_id, Some(context.request_signal.clone())).await?;
     }
     Ok(())
 }
@@ -202,6 +202,8 @@ pub(crate) async fn send_agent_message(
     context.updates.flush().await;
     match outcome {
         Ok(()) => respond(emit, request_id, &agent_id, None),
+        // `if (this.delivery.requestSignal.aborted) return;`
+        Err(_) if context.request_signal.aborted() => {}
         Err(error) => {
             // `handleAgentRunError(agentId, error, "Failed to send agent message")`.
             activity_error(context, format!("Failed to send agent message: {error}"));
