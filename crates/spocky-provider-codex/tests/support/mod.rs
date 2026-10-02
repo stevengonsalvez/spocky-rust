@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -17,8 +18,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use spocky_provider_codex::{
-    CodexProvider, CodexSession, CustomProvider, ProviderCommand, ProviderRuntimeSettings,
-    SessionConfig,
+    CodexProvider, CodexSession, CustomProvider, Prompt, ProviderCommand, ProviderRuntimeSettings,
+    RunOptions, SessionConfig,
 };
 
 /// Pinned Codex binary and digest from `evidence/phase3/slice-plan.md`.
@@ -169,6 +170,9 @@ pub enum Reply {
     /// `response.created`, then the stream stays open until the client
     /// disconnects or the stub stops.
     Hold,
+    /// `HTTP/1.1 500 Internal Server Error` with this JSON body, as the G4
+    /// slice stub answers an upstream failure.
+    ServerError { body: Value },
 }
 
 #[derive(Debug, Clone)]
@@ -239,17 +243,12 @@ impl Drop for ResponsesStub {
     }
 }
 
-fn serve(
-    stream: TcpStream,
-    requests: &Mutex<Vec<RecordedRequest>>,
-    stop: &AtomicBool,
-    replies: &Mutex<std::vec::IntoIter<Reply>>,
-) {
-    stream.set_nonblocking(false).ok();
+/// Reads one HTTP request (request line, headers, `content-length` body).
+fn read_request(stream: &TcpStream) -> Option<RecordedRequest> {
     let mut reader = BufReader::new(stream.try_clone().expect("clone stub stream"));
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
-        return;
+        return None;
     }
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_owned();
@@ -269,11 +268,21 @@ fn serve(
     let mut body = vec![0; content_length];
     reader.read_exact(&mut body).ok();
     let body = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    requests.lock().unwrap().push(RecordedRequest {
-        method: method.clone(),
-        path: path.clone(),
-        body,
-    });
+    Some(RecordedRequest { method, path, body })
+}
+
+fn serve(
+    stream: TcpStream,
+    requests: &Mutex<Vec<RecordedRequest>>,
+    stop: &AtomicBool,
+    replies: &Mutex<std::vec::IntoIter<Reply>>,
+) {
+    stream.set_nonblocking(false).ok();
+    let Some(request) = read_request(&stream) else {
+        return;
+    };
+    let (method, path) = (request.method.clone(), request.path.clone());
+    requests.lock().unwrap().push(request);
     let mut stream = stream;
     if method != "POST" || !path.ends_with("/responses") {
         let _ = stream
@@ -281,6 +290,10 @@ fn serve(
         return;
     }
     let reply = replies.lock().unwrap().next();
+    if let Some(Reply::ServerError { body }) = &reply {
+        write_server_error(&mut stream, body);
+        return;
+    }
     let _ = stream.write_all(
         b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n",
     );
@@ -332,6 +345,7 @@ fn serve(
             });
             let _ = stream.write_all(tool_call_events(&item, "input", response_id).as_bytes());
         }
+        Some(Reply::ServerError { .. }) => unreachable!("answered before the SSE head"),
         Some(Reply::Hold) | None => {
             while !stop.load(Ordering::SeqCst) {
                 if stream.write_all(b": keepalive\n\n").is_err() {
@@ -341,6 +355,18 @@ fn serve(
             }
         }
     }
+}
+
+/// `HTTP/1.1 500` with a JSON body, in place of the SSE stream.
+fn write_server_error(stream: &mut TcpStream, body: &Value) {
+    let body = body.to_string();
+    let _ = stream.write_all(
+        format!(
+            "HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .as_bytes(),
+    );
 }
 
 /// One completed tool call item: added (in progress, `payload` empty), done,
@@ -510,11 +536,19 @@ pub fn path_string(path: &Path) -> String {
 /// provider (so `model/list`, `config/read`, and background calls never use
 /// the built-in `openai` provider), and analytics, update checks, apps, and
 /// plugins, which otherwise reach chatgpt.com and github.com, are off.
-fn write_hermetic_config(root: &DisposableRoot, stub: &ResponsesStub) {
+fn write_hermetic_config(root: &DisposableRoot, stub: &ResponsesStub, fail_fast: bool) {
+    // Codex retries a 5xx or a dropped stream up to five times with backoff,
+    // which takes minutes. A failure test turns that off so the first
+    // upstream failure ends the turn.
+    let retries = if fail_fast {
+        "request_max_retries = 0\nstream_max_retries = 0\n"
+    } else {
+        ""
+    };
     let config = format!(
         "model_provider = \"codex-stub\"\ncheck_for_update_on_startup = false\n\n\
 [model_providers.codex-stub]\nname = \"Codex Stub\"\nbase_url = \"{}/v1\"\n\
-wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nrequires_openai_auth = false\n\n\
+wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nrequires_openai_auth = false\n{retries}\n\
 [analytics]\nenabled = false\n\n\
 [features]\napps = false\nplugins = false\nremote_plugin = false\nplugin_sharing = false\ntool_suggest = false\n",
         stub.base_url()
@@ -550,7 +584,26 @@ fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
 /// above, loopback-only seatbelt, and every proxy variable aimed at the
 /// egress guard.
 pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -> CodexProvider {
-    write_hermetic_config(root, stub);
+    hermetic_provider(root, stub, codex, false)
+}
+
+/// [`stub_provider`] with Codex's upstream retries turned off, so a scripted
+/// failure (a 500) ends the turn at once.
+pub fn failing_stub_provider(
+    root: &DisposableRoot,
+    stub: &ResponsesStub,
+    codex: &str,
+) -> CodexProvider {
+    hermetic_provider(root, stub, codex, true)
+}
+
+fn hermetic_provider(
+    root: &DisposableRoot,
+    stub: &ResponsesStub,
+    codex: &str,
+    fail_fast: bool,
+) -> CodexProvider {
+    write_hermetic_config(root, stub, fail_fast);
     let launcher = loopback_only_launcher(root, codex);
     let env = [
         ("CODEX_HOME".to_owned(), path_string(&root.join("codex"))),
@@ -814,4 +867,192 @@ pub fn process_alive(pid: u32) -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+fn crate_path(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
+}
+
+/// The command both clients launch as `codex`: the replay of `scenario` from
+/// `tests/fixtures/<fixture>`, logging what the client sends to `log`.
+fn replay_argv(
+    pinned: &PinnedPaseo,
+    fixture: &str,
+    scenario: &str,
+    root: &DisposableRoot,
+    log: &Path,
+) -> Vec<String> {
+    [
+        pinned.node.clone(),
+        crate_path("tests/support/codex_replay.mjs"),
+        crate_path(&format!("tests/fixtures/{fixture}")),
+        PathBuf::from(scenario),
+        root.path.clone(),
+        log.to_path_buf(),
+    ]
+    .iter()
+    .map(|part| part.to_string_lossy().into_owned())
+    .collect()
+}
+
+fn wait_for_any(events: &Events, types: &[&str]) -> Value {
+    let deadline = Instant::now() + REPLAY_WAIT;
+    loop {
+        if let Some(found) = events
+            .snapshot()
+            .into_iter()
+            .find(|event| types.iter().any(|kind| event["type"] == *kind))
+        {
+            return found;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {types:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn rust_run(argv: Vec<String>, root: &DisposableRoot, prompt: &str, action: &str) -> Value {
+    let base_env = vec![
+        ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
+        ("HOME".into(), root.join("home").into_os_string()),
+    ];
+    let provider = CodexProvider::new(
+        Some(ProviderRuntimeSettings {
+            command: Some(ProviderCommand::Replace { argv }),
+            env: None,
+        }),
+        None,
+        base_env,
+    );
+    let session = provider
+        .create_session(
+            SessionConfig {
+                cwd: root.project(),
+                mode_id: Some("auto".to_owned()),
+                model: Some(REPLAY_MODEL.to_owned()),
+                ..SessionConfig::default()
+            },
+            None,
+            false,
+        )
+        .expect("create session");
+    let events = Events::attach(&session);
+    session.runtime_info().expect("runtime info");
+    session
+        .start_turn(&Prompt::Text(prompt.to_owned()), &RunOptions::default())
+        .expect("start turn");
+    if action == "none" {
+        // No approval: the turn runs to its terminal event on its own.
+        wait_for_any(&events, &["turn_completed", "turn_canceled", "turn_failed"]);
+        session.close().expect("close");
+        return json!({"events": events.snapshot(), "pendingBefore": [], "pendingAfter": []});
+    }
+    let requested = wait_for_any(&events, &["permission_requested"]);
+    let before = session.pending_permissions();
+    let id = requested["request"]["id"].as_str().expect("request id");
+    match action {
+        "allow" => session.respond_to_permission(id, &json!({"behavior": "allow"})),
+        "deny" => {
+            session.respond_to_permission(id, &json!({"behavior": "deny", "message": "Not now"}))
+        }
+        "deny_interrupt" => session.respond_to_permission(
+            id,
+            &json!({"behavior": "deny", "message": "Stop", "interrupt": true}),
+        ),
+        "interrupt" => session.interrupt(),
+        other => panic!("unknown action {other}"),
+    }
+    .expect("action");
+    wait_for_any(&events, &["turn_completed", "turn_canceled", "turn_failed"]);
+    let after = session.pending_permissions();
+    session.close().expect("close");
+    json!({"events": events.snapshot(), "pendingBefore": before, "pendingAfter": after})
+}
+
+fn pinned_run(
+    pinned: &PinnedPaseo,
+    argv: &[String],
+    root: &DisposableRoot,
+    prompt: &str,
+    action: &str,
+) -> Value {
+    let mut child = Command::new(&pinned.node)
+        .arg(crate_path("tests/support/pinned_g2_session.mjs"))
+        .arg(&pinned.module)
+        .arg(serde_json::to_string(argv).unwrap())
+        .arg(root.project())
+        .arg(REPLAY_MODEL)
+        .arg(prompt)
+        .arg(action)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", root.join("home"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn pinned node");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait().expect("wait for pinned node").is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("pinned G2 run exceeded 60 s");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().expect("pinned output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "pinned G2 run failed: {stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_str(stdout.trim()).expect("pinned run JSON")
+}
+
+/// Whole-run bound for waiting on a terminal session event in a replay.
+const REPLAY_WAIT: Duration = Duration::from_secs(30);
+/// Model every recorded session was started with.
+const REPLAY_MODEL: &str = "gpt-6-astra";
+
+/// Replays one recorded `codex app-server` session (`scenario` of
+/// `tests/fixtures/<fixture>`) to the Rust provider and to the pinned
+/// `CodexAppServerAgentClient`, runs one turn on each (`action` is an
+/// approval action, or `none` to let the turn end by itself), and requires
+/// identical session events, pending permissions before and after, and
+/// identical client-to-Codex JSON lines. Nothing is normalized: both sides
+/// read the same replayed bytes.
+pub fn replay_differential(fixture: &str, scenario: &str, prompt: &str, action: &str) {
+    let pinned = pinned_paseo();
+    let root = DisposableRoot::new(&format!("g2-{scenario}"));
+    let rust_log = root.join("rust-client.jsonl");
+    let pinned_log = root.join("pinned-client.jsonl");
+    let rust = rust_run(
+        replay_argv(&pinned, fixture, scenario, &root, &rust_log),
+        &root,
+        prompt,
+        action,
+    );
+    let argv = replay_argv(&pinned, fixture, scenario, &root, &pinned_log);
+    let paseo = pinned_run(&pinned, &argv, &root, prompt, action);
+    for part in ["events", "pendingBefore", "pendingAfter"] {
+        assert_eq!(
+            serde_json::to_string(&rust[part]).unwrap(),
+            serde_json::to_string(&paseo[part]).unwrap(),
+            "{scenario}: {part} differ"
+        );
+    }
+    let read = |log: &Path| std::fs::read_to_string(log).expect("client log");
+    let (ours, theirs) = (read(&rust_log), read(&pinned_log));
+    for (index, (rust_line, pinned_line)) in ours.lines().zip(theirs.lines()).enumerate() {
+        assert_eq!(
+            rust_line, pinned_line,
+            "{scenario}: client line {index} differs"
+        );
+    }
+    assert_eq!(
+        ours.lines().count(),
+        theirs.lines().count(),
+        "{scenario}: client line count"
+    );
 }
