@@ -59,6 +59,8 @@ The lead alone changes these interfaces, the workspace manifest, the task ledger
 |---|---|---|
 | `spocky-store` -> `spocky-contracts` | single JavaScript-compatible JSON implementation, `spocky-contracts/src/js_value.rs` | 2026-10-01, `porting/tasks.json` routing revision |
 | `spocky-hub-pilot` -> `spocky-contracts` | the Hub public API uses `js_value` instead of its own `public_api/json.rs`, which is deleted | 2026-10-01, coordinator decision on the `p2_hub_api` review |
+| `spocky-terminal` -> `spocky-wire` | terminal restore and snapshot frames use the binary terminal frame codec that `spocky-wire` owns | 2026-10-02, lead seam review of `p4_terminal` 8350699..fe4c3af |
+| `spocky-xterm` -> `spocky-contracts` (dev only) | differential tests use the contracts text helpers; `spocky-xterm` keeps no Spocky runtime dependency except `spocky-contracts` | 2026-10-02, lead seam review of `p4_xterm_core` 0f5db95..8db4af1 |
 
 No crate may carry a second JavaScript-compatible JSON parser or writer.
 
