@@ -380,6 +380,56 @@ impl PartialEq for JsValue {
     }
 }
 
+impl From<&serde_json::Value> for JsValue {
+    /// The value `JSON.parse` yields for the JSON text `serde_json` writes
+    /// for `value`: every number is an IEEE double (an integer beyond 2^53
+    /// rounds to the nearest one, `-0` keeps its sign), and object keys keep
+    /// their order. Iterative, so depth never overflows the stack.
+    fn from(value: &serde_json::Value) -> Self {
+        use serde_json::Value;
+        enum Work<'a> {
+            Visit(&'a Value),
+            Array(usize),
+            Object(Vec<&'a str>),
+        }
+        let mut work = vec![Work::Visit(value)];
+        let mut built: Vec<JsValue> = Vec::new();
+        while let Some(step) = work.pop() {
+            match step {
+                Work::Visit(Value::Null) => built.push(JsValue::Null),
+                Work::Visit(Value::Bool(flag)) => built.push(JsValue::Bool(*flag)),
+                // `as_f64` is `n as f64` for an integer, which rounds to the
+                // nearest double, and the double itself otherwise.
+                Work::Visit(Value::Number(number)) => {
+                    built.push(JsValue::Number(number.as_f64().unwrap_or(f64::NAN)));
+                }
+                Work::Visit(Value::String(text)) => built.push(JsValue::String(text.clone())),
+                Work::Visit(Value::Array(items)) => {
+                    work.push(Work::Array(items.len()));
+                    work.extend(items.iter().rev().map(Work::Visit));
+                }
+                Work::Visit(Value::Object(map)) => {
+                    work.push(Work::Object(map.keys().map(String::as_str).collect()));
+                    work.extend(map.values().rev().map(Work::Visit));
+                }
+                Work::Array(length) => {
+                    let items = built.split_off(built.len() - length);
+                    built.push(JsValue::Array(items));
+                }
+                Work::Object(keys) => {
+                    let values = built.split_off(built.len() - keys.len());
+                    let mut object = JsObject::new();
+                    for (key, value) in keys.into_iter().zip(values) {
+                        object.insert(key, value);
+                    }
+                    built.push(JsValue::Object(object));
+                }
+            }
+        }
+        built.pop().unwrap_or(JsValue::Undefined)
+    }
+}
+
 impl fmt::Debug for JsValue {
     /// Writes the value as `JSON.stringify` would, and a top-level
     /// `undefined` as `undefined`.
@@ -1153,5 +1203,152 @@ mod tests {
             stringify(&text),
             "\"\\u0000\\u001f\u{7f}\u{2028}\\b\\f\\n\\r\\t\\\"\\\\/\""
         );
+    }
+
+    /// (text, `String(v)`, `JSON.stringify(v)`, `Object.is(v, -0)`) for
+    /// `v = JSON.parse(text)`, printed by node v22.20.0.
+    const SERDE_JSON_CASES: [(&str, &str, &str, bool); 28] = [
+        ("0", "0", "0", false),
+        ("-0", "0", "0", true),
+        ("1", "1", "1", false),
+        ("-1", "-1", "-1", false),
+        (
+            "9007199254740991",
+            "9007199254740991",
+            "9007199254740991",
+            false,
+        ),
+        (
+            "9007199254740992",
+            "9007199254740992",
+            "9007199254740992",
+            false,
+        ),
+        (
+            "9007199254740993",
+            "9007199254740992",
+            "9007199254740992",
+            false,
+        ),
+        (
+            "-9007199254740993",
+            "-9007199254740992",
+            "-9007199254740992",
+            false,
+        ),
+        (
+            "18446744073709551615",
+            "18446744073709552000",
+            "18446744073709552000",
+            false,
+        ),
+        (
+            "18446744073709551616",
+            "18446744073709552000",
+            "18446744073709552000",
+            false,
+        ),
+        (
+            "9223372036854775807",
+            "9223372036854776000",
+            "9223372036854776000",
+            false,
+        ),
+        (
+            "-9223372036854775808",
+            "-9223372036854776000",
+            "-9223372036854776000",
+            false,
+        ),
+        (
+            "123456789012345680000",
+            "123456789012345680000",
+            "123456789012345680000",
+            false,
+        ),
+        ("1e21", "1e+21", "1e+21", false),
+        ("1e-7", "1e-7", "1e-7", false),
+        ("0.1", "0.1", "0.1", false),
+        ("1.5", "1.5", "1.5", false),
+        ("-1.5e-7", "-1.5e-7", "-1.5e-7", false),
+        ("5e-324", "5e-324", "5e-324", false),
+        (
+            "1.7976931348623157e308",
+            "1.7976931348623157e+308",
+            "1.7976931348623157e+308",
+            false,
+        ),
+        (
+            "100000000000000000000",
+            "100000000000000000000",
+            "100000000000000000000",
+            false,
+        ),
+        ("0.000001", "0.000001", "0.000001", false),
+        ("1e300", "1e+300", "1e+300", false),
+        (
+            "[1,[2,[3]],-0,1e21]",
+            "1,2,3,0,1e+21",
+            "[1,[2,[3]],0,1e+21]",
+            false,
+        ),
+        (
+            "{\"b\":1,\"a\":2,\"10\":3,\"2\":4,\"__proto__\":5,\"a\":9}",
+            "[object Object]",
+            "{\"2\":4,\"10\":3,\"b\":1,\"a\":9,\"__proto__\":5}",
+            false,
+        ),
+        (
+            "{\"x\":{\"b\":[],\"a\":{}},\"1\":null,\"0\":true}",
+            "[object Object]",
+            "{\"0\":true,\"1\":null,\"x\":{\"b\":[],\"a\":{}}}",
+            false,
+        ),
+        (
+            "\"é\\u0000\\ud83d\\ude00\"",
+            "é\u{0}😀",
+            "\"é\\u0000😀\"",
+            false,
+        ),
+        (
+            "[null,true,false,\"s\"]",
+            ",true,false,s",
+            "[null,true,false,\"s\"]",
+            false,
+        ),
+    ];
+
+    // (text, `String(v)`, `JSON.stringify(v)`, `Object.is(v, -0)`), printed by
+    // node v22.20.0 for `v = JSON.parse(text)`; `From<&serde_json::Value>`
+    // of the same text must give the same.
+    #[test]
+    fn serde_json_values_convert_like_json_parse() {
+        for (text, string, json, negative_zero) in SERDE_JSON_CASES {
+            let source: serde_json::Value = serde_json::from_str(text).expect(text);
+            let value = JsValue::from(&source);
+            assert_eq!(stringify(&value), json, "{text}");
+            assert_eq!(crate::js::js_string(Some(&value)), string, "{text}");
+            let is_negative_zero =
+                matches!(value, JsValue::Number(n) if n == 0.0 && n.is_sign_negative());
+            assert_eq!(is_negative_zero, negative_zero, "{text}");
+            assert_eq!(value, parse(text).expect("JSON.parse accepts"), "{text}");
+        }
+    }
+
+    #[test]
+    fn deep_serde_json_values_do_not_overflow_the_stack() {
+        let depth = 100_000;
+        let mut source = serde_json::Value::Null;
+        for _ in 0..depth {
+            source = serde_json::Value::Array(vec![source]);
+        }
+        let value = JsValue::from(&source);
+        assert!(matches!(&value, JsValue::Array(items) if items.len() == 1));
+        // Dropping deep values is iterative too.
+        drop(value);
+        let mut owned = source;
+        while let serde_json::Value::Array(mut items) = owned {
+            owned = items.pop().unwrap_or(serde_json::Value::Null);
+        }
     }
 }
