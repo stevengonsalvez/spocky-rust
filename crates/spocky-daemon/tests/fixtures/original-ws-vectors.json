@@ -1,0 +1,1763 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "serverId": "srv_test",
+ "hostname": "Stevens-MacBook-Pro-5.local",
+ "version": "0.10.0",
+ "cases": [
+  {
+   "name": "hello_then_ping_pong_and_recording_state",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"recording_state\",\"isRecording\":true}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_with_app_version_and_capabilities",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"appVersion\":\"1.2.3\",\"capabilities\":{\"hello_rejection\":true}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "ping_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "recording_state_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"recording_state\",\"isRecording\":false}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "valid_session_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"session\",\"message\":{\"type\":\"fetch_agents_request\",\"requestId\":\"r1\"}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "invalid_session_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"session\",\"message\":{\"type\":\"fetch_agents_request\"}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "invalid_json_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{not json"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "unknown_type_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"nope\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "not_an_object_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "5"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "binary_frame_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "binary",
+     "a",
+     "00ff"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_missing_fields",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_empty_client_id",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_bad_client_type",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"toaster\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_protocol_version_2",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":2}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_protocol_version_2_with_rejection_capability",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":2,\"capabilities\":{\"hello_rejection\":true}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_protocol_version_fraction",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c\",\"clientType\":\"cli\",\"protocolVersion\":1.5}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_plugin_client_id",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"plugin:thing\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid plugin clientId"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_client_id_with_spaces",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"  padded  \",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "second_hello_on_active_socket",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Unexpected hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "invalid_json_after_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{not json"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"error\",\"message\":\"Invalid message: Expected property name or '}' in JSON at position 1 (line 1 column 2)\"}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "unknown_type_after_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"nope\"}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"error\",\"message\":\"Invalid message: [\\n  {\\n    \\\"code\\\": \\\"invalid_union\\\",\\n    \\\"errors\\\": [],\\n    \\\"note\\\": \\\"No matching discriminator\\\",\\n    \\\"discriminator\\\": \\\"type\\\",\\n    \\\"options\\\": [\\n      \\\"ping\\\",\\n      \\\"hello\\\",\\n      \\\"recording_state\\\",\\n      \\\"session\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"type\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid discriminator value. Expected 'ping' | 'hello' | 'recording_state' | 'session'\\\"\\n  }\\n]\"}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "oversized_frame_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "raw",
+     "a",
+     "81ff00000000064000010000000000000000"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 1009,
+       "reason": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "oversized_frame_after_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "raw",
+     "a",
+     "81ff00000000064000010000000000000000"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "close",
+       "code": 1009,
+       "reason": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "invalid_utf8_after_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "raw",
+     "a",
+     "818200000000c328"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "close",
+       "code": 1007,
+       "reason": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "client_close_frame_after_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "close",
+     "a",
+     1000,
+     "bye"
+    ],
+    [
+     "await_close",
+     "a",
+     2000
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "close",
+       "code": 1000,
+       "reason": "bye"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "client_close_frame_before_hello",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "close",
+     "a",
+     1001,
+     ""
+    ],
+    [
+     "await_close",
+     "a",
+     2000
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 1001,
+       "reason": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "client_ping_control_frame",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "ping",
+     "a",
+     "aabb"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "ping",
+     "a",
+     "ccdd"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "pong",
+       "hex": "aabb"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "pong",
+       "hex": "ccdd"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "reconnect_within_grace",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "destroy",
+     "a"
+    ],
+    [
+     "wait",
+     400
+    ],
+    [
+     "connect",
+     "b"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    },
+    "b": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "second_socket_same_client_while_first_is_open",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "connect",
+     "b"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"ping\"}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    },
+    "b": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "two_clients_independent",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "connect",
+     "b"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"hello\",\"clientId\":\"c2\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ],
+    [
+     "text",
+     "b",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    },
+    "b": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_timeout",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "await_close",
+     "a",
+     20000
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4001,
+       "reason": "Hello timeout"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_wrong_path",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {},
+     "/other"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "http",
+       "text": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 11\r\n\r\nBad Request"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_missing_key",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Sec-WebSocket-Key": null
+     }
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "http",
+       "text": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 43\r\n\r\nMissing or invalid Sec-WebSocket-Key header"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_bad_version",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Sec-WebSocket-Version": "8"
+     }
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_disallowed_host",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Host": "evil.example"
+     }
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "http",
+       "text": "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 16\r\n\r\nHost not allowed"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_foreign_origin",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Origin": "http://evil.example"
+     }
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": true,
+     "frames": [
+      {
+       "t": "http",
+       "text": "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: text/html\r\nContent-Length: 18\r\n\r\nOrigin not allowed"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "upgrade_with_subprotocol",
+   "secure": false,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Sec-WebSocket-Protocol": "chat, other"
+     }
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\nSec-WebSocket-Protocol: chat\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_without_auth",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Password required"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_without_auth_with_rejection_capability",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"capabilities\":{\"hello_rejection\":true}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"hello.rejected\",\"reason\":\"password_required\",\"accepts\":[\"password\"]}"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Password required"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_wrong_password",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"password\",\"password\":\"wrong\"}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"hello.rejected\",\"reason\":\"incorrect_password\",\"accepts\":[\"password\"]}"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Incorrect password"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_right_password",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"password\",\"password\":\"secret\"}}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_local_credential_kind_without_credential",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"localCredential\",\"token\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"hello.rejected\",\"reason\":\"incorrect_password\",\"accepts\":[\"password\"]}"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Incorrect password"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_bad_auth_shape",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"magic\"}}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Invalid hello"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "protocol_mismatch_without_auth",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":2}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Password required"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "bearer_subprotocol_right",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Sec-WebSocket-Protocol": "paseo.bearer.secret"
+     }
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\nSec-WebSocket-Protocol: paseo.bearer.secret\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"pong\"}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "bearer_subprotocol_wrong",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Sec-WebSocket-Protocol": "paseo.bearer.wrong"
+     }
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\nSec-WebSocket-Protocol: paseo.bearer.wrong\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Incorrect password"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "authorization_header_right",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Authorization": "Bearer secret"
+     }
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "text",
+       "text": "{\"type\":\"session\",\"message\":{\"type\":\"status\",\"payload\":{\"status\":\"server_info\",\"protocolVersion\":1,\"serverId\":\"srv_test\",\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"version\":\"0.10.0\",\"permissions\":[\"daemon.read\",\"daemon.manage\",\"tunnel.manage\",\"access.manage\",\"workspace.read\",\"workspace.write\",\"workspace.manage\",\"automation.manage\",\"hub.execute\"],\"desktopManaged\":false,\"capabilities\":{\"voice\":{\"dictation\":{\"enabled\":false,\"reason\":\"Dictation is disabled in daemon config.\"},\"voice\":{\"enabled\":false,\"reason\":\"Realtime voice is disabled in daemon config.\"}}},\"features\":{\"usageSources\":true,\"ownedSubscriptions\":true,\"agentRequestReceipts\":true,\"workspaceRequestReceipts\":true,\"creationLifecycle\":true,\"hubAgentRpc\":true,\"directorySync\":true,\"workspaceLabels\":true,\"workspaceSetupRun\":true,\"providersSnapshot\":true,\"providersSnapshotCwd\":true,\"checkoutForgeSetAutoMerge\":true,\"checkoutGithubSetAutoMerge\":true,\"githubCheckDetails\":true,\"forgeCheckDetails\":true,\"forgeSearch\":true,\"daemonStatusRpc\":true,\"daemonConfigReload\":true,\"relayConfig\":true,\"pushTokenRevocation\":true,\"plugins\":true,\"pluginManagement\":true,\"pluginGitManagement\":true,\"pluginSourceInstallation\":true,\"pluginSourceUpdates\":true,\"pluginLogs\":true,\"pluginThemes\":true,\"pluginSettings\":true,\"pluginTimelineItems\":true,\"skillManagement\":true,\"terminal-restore-modes\":true,\"terminal-input-mode-replay\":true,\"terminal-size-ownership\":true,\"workspaceTerminals\":true,\"rewind\":true,\"agentTimelinePromptIndex\":true,\"agentHistorySearch\":true,\"checkoutRefresh\":true,\"workspaceMultiplicity\":true,\"projectRemove\":true,\"projectAdd\":true,\"projectList\":true,\"worktreeRestore\":true,\"workspaceRecovery\":true,\"workspaceFileEditing\":true,\"providerUsageList\":true,\"agentDetach\":true,\"agentThinkingUpdate\":true,\"daemonDiagnostics\":true,\"daemonSelfUpdate\":true,\"agentForkContext\":true,\"agentForkContextCursor\":true,\"providerSubagents\":true,\"projectedSubagentTimeline\":true,\"providerSubagentNesting\":true,\"workspacePinning\":true,\"workspaceMarkUnread\":true,\"hubRelationship\":true,\"projectGithubClone\":true,\"workspaceGithubRepositorySearch\":true,\"projectCreateDirectory\":true,\"commitsList\":true,\"commitBaseClassification\":true,\"providerRemoval\":true,\"importSessionWorkspaceTarget\":true,\"importSessionSearch\":true,\"forgeProviders\":true,\"selectiveAgentTimeline\":true,\"explicitEventSubscriptions\":true,\"canonicalSubmittedPrompts\":true,\"stableProjectIdentity\":true,\"workspaceScriptManagement\":true,\"projectCustomIcon\":true,\"fsEntryOps\":true,\"fsEntryDuplicate\":true,\"checkoutDiscardChanges\":true,\"agentProfiles\":true,\"agentConfigApply\":true}}}}"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "authorization_header_wrong",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a",
+     {
+      "Authorization": "Bearer wrong"
+     }
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4401,
+       "reason": "Incorrect password"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "ping_before_hello_secured",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "text",
+     "a",
+     "{\"type\":\"ping\"}"
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
