@@ -19,7 +19,7 @@ use spocky_differential::{
 
 use crate::normalize::{
     SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
-    preimage_digests, root_slug, rules_for, value_classes,
+    preimage_digests, receipt_key, root_slug, rules_for, value_classes,
 };
 use crate::side::{CapturedFile, Exit, GateSpec, SideRun, StepRun, failed_checks};
 
@@ -172,7 +172,8 @@ fn state_bytes(file: &CapturedFile) -> Vec<u8> {
 }
 
 /// State files in canonical order: by masked path, then masked content, then
-/// raw bytes. Masking hides generated ids and names verified digests by kind.
+/// raw bytes. Masking hides generated ids, names verified digests by kind,
+/// and hides send receipt keys, so receipts order by their fingerprint.
 #[must_use]
 pub fn canonical_state(
     state: &[CapturedFile],
@@ -187,8 +188,12 @@ pub fn canonical_state(
         .iter()
         .map(|file| {
             let content = String::from_utf8_lossy(&file.bytes);
+            let mut path = mask(&file.path, &SLICE_SHAPES, &derived);
+            if let Some(key) = receipt_key(&file.path) {
+                path = path.replace(key, "{send-receipt-key}");
+            }
             (
-                mask(&file.path, &SLICE_SHAPES, &derived),
+                path,
                 mask(&content, &SLICE_SHAPES, &derived),
                 state_bytes(file),
             )
@@ -753,6 +758,32 @@ mod tests {
                 "state/codex-io/invocation#1 (left only)".to_owned(),
                 "state/codex-io/invocation#2 (left only)".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn send_receipts_pair_by_fingerprint_under_masked_names() {
+        use crate::normalize::sha256_hex;
+        let receipt = |key: &str, print: &str| CapturedFile {
+            path: format!("paseo-home/agent-requests/{}.json", sha256_hex(key)),
+            bytes: format!("{{\"fingerprint\":\"{}\"}}", sha256_hex(print)).into_bytes(),
+        };
+        let (mut left, mut right) = pair();
+        left.state
+            .extend([receipt("k1", "f1"), receipt("k2", "f2")]);
+        right
+            .state
+            .extend([receipt("k3", "f2"), receipt("k4", "f1")]);
+        let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict);
+        left.state.push(receipt("k5", "f3"));
+        let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
+        assert!(!outcome.verdict.pass);
+        assert!(
+            outcome
+                .verdict
+                .discovery_error
+                .is_some_and(|error| error.contains("send receipt fingerprints differ"))
         );
     }
 
