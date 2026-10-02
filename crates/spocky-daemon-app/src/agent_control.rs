@@ -40,7 +40,7 @@ async fn cancel_agent_run(context: &RequestContext, agent_id: &str) -> Result<()
 }
 
 /// `activity_log` with `type: "error"`, a session event.
-fn activity_error(context: &RequestContext, message: String) {
+pub(crate) fn activity_error(context: &RequestContext, message: String) {
     let mut payload = JsObject::new();
     payload.insert("id", JsValue::String(random_uuid()));
     payload.insert("timestamp", JsValue::String(now_iso()));
