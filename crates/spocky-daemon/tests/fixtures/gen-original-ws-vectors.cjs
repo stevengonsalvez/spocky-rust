@@ -163,8 +163,11 @@ class Conn {
     this.closed = false;
     this.socket = net.connect(port, "127.0.0.1");
     this.socket.on("data", (chunk) => { this.buffer = Buffer.concat([this.buffer, chunk]); this.drain(); });
+    // How the server ended the stream: a FIN is an `end` event, a reset an ECONNRESET error.
+    this.end = null;
+    this.socket.on("end", () => { this.end ??= "fin"; });
     this.socket.on("close", () => { this.closed = true; this.flushRest(); });
-    this.socket.on("error", () => {});
+    this.socket.on("error", (error) => { if (error.code === "ECONNRESET") this.end ??= "rst"; });
     this.ready = new Promise((resolve) => this.socket.once("connect", resolve));
   }
   drain() {
@@ -229,6 +232,7 @@ async function run(port, steps, settle = 500) {
     }
     const conn = conns.get(name);
     if (action === "text") conn.write(encodeFrame(0x1, args[0]));
+    else if (action === "texts") conn.write(Buffer.concat(args[0].map((text) => encodeFrame(0x1, text))));
     else if (action === "binary") conn.write(encodeFrame(0x2, Buffer.from(args[0], "hex")));
     else if (action === "ping") conn.write(encodeFrame(0x9, Buffer.from(args[0], "hex")));
     else if (action === "close") {
@@ -249,9 +253,10 @@ async function run(port, steps, settle = 500) {
   for (const [name, conn] of conns) {
     // Whether the socket was closed before this script closed it.
     const closed = conn.closed;
+    const end = conn.end;
     if (!closed) conn.socket.destroy();
     await sleep(20);
-    events[name] = { closed, frames: conn.events.filter((event) => event.t !== "closed") };
+    events[name] = { closed, end, frames: conn.events.filter((event) => event.t !== "closed") };
   }
   return events;
 }
@@ -264,12 +269,18 @@ const oversizedHeader = (() => {
   return header.toString("hex");
 })();
 
-// The original checks a password with an asynchronous bcrypt compare, so a frame
-// sent right after such a hello reaches it while the hello is still pending and
-// is answered as a message before hello. The cases that follow a password hello
-// with a frame wait for the compare to finish first.
+// The original checks a password with an asynchronous bcrypt compare and holds
+// `pending.authenticating` for its whole length, so every frame that reaches it
+// meanwhile is answered as a message before hello. The "in one chunk" cases show
+// that; the "sent later" case waits for the compare to finish first.
 function cases() {
   const open = [
+    // Frames written in the same chunk as the hello arrive while the hello is
+    // still being judged (websocket-server.ts sets pending.authenticating before
+    // the awaited admission), so the original rejects them.
+    ["hello_and_ping_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1"), '{"type":"ping"}']]]],
+    ["hello_and_second_hello_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1"), hello("c1")]]]],
+    ["hello_and_recording_state_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1"), '{"type":"recording_state","isRecording":true}']]]],
     ["hello_then_ping_pong_and_recording_state", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", '{"type":"ping"}'], ["text", "a", '{"type":"recording_state","isRecording":true}'], ["text", "a", '{"type":"ping"}']]],
     ["hello_with_app_version_and_capabilities", [["connect", "a"], ["text", "a", hello("c1", { appVersion: "1.2.3", capabilities: { hello_rejection: true } })]]],
     ["ping_before_hello", [["connect", "a"], ["text", "a", '{"type":"ping"}']]],
@@ -291,6 +302,9 @@ function cases() {
     ["second_hello_on_active_socket", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", hello("c1")]]],
     ["invalid_json_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", "{not json"], ["text", "a", '{"type":"ping"}']]],
     ["unknown_type_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", '{"type":"nope"}'], ["text", "a", '{"type":"ping"}']]],
+    // The rest of an oversized frame and later frames are drained, not answered with a reset.
+    ["oversized_frame_with_body_bytes", [["connect", "a"], ["text", "a", hello("c1")], ["raw", "a", oversizedHeader + "00000000" + "00".repeat(8192)], ["text", "a", '{"type":"ping"}']]],
+    ["invalid_utf8_then_more_frames", [["connect", "a"], ["text", "a", hello("c1")], ["raw", "a", "8182" + "00000000" + "c328"], ["text", "a", '{"type":"ping"}'], ["text", "a", '{"type":"ping"}']]],
     ["oversized_frame_before_hello", [["connect", "a"], ["raw", "a", oversizedHeader + "00000000"]]],
     ["oversized_frame_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["raw", "a", oversizedHeader + "00000000"]]],
     ["invalid_utf8_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["raw", "a", "8182" + "00000000" + "c328"]]],
@@ -312,7 +326,9 @@ function cases() {
     ["hello_without_auth", [["connect", "a"], ["text", "a", hello("c1")]]],
     ["hello_without_auth_with_rejection_capability", [["connect", "a"], ["text", "a", hello("c1", { capabilities: { hello_rejection: true } })]]],
     ["hello_wrong_password", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "wrong" } })]]],
-    ["hello_right_password", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "secret" } })], ["wait", 1500], ["text", "a", '{"type":"ping"}']]],
+    // A ping in the same chunk as the hello is rejected while the bcrypt compare runs.
+    ["hello_right_password_and_ping_in_one_chunk", [["connect", "a"], ["texts", "a", [hello("c1", { auth: { kind: "password", password: "secret" } }), '{"type":"ping"}']]]],
+    ["hello_right_password_and_ping_sent_later", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "password", password: "secret" } })], ["wait", 1500], ["text", "a", '{"type":"ping"}']]],
     ["hello_local_credential_kind_without_credential", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "localCredential", token: "x".repeat(43) } })]]],
     ["hello_bad_auth_shape", [["connect", "a"], ["text", "a", hello("c1", { auth: { kind: "magic" } })]]],
     ["protocol_mismatch_without_auth", [["connect", "a"], ["text", "a", hello("c1", { protocolVersion: 2 })]]],
