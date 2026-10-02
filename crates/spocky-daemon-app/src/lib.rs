@@ -3,6 +3,7 @@
 //! the production `spocky-daemon` binary. Behavior follows pinned Paseo
 //! `5de45e2`.
 
+pub mod agent_create;
 pub mod agent_directory;
 pub mod authorization;
 pub mod bootstrap;
