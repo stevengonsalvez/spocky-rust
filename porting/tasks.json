@@ -1167,6 +1167,15 @@
         {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
+          "sourceRange": "3084cc08..c2a45a52 (4 commits): daemon_restart step on the same home (signals only the recorded PID), order history matched on binary and baseline content digests, G3 daemon restart gate, gate.sh g3",
+          "integrationHead": "db7fd63e",
+          "review": "integration reviewer PASS (verdicts/p3_slice_harness-c2a45a52.txt); nothing compared is hidden",
+          "leadVerification": "gated: spocky-slice-harness 104 passed, clippy -D warnings, fmt check, sh -n scripts/phase3/gate.sh, cargo check --workspace --all-targets",
+          "followUps": ["P3 only daemon.out.1 and daemon.out.2 are captured"]
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
           "integrationHead": "0f5756b2",
           "review": "integration reviewer PASS (verdicts/p3_slice_harness-12953360.txt)",
@@ -1413,6 +1422,14 @@
             "set_subscription not ported",
             "codex fileChange apply_patch timeline tool_call before permission_requested not ported"
           ]
+        },
+        {
+          "gate": "G3",
+          "date": "2026-10-02",
+          "run": "g3-20261002T072732Z",
+          "selfCheck": "PASS, original versus original, first run: 108 rules, 0 differences, 7 steps exit 0, a real daemon restart, timeline rebuilt from thread/read",
+          "status": "FIXTURE-READY, NOT a G3 pass: no spocky parity run yet",
+          "spockyNeeds": "after restart pinned codex runs app-server --enable goals with thread/loaded/list, thread/resume, thread/read, then turn/start for the send; spocky needs the wiring resume and refresh dispatch and the codex thread/read hydration path (session resume and hydration are ported)"
         }
       ],
       "reviews": [], "repairs": [], "trackedGaps": [
