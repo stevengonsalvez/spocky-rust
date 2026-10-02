@@ -71,7 +71,11 @@ run_pair() {
     --paseo-root "$paseo_root" --node-bin "$node_bin" --codex "$codex" \
     --stub "$stub" --evidence "$evidence/$pair_name"
   if [ "$right" = spocky ]; then
-    set -- "$@" --spocky-daemon "$spocky_daemon"
+    # The self-check sides plus this pair's original left side are the three
+    # original observations the codex invocation order is checked against.
+    set -- "$@" --spocky-daemon "$spocky_daemon" \
+      --order-reference "$evidence/self-check/left-original/side.json" \
+      --order-reference "$evidence/self-check/right-original/side.json"
   fi
   pair_status=0
   "$@" || pair_status=$?
