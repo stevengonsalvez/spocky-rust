@@ -12,4 +12,5 @@ pub mod codex_agent;
 pub mod provider;
 pub mod request;
 pub mod session;
+pub mod shutdown;
 pub mod workspace_handlers;
