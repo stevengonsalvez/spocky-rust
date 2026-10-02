@@ -81,6 +81,27 @@ fn valid_cases() -> Vec<(&'static str, Option<Value>, &'static str)> {
             Some(json!({"features": {"network_proxy": true}})),
             "auto",
         ),
+        (
+            "reordered keys",
+            Some(
+                json!({"web_search": "live", "features": {"multi_agent_v2": true, "network_proxy": true}, "sandbox_workspace_write": {"exclude_tmpdir_env_var": false, "network_access": true, "writable_roots": ["/b", "/a"]}, "sandbox_mode": "workspace-write", "approval_policy": "on-request"}),
+            ),
+            "auto-review",
+        ),
+        (
+            "reordered granular policy",
+            Some(
+                json!({"sandbox_mode": "read-only", "approval_policy": {"granular": {"skill_approval": true, "rules": false, "sandbox_approval": true, "request_permissions": false, "mcp_elicitations": true}}}),
+            ),
+            "auto",
+        ),
+        (
+            "reordered network policy",
+            Some(
+                json!({"features": {"network_proxy": {"unix_sockets": {"/z": "deny", "/a": "allow"}, "domains": {"z.com": "deny", "a.com": "allow"}, "allow_upstream_proxy": false, "socks_url": "socks5://127.0.0.1:2", "enabled": true}}}),
+            ),
+            "auto",
+        ),
         ("empty options", Some(json!({})), "auto"),
         ("absent options", None, "auto"),
         (
@@ -228,6 +249,17 @@ fn rejected_nested_cases() -> Vec<(&'static str, Value)> {
     ]
 }
 
+/// The raw `thread/start` request line a client sent the replay server.
+fn thread_start_line(log: &Path) -> String {
+    let text = std::fs::read_to_string(log).expect("client log");
+    let mut lines = text
+        .lines()
+        .filter(|line| line.contains(r#""method":"thread/start""#));
+    let line = lines.next().expect("a thread/start request");
+    assert!(lines.next().is_none(), "one thread/start request");
+    line.to_owned()
+}
+
 fn replay_command(root: &DisposableRoot, log: &Path) -> Vec<String> {
     support::replay_argv(&support::pinned_paseo(), FIXTURE, SCENARIO, root, log)
 }
@@ -289,6 +321,13 @@ fn provider_option_fallbacks_match_pinned() {
             rust_info(options.as_ref(), &root).unwrap_or_else(|error| panic!("{name}: {error}"));
         let pinned = pinned_info(options.as_ref(), &root);
         assert_eq!(rust, pinned, "{name}: runtime info differs from pinned");
+        // The inner config goes out in the schema's key order, not the
+        // input's: the raw `thread/start` request lines must be equal.
+        assert_eq!(
+            thread_start_line(&root.join("rust-client.jsonl")),
+            thread_start_line(&root.join("pinned-client.jsonl")),
+            "{name}: thread/start line differs from pinned"
+        );
         let info: Value = serde_json::from_str(&rust).expect("info JSON");
         assert_eq!(
             info["modeId"],
