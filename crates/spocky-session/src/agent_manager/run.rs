@@ -328,14 +328,7 @@ impl AgentManager {
             self.emit_state_locked(&mut state, &id, true);
         }
         let attempt = async {
-            if self.cancel_agent_run(agent_id).await? == AgentRunCancellationResult::Refused {
-                return Err(AgentError {
-                    name: "AgentRunCancellationError".to_owned(),
-                    message: format!(
-                        "Cannot replace agent {agent_id} because its active run cancellation was not acknowledged"
-                    ),
-                });
-            }
+            self.cancel_agent_run_before(agent_id, "replace").await?;
             self.stream_agent(agent_id, prompt, options)
         }
         .await;
@@ -401,6 +394,25 @@ impl AgentManager {
             token,
             waiter_id: None,
         })
+    }
+
+    /// `cancelAgentRunBefore(agentId, action)`: cancels the active run, and
+    /// fails with `AgentRunCancellationError` when the cancellation is
+    /// refused.
+    async fn cancel_agent_run_before(
+        &self,
+        agent_id: &str,
+        action: &str,
+    ) -> Result<(), AgentError> {
+        if self.cancel_agent_run(agent_id).await? == AgentRunCancellationResult::Refused {
+            return Err(AgentError {
+                name: "AgentRunCancellationError".to_owned(),
+                message: format!(
+                    "Cannot {action} agent {agent_id} because its active run cancellation was not acknowledged"
+                ),
+            });
+        }
+        Ok(())
     }
 
     fn pending_run_settled(&self, agent_id: &str, token: u64) -> bool {
