@@ -2,7 +2,7 @@
 # Runs a Phase 3 slice gate with the unchanged pinned Paseo CLI and the real
 # pinned codex against a scripted loopback Responses stub.
 #
-# Usage: scripts/phase3/gate.sh <gate> [--self-check-only]
+# Usage: scripts/phase3/gate.sh <gate> [--self-check-only] [--order-history <dir>]
 #
 # Always first runs the gate with the original daemon on both sides, which
 # must pass with zero mismatch (proof the harness reports no false mismatch).
@@ -10,6 +10,11 @@
 # (target/debug/spocky-daemon), which must also pass. Exit 0 only when every
 # run passes. Evidence lands in evidence/raw/phase3/<gate>-<utc>/ (untracked)
 # and its digests are printed.
+#
+# --order-history <dir> names a persistent evidence/raw/phase3 directory whose
+# earlier passing self-checks of the same identity join the codex order
+# references. Use it for any run from a fresh worktree; without it the
+# directory holding this run is used.
 #
 # Env: CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_slice_harness),
 #      CARGO_BUILD_JOBS (default 2), SPOCKY_BUILD_GATE (default
@@ -19,16 +24,23 @@ set -eu
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 . "$repository_root/scripts/phase3/pins.sh"
 
-[ $# -ge 1 ] || p3_fail "usage: scripts/phase3/gate.sh <gate> [--self-check-only]"
+[ $# -ge 1 ] || p3_fail "usage: scripts/phase3/gate.sh <gate> [--self-check-only] [--order-history <dir>]"
 gate=$1
 shift
 self_check_only=false
-case "${1:-}" in
-  '') ;;
-  --self-check-only) self_check_only=true; shift ;;
-  *) p3_fail "unknown option: $1" ;;
-esac
-[ $# -eq 0 ] || p3_fail "unexpected arguments: $*"
+order_history=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --self-check-only) self_check_only=true; shift ;;
+    --order-history)
+      [ $# -ge 2 ] || p3_fail "--order-history needs a directory"
+      [ -d "$2" ] || p3_fail "order history directory not found: $2"
+      order_history=$2
+      shift 2
+      ;;
+    *) p3_fail "unknown option: $1" ;;
+  esac
+done
 case "$gate" in
   g1 | g2) ;;
   *) p3_fail "unsupported gate: $gate (defined gates: g1, g2)" ;;
@@ -76,6 +88,9 @@ run_pair() {
     set -- "$@" --spocky-daemon "$spocky_daemon" \
       --order-reference "$evidence/self-check/left-original/side.json" \
       --order-reference "$evidence/self-check/right-original/side.json"
+    if [ -n "$order_history" ]; then
+      set -- "$@" --order-history "$order_history"
+    fi
   fi
   pair_status=0
   "$@" || pair_status=$?
