@@ -4,7 +4,12 @@
 //! Usage:
 //! `spocky-slice-gate <gate> --left <original|spocky> --right <original|spocky>
 //!   --paseo-root <dir> --node-bin <dir> --codex <path> --stub <path>
-//!   [--spocky-daemon <path>] --evidence <dir>`
+//!   [--spocky-daemon <path>] [--order-reference <side.json>]... --evidence <dir>`
+//!
+//! A spocky right side is also checked against the codex invocation order of
+//! the original observations: each `--order-reference` side (the self-check
+//! sides) plus this run's original left side. A pair every original agrees
+//! on and the spocky side inverts fails the verdict.
 //!
 //! Exit 0 only when both sides pass every positive check, no process
 //! survives, and the normalized comparison is equivalent. Exit 1 on any
@@ -14,11 +19,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use serde_json::Value;
 use spocky_slice_harness::compare::{compare_sides, differing_artifacts};
 use spocky_slice_harness::gates;
 use spocky_slice_harness::side::{DaemonKind, Tools, run_side};
 
-const USAGE: &str = "usage: spocky-slice-gate <gate> --left <original|spocky> --right <original|spocky> --paseo-root <dir> --node-bin <dir> --codex <path> --stub <path> [--spocky-daemon <path>] --evidence <dir>";
+const USAGE: &str = "usage: spocky-slice-gate <gate> --left <original|spocky> --right <original|spocky> --paseo-root <dir> --node-bin <dir> --codex <path> --stub <path> [--spocky-daemon <path>] [--order-reference <side.json>]... --evidence <dir>";
 
 struct Options {
     gate: String,
@@ -26,13 +32,21 @@ struct Options {
     right: DaemonKind,
     tools: Tools,
     evidence: PathBuf,
+    order_references: Vec<PathBuf>,
 }
 
 fn parse() -> Result<Options, String> {
     let mut arguments = std::env::args().skip(1);
     let gate = arguments.next().ok_or(USAGE)?;
     let mut values = std::collections::BTreeMap::new();
+    let mut order_references = Vec::new();
     while let Some(flag) = arguments.next() {
+        if flag == "--order-reference" {
+            order_references.push(PathBuf::from(
+                arguments.next().ok_or("--order-reference needs a value")?,
+            ));
+            continue;
+        }
         let known = [
             "--left",
             "--right",
@@ -76,7 +90,34 @@ fn parse() -> Result<Options, String> {
         right,
         tools,
         evidence,
+        order_references,
     })
+}
+
+/// The codex arrival order recorded in a side's raw `side.json`.
+fn recorded_order(path: &Path) -> Result<Vec<String>, String> {
+    let text =
+        fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let side: Value = serde_json::from_str(&text)
+        .map_err(|error| format!("parse {}: {error}", path.display()))?;
+    if side["kind"] != "original" {
+        return Err(format!(
+            "order reference {} is not an original side",
+            path.display()
+        ));
+    }
+    side["codex_order"]
+        .as_array()
+        .and_then(|labels| {
+            labels
+                .iter()
+                .map(|label| label.as_str().map(str::to_owned))
+                .collect()
+        })
+        .ok_or(format!(
+            "order reference {} has no codex_order",
+            path.display()
+        ))
 }
 
 fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
@@ -87,6 +128,11 @@ fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> 
 fn run() -> Result<bool, String> {
     let options = parse()?;
     let gate = gates::by_id(&options.gate).ok_or(format!("unknown gate {}", options.gate))?;
+    let reference_orders = options
+        .order_references
+        .iter()
+        .map(|path| recorded_order(path))
+        .collect::<Result<Vec<_>, _>>()?;
     fs::create_dir_all(&options.evidence).map_err(|error| error.to_string())?;
     let left_dir = options
         .evidence
@@ -110,7 +156,16 @@ fn run() -> Result<bool, String> {
         options.right.label()
     );
     let right = run_side(&gate, options.right, &options.tools, &right_dir)?;
-    let outcome = compare_sides(&gate, &left, &right);
+    let mut outcome = compare_sides(&gate, &left, &right);
+    if right.kind == DaemonKind::Spocky {
+        let mut references: Vec<&[String]> = reference_orders.iter().map(Vec::as_slice).collect();
+        if left.kind == DaemonKind::Original {
+            references.push(&left.codex_order);
+        }
+        outcome
+            .verdict
+            .apply_order_check(&references, &right.codex_order);
+    }
     write_json(&options.evidence.join("rules.json"), &outcome.rules)?;
     // Named transforms live beside the manifest, which stays a plain
     // spocky-differential manifest that can be replayed as is.
@@ -136,7 +191,7 @@ fn run() -> Result<bool, String> {
         format!("NOT COMPARED, {}", verdict.comparison)
     };
     eprintln!(
-        "spocky-slice-gate: {} {} vs {}: {} ({differences}, rules {}, check failures {}, survivors {}, harness errors {})",
+        "spocky-slice-gate: {} {} vs {}: {} ({differences}, rules {}, check failures {}, survivors {}, harness errors {}, order inversions {}, order check {})",
         verdict.gate,
         verdict.left,
         verdict.right,
@@ -145,6 +200,8 @@ fn run() -> Result<bool, String> {
         verdict.check_failures.len(),
         verdict.survivors.len(),
         verdict.harness_errors.len(),
+        verdict.order_inversions.len(),
+        verdict.order_check,
     );
     for line in verdict
         .discovery_error
@@ -153,6 +210,7 @@ fn run() -> Result<bool, String> {
         .chain(&verdict.check_failures)
         .chain(&verdict.survivors)
         .chain(&verdict.harness_errors)
+        .chain(&verdict.order_inversions)
     {
         eprintln!("  {line}");
     }
