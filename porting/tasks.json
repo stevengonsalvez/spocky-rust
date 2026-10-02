@@ -177,7 +177,7 @@
         "OPEN, after G2 (2026-10-02): codex fileChange apply_patch emits a timeline tool_call before the patch permission_requested in the pinned client; about 300 TS lines not ported. PARTIAL: the fileChange mapper landed with 0eaff135..55cf3077 (oracle is a pinned copy with only import rewrites plus an export line)",
         "OPEN (2026-10-02): edit-detail seam for codex file edits waits for a contracts tool_detail type",
         "OPEN (2026-10-02): the pinned 12,000-unit diff truncation is not ported",
-        "OPEN (2026-10-02): the legacy patch_apply path is not ported yet (codex lane porting it now)",
+        "CLOSED (2026-10-02): the legacy patch_apply path is ported (f819cb58..2d95c778, landed in 6f4cd1d6)",
         "OPEN, not on G1, must be ported before P5 (2026-10-02): pinned codex implements resolveDefaultModeId (a fresh probe with a signal, the memo without one); the provider at ae2f8904 exposes no auto-review entry point for it, so the spocky-daemon-app adapter seam returns None"
       ],
       "delegation": "forbidden",
@@ -1303,6 +1303,20 @@
             "P2 provider-claude presentation.rs:85 js_round loses the sign of zero; fix when it moves into spocky_contracts::js",
             "after provider-claude: p3_contracts moves date_parse and the tool_detail primitives into contracts"
           ]
+        },
+        {
+          "lane": "batch (p3_contracts, p3_provider_codex, p3_g1_wiring)",
+          "date": "2026-10-02",
+          "integrationHead": "6f4cd1d6",
+          "sourceRanges": [
+            "p3_contracts 9787d89e..3bd44844 (4; reviewer 2 PASS, verdicts/p3_contracts-3bd44844.txt): Catch and catchall cases, the serde_json-to-JsValue bridge (From), js_text_to_utf8 and JS-text boundaries; codex, session and daemon-app lanes now switch to them",
+            "p3_provider_codex f819cb58..2d95c778 (23; reviewer 1 PASS, verdicts/p3_provider_codex-2d95c778.txt): js sweep fix, oracle pins, legacy patch_apply, provider-option fallbacks, watchdog exit",
+            "p3_g1_wiring c224fc15 and 32704ce8 from range A 94b616f1..32704ce8: the COMPAT(replaceAgentRun) tag on settle_ended_run and the commit header in the G2 differential log; reviewed by the lead (comment-only and one log line)"
+          ],
+          "held": "p3_g1_wiring fa625622 and b146489a from range A (order a socket's messages behind its permission responses; first committed 20:33 as 0807f6ac and ff109a30) are covered by no verdict file and are not landed pending the coordinator's decision",
+          "leadVerification": "gated after cargo clean -p for the gated crates: spocky-provider-codex with SPOCKY_REAL_CODEX=1 --include-ignored (sandboxed), spocky-contracts plus spocky-daemon-app --include-ignored (skipping only the daemon-app real-codex test), 279 passed; clippy -D warnings, fmt check, sh -n g2-differential.sh, bin build, cargo check --workspace --all-targets; no stale worktree paths in the logs",
+          "followUps": ["P3 codex tool-policy grouping uses structural equality instead of Map identity", "P3 codex objects lack JS integer-key ordering"],
+          "closes": ["codex legacy patch_apply open gap (f819cb58..2d95c778)"]
         },
         {
           "lane": "p3_slice_harness",
