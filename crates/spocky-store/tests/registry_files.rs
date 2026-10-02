@@ -402,6 +402,71 @@ fn project_allocation_skips_taken_ids_and_archived_roots() {
     assert_eq!(registry.list().len(), 2);
 }
 
+/// `getOrCreateActiveProjectByRoot` picks the oldest active project with the
+/// same root by `Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+/// left.projectId.localeCompare(right.projectId)` (`workspace-registry.ts:424`),
+/// and `Date.parse` reads every form V8 reads. The dates are what node v22.20.0
+/// printed: `Date.parse("Jan 3 2020 00:00:00 GMT")` is 1578009600000 and
+/// `Date.parse("2020-01-02T00:00:00.000Z")` is 1577923200000; the same
+/// instant in two forms differs by 0, so the id decides.
+#[test]
+fn project_allocation_orders_created_at_by_date_parse() {
+    let existing_id = |created: [(&str, &str); 2]| {
+        let home = TestDir::new("registry-project-dates");
+        let mut registry = ProjectRegistry::new(home.path().join("projects.json"));
+        for (project_id, created_at) in created {
+            registry
+                .upsert(PersistedProjectRecord {
+                    project_id: project_id.to_owned(),
+                    root_path: "/tmp/project".to_owned(),
+                    kind: ProjectKind::NonGit,
+                    display_name: "project".to_owned(),
+                    project_key: None,
+                    custom_name: None,
+                    custom_icon_revision: None,
+                    created_at: created_at.to_owned(),
+                    updated_at: created_at.to_owned(),
+                    archived_at: None,
+                })
+                .expect("seed project");
+        }
+        let allocation = registry
+            .get_or_create_active_by_root(
+                &ProjectRootInput {
+                    root_path: "/tmp/project",
+                    kind: ProjectKind::NonGit,
+                    display_name: "project",
+                    project_key: None,
+                    timestamp: "2026-10-01T10:00:00.000Z",
+                },
+                || unreachable!("an active project exists"),
+            )
+            .expect("allocate");
+        allocation.record().project_id.clone()
+    };
+    // A later non-ISO date against an earlier ISO one: the earlier wins.
+    assert_eq!(
+        existing_id([
+            ("prj_a", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_b", "2020-01-02T00:00:00.000Z")
+        ]),
+        "prj_b"
+    );
+    // The same instant in two forms: the difference is 0, so the id decides.
+    assert_eq!(
+        existing_id([
+            ("prj_b", "Jan 1 2020 00:00:00 GMT"),
+            ("prj_a", "2020-01-01T00:00:00.000Z")
+        ]),
+        "prj_a"
+    );
+    // Neither parses: `NaN` is falsy, so the id decides.
+    assert_eq!(
+        existing_id([("prj_b", "later?"), ("prj_a", "earlier?")]),
+        "prj_a"
+    );
+}
+
 #[test]
 fn update_keeps_the_stored_key_when_the_updater_changes_the_id() {
     let home = TestDir::new("registry-rekey");
