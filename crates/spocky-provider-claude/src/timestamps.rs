@@ -1,30 +1,15 @@
 //! `provider-history-timestamps.ts` and the `Date` operations the replay
 //! sources use: `Date.parse`, `new Date(value).toISOString()`.
 //!
-//! `Date.parse` accepts the ECMAScript date-time string format through
-//! [`spocky_store::time::parse_iso_millis`]. A date-time without an offset is
-//! local time in JavaScript; it is read as UTC here, so its sort position and
-//! rewritten ISO text match the baseline only on a UTC host.
-// ponytail: V8's legacy free-form fallback ("Tue Oct 01 2026", space
-// separators) is not parsed and reads as NaN; Claude Code writes ISO
-// timestamps, so none take that path.
+//! `Date.parse` is [`crate::date_parse::date_parse`]: V8's ECMAScript and
+//! legacy parsers, with offset-less date-times in the host's local zone.
 
 use spocky_contracts::text::js_trim;
-use spocky_store::time::parse_iso_millis;
+
+pub use crate::date_parse::date_parse;
 
 /// ECMAScript time values span +/-8.64e15 ms.
 const MAX_TIME_MILLIS: f64 = 8_640_000_000_000_000.0;
-
-/// `Date.parse(value)`: epoch milliseconds, or `None` for `NaN`.
-#[must_use]
-pub fn date_parse(value: &str) -> Option<i64> {
-    parse_iso_millis(value).or_else(|| {
-        let local = value.contains(['T', 't']) && !value.ends_with(['Z', 'z']);
-        local
-            .then(|| parse_iso_millis(&format!("{value}Z")))
-            .flatten()
-    })
-}
 
 /// `new Date(millis).toISOString()` for a time value, or `None` for an
 /// invalid date (`toISOString` throws; callers check `getTime()` first).
