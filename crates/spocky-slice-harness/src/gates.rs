@@ -437,6 +437,211 @@ fn g2_checks() -> Vec<Check> {
     ]
 }
 
+/// G4 error-reply body: what the scripted upstream returns with HTTP 500.
+fn upstream_failure() -> ScriptedReply {
+    ScriptedReply {
+        status: 500,
+        events: Vec::new(),
+        json: Some(json!({"error": {"message": "stub upstream failure", "type": "server_error"}})),
+        hold_ms: None,
+        delay_ms: None,
+    }
+}
+
+fn g4_run_step() -> StepSpec {
+    use Arg::{Captured, Lit};
+    step(
+        "run",
+        cli(
+            &["run"],
+            vec![
+                Lit("--provider"),
+                Lit("codex"),
+                Lit("--mode"),
+                Lit("full-access"),
+                Lit("--workspace"),
+                Captured("workspace"),
+                Lit(G1_PROMPT),
+            ],
+        ),
+        Some(("agent", "/agentId")),
+        None,
+    )
+}
+
+fn g4_workspace_step() -> StepSpec {
+    use Arg::{Lit, Project};
+    step(
+        "workspace-create",
+        cli(
+            &["workspace", "create"],
+            vec![Lit("--isolation"), Lit("local"), Lit("--path"), Project],
+        ),
+        Some(("workspace", "/workspaceId")),
+        None,
+    )
+}
+
+fn g4_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "full-access", G1_PROMPT)
+}
+
+/// G4 failure: the Responses upstream answers HTTP 500 to the first turn.
+/// The CLI's `run` and the agent list must report the failure the same way.
+#[must_use]
+pub fn g4_http500() -> GateSpec {
+    use Arg::Lit;
+    GateSpec {
+        id: "g4-http500",
+        script: Script {
+            responses: vec![upstream_failure()],
+        },
+        steps: vec![
+            g4_workspace_step(),
+            g4_run_step(),
+            step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
+        ],
+        checks: vec![
+            Check::ExitsAre(&[("run", 1)]),
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g4_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
+/// G4 failure: no `codex` binary on the daemon's `PATH`.
+#[must_use]
+pub fn g4_nocodex() -> GateSpec {
+    use Arg::Lit;
+    GateSpec {
+        id: "g4-nocodex",
+        script: Script {
+            responses: Vec::new(),
+        },
+        steps: vec![
+            g4_workspace_step(),
+            g4_run_step(),
+            step("ls", cli(&["ls"], vec![Lit("-a")]), None, None),
+        ],
+        checks: vec![
+            Check::ExitsAre(&[("run", 1)]),
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g4_preimages,
+        codex_present: false,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
+/// The G4 turn the client abandons.
+pub const G4_PROMPT_DROPPED: &str = "Reply with the single word DROPPED.";
+/// The G4 turn sent again after the client reconnects.
+pub const G4_PROMPT_RETRY: &str = "Reply with the single word RETRIED.";
+/// Scripted reply to the abandoned turn.
+pub const G4_REPLY_DROPPED: &str = "DROPPED";
+/// Scripted reply to the retried turn.
+pub const G4_REPLY_RETRIED: &str = "RETRIED";
+
+/// G4 client disconnect and retry: the client is killed while a delayed turn
+/// is in flight. The daemon must finish the turn, a new client sees it, and
+/// a further `send` works.
+#[must_use]
+pub fn g4_disconnect() -> GateSpec {
+    use Arg::{Captured, Lit};
+    let mut dropped = completed_turn("resp_g4_2", "msg_g4_2", G4_REPLY_DROPPED);
+    dropped.delay_ms = Some(4_000);
+    GateSpec {
+        id: "g4-disconnect",
+        script: Script {
+            responses: vec![
+                completed_turn("resp_g4_1", "msg_g4_1", G1_REPLY),
+                dropped,
+                completed_turn("resp_g4_3", "msg_g4_3", G4_REPLY_RETRIED),
+            ],
+        },
+        steps: vec![
+            g4_workspace_step(),
+            g4_run_step(),
+            StepSpec {
+                disconnect_at_stub_requests: Some(2),
+                ..step(
+                    "send-dropped",
+                    cli(&["send"], vec![Captured("agent"), Lit(G4_PROMPT_DROPPED)]),
+                    None,
+                    None,
+                )
+            },
+            step(
+                "wait",
+                cli(
+                    &["wait"],
+                    vec![Lit("--timeout"), Lit("120"), Captured("agent")],
+                ),
+                None,
+                None,
+            ),
+            step("logs", cli(&["logs"], vec![Captured("agent")]), None, None),
+            step(
+                "send-retry",
+                cli(&["send"], vec![Captured("agent"), Lit(G4_PROMPT_RETRY)]),
+                None,
+                None,
+            ),
+            step(
+                "logs-retry",
+                cli(&["logs"], vec![Captured("agent")]),
+                None,
+                None,
+            ),
+        ],
+        checks: vec![
+            Check::ExitsAre(&[("send-dropped", -9)]),
+            Check::JsonString {
+                step: "send-retry",
+                pointer: "/status",
+                expected: "completed",
+            },
+            Check::StdoutLine {
+                step: "logs",
+                line: G4_REPLY_DROPPED,
+            },
+            Check::StdoutLine {
+                step: "logs-retry",
+                line: G4_REPLY_RETRIED,
+            },
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g4_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
+/// G4 old state: the original daemon makes the home, the side's daemon opens it.
+#[must_use]
+pub fn g4_oldstate() -> GateSpec {
+    GateSpec {
+        id: "g4-oldstate",
+        home_origin: HomeOrigin::OriginalThenSide,
+        ..g3()
+    }
+}
+
+/// G4 new state: the side's daemon makes the home, the original opens it.
+#[must_use]
+pub fn g4_newstate() -> GateSpec {
+    GateSpec {
+        id: "g4-newstate",
+        home_origin: HomeOrigin::SideThenOriginal,
+        ..g3()
+    }
+}
+
 /// The G3 prompt answered before the daemon restarts.
 pub const G3_PROMPT_BEFORE: &str = "Reply with the single word BEFORE.";
 /// The G3 prompt sent after the daemon restarts.
@@ -545,6 +750,11 @@ pub fn by_id(id: &str) -> Option<GateSpec> {
         "g1" => Some(g1()),
         "g2" => Some(g2()),
         "g3" => Some(g3()),
+        "g4-http500" => Some(g4_http500()),
+        "g4-nocodex" => Some(g4_nocodex()),
+        "g4-disconnect" => Some(g4_disconnect()),
+        "g4-oldstate" => Some(g4_oldstate()),
+        "g4-newstate" => Some(g4_newstate()),
         _ => None,
     }
 }
@@ -608,6 +818,37 @@ mod tests {
                 captured.push(key);
             }
         }
+    }
+
+    #[test]
+    fn g4_gates_are_valid_and_capture_before_use() {
+        for id in [
+            "g4-http500",
+            "g4-nocodex",
+            "g4-disconnect",
+            "g4-oldstate",
+            "g4-newstate",
+        ] {
+            let gate = by_id(id).unwrap();
+            assert_eq!(gate.id, id);
+            assert_capture_before_use(&gate);
+        }
+        assert_eq!(g4_http500().script.responses[0].status, 500);
+        assert!(!g4_nocodex().codex_present);
+        assert!(g4_nocodex().script.responses.is_empty());
+        let disconnect = g4_disconnect();
+        let dropping: Vec<_> = disconnect
+            .steps
+            .iter()
+            .filter(|step| step.disconnect_at_stub_requests.is_some())
+            .collect();
+        assert_eq!(dropping.len(), 1);
+        // The dropped turn is the second request and is still in flight then.
+        assert_eq!(dropping[0].disconnect_at_stub_requests, Some(2));
+        assert!(disconnect.script.responses[1].delay_ms.is_some());
+        assert_eq!(g4_oldstate().home_origin, HomeOrigin::OriginalThenSide);
+        assert_eq!(g4_newstate().home_origin, HomeOrigin::SideThenOriginal);
+        assert_eq!(g4_oldstate().steps.len(), g3().steps.len());
     }
 
     #[test]
