@@ -20,7 +20,6 @@ use spocky_daemon_app::provider::{
     catalog_refresh_timeout_ms, codex_runtime_settings, codex_snapshot_definition,
 };
 use spocky_daemon_app::session::{DaemonBackend, Services};
-use spocky_daemon_app::shutdown::stop_agents;
 use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
 use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions, ProviderDefinition};
@@ -209,12 +208,5 @@ fn main() -> ExitCode {
     });
     let _ = slot.set(Arc::downgrade(&services));
     let backend = Arc::new(DaemonBackend::new(Arc::clone(&services)));
-    let exit = run(backend);
-    // ponytail: pinned `stop()` closes agents between the ws server's
-    // `prepareForShutdown()` and `close()`; the transport runs both back to
-    // back with no backend hook, so the agent steps run after it, still
-    // inside its force-exit window. Move them into a transport hook when one
-    // exists.
-    runtime.block_on(stop_agents(&services));
-    exit
+    run(backend)
 }
