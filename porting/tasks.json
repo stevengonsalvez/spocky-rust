@@ -179,6 +179,7 @@
       "paths": ["crates/spocky-session/", "crates/spocky-store/", "crates/spocky-domain/", "evidence/phase3/session-interleave-gap.*", "scripts/phase3/session-interleave-gap.sh"],
       "decisions": [
         "2026-10-01 coordinator: port the Node fs rename error text 'EISDIR: illegal operation on a directory, rename <tmp> -> <path>' (code, uv description, syscall, paths) in crates/spocky-store atomic.rs; it reaches createAgent callers; node-verified tests, only temp paths normalized",
+        "2026-10-02 coordinator: after the snapshot manager, p3_session owns request 24 (wait_for_agent_run_start), 26b (codex decorateModes in the registry mergeModels) and 25b (try_run_out_of_band); the wiring agent.create glue goes live in one commit with the snapshot manager",
         "2026-10-02 coordinator, G1 blocker: p3_session resumes and ports agent/provider-snapshot-manager.ts (1215 lines: getReadyProvider, refreshProvider, workspace cache, resolveCreateConfig) whole into spocky-session, provider-agnostic, with a differential against the pinned dist; its refresh drives the G1 codex --version probes and the first catalog app-server",
         "2026-10-01 coordinator: BREAKING seam in crates/spocky-session/src/agent_sdk.rs, AbortReason {Value, Error(AgentError)}, so abortMessage sees Error reasons and the default DOMException text 'This operation was aborted'; session writer drafts before and after signatures to the lead; lead lands it in one atomic commit with the provider-codex and daemon-app call-site fixes after the session resend PASS"
       ],
@@ -230,6 +231,10 @@
       "paths": ["crates/spocky-daemon-app/", "evidence/phase3/g1-wiring.md", "Cargo.lock (entries from this crate only)"],
       "pathsWidened": "2026-10-01 coordinator decision after reviewer P3 (verdicts/p3_g1_wiring-e6d1ba3.txt)",
       "decisions": ["2026-10-02 coordinator, G1 blocker: p3_g1_wiring ports the create.ts and session.ts glue plus workspace.create and fetch_workspaces in spocky-daemon-app, with a seam for resolveCreateConfig, which p3_session provides through its provider-snapshot-manager port"],
+      "openPortGaps": [
+        "P5 OPEN (2026-10-02): forwardLiveAgent and agent_update fan-out frames are not emitted; the pinned CLI ignores them, so G1 is unaffected, but the wire differs from the original"
+      ],
+      "notPortedFailLoud": ["worktree targets", "git and worktreeName options", "autoArchive", "agent create with no workspace and no caller", "stale-provider reload retry"],
       "delegation": "forbidden",
       "state": "running; prerequisites routed: p3_session agent-manager with rows seed, p3_daemon_transport removes its spocky-daemon bin, codex-to-stub config.toml routing"
     },
