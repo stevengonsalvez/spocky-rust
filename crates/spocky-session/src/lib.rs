@@ -4,6 +4,7 @@
 
 pub mod agent_identity;
 pub mod agent_labels;
+pub mod agent_loading;
 pub mod agent_manager;
 pub mod agent_projection;
 pub mod agent_prompt;
@@ -19,6 +20,7 @@ pub mod external_state;
 pub mod git;
 pub mod git_remote;
 pub mod paths;
+pub mod persistence_hooks;
 pub mod project_key;
 pub mod provider_catalog;
 pub mod provider_snapshot_manager;
