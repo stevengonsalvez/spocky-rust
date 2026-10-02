@@ -35,6 +35,7 @@ use spocky_session::agent_sdk::{AbortController, AbortReason, AgentError};
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::clock::random_uuid;
 use spocky_session::creation::CreationService;
+use spocky_session::provider_snapshot_manager::ProviderSnapshotManager;
 use spocky_session::provisioning::WorkspaceProvisioning;
 use spocky_session::timeline::{FetchDirection, TimelineCursor};
 use spocky_store::registry::{
@@ -43,6 +44,7 @@ use spocky_store::registry::{
 };
 use spocky_store::time::parse_iso_millis;
 
+use crate::agent_create::agent_create;
 use crate::agent_directory::{
     AGENTS, CursorError, agent_sort, checkout_from_persisted_workspace_placement, compare,
     compare_with_cursor, decode_cursor, encode_cursor, matches_agent_updates_filter,
@@ -63,6 +65,8 @@ pub struct Services {
     pub storage: Arc<AgentStorage>,
     pub provisioning: Arc<WorkspaceProvisioning>,
     pub creation: CreationService,
+    /// `providerSnapshotManager`.
+    pub snapshots: ProviderSnapshotManager,
     pub paseo_home: PathBuf,
     /// `os.homedir()`, for tilde expansion.
     pub home: String,
@@ -355,6 +359,10 @@ async fn route(
         }
         SessionInbound::FetchAgents(request) => fetch_agents(&context, request, &emit).await,
         SessionInbound::FetchAgent(request) => fetch_agent(&context, request, &emit).await,
+        SessionInbound::AgentCreate(request) => {
+            agent_create(&context.services, &context.updates, *request, &emit).await;
+            Ok(())
+        }
         SessionInbound::WorkspaceCreate(request) => {
             workspace_create(&context, *request, &emit).await;
             Ok(())

@@ -7,12 +7,8 @@
 //! Worktree targets, legacy git options, auto-archive, caller-less creates
 //! without a workspace, and the stale-provider retry are not ported: those
 //! requests fail with a not-ported error before any state changes.
-//! `resolveCreateConfig` is the provider snapshot manager's, reached through
-//! [`ResolveCreateConfig`].
 
-use std::future::Future;
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,36 +23,16 @@ use spocky_session::agent_manager::{AgentManager, CreateAgentOptions, ManagedAge
 use spocky_session::agent_sdk::{AgentPromptInput, AgentRunOptions};
 use spocky_session::creation::{CreationError, CreationInput, CreationTarget, OnReady};
 use spocky_session::paths::{expand_tilde, resolve_from_cwd};
+use spocky_session::provider_snapshot_manager::ResolveProviderCreateConfigOptions;
 use tokio::sync::oneshot;
 
+use crate::agent_updates::AgentUpdates;
 use crate::request::Emit;
 use crate::session::{Services, agent_payload, frame, js_text};
 use crate::workspace_handlers::{creation_observer, resource_exists};
 
 /// `AGENT_RUN_START_TIMEOUT_MS`.
 const AGENT_RUN_START_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// What `resolveCreateConfig` is asked (`ResolveProviderCreateConfigOptions`
-/// with no parent and `unattended: false`, as the session create path passes).
-pub struct CreateConfigQuery {
-    pub cwd: String,
-    pub provider: String,
-    pub requested_mode: Option<String>,
-    pub feature_values: Option<JsValue>,
-}
-
-/// `resolveCreateConfig`'s `modeId` and `featureValues`.
-pub struct CreateConfig {
-    pub mode_id: JsValue,
-    pub feature_values: JsValue,
-}
-
-/// `providerSnapshotManager.resolveCreateConfig`.
-pub type ResolveCreateConfig = Arc<
-    dyn Fn(CreateConfigQuery) -> Pin<Box<dyn Future<Output = Result<CreateConfig, String>> + Send>>
-        + Send
-        + Sync,
->;
 
 fn not_ported(what: &str) -> String {
     format!("agent.create with {what} is not ported in spocky-daemon-app yet")
@@ -267,7 +243,7 @@ async fn start_initial_prompt(
 /// `createSessionAgent` over `createAgentCommand` for the session input.
 async fn create_session_agent(
     services: Arc<Services>,
-    resolve: ResolveCreateConfig,
+    updates: Arc<AgentUpdates>,
     request: JsObject,
     agent_id: Option<String>,
     on_ready: OnReady,
@@ -302,17 +278,26 @@ async fn create_session_agent(
         "cwd",
         JsValue::String(expand_tilde(&intent.cwd, &services.home)),
     );
-    let resolved = resolve(CreateConfigQuery {
-        cwd: text(&JsValue::Object(session_config.clone()), "cwd")
-            .unwrap_or_default()
-            .to_owned(),
-        provider: text(&config, "provider").unwrap_or_default().to_owned(),
-        requested_mode: text(&config, "modeId").map(str::to_owned),
-        feature_values: config.get("featureValues").cloned(),
-    })
-    .await?;
-    session_config.insert("modeId", resolved.mode_id);
-    session_config.insert("featureValues", resolved.feature_values);
+    let resolved = services
+        .snapshots
+        .resolve_create_config(ResolveProviderCreateConfigOptions {
+            cwd: text(&JsValue::Object(session_config.clone()), "cwd").map(str::to_owned),
+            provider: text(&config, "provider").unwrap_or_default().to_owned(),
+            requested_mode: text(&config, "modeId").map(str::to_owned),
+            feature_values: config.get("featureValues").cloned(),
+            parent: None,
+            unattended: false,
+        })
+        .await
+        .map_err(|error| error.message)?;
+    session_config.insert(
+        "modeId",
+        resolved.mode_id.map_or(JsValue::Undefined, JsValue::String),
+    );
+    session_config.insert(
+        "featureValues",
+        resolved.feature_values.unwrap_or(JsValue::Undefined),
+    );
 
     let prompt = build_agent_prompt(
         trimmed.as_deref().unwrap_or_default(),
@@ -355,15 +340,16 @@ async fn create_session_agent(
     let live = if has_prompt_content(&prompt) {
         start_initial_prompt(&services.manager, &snapshot, prompt, run_options).await?
     } else {
-        snapshot
+        snapshot.clone()
     };
+    updates.forward_live_agent_and_wait(&snapshot).await;
     agent_payload(&services, &live).await
 }
 
 /// `createRequestedAgent`.
 async fn create_requested_agent(
     services: &Arc<Services>,
-    resolve: &ResolveCreateConfig,
+    updates: &Arc<AgentUpdates>,
     request: &AgentCreateRequest,
     emit: &Emit,
 ) -> Result<JsValue, CreationError> {
@@ -381,7 +367,7 @@ async fn create_requested_agent(
     }
     let read_services = Arc::clone(services);
     let create_services = Arc::clone(services);
-    let resolve = Arc::clone(resolve);
+    let updates = Arc::clone(updates);
     let input = CreationInput {
         target: CreationTarget::Agent {
             read_agent: Box::new(move |id| {
@@ -408,7 +394,7 @@ async fn create_requested_agent(
         provision: None,
         create_agent: Some(Box::new(move |id, _workspace, on_ready| {
             Box::pin(async move {
-                create_session_agent(create_services, resolve, session_request, id, on_ready)
+                create_session_agent(create_services, updates, session_request, id, on_ready)
                     .await
                     .map_err(|message| CreationError {
                         message,
@@ -424,13 +410,13 @@ async fn create_requested_agent(
 /// `handleAgentCreation`.
 pub async fn agent_create(
     services: &Arc<Services>,
-    resolve: &ResolveCreateConfig,
+    updates: &Arc<AgentUpdates>,
     request: AgentCreateRequest,
     emit: &Emit,
 ) {
     let mut payload = JsObject::new();
     payload.insert("requestId", js_text(&request.request_id));
-    match create_requested_agent(services, resolve, &request, emit).await {
+    match create_requested_agent(services, updates, &request, emit).await {
         Ok(creation) => {
             let agent = match creation.get("agent") {
                 None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Null,

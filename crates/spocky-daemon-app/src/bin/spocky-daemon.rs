@@ -16,7 +16,9 @@ use spocky_daemon::process::run;
 use spocky_daemon::server_id::get_or_create_server_id;
 use spocky_daemon_app::bootstrap::{ensure_schedule_store_dir, materialize_opencode_bridge_plugin};
 use spocky_daemon_app::codex_agent::CodexAgentClient;
-use spocky_daemon_app::provider::codex_runtime_settings;
+use spocky_daemon_app::provider::{
+    catalog_refresh_timeout_ms, codex_runtime_settings, codex_snapshot_definition,
+};
 use spocky_daemon_app::session::{DaemonBackend, Services};
 use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions, ProviderDefinition};
@@ -24,6 +26,9 @@ use spocky_session::agent_sdk::AgentClient;
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::checkout::CheckoutContext;
 use spocky_session::creation::CreationService;
+use spocky_session::provider_snapshot_manager::{
+    ProviderSnapshotManager, ProviderSnapshotManagerOptions,
+};
 use spocky_session::provisioning::WorkspaceProvisioning;
 use spocky_store::registry::{ProjectRegistry, WorkspaceRegistry};
 use tokio::sync::Mutex;
@@ -140,6 +145,11 @@ fn main() -> ExitCode {
     ));
     let storage = Arc::new(AgentStorage::new(paseo_home.join("agents")));
     runtime.block_on(storage.initialize());
+    let snapshots = ProviderSnapshotManager::new(ProviderSnapshotManagerOptions {
+        definitions: vec![codex_snapshot_definition(Arc::clone(&codex))],
+        refresh_timeout_ms: catalog_refresh_timeout_ms(&persisted),
+        home: Some(home.clone()),
+    });
     let manager = Arc::new(AgentManager::new(AgentManagerOptions {
         clients: vec![("codex".to_owned(), codex)],
         provider_definitions: vec![(
@@ -190,6 +200,7 @@ fn main() -> ExitCode {
         storage,
         provisioning,
         creation,
+        snapshots,
         paseo_home,
         home: home_dir,
     });
