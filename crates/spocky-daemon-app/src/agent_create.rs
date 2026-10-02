@@ -20,6 +20,7 @@ use spocky_contracts::text::js_trim;
 use spocky_session::agent_identity::resolve_create_agent_titles;
 use spocky_session::agent_labels::PARENT_AGENT_ID_LABEL;
 use spocky_session::agent_manager::{AgentManager, CreateAgentOptions, ManagedAgentSnapshot};
+use spocky_session::agent_projection::build_stored_agent_payload;
 use spocky_session::agent_sdk::{AgentPromptInput, AgentRunOptions};
 use spocky_session::creation::{CreationError, CreationInput, CreationTarget, OnReady};
 use spocky_session::paths::{expand_tilde, resolve_from_cwd};
@@ -402,9 +403,12 @@ async fn create_requested_agent(
                 Box::pin(async move {
                     match read_services.storage.get(&id).await {
                         None => Ok(None),
-                        Some(_) => Err(CreationError::new(
-                            crate::session::STORED_PAYLOAD_NOT_PORTED,
-                        )),
+                        Some(record) => build_stored_agent_payload(
+                            &record,
+                            &read_services.manager.registered_provider_ids(),
+                        )
+                        .map(Some)
+                        .map_err(|error| CreationError::new(error.message)),
                     }
                 })
             }),
