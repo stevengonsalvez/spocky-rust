@@ -7,15 +7,79 @@ use std::sync::Arc;
 use spocky_contracts::zod::Outcome;
 use spocky_store::js_value::{JsObject, JsValue};
 
-use super::{AgentLifecycle, AgentManager, ManagedAgent, ManagedAgentSnapshot, validate_agent_id};
+use super::{
+    AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
+    validate_agent_id,
+};
+use crate::agent_identity::resolve_create_agent_titles;
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
+use crate::agent_prompt::is_system_injected_envelope;
 use crate::agent_sdk::{
     AgentClient, AgentCreateSessionOptions, AgentError, AgentLaunchContext, AgentResumePurpose,
-    AgentResumeSessionOptions, AgentSession, FetchCatalogOptions,
+    AgentResumeSessionOptions, AgentSession, FetchCatalogOptions, ImportProviderSessionContext,
+    ImportProviderSessionInput, ImportedTimelineEntry,
 };
 use crate::runtime_mcp_config::{strip_internal_paseo_mcp_server, with_runtime_paseo_mcp_server};
 use crate::text::js_trim;
+use crate::timeline::{SeedRow, TimelineRow, TimelineSeed};
+use crate::timeline_content::limit_agent_timeline_item_content;
 use spocky_contracts::js::{js_string, spread, spread_into, truthy};
+
+/// `importProviderSession`'s input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportProviderSessionRequest {
+    pub provider: String,
+    pub provider_handle_id: String,
+    pub cwd: String,
+    pub workspace_id: String,
+    /// `Record<string, string>`.
+    pub labels: Option<JsValue>,
+}
+
+/// `buildImportedTimelineRows(entries)`: provider rows renumbered from 1,
+/// without the system-injected user messages.
+fn build_imported_timeline_rows(
+    entries: &[ImportedTimelineEntry],
+) -> Result<Vec<TimelineRow>, AgentError> {
+    let mut rows: Vec<TimelineRow> = Vec::new();
+    for entry in entries {
+        let item = &entry.item;
+        if item.get("type").and_then(JsValue::as_str) == Some("user_message")
+            && is_system_injected_envelope(&js_string(item.get("text")))
+        {
+            continue;
+        }
+        let item = limit_agent_timeline_item_content(item.clone()).map_err(|error| AgentError {
+            name: "TypeError".to_owned(),
+            message: error.0,
+        })?;
+        rows.push(TimelineRow {
+            seq: i64::try_from(rows.len()).unwrap_or(i64::MAX) + 1,
+            timestamp: entry
+                .timestamp
+                .clone()
+                .unwrap_or_else(crate::clock::now_iso),
+            item,
+            turn_id: None,
+            provider_message_id: None,
+        });
+    }
+    Ok(rows)
+}
+
+/// `resolveImportedAgentTitle(config, timelineRows)`.
+fn resolve_imported_agent_title(config: &JsValue, rows: &[TimelineRow]) -> Option<String> {
+    let prompt = rows.iter().find_map(|row| {
+        if row.item.get("type").and_then(JsValue::as_str) != Some("user_message") {
+            return None;
+        }
+        let text = js_trim(&js_string(row.item.get("text"))).to_owned();
+        (!text.is_empty()).then_some(text)
+    })?;
+    let titles =
+        resolve_create_agent_titles(config.get("title").and_then(JsValue::as_str), Some(&prompt));
+    titles.explicit_title.or(titles.provisional_title)
+}
 
 /// `CreateAgentOptions`.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -54,6 +118,12 @@ pub(crate) struct RegisterOptions {
     /// Bringing a known agent back: installing the session is not activity
     /// in it, so `updatedAt` is not touched.
     pub(crate) restoring: bool,
+    /// `timelineRows`: rows to seed as they are.
+    pub(crate) timeline_rows: Vec<TimelineRow>,
+    /// `timelineNextSeq`.
+    pub(crate) timeline_next_seq: Option<i64>,
+    /// `publishWhenReady`: the agent is first announced once it is ready.
+    pub(crate) publish_when_ready: bool,
 }
 
 /// `resumeAgentFromPersistence` options: what the stored record says
@@ -236,6 +306,131 @@ impl AgentManager {
             },
         )
         .await
+    }
+
+    /// `importProviderSession(input)`: registers a session the provider
+    /// already holds, seeding the agent's timeline from its history.
+    ///
+    /// # Errors
+    ///
+    /// The shutdown, provider and client errors of a create, `Provider '<p>'
+    /// does not support importing sessions`, and the provider's own import
+    /// or registration failure.
+    pub async fn import_provider_session(
+        &self,
+        input: ImportProviderSessionRequest,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        let _registration = self.track_agent_registration();
+        self.assert_accepting_agent_registrations()?;
+        let resolved_agent_id =
+            validate_agent_id(&(self.inner.id_factory)(), "importProviderSession")?;
+        self.require_enabled_provider(&input.provider)?;
+        let client = self.require_available_client(&input.provider).await?;
+        if !client.supports_import_session() {
+            return Err(AgentError::new(format!(
+                "Provider '{}' does not support importing sessions",
+                input.provider
+            )));
+        }
+        let mut provider_config = JsObject::new();
+        provider_config.insert("provider", JsValue::String(input.provider.clone()));
+        provider_config.insert("cwd", JsValue::String(input.cwd.clone()));
+        let prepared = self
+            .prepare_session_config(
+                &JsValue::Object(provider_config),
+                &resolved_agent_id,
+                None,
+                AgentResumePurpose::Interactive,
+            )
+            .await?;
+        self.lock().paseo_tool_policies.insert(
+            resolved_agent_id.clone(),
+            prepared.paseo_tool_policy.clone(),
+        );
+        let cwd = config_text(&prepared.stored_config, "cwd")
+            .unwrap_or_default()
+            .to_owned();
+        let launch_context = Self::build_launch_context(&resolved_agent_id, &cwd, None);
+        let Some(import) = client.import_session(
+            ImportProviderSessionInput {
+                provider_handle_id: input.provider_handle_id.clone(),
+                cwd: input.cwd.clone(),
+            },
+            ImportProviderSessionContext {
+                config: prepared.launch_config.clone(),
+                stored_config: prepared.stored_config.clone(),
+                launch_context: Some(launch_context),
+            },
+        ) else {
+            return Err(AgentError::new(format!(
+                "Provider '{}' does not support importing sessions",
+                input.provider
+            )));
+        };
+        let imported = import.await?;
+        let session = Arc::clone(&imported.session);
+        let prepared_import = async {
+            let config = self
+                .normalize_config(
+                    &strip_internal_paseo_mcp_server(&imported.config),
+                    AgentResumePurpose::Interactive,
+                )
+                .await?;
+            let rows = build_imported_timeline_rows(&imported.timeline)?;
+            let title = resolve_imported_agent_title(&config, &rows);
+            Ok::<_, AgentError>((config, rows, title))
+        }
+        .await;
+        let (config, rows, title) = match prepared_import {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                Self::close_unregistered_session(&session).await;
+                return Err(error);
+            }
+        };
+        let next_seq = i64::try_from(rows.len()).unwrap_or(i64::MAX) + 1;
+        let agent = self
+            .register_session(
+                session,
+                config,
+                &resolved_agent_id,
+                RegisterOptions {
+                    labels: input.labels,
+                    workspace_id: Some(input.workspace_id),
+                    timeline_rows: rows,
+                    timeline_next_seq: Some(next_seq),
+                    persistence: Some(imported.persistence),
+                    history_primed: Some(true),
+                    initial_title: title,
+                    publish_when_ready: true,
+                    ..RegisterOptions::default()
+                },
+            )
+            .await?;
+        self.replay_provider_subagent_events(&agent.id, imported.provider_subagent_events)?;
+        Ok(agent)
+    }
+
+    /// Applies the provider sub-agent events an import carried, in order.
+    fn replay_provider_subagent_events(
+        &self,
+        agent_id: &str,
+        events: Option<Vec<JsValue>>,
+    ) -> Result<(), AgentError> {
+        for event in events.unwrap_or_default() {
+            let provider = js_string(event.get("provider"));
+            let inner = event.get("event").cloned().unwrap_or(JsValue::Undefined);
+            let mut state = self.lock();
+            let update = state
+                .provider_subagents
+                .apply(agent_id, &provider, &inner)
+                .map_err(|error| AgentError {
+                    name: "TypeError".to_owned(),
+                    message: error.to_string(),
+                })?;
+            self.dispatch(&state, AgentManagerEvent::ProviderSubagent(update));
+        }
+        Ok(())
     }
 
     /// `resumeAgentFromPersistence(handle, overrides, agentId, options,
@@ -681,19 +876,45 @@ impl AgentManager {
         &self,
         agent_id: &str,
         now: i64,
+        options: &RegisterOptions,
     ) -> Result<bool, AgentError> {
         let mut state = self.lock();
         let already_primed = state.timeline.has(agent_id);
-        if !already_primed {
+        // `buildExplicitTimelineSeedForRegister`: given rows or a next
+        // sequence seed the timeline even over a primed one.
+        let explicit = !options.timeline_rows.is_empty() || options.timeline_next_seq.is_some();
+        if explicit || !already_primed {
+            let timestamp = crate::clock::iso_from_millis(
+                options
+                    .updated_at_millis
+                    .or(options.created_at_millis)
+                    .unwrap_or(now),
+            );
+            let seed = if explicit {
+                TimelineSeed {
+                    items: Vec::new(),
+                    rows: options
+                        .timeline_rows
+                        .iter()
+                        .cloned()
+                        .map(SeedRow::Source)
+                        .collect(),
+                    epoch: None,
+                    next_seq: options.timeline_next_seq,
+                    timestamp: Some(timestamp),
+                }
+            } else {
+                TimelineSeed {
+                    items: Vec::new(),
+                    rows: Vec::new(),
+                    epoch: None,
+                    next_seq: None,
+                    timestamp: Some(crate::clock::iso_from_millis(now)),
+                }
+            };
             state
                 .timeline
-                .initialize(
-                    agent_id,
-                    Vec::new(),
-                    None,
-                    None,
-                    Some(crate::clock::iso_from_millis(now)),
-                )
+                .initialize_with(agent_id, seed)
                 .map_err(|error| AgentError {
                     name: "TypeError".to_owned(),
                     message: error.0,
@@ -736,11 +957,15 @@ impl AgentManager {
             )));
         }
         let initial_persisted_title = self
-            .resolve_initial_persisted_title(&resolved_agent_id, &config, options.initial_title)
+            .resolve_initial_persisted_title(
+                &resolved_agent_id,
+                &config,
+                options.initial_title.clone(),
+            )
             .await;
         let now = crate::clock::now_millis();
         let durable_timeline_has_rows =
-            self.initialize_agent_timeline_for_register(&resolved_agent_id, now)?;
+            self.initialize_agent_timeline_for_register(&resolved_agent_id, now, &options)?;
         let snapshot = initial_snapshot(
             &resolved_agent_id,
             config,
@@ -797,7 +1022,9 @@ impl AgentManager {
         )
         .await?;
         self.assert_agent_registration_active(&resolved_agent_id, session)?;
-        self.emit_state(&resolved_agent_id, false);
+        if !options.publish_when_ready {
+            self.emit_state(&resolved_agent_id, false);
+        }
         self.refresh_session_state(&resolved_agent_id, false).await;
         self.assert_agent_registration_active(&resolved_agent_id, session)?;
         {
