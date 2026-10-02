@@ -5,7 +5,7 @@
 //! agent, followed by `enrichAgentPayload` in `session.ts`, and
 //! `buildStoredAgentPayload` for an agent that is only on disk.
 
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::agent::{AgentStatus, AttentionReason};
 use crate::field::{Nullable, optional};
@@ -148,20 +148,22 @@ pub enum AgentFeature {
     },
 }
 
-/// `AgentPersistenceHandle` after `projectPersistenceHandleForWire`:
-/// `metadata` loses `mcpServers` and is dropped when empty.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// `AgentPersistenceHandle`. Emitted after `projectPersistenceHandleForWire`,
+/// where `metadata` loses `mcpServers` and is dropped when empty; parsed as
+/// `AgentPersistenceHandleSchema` outputs it, in the same key order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistenceHandle {
     pub provider: JsText,
     #[serde(rename = "sessionId")]
     pub session_id: JsText,
     #[serde(
         rename = "nativeHandle",
+        default,
         skip_serializing_if = "Option::is_none",
         with = "optional"
     )]
     pub native_handle: Option<JsText>,
-    #[serde(skip_serializing_if = "Option::is_none", with = "optional")]
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "optional")]
     pub metadata: Option<JsRecord<JsonValue>>,
 }
 
