@@ -995,6 +995,16 @@
         },
         {
           "lane": "p3_session",
+          "date": "2026-10-02",
+          "sourceRange": "487636a1..2c0a2aec (10 commits, requests 25 and 26): CreationService, describe_workspace, zod_output.rs output-order port, generated creation_schema.rs",
+          "integrationHead": "6b68723c",
+          "review": "integration reviewer PASS (verdicts/p3_session-2c0a2aec.txt)",
+          "leadVerification": "gated with pinned node 22.20.0 and dist, --test-threads=1: spocky-session 65 passed, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "tracked": ["zod_consolidation task (second zod home in spocky-session; corrupt-receipt error text gap OPEN)"],
+          "followUps": ["P3 tighten tests that sort listings, since sorting hides ordering bugs"]
+        },
+        {
+          "lane": "p3_session",
           "date": "2026-10-01",
           "sourceRange": "f9ab232..2401743 (19 commits): agent storage per-agent write chain, agent payload projection, clock, agent manager core with runs, waits, abort signal, events and creation, store writeRecord visibility, differentials; c7b4771 and 4c6aa6f skipped as already on main",
           "integrationHead": "0d90e37",
