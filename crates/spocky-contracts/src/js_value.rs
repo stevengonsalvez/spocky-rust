@@ -13,6 +13,17 @@
 //! doubled. Text without lone surrogates or `U+10FFFF` is stored unchanged.
 //! Use [`js_text`] to bring outside text into this form.
 //!
+//! The form is closed under concatenation (each piece is a self-delimiting
+//! stream, so `format!("{a}{b}")` is JavaScript's `a + b`), which is why a
+//! literal [`JS_TEXT_ESCAPE`] is always doubled: no `String` can hold every
+//! JavaScript string and also stay the identity on every valid text. It is
+//! not canonical after a concatenation, where an escaped high surrogate
+//! followed by an escaped low one is one supplementary character in
+//! JavaScript; [`js_text_scalars`] reads it that way. Text leaves this form
+//! through [`js_text_to_utf8`] (as Node encodes a string to UTF-8, a lone
+//! surrogate becomes U+FFFD), through [`stringify`] (well-formed JSON), or
+//! through [`js_text_utf16`] (code units), never through `as_str`.
+//!
 //! Numbers are doubles. Overflowing literals become infinities, as in
 //! JavaScript, and `JSON.stringify` writes non-finite numbers as `null`.
 
@@ -80,6 +91,52 @@ pub fn js_text_units(text: &str) -> impl Iterator<Item = JsTextUnit> + '_ {
             None => Some(JsTextUnit::Char(JS_TEXT_ESCAPE)),
         }
     })
+}
+
+/// Like [`js_text_units`], but an escaped high surrogate directly followed
+/// by an escaped low one (as JavaScript concatenation can leave them) is the
+/// supplementary character they form.
+pub fn js_text_scalars(text: &str) -> impl Iterator<Item = JsTextUnit> + '_ {
+    let mut units = js_text_units(text).peekable();
+    std::iter::from_fn(move || {
+        let unit = units.next()?;
+        if let JsTextUnit::LoneSurrogate(high @ 0xD800..=0xDBFF) = unit
+            && let Some(&JsTextUnit::LoneSurrogate(low @ 0xDC00..=0xDFFF)) = units.peek()
+        {
+            units.next();
+            let scalar = 0x10000 + ((u32::from(high) - 0xD800) << 10) + (u32::from(low) - 0xDC00);
+            return Some(JsTextUnit::Char(
+                char::from_u32(scalar).unwrap_or(char::REPLACEMENT_CHARACTER),
+            ));
+        }
+        Some(unit)
+    })
+}
+
+/// The canonical form of JavaScript text: a pair of escaped surrogates
+/// that JavaScript reads as one character is that character.
+#[must_use]
+pub fn js_text_canonical(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for unit in js_text_scalars(text) {
+        match unit {
+            JsTextUnit::Char(character) => push_char(&mut out, character),
+            JsTextUnit::LoneSurrogate(unit) => push_lone_surrogate(&mut out, unit),
+        }
+    }
+    out
+}
+
+/// JavaScript text as the UTF-8 Node writes for the string: a lone
+/// surrogate is U+FFFD (`Buffer.from(string, "utf8")`).
+#[must_use]
+pub fn js_text_to_utf8(text: &str) -> String {
+    js_text_scalars(text)
+        .map(|unit| match unit {
+            JsTextUnit::Char(character) => character,
+            JsTextUnit::LoneSurrogate(_) => char::REPLACEMENT_CHARACTER,
+        })
+        .collect()
 }
 
 /// The lone surrogate an escape payload encodes, if it is one.
@@ -384,7 +441,9 @@ impl From<&serde_json::Value> for JsValue {
     /// The value `JSON.parse` yields for the JSON text `serde_json` writes
     /// for `value`: every number is an IEEE double (an integer beyond 2^53
     /// rounds to the nearest one, `-0` keeps its sign), and object keys keep
-    /// their order. Iterative, so depth never overflows the stack.
+    /// their order. Strings and keys enter as outside text ([`js_text`]), so
+    /// a literal U+10FFFF is never read as an escape. Iterative, so depth
+    /// never overflows the stack.
     fn from(value: &serde_json::Value) -> Self {
         use serde_json::Value;
         enum Work<'a> {
@@ -403,7 +462,7 @@ impl From<&serde_json::Value> for JsValue {
                 Work::Visit(Value::Number(number)) => {
                     built.push(JsValue::Number(number.as_f64().unwrap_or(f64::NAN)));
                 }
-                Work::Visit(Value::String(text)) => built.push(JsValue::String(text.clone())),
+                Work::Visit(Value::String(text)) => built.push(JsValue::String(js_text(text))),
                 Work::Visit(Value::Array(items)) => {
                     work.push(Work::Array(items.len()));
                     work.extend(items.iter().rev().map(Work::Visit));
@@ -420,7 +479,7 @@ impl From<&serde_json::Value> for JsValue {
                     let values = built.split_off(built.len() - keys.len());
                     let mut object = JsObject::new();
                     for (key, value) in keys.into_iter().zip(values) {
-                        object.insert(key, value);
+                        object.insert(js_text(key), value);
                     }
                     built.push(JsValue::Object(object));
                 }
@@ -863,7 +922,7 @@ pub fn js_number(value: f64) -> String {
 
 fn write_string(out: &mut String, text: &str) {
     out.push('"');
-    for unit in js_text_units(text) {
+    for unit in js_text_scalars(text) {
         match unit {
             JsTextUnit::LoneSurrogate(unit) => {
                 let _ = write!(out, "\\u{unit:04x}");
