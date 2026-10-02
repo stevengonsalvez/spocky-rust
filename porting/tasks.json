@@ -1319,6 +1319,16 @@
           "closes": ["codex legacy patch_apply open gap (f819cb58..2d95c778)"]
         },
         {
+          "lane": "batch (p3_g1_wiring range B, p3_session)",
+          "date": "2026-10-02",
+          "integrationHead": "4f359a2e",
+          "sourceRanges": [
+            "p3_g1_wiring range B 32704ce8..e642aa9a (5 script commits; reviewer 2 PASS, verdicts/p3_g1_wiring-e642aa9a.txt): G1 subscriber records raw wire text (re-records the G1 agent_update differential per the PORTING.md raw-JSON rule), base64url server id mask, read-handler wire differential (the post-G1 handler differential); independent of the held fa625622 and b146489a",
+            "p3_session c1f1b42b..511b9ef4 (2 test commits; reviewer 2 PASS, verdicts/p3_session-511b9ef4.txt): stored records in the replace scenario, event-order wait"
+          ],
+          "leadVerification": "sh -n on both differential scripts and node --check on both subscribers; spocky-session 71 passed --include-ignored after cargo clean -p; clippy -D warnings, fmt check, cargo check --workspace --all-targets; the differentials themselves were not rerun by the lead"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1543,8 +1553,8 @@
             "harness partial-order check: content-sorted codex-io hides order differences between distinct records (p3_slice_harness P2)",
             "codex resolveDefaultModeId not exposed by spocky-provider-codex; adapter returns None (before P5)",
             "DLOG-001: no daemon.log file sink",
-            "post-G1 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline",
-            "the G1 agent_update wire differential compared zod-parsed frames (subscribeRawMessages); it must be re-recorded as raw JSON per the PORTING.md evidence rule; the G1 gate verdict itself compares CLI output and is unaffected"
+            "post-G1 handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline (handler-differential.sh landed 4f359a2e; a run result is still needed as evidence)",
+            "the G1 agent_update wire differential compared zod-parsed frames (subscribeRawMessages); it must be re-recorded as raw JSON per the PORTING.md evidence rule; the G1 gate verdict itself compares CLI output and is unaffected (script switched to raw wire text in 18ac61e0, landed 4f359a2e; a raw re-run is still needed as evidence)"
           ]
         },
         {
