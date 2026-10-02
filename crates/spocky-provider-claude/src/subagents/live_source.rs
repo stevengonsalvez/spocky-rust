@@ -4,6 +4,7 @@
 //! observations.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use spocky_contracts::js_value::{JsObject, JsValue, stringify};
 use spocky_contracts::text::js_trim;
@@ -16,12 +17,16 @@ const CLAUDE_SUBAGENT_TASK_TYPE: &str = "local_agent";
 const CLAUDE_WORKFLOW_TASK_TYPE: &str = "local_workflow";
 
 /// A JavaScript `Map` key for a `task_id` of any type (`undefined` too).
+/// Primitives key by value. An object or array keys by identity, and every
+/// frame is freshly parsed, so each call mints a key no other key equals.
 fn task_key(value: Option<&JsValue>) -> String {
+    static OBJECT_KEYS: AtomicU64 = AtomicU64::new(0);
     match value {
         None | Some(JsValue::Undefined) => "u".to_owned(),
         Some(JsValue::String(text)) => format!("s{text}"),
-        // ponytail: objects compare by identity in a Map; every frame is
-        // freshly parsed, so equal JSON text stands in for identity.
+        Some(JsValue::Object(_) | JsValue::Array(_)) => {
+            format!("o{}", OBJECT_KEYS.fetch_add(1, Ordering::Relaxed))
+        }
         Some(other) => format!("v{}", stringify(other)),
     }
 }
