@@ -16,12 +16,13 @@ pub mod node_fs;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use sha2::{Digest, Sha256};
 use spocky_contracts::js_value::{
     JsObject, JsValue, JsonSyntaxError, parse, stringify, stringify_pretty,
 };
+use spocky_contracts::zod::{Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::collate::locale_compare;
 
 use crate::node_fs::FsError;
@@ -204,8 +205,7 @@ async fn read_receipt<E>(file: &str) -> Result<Option<Receipt>, ReceiptError<E>>
         Err(error) => return Err(ReceiptError::Fs(error)),
     };
     let value = parse(&String::from_utf8_lossy(&bytes)).map_err(ReceiptError::Syntax)?;
-    let issues = receipt_issues(&value);
-    if !issues.is_empty() {
+    if let Verdict::Invalid(issues) = verdict(&RECEIPT_SCHEMA, &value) {
         return Err(ReceiptError::Schema(stringify_pretty(&JsValue::Array(
             issues,
         ))));
@@ -217,80 +217,18 @@ async fn read_receipt<E>(file: &str) -> Result<Option<Receipt>, ReceiptError<E>>
     }))
 }
 
-/// zod 4.4.3 `parsedType` names for JSON values; `None` is a missing key.
-fn received(value: Option<&JsValue>) -> &'static str {
-    match value {
-        None | Some(JsValue::Undefined) => "undefined",
-        Some(JsValue::Null) => "null",
-        Some(JsValue::Bool(_)) => "boolean",
-        Some(JsValue::Number(_)) => "number",
-        Some(JsValue::String(_)) => "string",
-        Some(JsValue::Array(_)) => "array",
-        Some(JsValue::Object(_)) => "object",
-    }
-}
-
-fn issue(entries: Vec<(&str, JsValue)>) -> JsValue {
-    let mut object = JsObject::new();
-    for (key, value) in entries {
-        object.insert(key, value);
-    }
-    JsValue::Object(object)
-}
-
-fn text(value: &str) -> JsValue {
-    JsValue::String(value.to_owned())
-}
-
-fn invalid_type(expected: &str, value: Option<&JsValue>, path: &[&str]) -> JsValue {
-    issue(vec![
-        ("expected", text(expected)),
-        ("code", text("invalid_type")),
-        (
-            "path",
-            JsValue::Array(path.iter().map(|key| text(key)).collect()),
-        ),
-        (
-            "message",
-            text(&format!(
-                "Invalid input: expected {expected}, received {}",
-                received(value)
-            )),
-        ),
-    ])
-}
-
-/// The issues `ReceiptSchema.parse` (zod 4.4.3) throws, in shape order;
-/// empty when the value is a receipt.
-fn receipt_issues(value: &JsValue) -> Vec<JsValue> {
-    let JsValue::Object(object) = value else {
-        return vec![invalid_type("object", Some(value), &[])];
-    };
-    let mut issues = Vec::new();
-    for key in ["fingerprint", "state", "agentId"] {
-        let field = object.get(key);
-        if key == "state" {
-            if !matches!(field, Some(JsValue::String(state)) if state == "pending" || state == "completed")
-            {
-                issues.push(issue(vec![
-                    ("code", text("invalid_value")),
-                    (
-                        "values",
-                        JsValue::Array(vec![text("pending"), text("completed")]),
-                    ),
-                    ("path", JsValue::Array(vec![text(key)])),
-                    (
-                        "message",
-                        text("Invalid option: expected one of \"pending\"|\"completed\""),
-                    ),
-                ]));
-            }
-        } else if !matches!(field, Some(JsValue::String(_))) {
-            issues.push(invalid_type("string", field, &[key]));
-        }
-    }
-    issues
-}
+/// `ReceiptSchema`, run by the contracts zod engine so a damaged receipt
+/// fails with the `ZodError` message the baseline throws.
+static RECEIPT_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
+    Schema::Object(
+        vec![
+            ("fingerprint", Schema::String(Vec::new())),
+            ("state", Schema::Enum(&["pending", "completed"])),
+            ("agentId", Schema::String(Vec::new())),
+        ],
+        UnknownKeys::Strip,
+    )
+});
 
 /// Sorts object keys with `localeCompare` at every depth, as the digest
 /// replacer does, then rebuilds each object as `Object.fromEntries` would.
@@ -355,8 +293,17 @@ pub fn digest(value: &JsValue) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{digest, receipt_issues};
+    use super::{RECEIPT_SCHEMA, digest};
     use spocky_contracts::js_value::{JsValue, parse, stringify_pretty};
+    use spocky_contracts::zod::{Verdict, verdict};
+
+    /// The issues `ReceiptSchema.parse` throws; empty for a receipt.
+    fn receipt_issues(value: &JsValue) -> Vec<JsValue> {
+        match verdict(&RECEIPT_SCHEMA, value) {
+            Verdict::Invalid(issues) => issues,
+            _ => Vec::new(),
+        }
+    }
 
     fn value(text: &str) -> JsValue {
         parse(text).expect("valid JSON")
