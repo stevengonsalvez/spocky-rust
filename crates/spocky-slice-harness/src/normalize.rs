@@ -19,6 +19,7 @@
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
 //! | `wall-clock-<format>-<n>` | wall clock | the n-th group of instants of one format inside the run window, paired by occurrence position; a group may merge distinct literals only within the format's resolution (same millisecond for `iso-frac3` and `epoch-ms`) |
 //! | `codex-wall-time` | wall clock | Codex's measured tool cell duration `Wall time <d+>.<d> seconds`, applied only in Responses stub request bodies (`stub/<nnn>`) |
+//! | `stub-content-length-<n>` | wall clock | the n-th stub request's `["content-length","<n>"]` header, only where it equals that side's raw body byte length; applied only in `stub/<nnn>` |
 //!
 //! A class whose left and right values are identical emits no rule: the value
 //! is not generated per run and must match exactly.
@@ -721,6 +722,60 @@ fn wall_time_class(
     }))
 }
 
+/// The `["content-length","<n>"]` header literal of each Responses stub
+/// request record, in record order, when it equals the UTF-8 byte length of
+/// that record's raw body. A record whose header does not match its body
+/// yields `None`, so it gets no class and its header stays literal.
+fn verified_content_lengths(texts: &[&str]) -> Vec<Option<String>> {
+    texts
+        .iter()
+        .filter_map(|text| match serde_json::from_str::<Value>(text) {
+            Ok(Value::Object(record))
+                if record.get("method").is_some_and(Value::is_string)
+                    && record.get("headers").is_some_and(Value::is_array) =>
+            {
+                Some(record)
+            }
+            _ => None,
+        })
+        .map(|record| {
+            let body = record.get("body")?.as_str()?;
+            let length = body.len().to_string();
+            let declared = record["headers"].as_array()?.iter().any(|header| {
+                header.as_array().is_some_and(|pair| {
+                    pair.len() == 2
+                        && pair[0] == "content-length"
+                        && pair[1].as_str() == Some(length.as_str())
+                })
+            });
+            declared.then(|| format!(r#"["content-length","{length}"]"#))
+        })
+        .collect()
+}
+
+/// Pairs each stub request's verified content-length header by record
+/// position. Derived from `codex-wall-time`: the header varies only because
+/// an approved clock value in the body varied in length, and the body itself
+/// is still compared after normalization.
+fn content_length_classes(left: &SideInput<'_>, right: &SideInput<'_>) -> Vec<ValueClass> {
+    verified_content_lengths(&left.texts)
+        .into_iter()
+        .zip(verified_content_lengths(&right.texts))
+        .enumerate()
+        .filter_map(|(index, pair)| match pair {
+            (Some(left_header), Some(right_header)) => Some(ValueClass {
+                id: format!("stub-content-length-{}", index + 1),
+                category: NormalizationCategory::WallClock,
+                reason: "stub request content-length verified equal to the raw body byte length; varies only with codex-wall-time".into(),
+                left: vec![left_header],
+                right: vec![right_header],
+                scope: Scope::StubRequests,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The key of a Paseo send receipt path `<dir>/agent-requests/<key>.json`,
 /// where the key is 64 lower hex.
 ///
@@ -1087,6 +1142,7 @@ pub fn value_classes(
         )?);
     }
     classes.extend(wall_time_class(left, right)?);
+    classes.extend(content_length_classes(left, right));
     Ok(classes)
 }
 
@@ -1900,5 +1956,51 @@ mod tests {
             receipt("r2", &sha256_hex("k4"), &sha256_hex("f3")),
         ];
         assert!(equivalent(&left, &changed).is_err());
+    }
+
+    fn stub_record(body: &str, length: usize) -> String {
+        serde_json::json!({
+            "seq": 1,
+            "method": "POST",
+            "path": "/v1/responses",
+            "headers": [["content-length", length.to_string()]],
+            "body": body,
+        })
+        .to_string()
+    }
+
+    fn timed_body(time: &str) -> String {
+        format!(r#"{{"output":"Wall time {time} seconds"}}"#)
+    }
+
+    #[test]
+    fn verified_stub_content_length_normalizes() {
+        let (long, short) = (timed_body("11.1"), timed_body("4.7"));
+        let left = vec![artifact("stub/001", stub_record(&long, long.len()))];
+        let right = vec![artifact("stub/001", stub_record(&short, short.len()))];
+        assert_eq!(equivalent(&left, &right), Ok(true));
+    }
+
+    #[test]
+    fn stub_content_length_not_matching_its_body_stays_a_difference() {
+        let (long, short) = (timed_body("11.1"), timed_body("4.7"));
+        let left = vec![artifact("stub/001", stub_record(&long, long.len() + 5))];
+        let right = vec![artifact("stub/001", stub_record(&short, short.len()))];
+        assert_eq!(equivalent(&left, &right), Ok(false));
+    }
+
+    #[test]
+    fn stub_content_length_outside_stub_stays_literal() {
+        let (long, short) = (timed_body("11.1"), timed_body("4.7"));
+        let header = |length: usize| format!(r#"["content-length","{length}"]"#);
+        let left = vec![
+            artifact("stub/001", stub_record(&long, long.len())),
+            artifact("copy", header(long.len())),
+        ];
+        let right = vec![
+            artifact("stub/001", stub_record(&short, short.len())),
+            artifact("copy", header(short.len())),
+        ];
+        assert_eq!(equivalent(&left, &right), Ok(false));
     }
 }
