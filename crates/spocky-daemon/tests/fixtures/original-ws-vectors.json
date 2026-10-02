@@ -1787,6 +1787,41 @@
    }
   },
   {
+   "name": "hello_wrong_password_and_ping_in_one_chunk",
+   "secure": true,
+   "steps": [
+    [
+     "connect",
+     "a"
+    ],
+    [
+     "texts",
+     "a",
+     [
+      "{\"type\":\"hello\",\"clientId\":\"c1\",\"clientType\":\"cli\",\"protocolVersion\":1,\"auth\":{\"kind\":\"password\",\"password\":\"wrong\"}}",
+      "{\"type\":\"ping\"}"
+     ]
+    ]
+   ],
+   "events": {
+    "a": {
+     "closed": false,
+     "end": null,
+     "frames": [
+      {
+       "t": "head",
+       "text": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+      },
+      {
+       "t": "close",
+       "code": 4002,
+       "reason": "Session message before hello"
+      }
+     ]
+    }
+   }
+  },
+  {
    "name": "hello_local_credential_kind_without_credential",
    "secure": true,
    "steps": [
