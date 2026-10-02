@@ -496,6 +496,15 @@ impl AgentClient for CodexAgentClient {
         })
     }
 
+    /// `getCatalogCacheKey`: the client discovers through host
+    /// configuration, independent of project cwd.
+    fn get_catalog_cache_key(
+        &self,
+        _options: &FetchCatalogOptions,
+    ) -> Option<BoxFuture<'static, AgentResult<Option<String>>>> {
+        Some(Box::pin(async { Ok(Some("host".to_owned())) }))
+    }
+
     fn fetch_catalog(
         &self,
         _options: FetchCatalogOptions,
@@ -643,6 +652,17 @@ mod tests {
             flags.starts_with(r#"{"supportsStreaming":true,"#),
             "{flags}"
         );
+    }
+
+    #[tokio::test]
+    async fn every_workspace_shares_the_host_catalog() {
+        let client = missing_binary_client();
+        let options = spocky_session::agent_sdk::FetchCatalogOptions::Workspace {
+            cwd: "/tmp/a".to_owned(),
+            force: false,
+        };
+        let key = client.get_catalog_cache_key(&options).expect("keyed");
+        assert_eq!(key.await.unwrap().as_deref(), Some("host"));
     }
 
     #[tokio::test]
