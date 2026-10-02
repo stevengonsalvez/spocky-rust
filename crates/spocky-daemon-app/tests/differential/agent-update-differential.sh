@@ -20,7 +20,9 @@
 # 900 seconds.
 #
 # Usage: agent-update-differential.sh <out-dir>
-# Env: CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_g1_wiring),
+# Env: SPOCKY_AU_SUBSCRIBER (default agent-update-subscriber.mjs): the recorder
+#      script, so handler-differential.sh reuses this harness,
+#      CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_g1_wiring),
 #      which holds debug/spocky-daemon and debug/spocky-responses-stub.
 set -u
 GT=/usr/local/bin/gtimeout
@@ -121,7 +123,7 @@ tracker_pid=$!
 cli() { env -i $ENVV $GT --kill-after=5 120 "$PASEO_ROOT/packages/cli/bin/paseo" "$@"; }
 i=0; while [ $i -lt 60 ]; do cli ls --host "127.0.0.1:$port" --json >/dev/null 2>&1 && break; sleep 1; i=$((i+1)); done
 mark ready
-mark subscriber; env -i $ENVV $GT --kill-after=5 200 "$NODE_BIN/node" $here/agent-update-subscriber.mjs "$PASEO_ROOT" "127.0.0.1:$port" "$root/project" >"$out/frames.jsonl" 2>"$out/subscriber.err"; echo "subscriber exit=$?"
+mark subscriber; env -i $ENVV $GT --kill-after=5 200 "$NODE_BIN/node" ${SPOCKY_AU_SUBSCRIBER:-$here/agent-update-subscriber.mjs} "$PASEO_ROOT" "127.0.0.1:$port" "$root/project" >"$out/frames.jsonl" 2>"$out/subscriber.err"; echo "subscriber exit=$?"
 mark stop
 # SIGTERM by recorded PID: the graceful stop closes every agent and persists
 # its record, which must then match across sides.
@@ -191,7 +193,7 @@ for side in original spocky; do
   done
 done
 if cmp -s "$top/original/masked.jsonl" "$top/spocky/masked.jsonl"; then
-  echo "PASS: agent_update frame sequences are byte-identical after masking"
+  echo "PASS: recorded frame sequences are byte-identical after masking"
 else
   echo "FAIL: frame sequences differ"
   diff "$top/original/masked.jsonl" "$top/spocky/masked.jsonl" | head -40
