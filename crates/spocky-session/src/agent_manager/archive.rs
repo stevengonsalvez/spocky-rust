@@ -31,6 +31,9 @@ use crate::runtime_mcp_config::strip_internal_paseo_mcp_server;
 pub type AgentArchivedCallback =
     Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
 
+/// `logger.warn(bindings, message)`.
+pub type LogWarn = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
+
 /// `unarchiveSnapshot`'s `updates`.
 #[derive(Debug, Clone, Default)]
 pub struct UnarchiveUpdates {
@@ -738,6 +741,32 @@ impl AgentManager {
         };
         match (sync.await, state) {
             (Err(error), NativeArchive::Restore) => Err(error),
+            (Err(_), NativeArchive::Archive) => {
+                if let Some(warn) = &self.inner.log_warn {
+                    // pino prints the `error` binding, an `Error`, as `{}`.
+                    let mut bindings = JsObject::new();
+                    bindings.insert("error", JsValue::Object(JsObject::new()));
+                    bindings.insert(
+                        "provider",
+                        record
+                            .get("provider")
+                            .cloned()
+                            .unwrap_or(JsValue::Undefined),
+                    );
+                    bindings.insert(
+                        "sessionId",
+                        persistence
+                            .get("sessionId")
+                            .cloned()
+                            .unwrap_or(JsValue::Undefined),
+                    );
+                    warn(
+                        JsValue::Object(bindings),
+                        "Failed to archive native session (best-effort)",
+                    );
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }

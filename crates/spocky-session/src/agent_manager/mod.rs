@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
-pub use archive::{AgentArchivedCallback, DetachedAgent, UnarchiveUpdates};
+pub use archive::{AgentArchivedCallback, DetachedAgent, LogWarn, UnarchiveUpdates};
 pub use create::{CreateAgentOptions, ResumeAgentOptions};
 pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
@@ -248,6 +248,8 @@ pub struct AgentManagerOptions {
     pub on_agent_attention: Option<AttentionCallback>,
     /// `onAgentArchived`.
     pub on_agent_archived: Option<AgentArchivedCallback>,
+    /// `logger.warn(bindings, message)`; warnings are dropped without it.
+    pub log_warn: Option<LogWarn>,
     pub on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub mcp_base_url: Option<String>,
     pub mcp_auth_token: Option<String>,
@@ -362,6 +364,7 @@ pub(crate) struct Inner {
     pub(crate) registry: Option<AgentStorage>,
     pub(crate) on_agent_attention: Option<AttentionCallback>,
     pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
+    pub(crate) log_warn: Option<LogWarn>,
     pub(crate) on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub(crate) mcp_auth_token: Option<String>,
     pub(crate) resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
@@ -492,6 +495,7 @@ impl AgentManager {
                 registry: options.registry,
                 on_agent_attention: options.on_agent_attention,
                 on_agent_archived: options.on_agent_archived,
+                log_warn: options.log_warn,
                 on_workspace_state_may_have_changed: options.on_workspace_state_may_have_changed,
                 mcp_auth_token: options.mcp_auth_token,
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
