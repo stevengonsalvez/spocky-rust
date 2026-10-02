@@ -1357,6 +1357,27 @@
           "unblocks": "p3_g1_wiring MCP half: agent MCP base url from the bound port (closes the earlier P3 about the configured port)"
         },
         {
+          "lane": "p3_session and p3_contracts",
+          "date": "2026-10-03",
+          "sourceRanges": [
+            "p3_session 511b9ef4..c7aa9600 (4; reviewer 1 PASS, verdicts/p3_session-c7aa9600.txt): importProviderSession",
+            "p3_contracts 596e2c5b..c92c8912 (5; reviewer 2 PASS, verdicts/p3_contracts-c92c8912.txt): V8 Date.parse port added to spocky_contracts::js unchanged (jiff dependency, manifest and lock atomic in 0307bd5a, no new lockfile packages), JS property-order test"
+          ],
+          "integrationHead": "fd306a3d",
+          "leadVerification": "gated after cargo clean -p: spocky-session and spocky-contracts tests --test-threads=1 --include-ignored, 145 passed; clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "evidenceLimitation": "f5fd3fb8 adds js/date_parse.rs, compiled only after 8e987d44 registers it; that intermediate is green only vacuously",
+          "temporary": "Date.parse now exists twice (spocky-contracts and spocky-provider-claude) until the contracts removal half switches provider-claude to spocky_contracts::js"
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-03",
+          "sourceRange": "d033fedc..13a7b5d9 (6, one file each; reviewer 2 PASS, verdicts/p3_g1_wiring-13a7b5d9.txt): base64url server id mask in the G2 differential, in-flight run replaced with replace_agent_run, inline_task to start each message handler inline in arrival order with catch_unwind",
+          "integrationHead": "472177ee",
+          "leadVerification": "gated after cargo clean -p: spocky-daemon-app 61 passed --include-ignored (skipping only its real-codex test), sh -n g2-differential.sh, clippy -D warnings, fmt check, spocky-daemon bin build, cargo check --workspace --all-targets",
+          "closes": ["settle_ended_run 2 s poll stand-in for replaceAgentRun (a6915997)"],
+          "followUp": "coordinator reruns G1 and G2 on 472177ee because this changes the G1 and G2 paths"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
