@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 use spocky_contracts::js::truthy;
-use spocky_contracts::js_value::{self, JsValue};
+use spocky_contracts::js_value::JsValue;
 use spocky_contracts::text::js_trim;
 
 /// Paseo `DEFAULT_TIMEOUT_MS`: 14 days.
@@ -457,7 +457,7 @@ fn rpc_error(error: &Value) -> ClientError {
 /// A parsed JSON value as the contracts crate's JavaScript value, which its
 /// `js` operators work on. Keys keep the value's order.
 pub(crate) fn to_js_value(value: &Value) -> JsValue {
-    js_value::parse(&value.to_string()).expect("serde_json writes JSON")
+    JsValue::from(value)
 }
 
 /// JavaScript truthiness for a parsed JSON value (`spocky_contracts::js`).
