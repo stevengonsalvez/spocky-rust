@@ -129,13 +129,18 @@ fn run() -> Result<bool, String> {
     }
     write_json(&options.evidence.join("verdict.json"), &outcome.verdict)?;
     let verdict = &outcome.verdict;
+    // A skipped comparison must never read as "differences 0".
+    let differences = if verdict.compared {
+        format!("differences {}", verdict.differences.len())
+    } else {
+        format!("NOT COMPARED, {}", verdict.comparison)
+    };
     eprintln!(
-        "spocky-slice-gate: {} {} vs {}: {} (differences {}, rules {}, check failures {}, survivors {}, harness errors {})",
+        "spocky-slice-gate: {} {} vs {}: {} ({differences}, rules {}, check failures {}, survivors {}, harness errors {})",
         verdict.gate,
         verdict.left,
         verdict.right,
         if verdict.pass { "PASS" } else { "FAIL" },
-        verdict.differences.len(),
         verdict.rule_count,
         verdict.check_failures.len(),
         verdict.survivors.len(),
