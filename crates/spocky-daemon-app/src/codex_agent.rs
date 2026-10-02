@@ -348,9 +348,14 @@ impl AgentSession for CodexAgentSession {
     }
 
     fn subscribe(&self, callback: StreamCallback) -> Unsubscribe {
-        let id = self
-            .session
-            .subscribe(Arc::new(move |event: &Value| callback(to_js(event))));
+        // Provider events arrive on the app-server reader thread; the
+        // subscriber spawns background work, so it runs inside the runtime
+        // that subscribed.
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        let id = self.session.subscribe(Arc::new(move |event: &Value| {
+            let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
+            callback(to_js(event));
+        }));
         let session = self.session.clone();
         Box::new(move || session.unsubscribe(id))
     }
@@ -633,6 +638,33 @@ mod tests {
             Some(&json!({"turn": {"status": "completed", "error": null}})),
         );
         assert_eq!(texts(&events).len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn events_from_provider_threads_run_inside_the_subscribing_runtime() {
+        let session = primed_session("full-access");
+        let agent = CodexAgentSession::new(session.clone());
+        let (spawned_tx, spawned_rx) = tokio::sync::oneshot::channel();
+        let spawned_tx = Mutex::new(Some(spawned_tx));
+        let _unsubscribe = agent.subscribe(Arc::new(move |_event| {
+            if let Some(tx) = spawned_tx.lock().unwrap().take() {
+                tokio::spawn(async move {
+                    let _ = tx.send(());
+                });
+            }
+        }));
+        std::thread::spawn(move || {
+            session.receive_notification(
+                "turn/completed",
+                Some(&json!({"turn": {"status": "completed", "error": null}})),
+            );
+        })
+        .join()
+        .expect("provider thread does not panic");
+        tokio::time::timeout(std::time::Duration::from_secs(5), spawned_rx)
+            .await
+            .expect("spawned task ran")
+            .expect("sender kept");
     }
 
     #[test]
