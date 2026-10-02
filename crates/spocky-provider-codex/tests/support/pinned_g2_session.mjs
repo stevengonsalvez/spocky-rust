@@ -4,7 +4,8 @@
 // { events, pendingBefore, pendingAfter }.
 //
 // argv: <pinned agent module> <replay argv as JSON> <cwd> <model> <prompt> <action>
-// action: allow | deny | deny_interrupt | interrupt
+// action: allow | deny | deny_interrupt | interrupt | none (no approval; the turn
+// ends by itself)
 import process from "node:process";
 
 const [modulePath, replayArgv, cwd, model, prompt, action] = process.argv.slice(2);
@@ -40,6 +41,12 @@ async function waitFor(types) {
 
 await session.getRuntimeInfo();
 await session.startTurn(prompt);
+if (action === "none") {
+  await waitFor(["turn_completed", "turn_canceled", "turn_failed"]);
+  await session.close();
+  process.stdout.write(`${JSON.stringify({ events, pendingBefore: [], pendingAfter: [] })}\n`);
+  process.exit(0);
+}
 const requested = await waitFor(["permission_requested"]);
 const pendingBefore = session.getPendingPermissions();
 const id = requested.request.id;
