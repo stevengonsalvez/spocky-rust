@@ -14,14 +14,15 @@ use crate::number::Int;
 use crate::request::{
     AgentCreateRequest, AgentPermissionResponseRequest, CancelAgentRequest, CreateAgentRequest,
     CreationSubscribeRequest, FetchAgentRequest, FetchAgentTimelineRequest, FetchAgentsRequest,
-    FetchWorkspacesRequest, SendAgentMessageRequest, SessionEventsSetSubscriptionRequest,
-    SetAgentTimelineSubscriptionRequest, SubscriptionReleaseRequest, WaitForFinishRequest,
-    WorkspaceCreateRequest,
+    FetchWorkspacesRequest, RefreshAgentRequest, ResumeAgentRequest, SendAgentMessageRequest,
+    SessionEventsSetSubscriptionRequest, SetAgentTimelineSubscriptionRequest,
+    SubscriptionReleaseRequest, WaitForFinishRequest, WorkspaceCreateRequest,
 };
 use crate::response::{
-    AgentCreateResponse, AgentPermissionRequestEvent, AgentPermissionResolved, CancelAgentResponse,
-    CreationSubscribeResponse, FetchAgentResponse, FetchAgentTimelineResponse, FetchAgentsResponse,
-    FetchWorkspacesResponse, SendAgentMessageResponse, SessionEventsSetSubscriptionResponse,
+    AgentCreateResponse, AgentPermissionRequestEvent, AgentPermissionResolved,
+    AgentRefreshedStatus, AgentResumedStatus, CancelAgentResponse, CreationSubscribeResponse,
+    FetchAgentResponse, FetchAgentTimelineResponse, FetchAgentsResponse, FetchWorkspacesResponse,
+    SendAgentMessageResponse, SessionEventsSetSubscriptionResponse,
     SetAgentTimelineSubscriptionResponse, SubscriptionReleaseResponse, WaitForFinishResponse,
     WorkspaceCreateResponse,
 };
@@ -88,6 +89,10 @@ pub enum StatusPayload {
     ServerInfo(Box<ServerInfo>),
     /// `status: "error"`, a protocol failure without a `requestId`.
     Error { message: JsText },
+    /// `status: "agent_resumed"`.
+    AgentResumed(Box<AgentResumedStatus>),
+    /// `status: "agent_refreshed"`.
+    AgentRefreshed(AgentRefreshedStatus),
     /// Any other status with its remaining keys; a `status` entry in
     /// `fields` is ignored.
     Other {
@@ -121,6 +126,16 @@ impl Serialize for StatusPayload {
             Self::Error { message } => Tagged {
                 status: "error",
                 rest: &ErrorFields { message },
+            }
+            .serialize(serializer),
+            Self::AgentResumed(resumed) => Tagged {
+                status: "agent_resumed",
+                rest: resumed.as_ref(),
+            }
+            .serialize(serializer),
+            Self::AgentRefreshed(refreshed) => Tagged {
+                status: "agent_refreshed",
+                rest: refreshed,
             }
             .serialize(serializer),
             Self::Other { status, fields } => {
@@ -173,6 +188,10 @@ pub enum SessionInbound {
     AgentPermissionResponse(AgentPermissionResponseRequest),
     #[serde(rename = "cancel_agent_request")]
     CancelAgent(CancelAgentRequest),
+    #[serde(rename = "resume_agent_request")]
+    ResumeAgent(Box<ResumeAgentRequest>),
+    #[serde(rename = "refresh_agent_request")]
+    RefreshAgent(RefreshAgentRequest),
 }
 
 deserialize_tagged!(SessionInbound, "type", {
@@ -224,6 +243,12 @@ deserialize_tagged!(SessionInbound, "type", {
     },
     "cancel_agent_request" => |input| {
         CancelAgentRequest::deserialize(input).map(SessionInbound::CancelAgent)
+    },
+    "resume_agent_request" => |input| {
+        ResumeAgentRequest::deserialize(input).map(|r| SessionInbound::ResumeAgent(Box::new(r)))
+    },
+    "refresh_agent_request" => |input| {
+        RefreshAgentRequest::deserialize(input).map(SessionInbound::RefreshAgent)
     },
 });
 

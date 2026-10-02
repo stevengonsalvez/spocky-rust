@@ -35,7 +35,9 @@ pub fn inbound_requirement(message: &SessionInbound) -> Requirement {
             Some(&[WorkspaceRead, DaemonRead, HubExecute])
         }
         SessionInbound::SubscriptionRelease(_) => None,
-        SessionInbound::AgentPermissionResponse(_) => Some(&[WorkspaceWrite]),
+        SessionInbound::AgentPermissionResponse(_)
+        | SessionInbound::ResumeAgent(_)
+        | SessionInbound::RefreshAgent(_) => Some(&[WorkspaceWrite]),
     }
 }
 
