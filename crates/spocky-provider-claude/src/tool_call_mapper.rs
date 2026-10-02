@@ -2,6 +2,7 @@
 //! timeline items.
 
 use spocky_contracts::js_value::{JsObject, JsValue};
+use spocky_contracts::json::PROTO_KEY;
 use spocky_contracts::text::js_trim;
 use spocky_session::agent_sdk::AgentError;
 
@@ -124,7 +125,9 @@ fn map_tool_call(
         let mut metadata = JsObject::new();
         if let Some(raw) = params.metadata {
             for (key, value) in raw.iter() {
-                metadata.insert(key, value.clone());
+                if key != PROTO_KEY {
+                    metadata.insert(key, value.clone());
+                }
             }
         }
         if matches!(status, Status::Completed | Status::Failed) {
@@ -182,7 +185,14 @@ fn map_tool_call(
         item.insert("error", JsValue::Null);
     }
     if let Some(metadata) = params.metadata {
-        item.insert("metadata", JsValue::Object(metadata.clone()));
+        // `z.record(z.string(), z.unknown())` drops an own `__proto__` key.
+        let mut kept = JsObject::new();
+        for (key, value) in metadata.iter() {
+            if key != PROTO_KEY {
+                kept.insert(key, value.clone());
+            }
+        }
+        item.insert("metadata", JsValue::Object(kept));
     }
     Ok(Some(JsValue::Object(item)))
 }
