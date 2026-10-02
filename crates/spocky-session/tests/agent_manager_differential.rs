@@ -39,6 +39,11 @@
 //!   client message id whose handler emits a timeline item and a usage
 //!   event, a failing handler, and an unknown agent.
 //!
+//! - `loading`: `ensureAgentLoaded` on a second manager over the first's
+//!   storage: two concurrent loads sharing one resume (one asking for the
+//!   timeline broadcast), a record without a persistence handle taking the
+//!   create path, an unavailable provider, and a missing record.
+//!
 //! - `shutdown`: `flush` does not wait for an in-flight `createAgent`
 //!   (its `createSession` held 150 ms), `flushForShutdown` does, and a
 //!   registration after `prepareForShutdown` is refused.
@@ -67,6 +72,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
+use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
     HydrateTimelineOptions, ProviderDefinition, ResumeAgentOptions, SubscribeOptions,
@@ -716,7 +722,34 @@ const shutdown = async () => {
   return { order, calls };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown() }));
+const loading = async () => {
+  const { ensureAgentLoaded } = await import(`${dist}/server/agent/agent-loading.js`);
+  const calls = [];
+  const registry = new AgentStorage(`${home}/loading`, logger);
+  const options = () => ({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const first = new AgentManager(options());
+  await first.createAgent({ provider: "fake", cwd, model: "m1" }, agentId, { labels: { surface: "x" }, workspaceId: "wks_1" });
+  await first.flush();
+  await registry.flush();
+  const stored = await registry.get(agentId);
+  await registry.upsert({ ...stored, id: otherId, persistence: null, title: "No handle" });
+  await registry.upsert({ ...stored, id: "00000000-0000-4000-8000-0000000000c3", provider: "ghost" });
+  const second = new AgentManager(options());
+  const feed = recordFeed(second);
+  const deps = (broadcastTimeline) => ({ agentManager: second, agentStorage: registry, logger, broadcastTimeline });
+  const load = (id, broadcastTimeline = false) => outcome(async () => toAgentPayload(await ensureAgentLoaded(id, deps(broadcastTimeline))));
+  const results = await Promise.all([load(agentId), load(agentId, true)]);
+  results.push(await load(agentId));
+  results.push(await load(otherId));
+  results.push(await load("00000000-0000-4000-8000-0000000000c3"));
+  results.push(await load("00000000-0000-4000-8000-0000000000d4"));
+  await sleep(50);
+  await second.flush();
+  await registry.flush();
+  return { results, calls, feed };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -2250,8 +2283,92 @@ async fn scenarios_match_pinned_manager() {
         ("runstart", runstart_scenario(&cwd, &rust_home.0).await),
         ("outofband", outofband_scenario(&cwd, &rust_home.0).await),
         ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
+        ("loading", loading_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+async fn loading_scenario(cwd: &str, home: &Path) -> JsValue {
+    const GHOST_ID: &str = "00000000-0000-4000-8000-0000000000c3";
+    const MISSING_ID: &str = "00000000-0000-4000-8000-0000000000d4";
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("loading"));
+    let first = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    first
+        .create_agent(
+            object(vec![
+                ("provider", text("fake")),
+                ("cwd", text(cwd)),
+                ("model", text("m1")),
+            ]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                labels: Some(object(vec![("surface", text("x"))])),
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    first.flush().await;
+    registry.flush().await;
+    let stored = registry.get(AGENT_ID).await.expect("stored");
+    let variant = |id: &str, changes: Vec<(&str, JsValue)>| {
+        let JsValue::Object(record) = &stored else {
+            panic!("record");
+        };
+        let mut record = record.clone();
+        record.insert("id", text(id));
+        for (key, value) in changes {
+            record.insert(key, value);
+        }
+        JsValue::Object(record)
+    };
+    registry
+        .upsert(variant(
+            OTHER_ID,
+            vec![("persistence", JsValue::Null), ("title", text("No handle"))],
+        ))
+        .await
+        .expect("upsert");
+    registry
+        .upsert(variant(GHOST_ID, vec![("provider", text("ghost"))]))
+        .await
+        .expect("upsert");
+    let second = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&second);
+    let deps = |broadcast_timeline: bool| EnsureAgentLoadedDeps {
+        agent_manager: second.clone(),
+        agent_storage: registry.clone(),
+        valid_providers: None,
+        broadcast_timeline,
+    };
+    let load = |id: &'static str, broadcast_timeline: bool| {
+        let deps = deps(broadcast_timeline);
+        async move {
+            outcome(
+                ensure_agent_loaded(id, &deps)
+                    .await
+                    .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+            )
+        }
+    };
+    let (a, b) = tokio::join!(load(AGENT_ID, false), load(AGENT_ID, true));
+    let mut results = vec![a, b];
+    results.push(load(AGENT_ID, false).await);
+    results.push(load(OTHER_ID, false).await);
+    results.push(load(GHOST_ID, false).await);
+    results.push(load(MISSING_ID, false).await);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    second.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+    ])
 }
 
 async fn shutdown_scenario(cwd: &str, home: &Path) -> JsValue {
