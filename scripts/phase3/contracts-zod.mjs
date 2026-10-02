@@ -82,8 +82,8 @@ const TRANSFORMS = new Map([
   ["b1ed742b9fbdc0a05e10629b056a74bc0b3451c7b0c2658313c969275912a07e", "NoIssue"],
   // normalizeAgentAttachments: drops invalid items, adds no issue.
   ["af76e991b5610fc74be306c80c765de8a33d7b0c0552548e97a5359babe9c5ed", "NoIssue"],
-  // PersistedConfigSchema.daemon: allowedHosts becomes hostnames, no issue.
-  ["3af0daf896f8f48247a380d8039b13cfd2622a8f0f6b782d2a608302754f412a", "NoIssue"],
+  // PersistedConfigSchema.daemon: allowedHosts becomes hostnames.
+  ["3af0daf896f8f48247a380d8039b13cfd2622a8f0f6b782d2a608302754f412a", "Map(crate::config::daemon_hostnames)"],
   // normalizeAgentProviders, the agents.providers preprocess.
   ["556b985284fc1f134be9917f524dd1c78e7ca7075e74a67af59f35344803b1f6", "Map(crate::config::normalize_agent_providers)"],
 ]);
@@ -316,7 +316,8 @@ class Generator {
       case "object": {
         const catchall = def.catchall?._zod.def.type;
         let unknownKeys;
-        if (catchall === undefined || catchall === "unknown") unknownKeys = "UnknownKeys::Allow";
+        if (catchall === undefined) unknownKeys = "UnknownKeys::Strip";
+        else if (catchall === "unknown") unknownKeys = "UnknownKeys::Passthrough";
         else if (catchall === "never") unknownKeys = "UnknownKeys::Strict";
         else fail(`${where}: catchall ${catchall} is not modeled`);
         const fields = Object.keys(def.shape).map((key) => {
@@ -344,8 +345,11 @@ class Generator {
         return `Schema::Optional(${boxed(def.innerType, "?")})`;
       case "nullable":
         return `Schema::Nullable(${boxed(def.innerType, "")})`;
-      case "default":
-        return `Schema::Default(${boxed(def.innerType, "")})`;
+      case "default": {
+        const json = JSON.stringify(def.defaultValue);
+        if (json === undefined) fail(`${where}: default ${String(def.defaultValue)} is not JSON`);
+        return `Schema::Default(${boxed(def.innerType, "")}, ${rustString(json, where)})`;
+      }
       case "pipe":
         if (schema._zod.traits.has("$ZodCodec")) fail(`${where}: codecs are not modeled`);
         return `Schema::Pipe(${boxed(def.in, ">in")}, ${boxed(def.out, ">out")})`;
