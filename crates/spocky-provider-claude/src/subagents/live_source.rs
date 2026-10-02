@@ -19,6 +19,12 @@ const CLAUDE_WORKFLOW_TASK_TYPE: &str = "local_workflow";
 /// A JavaScript `Map` key for a `task_id` of any type (`undefined` too).
 /// Primitives key by value. An object or array keys by identity, and every
 /// frame is freshly parsed, so each call mints a key no other key equals.
+///
+/// Same-frame invariant: one frame is one object, so the baseline compares an
+/// object id with itself only inside that frame. The only path that sets and
+/// then gets with one frame's id is `observe_task_started`, which calls this
+/// once and passes the key down. Keep it so: a second call in such a path
+/// would split one identity into two and miss a match the baseline finds.
 fn task_key(value: Option<&JsValue>) -> String {
     static OBJECT_KEYS: AtomicU64 = AtomicU64::new(0);
     match value {
