@@ -105,9 +105,11 @@ pub struct StepSpec {
     pub args: Vec<Arg>,
     /// Captures a JSON string from stdout as (key, JSON pointer).
     pub capture: Option<(&'static str, &'static str)>,
-    /// Before running, wait (bounded) until the stub has recorded at least
-    /// this many requests, so a step lands at a fixed point in the turn
-    /// (for example `stop` while a held reply keeps the turn in flight).
+    /// After the step exits 0, wait (bounded) until the stub has recorded at
+    /// least this many requests before recording the step, so the next step
+    /// starts at a fixed point in the turn (for example after `permit allow`
+    /// once Codex has sent the tool output, or before `stop` while a held
+    /// reply keeps the turn in flight).
     pub wait_for_stub_requests: Option<usize>,
 }
 
@@ -1436,22 +1438,22 @@ fn run_in_layout(
                 continue;
             }
         };
-        if let Some(count) = step.wait_for_stub_requests
-            && !wait_until(STUB_WAIT, || stub_records(layout).len() >= count)
-        {
-            let reason = format!(
-                "stub reached {} of {count} requests within {} s",
-                stub_records(layout).len(),
-                STUB_WAIT.as_secs()
-            );
-            steps.push(not_run(step.name, argv, reason));
-            continue;
-        }
         let (stdout, stderr, exit) = run_tracked(
             &mut cli_command(tools, layout, &environment, &argv),
             STEP_TIMEOUT,
             &mut pids,
         );
+        if let Some(count) = step.wait_for_stub_requests
+            && exit == Exit::Code(0)
+            && !wait_until(STUB_WAIT, || stub_records(layout).len() >= count)
+        {
+            errors.push(format!(
+                "{}: stub reached {} of {count} requests within {} s",
+                step.name,
+                stub_records(layout).len(),
+                STUB_WAIT.as_secs()
+            ));
+        }
         if let Some((key, pointer)) = step.capture
             && let Some(Value::String(value)) = serde_json::from_slice::<Value>(&stdout)
                 .ok()
