@@ -1208,6 +1208,42 @@
      }
     ]
    }
+  },
+  {
+   "name": "recorded real codex 0.159.0 item/started (verbatim, root substituted)",
+   "item": {
+    "type": "fileChange",
+    "id": "call_patch",
+    "changes": [
+     {
+      "path": "/private/tmp/spocky-root/outside.txt",
+      "kind": {
+       "type": "add"
+      },
+      "diff": "hi\n"
+     }
+    ],
+    "status": "inProgress"
+   },
+   "cwd": "/private/tmp/spocky-root/project"
+  },
+  {
+   "name": "recorded real codex 0.159.0 item/completed (verbatim, root substituted)",
+   "item": {
+    "type": "fileChange",
+    "id": "call_patch",
+    "changes": [
+     {
+      "path": "/private/tmp/spocky-root/outside.txt",
+      "kind": {
+       "type": "add"
+      },
+      "diff": "hi\n"
+     }
+    ],
+    "status": "completed"
+   },
+   "cwd": "/private/tmp/spocky-root/project"
   }
  ]
 }
