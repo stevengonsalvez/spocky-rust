@@ -44,6 +44,12 @@
 //!   timeline broadcast), a record without a persistence handle taking the
 //!   create path, an unavailable provider, and a missing record.
 //!
+//! - `archive`: `archiveAgent` on a parent whose children are archived
+//!   with it (live and stored-only), detached (another workspace, an open
+//!   tab) or left alone; `unarchiveSnapshot` with a workspace and label
+//!   patch, twice and for an unknown agent; `detachAgent`; and, on a fresh
+//!   home, `archiveSnapshot` of a closed agent then `unarchiveSnapshotByHandle`.
+//!
 //! - `shutdown`: `flush` does not wait for an in-flight `createAgent`
 //!   (its `createSession` held 150 ms), `flushForShutdown` does, and a
 //!   registration after `prepareForShutdown` is refused.
@@ -76,7 +82,7 @@ use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
     HydrateTimelineOptions, ProviderDefinition, ResumeAgentOptions, SubscribeOptions,
-    TurnEventStream, WaitForAgentOptions,
+    TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -95,7 +101,19 @@ const OTHER_ID: &str = "00000000-0000-4000-8000-0000000000b2";
 const UNKNOWN_ID: &str = "00000000-0000-4000-8000-0000000000ff";
 
 /// The ids the scenarios choose; [`normalize`] keeps them.
-const FIXED_IDS: [&str; 3] = [AGENT_ID, OTHER_ID, UNKNOWN_ID];
+const CHILD_SAME_ID: &str = "00000000-0000-4000-8000-0000000000e1";
+const CHILD_OTHER_WORKSPACE_ID: &str = "00000000-0000-4000-8000-0000000000e2";
+const CHILD_TAB_ID: &str = "00000000-0000-4000-8000-0000000000e3";
+const CHILD_STORED_ID: &str = "00000000-0000-4000-8000-0000000000e4";
+const FIXED_IDS: [&str; 7] = [
+    AGENT_ID,
+    OTHER_ID,
+    UNKNOWN_ID,
+    CHILD_SAME_ID,
+    CHILD_OTHER_WORKSPACE_ID,
+    CHILD_TAB_ID,
+    CHILD_STORED_ID,
+];
 
 /// What the fake session emits after `startTurn` resolves when its script
 /// has no turn left.
@@ -301,6 +319,8 @@ const fakeClient = (calls, spec) => ({
     calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
     return new FakeSession(spec, calls);
   },
+  async archiveNativeSession(handle) { calls.push(["archiveNativeSession", handle]); },
+  async unarchiveNativeSession(handle) { calls.push(["unarchiveNativeSession", handle]); },
   async fetchCatalog(options, context) { calls.push(["fetchCatalog", options, context === undefined ? "no context" : "context"]); return JSON.parse(catalogJson); },
   async isAvailable() {
     if (typeof spec.available === "boolean") return spec.available;
@@ -749,7 +769,52 @@ const loading = async () => {
   return { results, calls, feed };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading() }));
+const archive = async () => {
+  const PARENT_LABEL = "paseo.parent-agent-id";
+  const ids = { same: "00000000-0000-4000-8000-0000000000e1", other: "00000000-0000-4000-8000-0000000000e2", tab: "00000000-0000-4000-8000-0000000000e3", stored: "00000000-0000-4000-8000-0000000000e4" };
+  const calls = [];
+  const registry = new AgentStorage(`${home}/archive`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  const create = (id, labels, workspaceId) => manager.createAgent({ provider: "fake", cwd }, id, { labels, workspaceId });
+  await create(agentId, {}, "wks_1");
+  await create(ids.same, { [PARENT_LABEL]: agentId }, "wks_1");
+  await create(ids.other, { [PARENT_LABEL]: agentId }, "wks_2");
+  await create(ids.tab, { [PARENT_LABEL]: agentId, "paseo.open-agent-tab.c1": "true" }, "wks_1");
+  await create(ids.stored, { [PARENT_LABEL]: agentId }, "wks_1");
+  await manager.closeAgent(ids.stored);
+  await manager.flush();
+  await registry.flush();
+  const results = [];
+  results.push(await outcome(async () => (await manager.archiveAgent(agentId)).archivedAt));
+  await manager.flush();
+  await registry.flush();
+  const stored = {};
+  for (const [name, id] of Object.entries({ parent: agentId, ...ids })) stored[name] = await registry.get(id);
+  results.push(await outcome(async () => await manager.unarchiveSnapshot(agentId, { workspaceId: "wks_3", labels: { a: "b", gone: null } })));
+  results.push(await outcome(async () => await manager.unarchiveSnapshot(agentId)));
+  results.push(await outcome(async () => await manager.unarchiveSnapshot(unknownId)));
+  results.push(await outcome(async () => { const { record, live, previousParentAgentId } = await manager.detachAgent(ids.same); return { id: record.id, labels: record.labels, live, previousParentAgentId }; }));
+  results.push(await outcome(async () => { await manager.clearAgentAttention(ids.same); return null; }));
+  results.push(await outcome(async () => { await manager.clearAgentAttention(unknownId); return null; }));
+  await manager.flush();
+  await registry.flush();
+  const afterStored = {};
+  for (const [name, id] of Object.entries({ parent: agentId, ...ids })) afterStored[name] = await registry.get(id);
+  const byHandleCalls = [];
+  const byHandleRegistry = new AgentStorage(`${home}/archive-handle`, logger);
+  const byHandle = new AgentManager({ logger, registry: byHandleRegistry, clients: { fake: fakeClient(byHandleCalls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  await byHandle.createAgent({ provider: "fake", cwd }, agentId, { labels: {}, workspaceId: "wks_1" });
+  await byHandle.closeAgent(agentId);
+  await byHandleRegistry.flush();
+  const archivedRecord = await outcome(async () => await byHandle.archiveSnapshot(agentId, "2026-07-12T10:00:00.000Z"));
+  const handle = (await byHandleRegistry.get(agentId)).persistence;
+  const unarchived = await outcome(async () => { await byHandle.unarchiveSnapshotByHandle(handle); return null; });
+  await byHandleRegistry.flush();
+  return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls } };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1177,6 +1242,20 @@ impl AgentClient for FakeClient {
             }),
         ]));
         Box::pin(async { Ok(json(CATALOG)) })
+    }
+    fn archive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(JsValue::Array(vec![text("archiveNativeSession"), handle]));
+        Some(Box::pin(async { Ok(()) }))
+    }
+    fn unarchive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(JsValue::Array(vec![text("unarchiveNativeSession"), handle]));
+        Some(Box::pin(async { Ok(()) }))
     }
     fn is_available(
         &self,
@@ -2284,8 +2363,203 @@ async fn scenarios_match_pinned_manager() {
         ("outofband", outofband_scenario(&cwd, &rust_home.0).await),
         ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
+        ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn archive_scenario(cwd: &str, home: &Path) -> JsValue {
+    const PARENT_LABEL: &str = "paseo.parent-agent-id";
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("archive"));
+    let manager = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&manager);
+    let create =
+        |id: &'static str, labels: Vec<(&'static str, JsValue)>, workspace: &'static str| {
+            let manager = manager.clone();
+            let cwd = cwd.to_owned();
+            async move {
+                manager
+                    .create_agent(
+                        object(vec![("provider", text("fake")), ("cwd", text(&cwd))]),
+                        Some(id.to_owned()),
+                        CreateAgentOptions {
+                            labels: Some(object(labels)),
+                            workspace_id: Some(workspace.to_owned()),
+                            ..CreateAgentOptions::default()
+                        },
+                    )
+                    .await
+                    .expect("create");
+            }
+        };
+    let parent = || vec![(PARENT_LABEL, text(AGENT_ID))];
+    create(AGENT_ID, vec![], "wks_1").await;
+    create(CHILD_SAME_ID, parent(), "wks_1").await;
+    create(CHILD_OTHER_WORKSPACE_ID, parent(), "wks_2").await;
+    let mut tab = parent();
+    tab.push(("paseo.open-agent-tab.c1", text("true")));
+    create(CHILD_TAB_ID, tab, "wks_1").await;
+    create(CHILD_STORED_ID, parent(), "wks_1").await;
+    manager.close_agent(CHILD_STORED_ID).await.expect("close");
+    manager.flush().await;
+    registry.flush().await;
+    let mut results = vec![outcome(
+        manager.archive_agent(AGENT_ID).await.map(JsValue::String),
+    )];
+    manager.flush().await;
+    registry.flush().await;
+    let names = [
+        ("parent", AGENT_ID),
+        ("same", CHILD_SAME_ID),
+        ("other", CHILD_OTHER_WORKSPACE_ID),
+        ("tab", CHILD_TAB_ID),
+        ("stored", CHILD_STORED_ID),
+    ];
+    let stored_records = |registry: &AgentStorage| {
+        let registry = registry.clone();
+        async move {
+            let mut out = JsObject::new();
+            for (name, id) in names {
+                out.insert(name, registry.get(id).await.unwrap_or(JsValue::Null));
+            }
+            JsValue::Object(out)
+        }
+    };
+    let stored = stored_records(&registry).await;
+    results.push(outcome(
+        manager
+            .unarchive_snapshot(
+                AGENT_ID,
+                Some(UnarchiveUpdates {
+                    workspace_id: Some("wks_3".to_owned()),
+                    labels: Some(json(r#"{"a":"b","gone":null}"#)),
+                }),
+            )
+            .await
+            .map(JsValue::Bool),
+    ));
+    results.push(outcome(
+        manager
+            .unarchive_snapshot(AGENT_ID, None)
+            .await
+            .map(JsValue::Bool),
+    ));
+    results.push(outcome(
+        manager
+            .unarchive_snapshot(UNKNOWN_ID, None)
+            .await
+            .map(JsValue::Bool),
+    ));
+    results.push(outcome(manager.detach_agent(CHILD_SAME_ID).await.map(
+        |detached| {
+            object(vec![
+                (
+                    "id",
+                    detached
+                        .record
+                        .get("id")
+                        .cloned()
+                        .unwrap_or(JsValue::Undefined),
+                ),
+                (
+                    "labels",
+                    detached
+                        .record
+                        .get("labels")
+                        .cloned()
+                        .unwrap_or(JsValue::Undefined),
+                ),
+                ("live", JsValue::Bool(detached.live)),
+                (
+                    "previousParentAgentId",
+                    detached
+                        .previous_parent_agent_id
+                        .map_or(JsValue::Null, JsValue::String),
+                ),
+            ])
+        },
+    )));
+    results.push(outcome(
+        manager
+            .clear_agent_attention(CHILD_SAME_ID)
+            .await
+            .map(|()| JsValue::Null),
+    ));
+    results.push(outcome(
+        manager
+            .clear_agent_attention(UNKNOWN_ID)
+            .await
+            .map(|()| JsValue::Null),
+    ));
+    manager.flush().await;
+    registry.flush().await;
+    let after_stored = stored_records(&registry).await;
+    let by_handle_calls = Calls::default();
+    let by_handle_registry = AgentStorage::new(home.join("archive-handle"));
+    let by_handle = manager_with(
+        &by_handle_calls,
+        &by_handle_registry,
+        vec![(spec("fake"), enabled())],
+    );
+    by_handle
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                labels: Some(object(vec![])),
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    by_handle.close_agent(AGENT_ID).await.expect("close");
+    by_handle_registry.flush().await;
+    let archived_record = outcome(
+        by_handle
+            .archive_snapshot(AGENT_ID, "2026-07-12T10:00:00.000Z".to_owned())
+            .await,
+    );
+    let handle = by_handle_registry
+        .get(AGENT_ID)
+        .await
+        .and_then(|record| record.get("persistence").cloned())
+        .expect("handle");
+    let unarchived = outcome(
+        by_handle
+            .unarchive_snapshot_by_handle(&handle)
+            .await
+            .map(|()| JsValue::Null),
+    );
+    by_handle_registry.flush().await;
+    let by_handle_record = by_handle_registry
+        .get(AGENT_ID)
+        .await
+        .unwrap_or(JsValue::Null);
+    let by_handle_calls = by_handle_calls.lock().expect("calls").clone();
+    let calls = calls.lock().expect("calls").clone();
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("stored", stored),
+        ("afterStored", after_stored),
+        ("calls", JsValue::Array(calls)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "byHandle",
+            object(vec![
+                ("archivedRecord", archived_record),
+                ("unarchived", unarchived),
+                ("record", by_handle_record),
+                ("calls", JsValue::Array(by_handle_calls)),
+            ]),
+        ),
+    ])
 }
 
 async fn loading_scenario(cwd: &str, home: &Path) -> JsValue {
