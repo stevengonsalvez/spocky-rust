@@ -99,4 +99,10 @@ pub trait SessionBackend: Send + Sync {
     ///
     /// The schema validation message.
     fn validate_inbound(&self, message: &Value) -> Result<(), String>;
+    /// The agent steps of `bootstrap.ts` `stop()`, which run after
+    /// `wsServer.prepareForShutdown()` and before `wsServer.close()`:
+    /// `agentManager.prepareForShutdown()`, `closeAllAgents`,
+    /// `agentManager.flushForShutdown()` and `agentStorage.flush()`. A backend
+    /// without agents has nothing to do.
+    fn stop_agents(&self) {}
 }
