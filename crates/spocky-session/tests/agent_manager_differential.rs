@@ -31,9 +31,15 @@
 //! - `titles`: `setTitle` (trimmed, blank, unknown agent) and
 //!   `hasInFlightRun` idle, running and unknown.
 //!
+//! - `runstart`: `waitForAgentRunStart` on an unknown agent, with no
+//!   pending run, through a slow start, a failed start, an abort mid-wait
+//!   and before the wait, and after the run finished.
+//!
 //! A scripted `{"type":"__delay","ms":N}` entry pauses the fake's emission
 //! and is never emitted; a leading `{"type":"__startDelay","ms":N}` holds
-//! `startTurn` that long before it resolves.
+//! `startTurn` that long before it resolves, and a leading
+//! `{"type":"__startFail","ms":N,"message":M}` makes it reject with `M`
+//! after `N` ms.
 //!
 //! Normalized: wall-clock ISO timestamps (`<ISO>`) and random UUIDs such as
 //! timeline epochs (`<UUID>`), nothing else. The fixed agent ids stay as
@@ -139,6 +145,19 @@ const SCENARIO_TURNS: &str = r#"{
   "interrupt": [
     {"type":"turn_canceled","provider":"fake","turnId":"turn-8","reason":"interrupted by user"}
   ],
+  "startSlowDone": [
+    {"type":"__startDelay","ms":150},
+    {"type":"turn_started","provider":"fake","turnId":"turn-11"},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-11"}
+  ],
+  "startFail": [
+    {"type":"__startFail","ms":50,"message":"spawn failed"}
+  ],
+  "startSlowAbort": [
+    {"type":"__startDelay","ms":300},
+    {"type":"turn_started","provider":"fake","turnId":"turn-12"},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-12"}
+  ],
   "slowStart": [
     {"type":"__startDelay","ms":300},
     {"type":"turn_started","provider":"fake","turnId":"turn-9"}
@@ -221,6 +240,7 @@ class FakeSession {
   async startTurn(prompt, options) {
     this.calls.push(["startTurn", prompt, options ?? null]);
     const events = this.spec.turns.shift() ?? JSON.parse(turnEventsJson);
+    if (events[0]?.type === "__startFail") { await sleep(events[0].ms); throw new Error(events[0].message); }
     this.emitLater(events, 20);
     if (events[0]?.type === "__startDelay") await sleep(events[0].ms);
     return { turnId: turnIdOf(events) };
@@ -591,7 +611,48 @@ const titles = async () => {
   return { results, feed, stored: await registry.get(agentId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles() }));
+const runstart = async () => {
+  const calls = [];
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const registry = new AgentStorage(`${home}/runstart`, logger);
+  const manager = new AgentManager({
+    logger,
+    registry,
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.startSlowDone, scripted.startFail, scripted.startSlowAbort] })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  const start = (id, options) => outcome(async () => { await manager.waitForAgentRunStart(id, options); return "started"; });
+  const finished = async (run) => {
+    const settled = await run;
+    return typeof settled === "string" ? settled : settled.finalText;
+  };
+  const results = [];
+  results.push(await start(unknownId));
+  results.push(await start(agentId));
+  const slow = manager.runAgent(agentId, "slow").catch((error) => error.message);
+  results.push(await start(agentId));
+  results.push(await outcome(() => finished(slow)));
+  const failed = manager.runAgent(agentId, "fail").catch((error) => error.message);
+  results.push(await start(agentId));
+  results.push(await outcome(() => finished(failed)));
+  const aborted = manager.runAgent(agentId, "abort").catch((error) => error.message);
+  const stop = new AbortController();
+  setTimeout(() => stop.abort("stop"), 30);
+  results.push(await start(agentId, { signal: stop.signal }));
+  const pre = new AbortController();
+  pre.abort(new Error("pre"));
+  results.push(await start(agentId, { signal: pre.signal }));
+  results.push(await start(agentId));
+  results.push(await outcome(() => finished(aborted)));
+  results.push(await start(agentId));
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  return { results, calls };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -752,6 +813,22 @@ impl AgentSession for FakeSession {
             .expect("turns")
             .pop_front()
             .unwrap_or_else(|| json(TURN_EVENTS));
+        if let Some(failure) = events
+            .as_array()
+            .and_then(|events| events.first())
+            .filter(|event| event_type(event) == Some("__startFail"))
+        {
+            let message = failure
+                .get("message")
+                .and_then(JsValue::as_str)
+                .expect("message")
+                .to_owned();
+            let wait = delay(failure);
+            return Box::pin(async move {
+                tokio::time::sleep(wait).await;
+                Err(AgentError::new(message))
+            });
+        }
         let turn_id = turn_id_of(&events);
         let start_delay = events
             .as_array()
@@ -2056,8 +2133,91 @@ async fn scenarios_match_pinned_manager() {
         ("hydration", hydration_scenario(&cwd, &rust_home.0).await),
         ("resume", resume_scenario(&cwd, &rust_home.0).await),
         ("titles", titles_scenario(&cwd, &rust_home.0).await),
+        ("runstart", runstart_scenario(&cwd, &rust_home.0).await),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
+}
+
+/// `runAgent` registers its pending run synchronously: polls the run once so
+/// it is registered before the caller waits, then lets it finish in a task.
+async fn start_run(
+    manager: &AgentManager,
+    prompt: &'static str,
+) -> tokio::task::JoinHandle<JsValue> {
+    let manager = manager.clone();
+    let mut run = Box::pin(async move {
+        match manager
+            .run_agent(AGENT_ID, AgentPromptInput::Text(prompt.to_owned()), None)
+            .await
+        {
+            Ok(run) => run
+                .to_js()
+                .get("finalText")
+                .cloned()
+                .unwrap_or(JsValue::Null),
+            Err(error) => JsValue::String(error.message),
+        }
+    });
+    match poll_once(&mut run).await {
+        Some(done) => tokio::spawn(async move { done }),
+        None => tokio::spawn(run),
+    }
+}
+
+async fn runstart_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("runstart"));
+    let fake = spec("fake");
+    scripted(&fake, &["startSlowDone", "startFail", "startSlowAbort"]);
+    let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let start = |id: &'static str, signal: Option<AbortSignal>| {
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .wait_for_agent_run_start(id, signal)
+                    .await
+                    .map(|()| text("started")),
+            )
+        }
+    };
+    let mut results = vec![start(UNKNOWN_ID, None).await, start(AGENT_ID, None).await];
+    let slow = start_run(&manager, "slow").await;
+    results.push(start(AGENT_ID, None).await);
+    results.push(outcome(Ok(slow.await.expect("slow run"))));
+    let failed = start_run(&manager, "fail").await;
+    results.push(start(AGENT_ID, None).await);
+    results.push(outcome(Ok(failed.await.expect("failed run"))));
+    let aborted = start_run(&manager, "abort").await;
+    let stop = AbortController::default();
+    let stop_signal = stop.signal();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        stop.abort(AbortReason::Value(text("stop")));
+    });
+    results.push(start(AGENT_ID, Some(stop_signal)).await);
+    let pre = AbortController::default();
+    pre.abort(AbortReason::Error(AgentError::new("pre")));
+    results.push(start(AGENT_ID, Some(pre.signal())).await);
+    results.push(start(AGENT_ID, None).await);
+    results.push(outcome(Ok(aborted.await.expect("aborted run"))));
+    results.push(start(AGENT_ID, None).await);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let calls = calls.lock().expect("calls").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("calls", JsValue::Array(calls)),
+    ])
 }
 
 /// Polls `future` once.
