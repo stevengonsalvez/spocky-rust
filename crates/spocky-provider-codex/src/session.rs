@@ -343,6 +343,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[allow(clippy::struct_excessive_bools)]
 struct State {
     config: SessionConfig,
+    /// `this.providerOptions`: the parsed `config.providerOptions`, in the
+    /// schema's key order. `config.provider_options` stays as given.
+    provider_options: Map<String, Value>,
     current_mode: String,
     has_workflow_mode_override: bool,
     service_tier_fast: bool,
@@ -479,7 +482,7 @@ impl CodexSession {
         if let Some(mode_id) = &config.mode_id {
             validate_mode(mode_id)?;
         }
-        parse_provider_options(config.provider_options.as_ref())?;
+        let provider_options = parse_provider_options(config.provider_options.as_ref())?;
         let has_workflow_mode_override = config.mode_id.is_some();
         let current_mode = config
             .mode_id
@@ -502,6 +505,7 @@ impl CodexSession {
         }
         let state = State {
             config,
+            provider_options,
             current_mode,
             has_workflow_mode_override,
             service_tier_fast,
@@ -1306,13 +1310,7 @@ impl CodexSession {
             .map(str::to_owned)
             .ok_or_else(|| "Codex app-server did not return thread id".to_owned())?;
         let reviewer = string_field(response, "approvalsReviewer");
-        let provider_option = |key: &str| {
-            state
-                .config
-                .provider_options
-                .as_ref()
-                .and_then(|options| options.get(key))
-        };
+        let provider_option = |key: &str| state.provider_options.get(key);
         // `approvalPolicy ?? String(providerOptions.approval_policy ?? "")`:
         // the policy fallback is wrapped in `String()`, the sandbox is not.
         let approval_policy = approval_policy.unwrap_or_else(|| {
@@ -1353,10 +1351,8 @@ impl CodexSession {
 
     fn build_codex_inner_config(&self, state: &State) -> Option<Map<String, Value>> {
         let mut inner = Map::new();
-        if let Some(options) = &state.config.provider_options {
-            for (key, value) in options {
-                inner.insert(key.clone(), value.clone());
-            }
+        for (key, value) in &state.provider_options {
+            inner.insert(key.clone(), value.clone());
         }
         if let Some(custom) = &self.inner.custom_codex_config {
             for (key, value) in custom {
@@ -1400,13 +1396,7 @@ impl CodexSession {
         let sandbox = state
             .has_workflow_mode_override
             .then(|| preset.sandbox.to_owned());
-        let provider_has = |key: &str| {
-            state
-                .config
-                .provider_options
-                .as_ref()
-                .is_some_and(|options| options.contains_key(key))
-        };
+        let provider_has = |key: &str| state.provider_options.contains_key(key);
         let mut params = Map::new();
         params.insert("model".to_owned(), json!(model));
         params.insert("cwd".to_owned(), json!(state.config.cwd));
@@ -1453,13 +1443,7 @@ impl CodexSession {
             json!(state.current_thread_id.clone()),
         );
         params.insert("input".to_owned(), input);
-        let provider_option = |key: &str| {
-            state
-                .config
-                .provider_options
-                .as_ref()
-                .and_then(|options| options.get(key))
-        };
+        let provider_option = |key: &str| state.provider_options.get(key);
         let approval_policy = state
             .has_workflow_mode_override
             .then_some(preset.approval_policy);
