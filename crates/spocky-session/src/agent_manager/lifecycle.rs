@@ -88,6 +88,22 @@ impl AgentManager {
         }
     }
 
+    /// `waitForAgentClose(agentId)`: waits for the agent's queued lifecycle
+    /// mutations, then for an in-flight close, ignoring its error. Loading
+    /// during a reload waits for the replacement instead of resuming another
+    /// writer.
+    pub async fn wait_for_agent_close(&self, agent_id: &str) {
+        let lane = self.lock().lifecycle_lanes.get(agent_id).cloned();
+        if let Some(lane) = lane {
+            drop(lane.lock().await);
+        }
+        let close = self.lock().inflight_closes.get(agent_id).cloned();
+        if let Some(close) = close {
+            // The closing call runs the initializer; this only waits for it.
+            let _ = close.get_or_init(|| async { Ok(()) }).await;
+        }
+    }
+
     /// `closeAgent(agentId)`: concurrent calls share one close.
     ///
     /// # Errors
