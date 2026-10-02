@@ -1329,6 +1329,16 @@
           "leadVerification": "sh -n on both differential scripts and node --check on both subscribers; spocky-session 71 passed --include-ignored after cargo clean -p; clippy -D warnings, fmt check, cargo check --workspace --all-targets; the differentials themselves were not rerun by the lead"
         },
         {
+          "lane": "p4_provider_claude",
+          "date": "2026-10-02",
+          "sourceRange": "b2249894..e839ed7b (9 commits): Math.round keeps -0, tzdb version bound in the date parse differential, __proto__ keys dropped as JS does, unused tokio and spocky-store dependencies removed (manifest and lock atomic in e839ed7b)",
+          "integrationHead": "66e3bf9f",
+          "review": "integration reviewer 2 PASS (verdicts/p4_provider_claude-e839ed7b.txt)",
+          "leadVerification": "gated after cargo clean -p: spocky-provider-claude 21 passed --include-ignored with pinned node 22.20.0 and dist, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "closes": ["P2 presentation.rs js_round lost the sign of zero", "P3 jiff host tzdb versus node ICU tzdata now bounded by a version guard"],
+          "followUps": ["P3 the tzdb guard allows a one-release gap between the host and node's ICU tzdata, and one release can still move a transition in some zones"]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
