@@ -1646,22 +1646,34 @@ impl CodexSession {
     /// # Errors
     /// Returns the dispose failure when Codex survives SIGKILL.
     pub fn close(&self) -> Result<(), String> {
-        {
+        let open_approvals = {
             let mut state = lock(&self.inner.state);
             state.closed = true;
-            clear_pending_permissions(&mut state);
+            let open_approvals: Vec<PendingPermission> =
+                state.pending_permissions.drain(..).collect();
             state.active_foreground_turn_id = None;
             state.active_client_message_id = None;
             if let Some(pending) = state.pending_identification.take() {
                 pending.slot.resolve(None);
             }
-        }
+            open_approvals
+        };
         // Paseo delivered every earlier event synchronously before close. A
         // subscriber blocked in a session call (for example `start_turn`)
         // must not hold close up, so the wait is bounded.
         self.flush_dispatch(Some(CLOSE_FLUSH_TIMEOUT));
         lock(&self.inner.subscribers).clear();
         let outcome = self.dispose_client();
+        // `clearPendingPermissions()` resolves each open approval with
+        // `cancel` before `disposeClient()`, but the transport writes a
+        // handler's reply only after an `await`, and by then `dispose()` has
+        // marked the client disposed, so Codex never receives it. Answering
+        // after the dispose reproduces that: the write is skipped.
+        for pending in open_approvals {
+            pending
+                .responder
+                .respond(Ok(Some(json!({"decision": "cancel"}))));
+        }
         lock(&self.inner.state).current_thread_id = None;
         self.inner.state_changed.notify_all();
         outcome
