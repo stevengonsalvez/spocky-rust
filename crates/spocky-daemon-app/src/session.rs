@@ -172,6 +172,14 @@ impl SessionBackend for DaemonBackend {
             .map(drop)
             .map_err(|error| error.to_string())
     }
+
+    /// Runs on the thread that stops the daemon, outside the async runtime,
+    /// so it blocks until every agent is closed and storage is flushed.
+    fn stop_agents(&self) {
+        self.services
+            .runtime
+            .block_on(crate::shutdown::stop_agents(&self.services));
+    }
 }
 
 /// One client session.
