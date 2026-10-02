@@ -9,6 +9,7 @@ rust-version = "1.94"
 indexmap = "2.14.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["float_roundtrip", "preserve_order", "raw_value"] }
+jiff = "0.2"
 ryu-js = "1.0.3"
 url = "2.5.8"
 
