@@ -31,8 +31,14 @@ const WORKSPACE: &str = r#"{"id":"wks_00000000000000aa","projectId":"prj_1","pro
 
 const AGENT: &str = r#"{"id":"agent-1","provider":"codex","cwd":"/w","workspaceId":"wks_00000000000000aa","model":"gpt","thinkingOptionId":"high","effectiveThinkingOptionId":"high","runtimeInfo":{"provider":"codex","sessionId":"s","model":"gpt"},"createdAt":"2023-11-14T22:13:20.000Z","updatedAt":"2023-11-14T22:13:22.000Z","lastUserMessageAt":"2023-11-14T22:13:21.500Z","status":"running","activeTurn":null,"capabilities":{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsSessionListing":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true,"supportsRewindConversation":true,"supportsRewindFiles":false,"supportsRewindBoth":false},"currentModeId":"auto","availableModes":[{"id":"auto","label":"Auto","description":"d"}],"features":[{"id":"f","type":"toggle","label":"F","value":true}],"pendingPermissions":[],"persistence":{"provider":"codex","sessionId":"s","metadata":{"cwd":"/w"}},"title":"T","labels":{"a":"b"},"lastUsage":{"inputTokens":5,"outputTokens":2},"requiresAttention":false,"attentionReason":null,"attentionTimestamp":null}"#;
 
-/// The steps, with `@WORKSPACE`, `@AGENT`, `@LEGACY_FILE` and
-/// `@LEGACY_FINGERPRINT` filled in by [`steps`].
+/// The steps, with `@WORKSPACE`, `@AGENT`, `@LEGACY_FILE`, `@LEGACY2_FILE`
+/// and `@LEGACY_FINGERPRINT` filled in by [`steps`].
+///
+/// `mark` remembers the receipt files; `corrupt` rewrites the one receipt
+/// (`.json` file) added since the last `mark`, with `text` or with its first `replace[0]`
+/// swapped for `replace[1]`. The next `create` then reads a corrupt or
+/// schema-invalid receipt, and its error text must match node's `ZodError`
+/// message.
 const STEPS: &str = r#"[
   {"op":"create","kind":"workspace","key":"ws-1","request":{"cwd":"/r","b":1,"a":{"10":1,"2":2}},"workspaceId":"wks_00000000000000aa","hasAgent":false,"hasPrompt":false,"exists":[],
    "provision":{"workspace":@WORKSPACE,"setupSkippedReason":"no_setup"}},
@@ -71,7 +77,45 @@ const STEPS: &str = r#"[
   {"op":"files"},
   {"op":"writeLegacy","file":"@LEGACY_FILE","text":"{\"fingerprint\":\"@LEGACY_FINGERPRINT\",\"state\":\"completed\",\"agentId\":\"legacy-agent\",\"extra\":1}"},
   {"op":"create","kind":"agent","key":"legacy-1","request":{"provider":"codex","cwd":"/w"},"hasAgent":true,"hasPrompt":false,"exists":[],"readAgent":@AGENT},
-  {"op":"files"}
+  {"op":"files"},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-1","request":{"cwd":"/rc1"},"workspaceId":"wks_00000000000000d1","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","text":"{\"fingerprint\":"},
+  {"op":"create","kind":"workspace","key":"rc-1","request":{"cwd":"/rc1"},"workspaceId":"wks_00000000000000d1","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-2","request":{"cwd":"/rc2"},"workspaceId":"wks_00000000000000d2","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","text":"[]"},
+  {"op":"create","kind":"workspace","key":"rc-2","request":{"cwd":"/rc2"},"workspaceId":"wks_00000000000000d2","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-3","request":{"cwd":"/rc3"},"workspaceId":"wks_00000000000000d3","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","text":"{\"fingerprint\":1,\"snapshot\":{},\"inFlight\":\"x\"}"},
+  {"op":"create","kind":"workspace","key":"rc-3","request":{"cwd":"/rc3"},"workspaceId":"wks_00000000000000d3","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-4","request":{"cwd":"/rc4"},"workspaceId":"wks_00000000000000d4","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","replace":["\"phase\": \"completed\"","\"phase\": \"bogus\""]},
+  {"op":"create","kind":"workspace","key":"rc-4","request":{"cwd":"/rc4"},"workspaceId":"wks_00000000000000d4","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-5","request":{"cwd":"/rc5"},"workspaceId":"wks_00000000000000d5","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","replace":["\"fingerprint\"","\"fingerprinX\""]},
+  {"op":"create","kind":"workspace","key":"rc-5","request":{"cwd":"/rc5"},"workspaceId":"wks_00000000000000d5","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-6","request":{"cwd":"/rc6"},"workspaceId":"wks_00000000000000d6","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","replace":["\"workspaceDirectory\": \"/r/w\"","\"workspaceDirectory\": 5"]},
+  {"op":"create","kind":"workspace","key":"rc-6","request":{"cwd":"/rc6"},"workspaceId":"wks_00000000000000d6","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"mark"},
+  {"op":"create","kind":"workspace","key":"rc-7","request":{"cwd":"/rc7"},"workspaceId":"wks_00000000000000d7","hasAgent":false,"hasPrompt":false,"exists":[],
+   "provision":{"workspace":@WORKSPACE}},
+  {"op":"corrupt","replace":["\"inFlight\": null","\"inFlight\": 5"]},
+  {"op":"create","kind":"workspace","key":"rc-7","request":{"cwd":"/rc7"},"workspaceId":"wks_00000000000000d7","hasAgent":false,"hasPrompt":false,"exists":[]},
+  {"op":"files"},
+  {"op":"writeLegacy","file":"@LEGACY2_FILE","text":"{\"fingerprint\":1,\"state\":\"x\"}"},
+  {"op":"create","kind":"agent","key":"legacy-2","request":{"provider":"codex","cwd":"/w"},"hasAgent":true,"hasPrompt":false,"exists":[],"readAgent":@AGENT}
 ]"#;
 
 fn steps() -> String {
@@ -85,6 +129,13 @@ fn steps() -> String {
             &format!(
                 "{}.json",
                 digest(&parse(r#"["create","legacy-1"]"#).expect("key"))
+            ),
+        )
+        .replace(
+            "@LEGACY2_FILE",
+            &format!(
+                "{}.json",
+                digest(&parse(r#"["create","legacy-2"]"#).expect("key"))
             ),
         )
         .replace("@LEGACY_FINGERPRINT", &digest(&legacy_request))
@@ -166,6 +217,7 @@ const files = () => {
   });
 };
 const out = [];
+let marked = new Set();
 for (const step of JSON.parse(stepsJson)) {
   if (step.op === "create") {
     const events = [];
@@ -183,6 +235,17 @@ for (const step of JSON.parse(stepsJson)) {
     out.push({ events, snapshot });
   } else if (step.op === "files") {
     out.push({ files: files() });
+  } else if (step.op === "mark") {
+    marked = new Set(fs.readdirSync(path.join(home, "creations")));
+  } else if (step.op === "corrupt") {
+    const directory = path.join(home, "creations");
+    const added = fs.readdirSync(directory).filter((entry) => !marked.has(entry) && entry.endsWith(".json"));
+    if (added.length !== 1) throw new Error(`receipts added since the mark: ${JSON.stringify(added)}`);
+    const file = path.join(directory, added[0]);
+    const before = fs.readFileSync(file, "utf8");
+    const after = step.text !== undefined ? step.text : before.replace(step.replace[0], step.replace[1]);
+    if (after === before) throw new Error(`corrupt left ${added[0]} unchanged`);
+    fs.writeFileSync(file, after);
   } else if (step.op === "writeLegacy") {
     fs.mkdirSync(path.join(home, "agent-requests"), { recursive: true });
     fs.writeFileSync(path.join(home, "agent-requests", step.file), step.text);
@@ -361,6 +424,7 @@ fn files(home: &Path) -> JsValue {
 async fn rust_output(home: &Path) -> String {
     let service = CreationService::new(home, None);
     let mut out = Vec::new();
+    let mut marked = std::collections::BTreeSet::new();
     for step in parse(&steps()).expect("steps").as_array().expect("steps") {
         let events: Events = Arc::default();
         match text(step.get("op")).as_deref() {
@@ -409,6 +473,37 @@ async fn rust_output(home: &Path) -> String {
                 out.push(JsValue::Object(row));
             }
             Some("files") => out.push(files(home)),
+            Some("mark") => marked = receipt_names(home),
+            Some("corrupt") => {
+                let directory = home.join("creations");
+                let added: Vec<_> = receipt_names(home)
+                    .difference(&marked)
+                    .filter(|name| {
+                        Path::new(name)
+                            .extension()
+                            .is_some_and(|extension| extension == "json")
+                    })
+                    .cloned()
+                    .collect();
+                assert_eq!(added.len(), 1, "receipts added since the mark");
+                let file = directory.join(&added[0]);
+                let before = std::fs::read_to_string(&file).expect("receipt");
+                let after = if let Some(replacement) = text(step.get("text")) {
+                    replacement
+                } else {
+                    let swap = step
+                        .get("replace")
+                        .and_then(JsValue::as_array)
+                        .expect("replace");
+                    before.replacen(
+                        swap[0].as_str().expect("from"),
+                        swap[1].as_str().expect("to"),
+                        1,
+                    )
+                };
+                assert_ne!(after, before, "corrupt left {} unchanged", file.display());
+                std::fs::write(&file, after).expect("corrupt receipt");
+            }
             Some("writeLegacy") => {
                 let directory = home.join("agent-requests");
                 std::fs::create_dir_all(&directory).expect("legacy directory");
@@ -524,6 +619,20 @@ fn creation_schema_is_generated_from_the_pinned_messages() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// The names of the files in `home/creations`.
+fn receipt_names(home: &Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(home.join("creations"))
+        .expect("creations directory")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect()
 }
 
 /// A fresh disposable home under the system temp directory.
