@@ -101,7 +101,7 @@ impl IdShape {
 }
 
 /// Every generated id shape minted on the slice path, with its source.
-pub const SLICE_SHAPES: [IdShape; 7] = [
+pub const SLICE_SHAPES: [IdShape; 9] = [
     // Codex `additional_tools` item ids (`at_` + UUID) in Responses request bodies.
     IdShape::Uuid {
         name: "codex-tools-id",
@@ -111,6 +111,17 @@ pub const SLICE_SHAPES: [IdShape; 7] = [
     IdShape::Uuid {
         name: "codex-message-id",
         prefix: "msg_",
+    },
+    // Codex `custom_tool_call_output` item ids (`ctco_` + UUID) in Responses request bodies.
+    IdShape::Uuid {
+        name: "codex-tool-output-id",
+        prefix: "ctco_",
+    },
+    // codex-app-server-agent.ts:6912 `permission-${parsed.itemId}` for Codex
+    // command approvals, whose item id is `exec-` + UUID.
+    IdShape::Uuid {
+        name: "permission-id",
+        prefix: "permission-exec-",
     },
     // Agent ids, creation idempotency keys, Codex thread, turn, window, and installation ids.
     IdShape::Uuid {
@@ -1178,6 +1189,14 @@ mod tests {
             (
                 "codex-message-id",
                 "msg_01a0f7f3-0f0a-73c0-8794-b52e6b1eb1d4",
+            ),
+            (
+                "codex-tool-output-id",
+                "ctco_01a0faad-0606-77d2-9304-cfbdd75d8a33",
+            ),
+            (
+                "permission-id",
+                "permission-exec-3a081679-7069-4583-9c6b-933077179007",
             ),
             ("uuid", UUID_A),
             ("workspace-id", WKS_A),
