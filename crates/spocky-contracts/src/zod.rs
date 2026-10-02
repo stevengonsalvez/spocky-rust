@@ -464,6 +464,9 @@ pub enum Schema {
     Enum(&'static [&'static str]),
     Array(Box<Schema>),
     Object(Vec<(&'static str, Schema)>, UnknownKeys),
+    /// `z.object(shape).catchall(schema)`: keys outside the shape are parsed
+    /// by `schema`.
+    ObjectCatchall(Vec<(&'static str, Schema)>, Box<Schema>),
     /// `z.record(key, value)` with a string key schema.
     Record(Box<Schema>, Box<Schema>),
     /// A schema with checks on its parsed value.
@@ -476,6 +479,9 @@ pub enum Schema {
     Nullable(Box<Schema>),
     /// `.default(value)`, with the default as JSON text.
     Default(Box<Schema>, &'static str),
+    /// `.catch(value)`, with the fallback as JSON text: any issue of the
+    /// inner schema is dropped and the value becomes the fallback.
+    Catch(Box<Schema>, &'static str),
     Pipe(Box<Schema>, Box<Schema>),
     Transform(Transform),
     /// `z.lazy()`, and any schema shared by reference.
@@ -488,7 +494,7 @@ impl Schema {
     /// `_zod.optin === "optional"`.
     fn optional_in(&self) -> bool {
         match self {
-            Self::Optional(_) | Self::Default(..) | Self::Transform(_) => true,
+            Self::Optional(_) | Self::Default(..) | Self::Catch(..) | Self::Transform(_) => true,
             Self::Nullable(inner) | Self::Pipe(inner, _) => inner.optional_in(),
             Self::Lazy(target) => target().optional_in(),
             Self::Union(options) => options.iter().any(Self::optional_in),
@@ -500,7 +506,9 @@ impl Schema {
     fn optional_out(&self) -> bool {
         match self {
             Self::Optional(_) => true,
-            Self::Nullable(inner) | Self::Pipe(_, inner) => inner.optional_out(),
+            Self::Nullable(inner) | Self::Pipe(_, inner) | Self::Catch(inner, _) => {
+                inner.optional_out()
+            }
             Self::Lazy(target) => target().optional_out(),
             Self::Union(options) => options.iter().any(Self::optional_out),
             _ => false,
@@ -614,7 +622,18 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
             }
         }
         Schema::Array(element) => run_array(&mut payload, element, context),
-        Schema::Object(shape, unknown) => run_object(&mut payload, shape, *unknown, context),
+        Schema::Object(shape, unknown) => {
+            run_object(&mut payload, shape, *unknown, None, context);
+        }
+        Schema::ObjectCatchall(shape, extra) => {
+            run_object(
+                &mut payload,
+                shape,
+                UnknownKeys::Strip,
+                Some(extra),
+                context,
+            );
+        }
         Schema::Record(key, value) => run_record(&mut payload, key, value, context),
         Schema::Refined(inner, refinements) => {
             let mut result = run(inner, payload, context);
@@ -625,25 +644,14 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
         Schema::Discriminated(key, options) => {
             return run_discriminated(payload, key, options, context);
         }
-        Schema::Optional(inner) => {
-            if inner.optional_in() {
-                let absent = matches!(*payload.value, JsValue::Undefined);
-                let result = run(inner, payload, context);
-                if absent && (!result.issues.is_empty() || result.fallback) {
-                    return Payload::new(Cow::Owned(JsValue::Undefined));
-                }
-                return result;
-            }
-            if !matches!(*payload.value, JsValue::Undefined) {
-                return run(inner, payload, context);
-            }
-        }
+        Schema::Optional(inner) => return run_optional(inner, payload, context),
         Schema::Nullable(inner) => {
             if !payload.value.is_null() {
                 return run(inner, payload, context);
             }
         }
         Schema::Default(inner, default) => return run_default(inner, default, payload, context),
+        Schema::Catch(inner, caught) => return run_catch(inner, caught, payload, context),
         Schema::Pipe(input, output) => {
             let mut left = run(input, payload, context);
             if !left.issues.is_empty() {
@@ -666,6 +674,41 @@ fn run<'a>(schema: &Schema, mut payload: Payload<'a>, context: &mut Context) -> 
         Schema::Unmodeled => context.unmodeled = true,
     }
     payload
+}
+
+/// `$ZodOptional`: an absent value passes, or the inner schema's own
+/// handling of it, when that is optional too.
+fn run_optional<'a>(inner: &Schema, payload: Payload<'a>, context: &mut Context) -> Payload<'a> {
+    if inner.optional_in() {
+        let absent = matches!(*payload.value, JsValue::Undefined);
+        let result = run(inner, payload, context);
+        if absent && (!result.issues.is_empty() || result.fallback) {
+            return Payload::new(Cow::Owned(JsValue::Undefined));
+        }
+        return result;
+    }
+    if matches!(*payload.value, JsValue::Undefined) {
+        payload
+    } else {
+        run(inner, payload, context)
+    }
+}
+
+/// `$ZodCatch`: the inner schema's issues are dropped and the value becomes
+/// the fallback.
+fn run_catch<'a>(
+    inner: &Schema,
+    caught: &str,
+    payload: Payload<'a>,
+    context: &mut Context,
+) -> Payload<'a> {
+    let mut result = run(inner, payload, context);
+    if !result.issues.is_empty() {
+        result.issues.clear();
+        result.fallback = true;
+        result.value = Cow::Owned(parse(caught).unwrap_or(JsValue::Undefined));
+    }
+    result
 }
 
 /// `$ZodDefault`: an absent value becomes the default without parsing; a
@@ -933,6 +976,7 @@ fn run_object(
     payload: &mut Payload<'_>,
     shape: &[(&'static str, Schema)],
     unknown: UnknownKeys,
+    catchall: Option<&Schema>,
     context: &mut Context,
 ) {
     let JsValue::Object(object) = &*payload.value else {
@@ -961,6 +1005,24 @@ fn run_object(
             }
         } else if !(optional_in && schema.optional_out() && present.is_none()) {
             let segment = || Segment::Key((*key).to_owned());
+            issues.extend(
+                result
+                    .issues
+                    .into_iter()
+                    .map(|issue| issue.prefix(segment())),
+            );
+        }
+    }
+    if let Some(extra) = catchall {
+        let extras = object
+            .iter()
+            .filter(|(key, _)| *key != "__proto__" && !shape.iter().any(|(name, _)| name == key));
+        for (key, value) in extras {
+            let result = run(extra, Payload::new(Cow::Borrowed(value)), context);
+            if context.output {
+                output.insert(key, result.value.into_owned());
+            }
+            let segment = || Segment::Key(key.to_owned());
             issues.extend(
                 result
                     .issues
