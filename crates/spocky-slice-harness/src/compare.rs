@@ -601,6 +601,7 @@ mod tests {
                 args: Vec::new(),
                 capture: None,
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             }],
             checks,
             preimages: |_| Vec::new(),

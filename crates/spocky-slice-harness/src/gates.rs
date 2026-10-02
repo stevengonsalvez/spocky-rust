@@ -111,6 +111,7 @@ fn step(
         args,
         capture,
         wait_for_stub_requests,
+        daemon_restart: false,
     }
 }
 
@@ -139,6 +140,7 @@ pub fn g1() -> GateSpec {
                 ],
                 capture: Some(("workspace", "/workspaceId")),
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             },
             StepSpec {
                 name: "run",
@@ -156,24 +158,28 @@ pub fn g1() -> GateSpec {
                 ],
                 capture: Some(("agent", "/agentId")),
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             },
             StepSpec {
                 name: "logs",
                 args: vec![Lit("logs"), Host, Lit("--json"), Captured("agent")],
                 capture: None,
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             },
             StepSpec {
                 name: "ls",
                 args: vec![Lit("ls"), Host, Lit("--json"), Lit("-a")],
                 capture: None,
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             },
             StepSpec {
                 name: "inspect",
                 args: vec![Lit("inspect"), Host, Lit("--json"), Captured("agent")],
                 capture: None,
                 wait_for_stub_requests: None,
+                daemon_restart: false,
             },
         ],
         checks: vec![

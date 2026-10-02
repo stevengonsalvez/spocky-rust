@@ -111,6 +111,11 @@ pub struct StepSpec {
     /// once Codex has sent the tool output, or before `stop` while a held
     /// reply keeps the turn in flight).
     pub wait_for_stub_requests: Option<usize>,
+    /// Instead of running the CLI (`args` must be empty), stop the daemon
+    /// with SIGTERM and start it again on the same home and port in a new
+    /// session. The step's exit is the stopped daemon's exit code, or the
+    /// readiness probe's when that is not 0; its stdout is the probe's.
+    pub daemon_restart: bool,
 }
 
 /// Longest a step waits for the stub to reach its request count.
@@ -1181,7 +1186,12 @@ fn capture_files(
         Err(error) => errors.push(format!("capture codex config: {error}")),
     }
     let mut uncompared = uncompared_logs;
-    for name in ["daemon.out", "stub/stub.log"] {
+    for name in [
+        "daemon.out",
+        "daemon.out.1",
+        "daemon.out.2",
+        "stub/stub.log",
+    ] {
         if let Ok(bytes) = fs::read(layout.path(name)) {
             uncompared.push(CapturedFile {
                 path: name.into(),
@@ -1284,10 +1294,119 @@ fn not_run(name: &str, argv: Vec<String>, reason: String) -> StepRun {
     }
 }
 
+/// Starts the daemon's launch script in a new tmux session on the dedicated
+/// socket, registers the pane as an owned root, and records the session and
+/// PIDs to `pid_file`. Returns the daemon PID the launch script wrote.
+fn launch_daemon(
+    layout: &Layout,
+    session: &str,
+    sampler: &Sampler,
+    pid_file: &Path,
+    errors: &mut Vec<String>,
+) -> Option<u32> {
+    let launched = tmux(&[
+        "new-session",
+        "-d",
+        "-s",
+        session,
+        &format!("/bin/sh {}", shell_quote(&layout.text("launch.sh"))),
+    ]);
+    if launched.2 != Exit::Code(0) {
+        errors.push(format!(
+            "tmux new-session failed: {} {}",
+            launched.2.render(),
+            String::from_utf8_lossy(&launched.1)
+        ));
+    }
+    let daemon_pid = if wait_until(Duration::from_secs(10), || {
+        layout.path("daemon.pid").exists()
+    }) {
+        fs::read_to_string(layout.path("daemon.pid"))
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok())
+    } else {
+        None
+    };
+    let pane = pane_pid(session);
+    // Only the pane is a root. The daemon (read from a file) becomes owned
+    // only by being the pane's descendant, never because the file names it.
+    if let Some(pid) = pane {
+        sampler.add_root(pid);
+    }
+    let _ = fs::write(
+        pid_file,
+        serde_json::to_vec(&serde_json::json!({
+            "session": session,
+            "tmuxSocket": tmux_socket(),
+            "panePid": pane,
+            "daemonPid": daemon_pid
+        }))
+        .unwrap_or_default(),
+    );
+    daemon_pid
+}
+
+/// Probes `ls --json` until the daemon answers, exits, or
+/// [`READY_TIMEOUT`] passes. Returns the last probe and the attempt count.
+fn wait_ready(
+    tools: &Tools,
+    layout: &Layout,
+    environment: &BTreeMap<String, String>,
+    host: &str,
+    pids: &mut Vec<u32>,
+) -> (StepRun, u32) {
+    let mut attempts = 0;
+    let started = Instant::now();
+    loop {
+        attempts += 1;
+        let argv: Vec<String> = vec![
+            "ls".into(),
+            "--host".into(),
+            host.to_owned(),
+            "--json".into(),
+        ];
+        let left = READY_TIMEOUT
+            .saturating_sub(started.elapsed())
+            .clamp(Duration::from_secs(1), Duration::from_secs(30));
+        let (stdout, stderr, exit) = run_tracked(
+            &mut cli_command(tools, layout, environment, &argv),
+            left,
+            pids,
+        );
+        let attempt = StepRun {
+            name: "ready".into(),
+            argv,
+            stdout,
+            stderr,
+            exit,
+            stub_requests: stub_records(layout).len(),
+        };
+        if attempt.exit == Exit::Code(0)
+            || layout.path("daemon.exit").exists()
+            || started.elapsed() >= READY_TIMEOUT
+        {
+            return (attempt, attempts);
+        }
+        thread::sleep(READY_INTERVAL);
+    }
+}
+
+/// The exit code the launch script recorded for the current daemon.
+fn daemon_exit_status(layout: &Layout) -> Exit {
+    fs::read_to_string(layout.path("daemon.exit"))
+        .ok()
+        .and_then(|text| text.trim().parse::<i32>().ok())
+        .map_or(
+            Exit::NotRun("daemon exit status missing".into()),
+            Exit::Code,
+        )
+}
+
 /// Runs one complete side and deletes its disposable root afterwards.
 ///
 /// `evidence` is this side's own directory. It receives `launch.json` before
-/// the daemon starts, `pid.json` right after, and the raw capture after stop.
+/// the daemon starts, `pid.json` right after (`pid-restart<n>.json` after each
+/// restart), and the raw capture after stop.
 ///
 /// # Errors
 ///
@@ -1394,83 +1513,73 @@ fn run_in_layout(
 
     // Sample from before the launch so even the earliest descendants are seen.
     let sampler = Sampler::start();
-    let launched = tmux(&[
-        "new-session",
-        "-d",
-        "-s",
+    let mut session = session;
+    let mut daemon_pid = launch_daemon(
+        layout,
         &session,
-        &format!("/bin/sh {}", shell_quote(&layout.text("launch.sh"))),
-    ]);
-    if launched.2 != Exit::Code(0) {
-        errors.push(format!(
-            "tmux new-session failed: {} {}",
-            launched.2.render(),
-            String::from_utf8_lossy(&launched.1)
-        ));
-    }
-    let daemon_pid = if wait_until(Duration::from_secs(10), || {
-        layout.path("daemon.pid").exists()
-    }) {
-        fs::read_to_string(layout.path("daemon.pid"))
-            .ok()
-            .and_then(|text| text.trim().parse::<u32>().ok())
-    } else {
-        None
-    };
-    let pane = pane_pid(&session);
-    // Only the pane is a root. The daemon (read from a file) becomes owned
-    // only by being the pane's descendant, never because the file names it.
-    if let Some(pid) = pane {
-        sampler.add_root(pid);
-    }
-    let _ = fs::write(
-        side_evidence.join("pid.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "session": session,
-            "tmuxSocket": tmux_socket(),
-            "panePid": pane,
-            "daemonPid": daemon_pid
-        }))
-        .unwrap_or_default(),
+        &sampler,
+        &side_evidence.join("pid.json"),
+        &mut errors,
     );
 
     let mut pids: Vec<u32> = Vec::new();
-    let mut readiness_attempts = 0;
-    let ready_started = Instant::now();
-    let readiness = loop {
-        readiness_attempts += 1;
-        let argv: Vec<String> = vec!["ls".into(), "--host".into(), host.clone(), "--json".into()];
-        let left = READY_TIMEOUT
-            .saturating_sub(ready_started.elapsed())
-            .clamp(Duration::from_secs(1), Duration::from_secs(30));
-        let (stdout, stderr, exit) = run_tracked(
-            &mut cli_command(tools, layout, &environment, &argv),
-            left,
-            &mut pids,
-        );
-        let attempt = StepRun {
-            name: "ready".into(),
-            argv,
-            stdout,
-            stderr,
-            exit,
-            stub_requests: stub_records(layout).len(),
-        };
-        if attempt.exit == Exit::Code(0)
-            || layout.path("daemon.exit").exists()
-            || ready_started.elapsed() >= READY_TIMEOUT
-        {
-            break attempt;
-        }
-        thread::sleep(READY_INTERVAL);
-    };
+    let (readiness, readiness_attempts) = wait_ready(tools, layout, &environment, &host, &mut pids);
+    let mut ready = readiness.exit == Exit::Code(0);
+    let mut force_killed = Vec::new();
+    let mut survivors = Vec::new();
+    let mut restarts = 0;
 
     let mut captured: BTreeMap<&'static str, String> = BTreeMap::new();
     captured.insert("project", layout.text("project"));
     let mut steps = Vec::new();
     for step in &gate.steps {
-        if readiness.exit != Exit::Code(0) {
+        if !ready {
             steps.push(not_run(step.name, Vec::new(), "daemon not ready".into()));
+            continue;
+        }
+        if step.daemon_restart {
+            restarts += 1;
+            let (killed, lost) = stop_daemon(
+                layout,
+                &session,
+                daemon_pid,
+                &sampler,
+                &[stub.child.id()],
+                &mut errors,
+            );
+            force_killed.extend(killed);
+            survivors.extend(lost);
+            let stopped = daemon_exit_status(layout);
+            for name in ["daemon.out", "daemon.pid", "daemon.exit"] {
+                if let Err(error) = fs::rename(
+                    layout.path(name),
+                    layout.path(&format!("{name}.{restarts}")),
+                ) {
+                    errors.push(format!("{}: keep {name}: {error}", step.name));
+                }
+            }
+            session = format!("{session}-restart{restarts}");
+            daemon_pid = launch_daemon(
+                layout,
+                &session,
+                &sampler,
+                &side_evidence.join(format!("pid-restart{restarts}.json")),
+                &mut errors,
+            );
+            let (probe, _) = wait_ready(tools, layout, &environment, &host, &mut pids);
+            ready = probe.exit == Exit::Code(0);
+            steps.push(StepRun {
+                name: step.name.into(),
+                argv: vec!["daemon-restart".into()],
+                exit: if stopped == Exit::Code(0) {
+                    probe.exit
+                } else {
+                    stopped
+                },
+                stdout: probe.stdout,
+                stderr: probe.stderr,
+                stub_requests: stub_records(layout).len(),
+            });
             continue;
         }
         let argv = match expand_args(step, layout, &host, &captured) {
@@ -1513,7 +1622,7 @@ fn run_in_layout(
         });
     }
 
-    let (force_killed, survivors) = stop_daemon(
+    let (killed, lost) = stop_daemon(
         layout,
         &session,
         daemon_pid,
@@ -1521,6 +1630,8 @@ fn run_in_layout(
         &[stub.child.id()],
         &mut errors,
     );
+    force_killed.extend(killed);
+    survivors.extend(lost);
     let owned_pids = sampler.owned().pids();
     drop(sampler);
     for pid in owned_pids {
@@ -1528,13 +1639,7 @@ fn run_in_layout(
             pids.push(pid);
         }
     }
-    let daemon_exit = fs::read_to_string(layout.path("daemon.exit"))
-        .ok()
-        .and_then(|text| text.trim().parse::<i32>().ok())
-        .map_or(
-            Exit::NotRun("daemon exit status missing".into()),
-            Exit::Code,
-        );
+    let daemon_exit = daemon_exit_status(layout);
     let stub_port = stub.port;
     drop(stub);
     for pid in codex_pids(layout) {
