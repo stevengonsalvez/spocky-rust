@@ -96,8 +96,14 @@ fn normalize_sub_agent_text(value: Option<&str>) -> Option<String> {
 }
 
 /// `buildToolCallDisplayModel(item).summary` for a mapped tool call.
-fn display_summary(item: &JsValue) -> Option<String> {
-    let detail = item.get("detail")?;
+///
+/// # Errors
+///
+/// `unreachable` for a detail type the display switch does not list.
+fn display_summary(item: &JsValue) -> Result<Option<String>, AgentError> {
+    let Some(detail) = item.get("detail") else {
+        return Ok(None);
+    };
     let detail_type = detail.get("type").and_then(JsValue::as_str);
     let read = |key: &str| {
         detail
@@ -140,16 +146,21 @@ fn display_summary(item: &JsValue) -> Option<String> {
             .get("url")
             .and_then(JsValue::as_str)
             .map(str::to_owned),
+        Some("worktree_setup") => detail
+            .get("branchName")
+            .and_then(JsValue::as_str)
+            .map(str::to_owned),
         Some("sub_agent") => read("description"),
         Some("plain_text") => detail
             .get("label")
             .and_then(JsValue::as_str)
             .map(str::to_owned),
-        _ => None,
+        Some("plan" | "unknown") => None,
+        _ => return Err(AgentError::new("unreachable")),
     };
-    override_summary
+    Ok(override_summary
         .or(canonical)
-        .filter(|summary| !summary.is_empty())
+        .filter(|summary| !summary.is_empty()))
 }
 
 /// Reads a parent Task call's input by its `tool_use` id.
@@ -561,7 +572,7 @@ fn derive_action_summary(tool_name: &str, input: &JsValue) -> Result<Option<Stri
     else {
         return Ok(None);
     };
-    Ok(normalize_sub_agent_text(display_summary(&item).as_deref()))
+    Ok(normalize_sub_agent_text(display_summary(&item)?.as_deref()))
 }
 
 fn append_action(
@@ -612,4 +623,37 @@ fn append_action(
         }
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use spocky_contracts::js_value::parse;
+
+    use super::display_summary;
+
+    fn summary(item: &str) -> Result<Option<String>, String> {
+        display_summary(&parse(item).expect("item JSON")).map_err(|error| error.message)
+    }
+
+    // protocol tool-call-display.ts: the worktree_setup arm reads branchName
+    // and the default arm throws `unreachable`.
+    #[test]
+    fn summary_follows_the_display_switch() {
+        assert_eq!(
+            summary(r#"{"name":"w","detail":{"type":"worktree_setup","branchName":"feat/x"}}"#),
+            Ok(Some("feat/x".to_owned()))
+        );
+        assert_eq!(
+            summary(r#"{"name":"p","detail":{"type":"plan","text":"t"}}"#),
+            Ok(None)
+        );
+        assert_eq!(
+            summary(r#"{"name":"x","detail":{"type":"mystery"}}"#),
+            Err("unreachable".to_owned())
+        );
+        assert_eq!(
+            summary(r#"{"name":"x","detail":{}}"#),
+            Err("unreachable".to_owned())
+        );
+    }
 }
