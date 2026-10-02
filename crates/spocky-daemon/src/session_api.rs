@@ -14,6 +14,8 @@ use serde_json::Value;
 
 use spocky_contracts::ws::DaemonPermission;
 
+use crate::listen::ListenTarget;
+
 /// One physical WebSocket. A reconnecting client gets a new id.
 pub type SocketId = u64;
 
@@ -105,4 +107,14 @@ pub trait SessionBackend: Send + Sync {
     /// `agentManager.flushForShutdown()` and `agentStorage.flush()`. A backend
     /// without agents has nothing to do.
     fn stop_agents(&self) {}
+    /// The `httpServer` `'listening'` handler of `bootstrap.ts`: the target the
+    /// listener actually bound, as `resolveBoundListenTarget` returns it
+    /// (`Tcp { host: "127.0.0.1", port }` after a `:0` bind, not the configured
+    /// port). The structure is passed, not its formatted text, because
+    /// `createAgentMcpBaseUrl` needs to tell a TCP target from a socket or pipe
+    /// path, resolve the client host, and bracket an IPv6 host. Called once,
+    /// after the server knows its address and before the lock is published. A
+    /// backend that derives URLs from the address (the agent MCP base url)
+    /// records it; any other has nothing to do.
+    fn listening(&self, _bound: &ListenTarget) {}
 }
