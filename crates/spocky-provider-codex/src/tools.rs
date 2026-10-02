@@ -807,7 +807,10 @@ pub fn tool_call_from_thread_item(item: &Map<String, Value>, item_type: &str) ->
         "commandExecution" => command_execution_to_tool_call(item),
         "fileChange" => match map_file_change_item(item, None) {
             Ok(None) => ToolMapping::Skip,
-            Ok(Some(_)) | Err(_) => ToolMapping::Unported("thread item fileChange".to_owned()),
+            Ok(Some(_)) => ToolMapping::Unported("thread item fileChange".to_owned()),
+            Err(DiffTruncationUnported) => ToolMapping::Unported(
+                "thread item fileChange (diff over the truncate limit)".to_owned(),
+            ),
         },
         other => ToolMapping::Unported(format!("thread item {other}")),
     }
@@ -1535,6 +1538,331 @@ pub fn map_file_change_item(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Legacy `codex/event/patch_apply_*` notifications:
+// `mapCodexPatchNotificationToToolCall`, `parseCodexPatchChanges`, and
+// `codexPatchTextFields` (`codex-app-server-agent.ts`), and the edit-input
+// normalization `mapCodexToolCallEnvelope` applies to `apply_patch`
+// (`normalizeToolCallEditInput`, `codex/tool-call-mapper.ts`).
+// ---------------------------------------------------------------------------
+
+/// `extractPatchPrimaryFilePath`: the first directive path that is not empty.
+fn extract_patch_primary_file_path(patch: &str) -> Option<String> {
+    split_js_lines(patch)
+        .into_iter()
+        .find_map(|line| parse_apply_patch_directive(line).filter(|(_, path)| !path.is_empty()))
+        .map(|(_, path)| path)
+}
+
+/// `findToolCallEditPatchText`: the first non-empty text field.
+fn find_tool_call_edit_patch_text(input: &Map<String, Value>) -> Option<&str> {
+    ["patch", "diff", "unified_diff", "unifiedDiff", "content"]
+        .into_iter()
+        .find_map(|key| non_empty_string_field(input, key))
+}
+
+/// `findToolCallEditInputPath`: a `path`, `file_path` or `filePath` that is
+/// not blank (returned untrimmed), else the patch's first directive path.
+fn find_tool_call_edit_input_path(input: &Map<String, Value>, patch_text: &str) -> Option<String> {
+    for key in ["path", "file_path", "filePath"] {
+        if let Some(Value::String(text)) = input.get(key)
+            && !js_trim(text).is_empty()
+        {
+            return Some(text.clone());
+        }
+    }
+    extract_patch_primary_file_path(patch_text)
+}
+
+/// `normalizeToolCallEditRecordInput`.
+///
+/// # Errors
+/// Returns [`DiffTruncationUnported`] when the patch text is a diff over the
+/// `truncateDiffText` limit.
+fn normalize_tool_call_edit_record_input(
+    input: &Map<String, Value>,
+) -> Result<Value, DiffTruncationUnported> {
+    let Some(candidate) = find_tool_call_edit_patch_text(input) else {
+        return Ok(Value::Object(input.clone()));
+    };
+    let text_fields = as_edit_text_fields(Some(candidate))?;
+    let raw_path = find_tool_call_edit_input_path(input, candidate);
+    let mut normalized = Map::new();
+    for (key, value) in input {
+        if !matches!(
+            key.as_str(),
+            "patch" | "diff" | "unified_diff" | "unifiedDiff"
+        ) {
+            normalized.insert(key.clone(), value.clone());
+        }
+    }
+    if let Some(path) = raw_path {
+        normalized.insert("path".to_owned(), json!(path));
+    }
+    if let Some(unified) = &text_fields.unified_diff {
+        normalized.insert("patch".to_owned(), json!(unified));
+    }
+    if let Some(new_string) = &text_fields.new_string {
+        normalized.insert("content".to_owned(), json!(new_string));
+    }
+    if text_fields.unified_diff.is_some() && normalized.contains_key("content") {
+        normalized = normalized
+            .into_iter()
+            .filter(|(key, _)| key != "content")
+            .collect();
+    }
+    Ok(Value::Object(normalized))
+}
+
+/// `CodexPatchFileChange`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PatchFile {
+    path: String,
+    kind: Option<String>,
+    content: Option<String>,
+}
+
+/// A record entry that names its file: `path`, `file_path` or `filePath`,
+/// trimmed and not blank.
+fn patch_file_from_record(record: &Map<String, Value>) -> Option<PatchFile> {
+    let path = trimmed_non_empty(record, "path")
+        .or_else(|| trimmed_non_empty(record, "file_path"))
+        .or_else(|| trimmed_non_empty(record, "filePath"))?;
+    Some(PatchFile {
+        path: path.to_owned(),
+        kind: parse_file_change_kind(record),
+        content: parse_file_change_diff(record),
+    })
+}
+
+/// `parseCodexPatchChanges(changes)`.
+fn parse_codex_patch_changes(changes: &Value) -> Vec<PatchFile> {
+    match changes {
+        Value::Array(entries) => entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Value::Object(record) => patch_file_from_record(record),
+                _ => None,
+            })
+            .collect(),
+        Value::Object(record) => {
+            if let Some(file) = patch_file_from_record(record) {
+                return vec![file];
+            }
+            js_entries(record)
+                .into_iter()
+                .filter_map(|(key, value)| {
+                    let path = js_trim(key);
+                    if path.is_empty() {
+                        return None;
+                    }
+                    // Here `kind` is the value's `type` as given, even empty.
+                    let kind = match value {
+                        Value::Object(entry) => {
+                            entry.get("type").and_then(Value::as_str).map(str::to_owned)
+                        }
+                        _ => None,
+                    };
+                    let content = match value {
+                        Value::Object(entry) => parse_file_change_diff(entry),
+                        _ => None,
+                    };
+                    Some(PatchFile {
+                        path: path.to_owned(),
+                        kind,
+                        content,
+                    })
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// `codexPatchTextFields(text)`: `patch` when it looks like a unified diff,
+/// else `content`; nothing for a missing text.
+fn insert_patch_text_fields(map: &mut Map<String, Value>, text: Option<&str>) {
+    let Some(text) = text else {
+        return;
+    };
+    let key = if looks_like_unified_diff(text) {
+        "patch"
+    } else {
+        "content"
+    };
+    map.insert(key.to_owned(), json!(text));
+}
+
+/// Arguments of `mapCodexPatchNotificationToToolCall`.
+pub struct PatchNotification<'a> {
+    pub call_id: Option<&'a str>,
+    pub changes: &'a Value,
+    pub cwd: Option<&'a str>,
+    pub stdout: Option<&'a str>,
+    pub stderr: Option<&'a str>,
+    pub success: Option<bool>,
+    pub running: bool,
+}
+
+/// The `CodexNormalizedToolCallEnvelope` that `mapCodexToolCallEnvelope`
+/// hands `toToolCallFromNormalizedEnvelope`, before the shared edit-detail
+/// branch derives the timeline detail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatchEnvelope {
+    pub call_id: String,
+    pub name: &'static str,
+    pub input: Value,
+    pub output: Value,
+    pub error: Value,
+    pub status: &'static str,
+    pub cwd: Value,
+    /// A started notification: the timeline item is then forced to
+    /// `running` with no error (`toRunningToolCall`).
+    pub running: bool,
+}
+
+impl PatchEnvelope {
+    /// The envelope as `mapCodexToolCallEnvelope`'s object literal orders it.
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        json!({
+            "callId": self.call_id,
+            "name": self.name,
+            "input": self.input,
+            "output": self.output,
+            "error": self.error,
+            "status": self.status,
+            "cwd": self.cwd,
+        })
+    }
+
+    /// The status the timeline item carries after `toRunningToolCall`.
+    #[must_use]
+    pub fn timeline_status(&self) -> &'static str {
+        if self.running { "running" } else { self.status }
+    }
+
+    /// The error the timeline item carries after `toRunningToolCall`.
+    #[must_use]
+    pub fn timeline_error(&self) -> Value {
+        if self.running {
+            Value::Null
+        } else {
+            self.error.clone()
+        }
+    }
+}
+
+/// `mapCodexPatchNotificationToToolCall` up to the edit-detail branch.
+/// `Ok(None)` is Paseo returning `null` (no usable call id).
+///
+/// # Errors
+/// Returns [`DiffTruncationUnported`] when a patch text is a diff over the
+/// `truncateDiffText` limit.
+pub fn patch_notification_envelope(
+    params: &PatchNotification<'_>,
+) -> Result<Option<PatchEnvelope>, DiffTruncationUnported> {
+    let files = parse_codex_patch_changes(params.changes);
+    let patch_text: Option<&str> = files
+        .iter()
+        .filter_map(|file| file.content.as_deref().map(js_trim))
+        .find(|text| !text.is_empty());
+
+    let mut input = Map::new();
+    if let Some(first) = files.first() {
+        input.insert("path".to_owned(), json!(first.path));
+        insert_patch_text_fields(&mut input, patch_text);
+        let refs: Vec<Value> = files
+            .iter()
+            .map(|file| {
+                let mut entry = Map::new();
+                entry.insert("path".to_owned(), json!(file.path));
+                if let Some(kind) = &file.kind {
+                    entry.insert("kind".to_owned(), json!(kind));
+                }
+                Value::Object(entry)
+            })
+            .collect();
+        input.insert("files".to_owned(), Value::Array(refs));
+    } else {
+        input.insert("changes".to_owned(), params.changes.clone());
+        insert_patch_text_fields(&mut input, patch_text);
+    }
+
+    let output = if params.running {
+        Value::Null
+    } else {
+        let mut output = Map::new();
+        if !files.is_empty() {
+            let entries: Vec<Value> = files
+                .iter()
+                .map(|file| {
+                    let mut entry = Map::new();
+                    entry.insert("path".to_owned(), json!(file.path));
+                    if let Some(kind) = file.kind.as_ref().filter(|kind| !kind.is_empty()) {
+                        entry.insert("kind".to_owned(), json!(kind));
+                    }
+                    insert_patch_text_fields(&mut entry, file.content.as_deref().or(patch_text));
+                    Value::Object(entry)
+                })
+                .collect();
+            output.insert("files".to_owned(), Value::Array(entries));
+        }
+        if let Some(stdout) = params.stdout.filter(|text| !text.is_empty()) {
+            output.insert("stdout".to_owned(), json!(stdout));
+        }
+        if let Some(stderr) = params.stderr.filter(|text| !text.is_empty()) {
+            output.insert("stderr".to_owned(), json!(stderr));
+        }
+        if let Some(success) = params.success {
+            output.insert("success".to_owned(), json!(success));
+        }
+        Value::Object(output)
+    };
+
+    let error = if params.running || params.success != Some(false) {
+        Value::Null
+    } else {
+        let message = params
+            .stderr
+            .map(js_trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("Patch apply failed");
+        json!({"message": message})
+    };
+
+    // `mapCodexToolCallEnvelope`.
+    let call_id = params.call_id.map(js_trim).unwrap_or_default();
+    if call_id.is_empty() {
+        return Ok(None);
+    }
+    let input = normalize_tool_call_edit_record_input(&input)?;
+    let status = normalize_tool_call_status(Some("completed"), Some(&error), Some(&output));
+    Ok(Some(PatchEnvelope {
+        call_id: call_id.to_owned(),
+        name: "apply_patch",
+        input,
+        output,
+        error,
+        status,
+        cwd: params.cwd.map_or(Value::Null, |cwd| json!(cwd)),
+        running: params.running,
+    }))
+}
+
+/// A legacy patch notification as a timeline mapping: nothing for a missing
+/// call id, otherwise unported (the shared edit-detail branch is not here).
+#[must_use]
+pub fn map_patch_notification(params: &PatchNotification<'_>) -> ToolMapping {
+    match patch_notification_envelope(params) {
+        Ok(None) => ToolMapping::Skip,
+        Ok(Some(_)) => ToolMapping::Unported("tool detail branch apply_patch".to_owned()),
+        Err(DiffTruncationUnported) => ToolMapping::Unported(
+            "tool detail branch apply_patch (diff over the truncate limit)".to_owned(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1874,5 +2202,70 @@ mod tests {
             map_file_change_item(record(&long_diff), None),
             Err(DiffTruncationUnported)
         );
+    }
+
+    #[test]
+    fn legacy_patch_begin_maps_to_a_running_envelope() {
+        let changes =
+            json!([{"path": "src/a.ts", "kind": "update", "diff": "@@ -1 +1 @@\n-a\n+b\n"}]);
+        let envelope = patch_notification_envelope(&PatchNotification {
+            call_id: Some(" call_9 "),
+            changes: &changes,
+            cwd: Some("/w"),
+            stdout: None,
+            stderr: None,
+            success: None,
+            running: true,
+        })
+        .expect("within limit")
+        .expect("call id");
+        assert_eq!(
+            serde_json::to_string(&envelope.to_json()).unwrap(),
+            r#"{"callId":"call_9","name":"apply_patch","input":{"path":"src/a.ts","files":[{"path":"src/a.ts","kind":"update"}],"patch":"@@ -1 +1 @@\n-a\n+b"},"output":null,"error":null,"status":"completed","cwd":"/w"}"#
+        );
+        assert_eq!(envelope.timeline_status(), "running");
+        assert_eq!(envelope.timeline_error(), Value::Null);
+    }
+
+    #[test]
+    fn legacy_patch_end_failure_carries_the_trimmed_stderr() {
+        let changes = json!({"src/a.ts": {"type": "update", "content": "new text"}});
+        let envelope = patch_notification_envelope(&PatchNotification {
+            call_id: Some("c"),
+            changes: &changes,
+            cwd: None,
+            stdout: Some("out"),
+            stderr: Some("  bad hunk\n"),
+            success: Some(false),
+            running: false,
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(envelope.status, "failed");
+        assert_eq!(envelope.error, json!({"message": "bad hunk"}));
+        assert_eq!(
+            envelope.output,
+            json!({
+                "files": [{"path": "src/a.ts", "kind": "update", "content": "new text"}],
+                "stdout": "out", "stderr": "  bad hunk\n", "success": false
+            })
+        );
+    }
+
+    #[test]
+    fn legacy_patch_without_a_call_id_is_dropped() {
+        let changes = json!([]);
+        let params = |call_id| PatchNotification {
+            call_id,
+            changes: &changes,
+            cwd: None,
+            stdout: None,
+            stderr: None,
+            success: None,
+            running: true,
+        };
+        assert_eq!(patch_notification_envelope(&params(None)), Ok(None));
+        assert_eq!(patch_notification_envelope(&params(Some("  "))), Ok(None));
+        assert_eq!(map_patch_notification(&params(None)), ToolMapping::Skip);
     }
 }
