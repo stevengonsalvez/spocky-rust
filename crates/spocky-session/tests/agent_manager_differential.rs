@@ -836,11 +836,12 @@ const replaceScenario = async () => {
   const first = finishing.manager.streamAgent(agentId, "finishing");
   const firstEvents = [(await first.next()).value];
   await sleep(30);
-  const startedAt = Date.now();
   const second = await finishing.manager.replaceAgentRun(agentId, "while finishing");
-  const waited = Date.now() - startedAt >= 80;
   await collect(first, firstEvents);
   const secondEvents = await collect(second, []);
+  // The replacement starts only after the finishing run has ended.
+  const streamAt = (type, turnId) => finishing.feed.findIndex((entry) => entry[0] === "agent_stream" && entry[2].type === type && entry[2].turnId === turnId);
+  const waited = streamAt("turn_completed", "turn-14") !== -1 && streamAt("turn_completed", "turn-14") < streamAt("turn_started", "turn-16");
   const b = await finish(finishing, { firstEvents, secondEvents, waited });
   const refused = await build("refused", [scripted.rpHeld], { interruptHang: true }, { rescueTimeouts: { interruptSessionMs: 80 } });
   const held = refused.manager.streamAgent(agentId, "long task");
@@ -2623,15 +2624,24 @@ async fn replace_scenario(cwd: &str, home: &Path) -> JsValue {
         .expect("first stream");
     let mut first_events = vec![first.next().await.expect("first").expect("event")];
     tokio::time::sleep(Duration::from_millis(30)).await;
-    let started_at = std::time::Instant::now();
     let second = manager
         .replace_agent_run(AGENT_ID, text_prompt("while finishing"), None)
         .await
         .expect("replace");
-    let waited = started_at.elapsed() >= Duration::from_millis(80);
     collect_stream(first, &mut first_events).await;
     let mut second_events = Vec::new();
     collect_stream(second, &mut second_events).await;
+    // The replacement starts only after the finishing run has ended.
+    let stream_at = |kind: &str, turn_id: &str| {
+        feed.lock().expect("feed").iter().position(|entry| {
+            let entry = entry.as_array().expect("entry");
+            entry[0].as_str() == Some("agent_stream")
+                && entry[2].get("type").and_then(JsValue::as_str) == Some(kind)
+                && entry[2].get("turnId").and_then(JsValue::as_str) == Some(turn_id)
+        })
+    };
+    let waited = stream_at("turn_completed", "turn-14")
+        .is_some_and(|ended| Some(ended) < stream_at("turn_started", "turn-16"));
     let b = replace_finish(
         &manager,
         &registry,
