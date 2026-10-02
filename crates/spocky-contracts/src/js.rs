@@ -3,7 +3,9 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::js_value::{JsObject, JsValue, js_number, js_text_from_utf16, js_text_utf16};
+use crate::js_value::{
+    JsObject, JsValue, js_number, js_text_eq, js_text_from_utf16, js_text_utf16,
+};
 
 /// A JavaScript `TypeError` carrying V8's exact message, such as
 /// `Cannot read properties of undefined (reading 'type')`.
@@ -33,7 +35,7 @@ pub fn strict_equals(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
         (Some(JsValue::Bool(a)), Some(JsValue::Bool(b))) => a == b,
         #[allow(clippy::float_cmp, reason = "JavaScript === on numbers")]
         (Some(JsValue::Number(a)), Some(JsValue::Number(b))) => a == b,
-        (Some(JsValue::String(a)), Some(JsValue::String(b))) => a == b,
+        (Some(JsValue::String(a)), Some(JsValue::String(b))) => js_text_eq(a, b),
         (Some(a @ (JsValue::Array(_) | JsValue::Object(_))), Some(b)) => std::ptr::eq(a, b),
         _ => false,
     }
@@ -88,6 +90,13 @@ pub fn spread(value: Option<&JsValue>) -> JsObject {
 
 /// `String(value)`, as template literals use it; a missing value is
 /// `undefined`.
+///
+/// The result is JavaScript text in the [`crate::js_value`] encoding, not
+/// UTF-8: it is the value of a JavaScript string, so it can go back into a
+/// [`JsValue::String`] or be concatenated with other such text. A literal
+/// U+10FFFF is doubled in it, and a lone surrogate is escaped. Text that
+/// leaves the value domain (a path, a process argument, a log line) goes
+/// through [`crate::js_value::js_text_to_utf8`] first.
 #[must_use]
 pub fn js_string(value: Option<&JsValue>) -> String {
     match value {
