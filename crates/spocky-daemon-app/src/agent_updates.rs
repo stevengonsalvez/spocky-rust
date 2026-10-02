@@ -45,7 +45,85 @@ pub struct Owner {
     pub response_id: String,
 }
 
+/// Which `wait_for_finish` requests are in flight per agent. Pinned
+/// `session.ts` emits a wait's reply within a few microtasks of the state
+/// change that settles it, while that change's `agent_update` goes through
+/// storage, placement and registry awaits, so the reply always comes first.
+/// Rust's scheduling carries no such ordering, so an update that would
+/// settle a wait is held until the waits on its agent have replied.
+#[derive(Default)]
+struct ReplyBarrier {
+    waits: Mutex<HashMap<String, usize>>,
+    replied: tokio::sync::Notify,
+}
+
+/// How long a settling update waits for a reply that may not be coming (a
+/// wait that this change does not wake).
+// ponytail: fixed bound; a wait that the change does not settle delays the
+// update by up to this long. Tie the hold to the wait's own wake if that bites.
+const REPLY_HOLD: std::time::Duration = std::time::Duration::from_secs(2);
+
+impl ReplyBarrier {
+    fn begin(&self, agent_id: &str) {
+        *lock(&self.waits).entry(agent_id.to_owned()).or_default() += 1;
+    }
+
+    fn end(&self, agent_id: &str) {
+        let mut waits = lock(&self.waits);
+        if let Some(count) = waits.get_mut(agent_id) {
+            *count -= 1;
+            if *count == 0 {
+                waits.remove(agent_id);
+            }
+        }
+        drop(waits);
+        self.replied.notify_waiters();
+    }
+
+    fn pending(&self, agent_id: &str) -> bool {
+        lock(&self.waits).contains_key(agent_id)
+    }
+
+    /// Returns once no wait on `agent_id` is in flight, or after `bound`.
+    async fn hold(&self, agent_id: &str, bound: std::time::Duration) {
+        let held = async {
+            loop {
+                let released = self.replied.notified();
+                if !self.pending(agent_id) {
+                    return;
+                }
+                released.await;
+            }
+        };
+        let _ = tokio::time::timeout(bound, held).await;
+    }
+}
+
+/// A `wait_for_finish` in flight; dropping it is its reply being out.
+pub struct WaitGuard {
+    barrier: Arc<ReplyBarrier>,
+    agent_id: String,
+}
+
+impl Drop for WaitGuard {
+    fn drop(&mut self) {
+        self.barrier.end(&self.agent_id);
+    }
+}
+
+/// Whether an agent payload is a state that settles a `wait_for_finish`:
+/// idle, error, or waiting on a permission.
+fn settles_a_wait(payload: &JsValue) -> bool {
+    let status = payload.get("status").and_then(JsValue::as_str);
+    let permissions = payload
+        .get("pendingPermissions")
+        .and_then(JsValue::as_array)
+        .is_some_and(|permissions| !permissions.is_empty());
+    matches!(status, Some("idle" | "error")) || permissions
+}
+
 struct Shared {
+    barrier: Arc<ReplyBarrier>,
     subscriptions: Mutex<Vec<Subscription>>,
     sink: Arc<dyn SessionSink>,
     authorization: Arc<SessionAuthorization>,
@@ -141,6 +219,9 @@ impl Shared {
         let Ok(payload) = agent_payload(services, agent).await else {
             return;
         };
+        if settles_a_wait(&payload) && self.barrier.pending(&agent.id) {
+            self.barrier.hold(&agent.id, REPLY_HOLD).await;
+        }
         let project = match payload.get("workspaceId").and_then(JsValue::as_str) {
             Some(workspace_id) if !workspace_id.is_empty() => {
                 placement_for_workspace(services, workspace_id).await
@@ -184,6 +265,7 @@ impl AgentUpdates {
         provider_visible: ProviderVisible,
     ) -> Self {
         let shared = Arc::new(Shared {
+            barrier: Arc::new(ReplyBarrier::default()),
             subscriptions: Mutex::new(Vec::new()),
             sink,
             authorization,
@@ -278,6 +360,17 @@ impl AgentUpdates {
         }
     }
 
+    /// Registers a `wait_for_finish` on `agent_id`; hold it until the reply
+    /// is sent.
+    #[must_use]
+    pub fn begin_wait(&self, agent_id: &str) -> WaitGuard {
+        self.shared.barrier.begin(agent_id);
+        WaitGuard {
+            barrier: Arc::clone(&self.shared.barrier),
+            agent_id: agent_id.to_owned(),
+        }
+    }
+
     /// `owner.release()`: `clearSubscription(id)`.
     pub fn clear(&self, id: &str) {
         lock(&self.shared.subscriptions).retain(|subscription| subscription.id != id);
@@ -331,6 +424,7 @@ impl AgentUpdates {
 mod tests {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use serde_json::Value;
     use spocky_contracts::js_value::{JsObject, parse};
@@ -338,7 +432,7 @@ mod tests {
     use spocky_daemon::session_api::{SessionSink, SocketId};
     use tokio::sync::mpsc;
 
-    use super::{AgentUpdates, Shared};
+    use super::{AgentUpdates, ReplyBarrier, Shared, settles_a_wait};
     use crate::authorization::SessionAuthorization;
 
     #[derive(Default)]
@@ -358,6 +452,7 @@ mod tests {
         let sink: Arc<dyn SessionSink> = Arc::clone(sink) as Arc<dyn SessionSink>;
         AgentUpdates {
             shared: Arc::new(Shared {
+                barrier: Arc::new(ReplyBarrier::default()),
                 subscriptions: Mutex::new(Vec::new()),
                 sink,
                 authorization: Arc::new(SessionAuthorization::new(&DaemonPermission::ALL)),
@@ -379,6 +474,53 @@ mod tests {
         for subscription in subscriptions.iter_mut() {
             updates.shared.buffer_or_emit(subscription, payload.clone());
         }
+    }
+
+    #[tokio::test]
+    async fn a_settling_update_waits_for_the_reply() {
+        let barrier = Arc::new(ReplyBarrier::default());
+        barrier.begin("a");
+        let held = {
+            let barrier = Arc::clone(&barrier);
+            tokio::spawn(async move { barrier.hold("a", Duration::from_secs(30)).await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!held.is_finished());
+        barrier.end("a");
+        held.await.unwrap();
+        assert!(!barrier.pending("a"));
+    }
+
+    #[tokio::test]
+    async fn the_hold_is_bounded_and_other_agents_are_free() {
+        let barrier = ReplyBarrier::default();
+        barrier.begin("a");
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            barrier.hold("b", Duration::from_secs(30)),
+        )
+        .await
+        .expect("no wait on b");
+        barrier.hold("a", Duration::from_millis(30)).await;
+        assert!(
+            barrier.pending("a"),
+            "the bound passed with the wait still open"
+        );
+    }
+
+    #[test]
+    fn idle_error_and_permission_states_settle_a_wait() {
+        let payload = |text| parse(text).unwrap();
+        assert!(settles_a_wait(&payload(
+            r#"{"status":"idle","pendingPermissions":[]}"#
+        )));
+        assert!(settles_a_wait(&payload(r#"{"status":"error"}"#)));
+        assert!(settles_a_wait(&payload(
+            r#"{"status":"running","pendingPermissions":[{"id":"p"}]}"#
+        )));
+        assert!(!settles_a_wait(&payload(
+            r#"{"status":"running","pendingPermissions":[]}"#
+        )));
     }
 
     #[test]
