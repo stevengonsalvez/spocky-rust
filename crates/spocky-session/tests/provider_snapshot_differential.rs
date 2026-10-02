@@ -112,12 +112,12 @@ const fake = (provider, keyed) => {
     capabilities: {},
     async createSession() { throw new Error("unused"); },
     async resumeSession() { throw new Error("unused"); },
-    isAvailable(_signal, options) {
-      log.push(`${provider} isAvailable ${JSON.stringify(options)}`);
+    isAvailable(signal, options) {
+      log.push(`${provider} isAvailable ${JSON.stringify(options)} ${signal ? "signal" : "no signal"}`);
       return respond(next(provider, "isAvailable"), () => true);
     },
     fetchCatalog(options, context) {
-      log.push(`${provider} fetchCatalog ${JSON.stringify(options)}`);
+      log.push(`${provider} fetchCatalog ${JSON.stringify(options)} ${context?.signal ? "signal" : "no signal"}`);
       return respond(next(provider, "fetchCatalog"), () => JSON.parse(catalogJson), context?.signal);
     },
   };
@@ -301,24 +301,37 @@ impl AgentClient for Fake {
         options: FetchCatalogOptions,
         context: Option<Arc<dyn ProviderRefreshContext>>,
     ) -> BoxFuture<'_, AgentResult<JsValue>> {
+        let signal = context.map(|context| context.signal().clone());
         self.push(format!(
-            "{} fetchCatalog {}",
+            "{} fetchCatalog {} {}",
             self.provider,
-            options_json(&options)
+            options_json(&options),
+            if signal.is_some() {
+                "signal"
+            } else {
+                "no signal"
+            }
         ));
         let item = self.next("fetchCatalog");
-        let signal = context.map(|context| context.signal().clone());
         Box::pin(async move { respond(item, parse(CATALOG).expect("catalog"), signal).await })
     }
     fn is_available(
         &self,
-        _signal: Option<AbortSignal>,
+        signal: Option<AbortSignal>,
         options: Option<FetchCatalogOptions>,
     ) -> BoxFuture<'_, AgentResult<bool>> {
         let options = options
             .as_ref()
             .map_or_else(|| "undefined".to_owned(), options_json);
-        self.push(format!("{} isAvailable {options}", self.provider));
+        self.push(format!(
+            "{} isAvailable {options} {}",
+            self.provider,
+            if signal.is_some() {
+                "signal"
+            } else {
+                "no signal"
+            }
+        ));
         let item = self.next("isAvailable");
         Box::pin(async move {
             Ok(matches!(
