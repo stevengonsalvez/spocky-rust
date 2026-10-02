@@ -11,13 +11,10 @@ sha1 = "0.10.7"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
-spocky-store = { path = "../spocky-store" }
-tokio = { version = "1.53.1", features = ["sync", "time", "rt", "macros", "process", "io-util"] }
-uuid = { version = "1.26.1", features = ["v4"] }
 
 [dev-dependencies]
 sha2 = "0.10.9"
-tokio = { version = "1.53.1", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "process", "io-util"] }
+uuid = { version = "1.26.1", features = ["v4"] }
 
 [lints.rust]
 unsafe_code = "forbid"

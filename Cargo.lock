@@ -5659,8 +5659,6 @@ dependencies = [
  "spocky-contracts",
  "spocky-provider-codex",
  "spocky-session",
- "spocky-store",
- "tokio",
  "uuid",
 ]
 
