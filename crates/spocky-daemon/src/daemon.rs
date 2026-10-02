@@ -37,7 +37,10 @@ use crate::pid_lock::{
 use crate::server::{ListenHandle, Server, ServerConfig, ServerDeps, Timeouts};
 use crate::server_id::get_or_create_server_id;
 use crate::session_api::{ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SocketId};
-use spocky_contracts::ws::{DaemonPermission, ServerId};
+use spocky_contracts::text::JsText;
+use spocky_contracts::ws::{
+    DaemonPermission, ServerCapabilities, ServerCapabilityState, ServerId, ServerVoiceCapabilities,
+};
 
 /// `@getpaseo/server` version at the pinned commit; reported in `server_info`.
 pub const DAEMON_VERSION: &str = "0.10.0";
@@ -375,6 +378,53 @@ fn resolve_target(
     Ok(target)
 }
 
+/// `resolveOptionalBooleanFlag(firstSpeechDefinedValue([env, persisted]))`: a
+/// defined environment string wins over the persisted boolean, a string is
+/// trimmed and lower-cased, and anything unrecognized or absent is `true`.
+fn speech_flag(environment: Option<&str>, persisted: Option<bool>) -> bool {
+    if let Some(text) = environment {
+        // Only the false words switch it off; any other text reads as unset.
+        return !matches!(
+            js::trim(text).to_lowercase().as_str(),
+            "0" | "false" | "no" | "n" | "off"
+        );
+    }
+    persisted.unwrap_or(true)
+}
+
+/// `buildServerCapabilities` for a daemon whose speech runtime is switched off in
+/// config: both capabilities report why they are disabled. With either feature
+/// on, the baseline reports the speech runtime's readiness (models, download
+/// state), which this daemon does not have; capabilities are then omitted.
+fn speech_capabilities(
+    env: &DaemonEnv,
+    persisted: &crate::config_file::PersistedDaemonConfig,
+) -> Option<ServerCapabilities> {
+    let dictation = speech_flag(
+        env.get("PASEO_DICTATION_ENABLED"),
+        persisted.dictation_enabled,
+    );
+    let voice = speech_flag(
+        env.get("PASEO_VOICE_MODE_ENABLED"),
+        persisted.voice_mode_enabled,
+    );
+    if dictation || voice {
+        return None;
+    }
+    Some(ServerCapabilities {
+        voice: ServerVoiceCapabilities {
+            dictation: ServerCapabilityState {
+                enabled: false,
+                reason: JsText::new("Dictation is disabled in daemon config."),
+            },
+            voice: ServerCapabilityState {
+                enabled: false,
+                reason: JsText::new("Realtime voice is disabled in daemon config."),
+            },
+        },
+    })
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one port of the bootstrap start sequence, kept in pinned order"
@@ -442,7 +492,7 @@ fn start_after_lock(
             advertise_daemon_status_rpc: true,
             advertise_relay_config: true,
             start_paused: false,
-            capabilities: None,
+            capabilities: speech_capabilities(env, persisted),
             timeouts: Timeouts::default(),
         },
         ServerDeps {
@@ -560,3 +610,60 @@ impl RunningDaemon {
 
 /// How long the baseline waits for a graceful stop before it exits 1.
 pub const FORCE_EXIT_AFTER: Duration = Duration::from_secs(10);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config_file::PersistedDaemonConfig;
+
+    #[test]
+    fn speech_flags_follow_the_baseline_boolean_parsing() {
+        // Environment text wins over the persisted value, once trimmed and lower-cased.
+        assert!(!speech_flag(Some(" OFF "), Some(true)));
+        assert!(!speech_flag(Some("0"), None));
+        assert!(speech_flag(Some("Yes"), Some(false)));
+        // Text it does not recognize, even empty, is unset and so true.
+        assert!(speech_flag(Some(""), Some(false)));
+        assert!(speech_flag(Some("maybe"), Some(false)));
+        // No environment value: the persisted one, defaulting to true.
+        assert!(!speech_flag(None, Some(false)));
+        assert!(speech_flag(None, None));
+    }
+
+    #[test]
+    fn capabilities_are_reported_only_when_both_speech_features_are_off() {
+        let env = |vars: &[(&str, &str)]| {
+            DaemonEnv::new(
+                vars.iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                    .collect(),
+                PathBuf::from("/"),
+                None,
+            )
+        };
+        let off = PersistedDaemonConfig {
+            dictation_enabled: Some(false),
+            voice_mode_enabled: Some(false),
+            ..PersistedDaemonConfig::default()
+        };
+        assert!(speech_capabilities(&env(&[]), &off).is_some());
+        assert!(speech_capabilities(&env(&[]), &PersistedDaemonConfig::default()).is_none());
+        let dictation_only = PersistedDaemonConfig {
+            dictation_enabled: Some(false),
+            ..PersistedDaemonConfig::default()
+        };
+        assert!(speech_capabilities(&env(&[]), &dictation_only).is_none());
+        // The environment turns a feature back on.
+        assert!(speech_capabilities(&env(&[("PASEO_VOICE_MODE_ENABLED", "true")]), &off).is_none());
+        assert!(
+            speech_capabilities(
+                &env(&[
+                    ("PASEO_DICTATION_ENABLED", "no"),
+                    ("PASEO_VOICE_MODE_ENABLED", "off")
+                ]),
+                &PersistedDaemonConfig::default()
+            )
+            .is_some()
+        );
+    }
+}
