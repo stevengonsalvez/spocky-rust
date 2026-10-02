@@ -5,7 +5,8 @@
 //! the files are the original's), and the test adds the other shapes an
 //! old home holds: a record at the home root, a corrupt file, a record
 //! that fails the schema, a non-JSON file, a nested directory, and the
-//! same id in two project directories. Node loads a copy of that home and
+//! same id in two project directories, and names whose byte order differs
+//! from case-folded or locale order. Node loads a copy of that home and
 //! so does Rust. `list()` (order included), `get` hits and misses, and the
 //! file tree afterwards must match.
 //!
@@ -52,12 +53,20 @@ await writer.upsert(record("a1", "/work/alpha"));
 await writer.upsert(record("a2", "/work/alpha", { archivedAt: "2026-09-21T00:00:00.000Z", internal: true, lastStatus: "idle", labels: {} }));
 await writer.upsert(record("b1", "/work/beta project", { owner: { kind: "user" }, lastError: "boom", requiresAttention: true, attentionReason: "error", attentionTimestamp: "2026-09-20T09:06:00.000Z" }));
 await writer.upsert(record("c1", "/", { title: null, config: null, runtimeInfo: undefined, features: undefined }));
+// Project directories whose names differ in byte order from case-folded
+// or locale order: uppercase before lowercase, non-ASCII last.
+await writer.upsert(record("u1", "/Work/Zeta"));
+await writer.upsert(record("u2", "/work/zeta"));
+await writer.upsert(record("u3", "/work/\u00e9clair"));
 const put = (relative, text) => {
   const file = path.join(seed, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
 };
 put("legacy-root.json", JSON.stringify(record("r1", "/legacy/root"), null, 2));
+put("Upper-root.json", JSON.stringify(record("r2", "/legacy/upper"), null, 2));
+put("lower-root.json", JSON.stringify(record("r3", "/legacy/lower"), null, 2));
+put("\u00e9-root.json", JSON.stringify(record("r4", "/legacy/accent"), null, 2));
 put("corrupt/zz-corrupt.json", "{ not json");
 put("invalid/zz-invalid.json", JSON.stringify({ id: "bad", provider: "codex" }));
 put("notes.txt", "not a record");
@@ -82,7 +91,7 @@ await storage.initialize();
 const list = await storage.list();
 const out = {
   list,
-  get: [await storage.get("a1"), await storage.get("d1"), await storage.get("bad"), await storage.get("deep")],
+  get: [await storage.get("a1"), await storage.get("d1"), await storage.get("bad"), await storage.get("deep"), await storage.get("u1"), await storage.get("r4")],
   tree: tree(nodeHome),
 };
 process.stdout.write(JSON.stringify(out));
@@ -134,7 +143,7 @@ async fn rust_output(seed: &Path, home: &Path) -> String {
     let mut out = JsObject::new();
     out.insert("list", JsValue::Array(storage.list().await));
     let mut gets = Vec::new();
-    for id in ["a1", "d1", "bad", "deep"] {
+    for id in ["a1", "d1", "bad", "deep", "u1", "r4"] {
         gets.push(storage.get(id).await.unwrap_or(JsValue::Null));
     }
     out.insert("get", JsValue::Array(gets));
