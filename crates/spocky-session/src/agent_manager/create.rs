@@ -934,6 +934,16 @@ impl AgentManager {
         config: &JsValue,
         purpose: AgentResumePurpose,
     ) -> Result<JsValue, AgentError> {
+        self.normalize_config_with(config, purpose, true).await
+    }
+
+    /// `normalizeConfig(config, { purpose, resolveDefaultModel })`.
+    pub(super) async fn normalize_config_with(
+        &self,
+        config: &JsValue,
+        purpose: AgentResumePurpose,
+        resolve_default_model: bool,
+    ) -> Result<JsValue, AgentError> {
         let mut normalized = spread(Some(config));
         if let Some(cwd) = normalized.get("cwd").filter(|cwd| truthy(Some(cwd))) {
             let resolved = crate::paths::resolve_from_cwd(&js_string(Some(cwd)));
@@ -953,7 +963,7 @@ impl AgentManager {
                 },
             );
         }
-        if !truthy(normalized.get("model")) {
+        if resolve_default_model && !truthy(normalized.get("model")) {
             let normalized_value = JsValue::Object(normalized.clone());
             if let Some(default_model) = self.resolve_default_model_id(&normalized_value).await {
                 normalized.insert("model", JsValue::String(default_model));
