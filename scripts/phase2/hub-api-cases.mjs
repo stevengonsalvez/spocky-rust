@@ -355,10 +355,13 @@ add("body/validateTrigger/lone-low-surrogate-yaml", "handle", request("validateT
   operation: { result: RESULTS.validateTrigger.valid },
 });
 add("body/dispatchManualRun/lone-surrogate-actor", "handle", request("dispatchManualRun", {
-  body: text('{"projectSlug":"p","trigger":"t","actor":"a\\ud800b","deliveryKey":"d"}'),
+  body: text('{"projectSlug":"p","trigger":"t","actor":"a\\ud800b","deliveryKey":"d","input":{}}'),
+}), { operation: { result: RESULTS.dispatchManualRun.running } });
+add("body/dispatchManualRun/lone-surrogate-input", "handle", request("dispatchManualRun", {
+  body: text('{"projectSlug":"p","trigger":"t","actor":"a","deliveryKey":"d","input":{"k":"a\\ud800b"}}'),
 }), { operation: { result: RESULTS.dispatchManualRun.running } });
 add("body/dispatchManualRun/lone-surrogate-project-slug", "handle", request("dispatchManualRun", {
-  body: text('{"projectSlug":"p\\ud800q","trigger":"t","actor":"a","deliveryKey":"d"}'),
+  body: text('{"projectSlug":"p\\ud800q","trigger":"t","actor":"a","deliveryKey":"d","input":{}}'),
 }), { operation: { result: RESULTS.dispatchManualRun.running } });
 // About 1 MB of nesting must neither crash nor change the answer.
 for (const [name, body] of [
