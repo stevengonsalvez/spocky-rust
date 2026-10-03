@@ -42,6 +42,14 @@ pub struct UnarchiveUpdates {
     pub labels: Option<JsValue>,
 }
 
+/// `updateAgentMetadata`'s `updates`.
+#[derive(Debug, Clone, Default)]
+pub struct AgentMetadataUpdates {
+    pub title: Option<String>,
+    /// A label patch (`Record<string, string>`).
+    pub labels: Option<JsValue>,
+}
+
 /// `detachAgent`'s result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetachedAgent {
@@ -614,6 +622,111 @@ impl AgentManager {
         Ok(())
     }
 
+    /// `setLabels(agentId, labels)`: applies the label patch to a live agent.
+    ///
+    /// # Errors
+    ///
+    /// An unknown agent, or the snapshot's persist error.
+    pub async fn set_labels(&self, agent_id: &str, labels: &JsValue) -> Result<(), AgentError> {
+        let _turn = self.lane_lock(agent_id).await;
+        let id = {
+            let state = self.lock();
+            Self::require_agent(&state, agent_id)?.snapshot.id.clone()
+        };
+        self.write_labels(&id, labels).await?;
+        Ok(())
+    }
+
+    /// `updateAgentMetadata(agentId, updates)`: a live agent gets its title
+    /// and label patch through the manager; a stored one has its record
+    /// rewritten.
+    ///
+    /// # Errors
+    ///
+    /// Missing storage or record, or a failed write.
+    pub async fn update_agent_metadata(
+        &self,
+        agent_id: &str,
+        updates: AgentMetadataUpdates,
+    ) -> Result<(), AgentError> {
+        let _turn = self.lane_lock(agent_id).await;
+        if self.get_agent(agent_id).is_some() {
+            if let Some(title) = updates.title.as_deref().filter(|title| !title.is_empty()) {
+                self.set_title(agent_id, title).await?;
+            }
+            if let Some(labels) = &updates.labels {
+                self.write_labels(agent_id, labels).await?;
+            }
+            return Ok(());
+        }
+        self.write_stored_metadata(agent_id, updates.title.as_deref(), updates.labels.as_ref())
+            .await?;
+        Ok(())
+    }
+
+    /// `markAgentUnread(agentId)`: a finished, read agent needs attention
+    /// again.
+    ///
+    /// # Errors
+    ///
+    /// `Agent is no longer finished and read: <id>`, missing storage, or a
+    /// failed write.
+    pub async fn mark_agent_unread(&self, agent_id: &str) -> Result<(), AgentError> {
+        let not_finished =
+            || AgentError::new(format!("Agent is no longer finished and read: {agent_id}"));
+        let live = {
+            let mut state = self.lock();
+            match state.agent_mut(agent_id) {
+                Some(agent) => {
+                    let can_mark = agent.snapshot.lifecycle == AgentLifecycle::Idle
+                        && matches!(agent.snapshot.attention, AgentAttention::None)
+                        && agent.snapshot.pending_permissions.is_empty();
+                    if !can_mark {
+                        return Err(not_finished());
+                    }
+                    agent.snapshot.attention = AgentAttention::Required {
+                        reason: "finished".to_owned(),
+                        timestamp_millis: now_millis(),
+                    };
+                    true
+                }
+                None => false,
+            }
+        };
+        if live {
+            self.persist_snapshot(agent_id, SnapshotOverrides::default())
+                .await?;
+            self.emit_state(agent_id, false);
+            return Ok(());
+        }
+        let registry = self.require_registry()?;
+        let record = registry.get(agent_id).await;
+        let finished_status = record
+            .as_ref()
+            .and_then(|record| record.get("lastStatus"))
+            .and_then(JsValue::as_str)
+            .is_some_and(|status| status == "idle" || status == "closed");
+        let Some(record) = record.filter(|record| {
+            !truthy(record.get("internal"))
+                && !truthy(record.get("archivedAt"))
+                && !truthy(record.get("requiresAttention"))
+        }) else {
+            return Err(not_finished());
+        };
+        if !finished_status {
+            return Err(not_finished());
+        }
+        let updated_at = next_stored_updated_at(&record)?;
+        let mut next = spread(Some(&record));
+        next.insert("updatedAt", JsValue::String(updated_at.clone()));
+        next.insert("requiresAttention", JsValue::Bool(true));
+        next.insert("attentionReason", JsValue::String("finished".to_owned()));
+        next.insert("attentionTimestamp", JsValue::String(updated_at));
+        let next = JsValue::Object(next);
+        registry.upsert(next.clone()).await.map_err(storage_error)?;
+        self.dispatch_stored_agent_state(&next)
+    }
+
     /// `detachAgent(agentId)`.
     ///
     /// # Errors
@@ -700,20 +813,38 @@ impl AgentManager {
                 None => None,
             });
         }
+        self.write_stored_metadata(agent_id, None, Some(patch))
+            .await
+            .map(Some)
+    }
+
+    /// `writeStoredMetadata(agentId, patch)`: the stored record with a new
+    /// title and label patch, and a later `updatedAt`.
+    async fn write_stored_metadata(
+        &self,
+        agent_id: &str,
+        title: Option<&str>,
+        labels: Option<&JsValue>,
+    ) -> Result<JsValue, AgentError> {
         let registry = self.require_registry()?;
         let record = registry
             .get(agent_id)
             .await
             .ok_or_else(|| not_found(agent_id))?;
         let mut next = spread(Some(&record));
-        next.insert("labels", apply_label_patch(record.get("labels"), patch));
+        if let Some(title) = title.filter(|title| !title.is_empty()) {
+            next.insert("title", JsValue::String(title.to_owned()));
+        }
+        if let Some(labels) = labels {
+            next.insert("labels", apply_label_patch(record.get("labels"), labels));
+        }
         next.insert(
             "updatedAt",
             JsValue::String(next_stored_updated_at(&record)?),
         );
         let next = JsValue::Object(next);
         registry.upsert(next.clone()).await.map_err(storage_error)?;
-        Ok(Some(next))
+        Ok(next)
     }
 
     /// `syncNativeArchiveState(provider, persistence, state)`: a failed
