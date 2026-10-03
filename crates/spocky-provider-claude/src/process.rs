@@ -82,6 +82,50 @@ pub struct SpawnFailure {
     pub message: String,
 }
 
+/// libuv's name for an errno value (`uv_err_name`), for the codes a spawn
+/// reports.
+fn errno_name(number: i32) -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    const PLATFORM: [(i32, &str); 5] = [
+        (11, "EDEADLK"),
+        (35, "EAGAIN"),
+        (62, "ELOOP"),
+        (63, "ENAMETOOLONG"),
+        (45, "ENOTSUP"),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    const PLATFORM: [(i32, &str); 5] = [
+        (11, "EAGAIN"),
+        (40, "ELOOP"),
+        (36, "ENAMETOOLONG"),
+        (35, "EDEADLK"),
+        (95, "ENOTSUP"),
+    ];
+    const COMMON: [(i32, &str); 16] = [
+        (1, "EPERM"),
+        (2, "ENOENT"),
+        (3, "ESRCH"),
+        (4, "EINTR"),
+        (5, "EIO"),
+        (7, "E2BIG"),
+        (8, "ENOEXEC"),
+        (9, "EBADF"),
+        (12, "ENOMEM"),
+        (13, "EACCES"),
+        (20, "ENOTDIR"),
+        (21, "EISDIR"),
+        (22, "EINVAL"),
+        (23, "ENFILE"),
+        (24, "EMFILE"),
+        (30, "EROFS"),
+    ];
+    COMMON
+        .iter()
+        .chain(PLATFORM.iter())
+        .find(|(value, _)| *value == number)
+        .map(|(_, name)| *name)
+}
+
 fn is_executable_file(path: &std::path::Path) -> Result<(), &'static str> {
     use std::os::unix::fs::PermissionsExt;
     match std::fs::metadata(path) {
@@ -159,9 +203,18 @@ impl ChildProcess {
         if let Some(cwd) = &request.cwd {
             command.current_dir(cwd);
         }
-        let mut child = command.spawn().map_err(|error| SpawnFailure {
-            code: None,
-            message: error.to_string(),
+        let mut child = command.spawn().map_err(|error| {
+            // Node's `error` event: `spawn <file> <errno name>`.
+            match error.raw_os_error().and_then(errno_name) {
+                Some(code) => SpawnFailure {
+                    message: format!("spawn {} {code}", request.command),
+                    code: Some(code.to_owned()),
+                },
+                None => SpawnFailure {
+                    code: None,
+                    message: error.to_string(),
+                },
+            }
         })?;
         let process = Rc::new(Self {
             pid: child.id(),
