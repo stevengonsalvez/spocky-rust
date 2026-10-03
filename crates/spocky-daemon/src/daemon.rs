@@ -659,11 +659,17 @@ fn start_after_lock(
         logger: Arc::clone(logger),
         backend,
     };
-    if let Err(message) = daemon.backend.listening(&bound_target) {
+    if let Err(error) = daemon.backend.listening_error(&bound_target) {
         // The `start()` catch of `bootstrap.ts` undoes the start without a log
         // line; the worker then logs the rejection.
         daemon.abort_start();
-        return Err(start_rejected(logger, fail(message)));
+        let stack = error
+            .stack
+            .unwrap_or_else(|| format!("{}: {}", error.name, error.message));
+        return Err(start_rejected(
+            logger,
+            thrown(&error.name, error.message, stack, error.properties),
+        ));
     }
     logger.info(&[("listen", &daemon.listen)], "Server listening");
     if let Err(error) = publish(paseo_home, &patch) {
