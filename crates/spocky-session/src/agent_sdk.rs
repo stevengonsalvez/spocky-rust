@@ -61,6 +61,15 @@ impl AgentError {
         }
     }
 
+    /// An error of the baseline subclass `name` (`error.name`) with `message`.
+    #[must_use]
+    pub fn named(name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            message: message.into(),
+        }
+    }
+
     /// `new StaleProviderSessionError(sessionId)` from
     /// `stale-provider-session-error.ts`.
     #[must_use]
