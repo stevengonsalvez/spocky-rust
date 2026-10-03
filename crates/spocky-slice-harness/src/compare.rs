@@ -22,7 +22,10 @@ use crate::normalize::{
     SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
     preimage_digests, receipt_key, root_slug, rules_for, value_classes,
 };
-use crate::persistence::{PERSISTENCE_GATE, PERSISTENCE_TRANSFORM, without_enrichment_race};
+use crate::persistence::{
+    PERSISTENCE_GATE, PERSISTENCE_TRANSFORM, STORED_RACE_TRANSFORM, is_g4_gate,
+    without_enrichment_race, without_stored_race,
+};
 use crate::side::{CapturedFile, Exit, GateSpec, SideRun, StepRun, failed_checks};
 
 fn step_artifacts(prefix: &str, step: &StepRun, out: &mut Vec<Artifact>) {
@@ -673,6 +676,8 @@ struct Prepared {
     persistence: Vec<String>,
     /// Bare heartbeat pongs removed, per step stdout.
     pongs: Vec<(String, usize)>,
+    /// Stored creation records whose full handle was rewritten.
+    stored: Vec<String>,
 }
 
 /// The side as it is compared: on g4-retry, with the bare heartbeat pongs
@@ -683,6 +688,7 @@ fn prepared(gate: &GateSpec, side: &SideRun) -> Prepared {
         run: side.clone(),
         persistence: Vec::new(),
         pongs: Vec::new(),
+        stored: Vec::new(),
     };
     if gate.id == HEARTBEAT_GATE {
         (prepared.run, prepared.pongs) = without_heartbeat_pongs(&prepared.run);
@@ -691,6 +697,37 @@ fn prepared(gate: &GateSpec, side: &SideRun) -> Prepared {
         (prepared.run, prepared.persistence) = without_enrichment_race(&prepared.run);
     }
     prepared
+}
+
+/// Both sides as they are compared. The stored persistence race class looks
+/// at the two sides together, so it runs after each side is prepared.
+fn prepared_pair(gate: &GateSpec, left: &SideRun, right: &SideRun) -> (Prepared, Prepared) {
+    let (mut l, mut r) = (prepared(gate, left), prepared(gate, right));
+    if is_g4_gate(gate.id) {
+        let ((left_run, left_stored), (right_run, right_stored)) =
+            without_stored_race(&l.run, &r.run);
+        (l.run, l.stored) = (left_run, left_stored);
+        (r.run, r.stored) = (right_run, right_stored);
+    }
+    (l, r)
+}
+
+/// Describes the stored persistence race transform; `None` when it changed
+/// nothing.
+fn stored_race_transform(left: &[String], right: &[String]) -> Option<Transform> {
+    if left.is_empty() && right.is_empty() {
+        return None;
+    }
+    let mut changed: Vec<String> = left.iter().map(|path| format!("left:{path}")).collect();
+    changed.extend(right.iter().map(|path| format!("right:{path}")));
+    Some(Transform {
+        id: STORED_RACE_TRANSFORM.into(),
+        target: "G4 gates: paseo-home/creations/*.json at /snapshot/agent/persistence only: where one side stored the minimal handle {provider, sessionId, metadata: {cwd}} and the other the full handle, the full one is rewritten to the minimal shape of its own provider, sessionId and cwd, so any difference in those three fields still fails; any other shape, and every other byte, is compared raw".into(),
+        reason: "the pinned daemon stores the minimal handle in about 33 of 35 observations and the full one in 2, both under load; spocky stored minimal in 10 of 10 (g4-http500-20261003T220654Z parity)".into(),
+        owner: "p3_slice_harness".into(),
+        raw_retained: "left-*/side.json and right-*/side.json state, and files/paseo-home/creations".into(),
+        reordered: changed,
+    })
 }
 
 /// Describes the heartbeat pong transform with the removed count per side;
@@ -730,6 +767,10 @@ fn transforms_of(
         &prepared.1.persistence,
     ));
     transforms.extend(heartbeat_transform(&prepared.0.pongs, &prepared.1.pongs));
+    transforms.extend(stored_race_transform(
+        &prepared.0.stored,
+        &prepared.1.stored,
+    ));
     transforms
 }
 
@@ -773,7 +814,7 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
     });
     let harness_errors = labelled(left, right, |side| side.harness_errors.clone());
     let (left_probe, right_probe) = git_probe_strips(left, right);
-    let (left_prepared, right_prepared) = (prepared(gate, left), prepared(gate, right));
+    let (left_prepared, right_prepared) = prepared_pair(gate, left, right);
     let (left_artifacts, left_state, left_counts) =
         prepare_side(gate, &left_prepared.run, &left_probe);
     let (right_artifacts, right_state, right_counts) =
@@ -1759,5 +1800,98 @@ mod tests {
             changed.steps[0].stdout,
             b"{\"o\":1}\n\xff\xfe raw \xc3(\n\xe2\x28\xa1 tail\r\n".to_vec()
         );
+    }
+
+    fn g4_gate() -> GateSpec {
+        let mut gate = gate_with(Vec::new());
+        gate.id = "g4-x";
+        gate
+    }
+
+    /// A stored creation record with `handle` at /snapshot/agent/persistence
+    /// and, when given, `other` at /snapshot/other/persistence.
+    fn with_creation(mut side: SideRun, handle: &str, other: Option<&str>) -> SideRun {
+        let extra = other.map_or(String::new(), |other| {
+            format!(r#","other":{{"persistence":{other}}}"#)
+        });
+        let record: Value = serde_json::from_str(&format!(
+            r#"{{"fingerprint":"f","snapshot":{{"agent":{{"id":"a","createdAt":"2020-01-02T03:04:05.000Z","persistence":{handle}}}{extra}}}}}"#
+        ))
+        .unwrap();
+        side.state.push(CapturedFile {
+            path: "paseo-home/creations/c1.json".into(),
+            bytes: format!("{}\n", serde_json::to_string_pretty(&record).unwrap()).into_bytes(),
+        });
+        side
+    }
+
+    fn stored_verdict(
+        gate: &GateSpec,
+        left: (&str, Option<&str>),
+        right: (&str, Option<&str>),
+    ) -> Outcome {
+        let (l, r) = pair();
+        compare_sides(
+            gate,
+            &with_creation(l, left.0, left.1),
+            &with_creation(r, right.0, right.1),
+        )
+    }
+
+    #[test]
+    fn the_stored_race_passes_either_way_on_g4_gates_and_is_named() {
+        let outcome = stored_verdict(&g4_gate(), (FULL_HANDLE, None), (MIN_HANDLE, None));
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
+        let named = |outcome: &Outcome| {
+            outcome
+                .verdict
+                .transforms
+                .iter()
+                .find(|t| t.id == STORED_RACE_TRANSFORM)
+                .map(|t| t.reordered.clone())
+        };
+        assert_eq!(
+            named(&outcome),
+            Some(vec!["left:paseo-home/creations/c1.json".to_owned()])
+        );
+        let outcome = stored_verdict(&g4_gate(), (MIN_HANDLE, None), (FULL_HANDLE, None));
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
+        assert_eq!(
+            named(&outcome),
+            Some(vec!["right:paseo-home/creations/c1.json".to_owned()])
+        );
+        // Minimal on both sides needs no transform.
+        let outcome = stored_verdict(&g4_gate(), (MIN_HANDLE, None), (MIN_HANDLE, None));
+        assert!(outcome.verdict.pass);
+        assert_eq!(named(&outcome), None);
+    }
+
+    #[test]
+    fn a_third_shape_or_a_different_session_fails_the_stored_race() {
+        let third = r#"{"provider":"codex","sessionId":"s1","nativeHandle":"s1","extra":1,"metadata":{"provider":"codex","cwd":"/p"}}"#;
+        let other_session = r#"{"provider":"codex","sessionId":"s2","nativeHandle":"s2","metadata":{"provider":"codex","cwd":"/p","title":null,"threadId":"s2"}}"#;
+        let other_cwd = FULL_HANDLE.replace("\"cwd\":\"/p\"", "\"cwd\":\"/q\"");
+        for odd in [third, other_session, other_cwd.as_str()] {
+            let outcome = stored_verdict(&g4_gate(), (odd, None), (MIN_HANDLE, None));
+            assert!(!outcome.verdict.pass, "{odd}");
+        }
+    }
+
+    #[test]
+    fn the_stored_race_does_not_apply_elsewhere() {
+        // Another path in the record is compared raw.
+        let outcome = stored_verdict(
+            &g4_gate(),
+            (MIN_HANDLE, Some(FULL_HANDLE)),
+            (MIN_HANDLE, Some(MIN_HANDLE)),
+        );
+        assert!(!outcome.verdict.pass);
+        // Another gate compares the two shapes raw.
+        let outcome = stored_verdict(
+            &gate_with(Vec::new()),
+            (FULL_HANDLE, None),
+            (MIN_HANDLE, None),
+        );
+        assert!(!outcome.verdict.pass);
     }
 }
