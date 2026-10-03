@@ -15,7 +15,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::atomic::write_json_atomic;
-use crate::js_value::{JsObject, JsValue, parse, stringify_pretty};
+use crate::js_value::{JsObject, JsValue, js_text_to_utf8, parse, stringify_pretty};
 use crate::{RecordError, StoreError, cwd_key};
 
 const AGENT_STATUSES: [&str; 5] = ["initializing", "idle", "running", "error", "closed"];
@@ -664,7 +664,10 @@ pub fn write_record_file(base: &Path, record: &JsValue) -> Result<PathBuf, Store
         .get("cwd")
         .and_then(JsValue::as_str)
         .ok_or(StoreError::MissingString("cwd"))?;
-    let path = base.join(cwd_key(cwd)).join(format!("{id}.json"));
+    // `cwd` and `id` are JavaScript text; node encodes the path to UTF-8.
+    let path = base
+        .join(js_text_to_utf8(&cwd_key(cwd)))
+        .join(js_text_to_utf8(&format!("{id}.json")));
     write_json_atomic(&path, &stringify_pretty(record))?;
     Ok(path)
 }
@@ -714,7 +717,34 @@ fn read_record(path: &Path) -> Result<JsValue, String> {
 mod tests {
     use std::os::unix::ffi::OsStrExt;
 
-    use super::sorted_entries;
+    use super::{sorted_entries, write_record_file};
+    use crate::js_value::{JsObject, JsValue, js_text_from_utf16};
+
+    /// A record whose `cwd` and `id` hold a lone surrogate is written under
+    /// the UTF-8 names node's `fs` gives it: U+FFFD.
+    #[test]
+    fn record_path_encodes_a_lone_surrogate_as_node_does() {
+        let base = std::env::temp_dir().join(format!("spocky-record-js-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let lone = js_text_from_utf16(&[0xD800]);
+        let mut record = JsObject::new();
+        record.insert("id", JsValue::String(format!("a{lone}")));
+        record.insert("cwd", JsValue::String(format!("/w/{lone}")));
+        record.insert("provider", JsValue::String("codex".to_owned()));
+        let path = write_record_file(&base, &JsValue::Object(record)).expect("written");
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("a\u{FFFD}.json")
+        );
+        assert!(path.is_file());
+        assert!(
+            path.parent()
+                .and_then(|directory| directory.file_name())
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.contains('\u{FFFD}'))
+        );
+        std::fs::remove_dir_all(&base).expect("cleanup");
+    }
 
     /// libuv's `uv__fs_scandir_sort` is `strcmp` on the raw name bytes: no
     /// locale, no case folding, and names that are not UTF-8 sort by byte.
