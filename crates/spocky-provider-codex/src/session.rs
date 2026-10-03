@@ -943,9 +943,7 @@ impl CodexSession {
                 client.notify("initialized", Some(json!({})));
                 self.load_persisted_history(&client)
             });
-        let disposed = client.dispose().map_err(|error| error.message);
-        outcome?;
-        disposed
+        finish_with_dispose(outcome, client.dispose().map_err(|error| error.message))
     }
 
     /// `loadPersistedHistory(client)`: `thread/read` with turns, projected to
@@ -3764,6 +3762,16 @@ fn is_expected_turn_mismatch(message: &str) -> bool {
     !expected.is_empty() && !found.is_empty() && !found.contains('`')
 }
 
+/// The result of a `try { ... } finally { await client.dispose(); }`: when
+/// both fail, the error `dispose()` throws replaces the one from the body.
+fn finish_with_dispose<T>(
+    outcome: Result<T, String>,
+    disposed: Result<(), String>,
+) -> Result<T, String> {
+    disposed?;
+    outcome
+}
+
 /// The native archive state `updateNativeThreadArchiveState` applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeArchiveState {
@@ -3990,10 +3998,7 @@ impl CodexProvider {
         if aborted.load(Ordering::SeqCst) {
             return Err(CATALOG_DEADLINE_MESSAGE.to_owned());
         }
-        let disposed = client.dispose().map_err(|error| error.message);
-        let models = models?;
-        disposed?;
-        Ok(models)
+        finish_with_dispose(models, client.dispose().map_err(|error| error.message))
     }
 
     /// `updateNativeThreadArchiveState(handle, state)`: a short-lived
@@ -4030,9 +4035,7 @@ impl CodexProvider {
                 client.notify("initialized", Some(json!({})));
                 archive_state_requests(&client, thread_id, state)
             });
-        let disposed = client.dispose().map_err(|error| error.message);
-        outcome?;
-        disposed
+        finish_with_dispose(outcome, client.dispose().map_err(|error| error.message))
     }
 
     fn spawner(
@@ -4563,6 +4566,25 @@ mod tests {
             unset_if_empty(Some("gpt-6-astra".to_owned())),
             Some("gpt-6-astra".to_owned())
         );
+    }
+
+    #[test]
+    fn a_dispose_error_replaces_the_body_error() {
+        let body = || Err::<u8, String>("request failed".to_owned());
+        let dispose = || Err("did not exit".to_owned());
+        assert_eq!(
+            finish_with_dispose(body(), dispose()),
+            Err("did not exit".to_owned())
+        );
+        assert_eq!(
+            finish_with_dispose(Ok(7_u8), dispose()),
+            Err("did not exit".to_owned())
+        );
+        assert_eq!(
+            finish_with_dispose(body(), Ok(())),
+            Err("request failed".to_owned())
+        );
+        assert_eq!(finish_with_dispose(Ok(7_u8), Ok(())), Ok(7));
     }
 
     #[test]
