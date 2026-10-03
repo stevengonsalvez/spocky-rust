@@ -1008,8 +1008,16 @@ impl ClaudeQuery for Rc<ProcessQuery> {
     }
 
     fn close(&self) {
+        // `close()` calls the async `cleanup()`, whose body runs synchronously up
+        // to its first await: a control request made right after sees the query
+        // closed. Poll once here, then hand the rest to the local set.
         let query = Rc::clone(self);
-        tokio::task::spawn_local(async move { query.cleanup(None).await });
+        let mut cleanup: LocalBoxFuture<'static, ()> =
+            Box::pin(async move { query.cleanup(None).await });
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        if cleanup.as_mut().poll(&mut context).is_pending() {
+            tokio::task::spawn_local(cleanup);
+        }
     }
 
     fn return_(&self) -> LocalBoxFuture<'static, ()> {
