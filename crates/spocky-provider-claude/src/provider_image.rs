@@ -30,10 +30,23 @@ fn reusable(dir: &Path) -> bool {
         && set_private(dir, 0o700).is_ok()
 }
 
+/// `os.tmpdir()`: `TMPDIR`, `TMP`, `TEMP`, else `/tmp`, without a trailing
+/// slash.
+fn os_tmpdir() -> PathBuf {
+    let path = ["TMPDIR", "TMP", "TEMP"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        .unwrap_or_else(|| "/tmp".to_owned());
+    if path.len() > 1 && path.ends_with('/') {
+        return PathBuf::from(&path[..path.len() - 1]);
+    }
+    PathBuf::from(path)
+}
+
 /// `fs.mkdtempSync(path.join(os.tmpdir(), "paseo-attachments-"))`.
 fn mkdtemp() -> std::io::Result<PathBuf> {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let base = std::env::temp_dir();
+    let base = os_tmpdir();
     loop {
         let bytes = uuid::Uuid::new_v4().into_bytes();
         let suffix: String = bytes
