@@ -21,7 +21,7 @@ use spocky_contracts::request::{
     WaitForFinishRequest,
 };
 use spocky_contracts::session::SessionInbound;
-use spocky_contracts::text::JsText;
+use spocky_contracts::text::{JsText, js_to_lowercase};
 use spocky_contracts::ws::DaemonPermission;
 use spocky_daemon::binary_frames::BinaryFrame;
 use spocky_daemon::listen::ListenTarget;
@@ -1151,7 +1151,7 @@ async fn wait_for_finish(
         Err(_) if context.request_signal.aborted() => {}
         Err(error) => {
             let is_abort =
-                error.name == "AbortError" || error.message.to_lowercase().contains("aborted");
+                error.name == "AbortError" || js_to_lowercase(&error.message).contains("aborted");
             let final_agent = agent_payload_by_id(context, &agent_id).await?;
             if !is_abort {
                 respond(
