@@ -361,7 +361,7 @@ impl AgentManager {
     /// # Errors
     ///
     /// The unknown-agent error, `Agent session does not support setting
-    /// features`, or the session's.
+    /// features`, the `TypeError` for a missing session, or the session's.
     pub async fn set_agent_feature(
         &self,
         agent_id: &str,
@@ -373,10 +373,15 @@ impl AgentManager {
             let agent = Self::require_agent(&state, agent_id)?;
             (agent.snapshot.id.clone(), agent.session.clone())
         };
-        let Some(set_feature) = session
-            .as_ref()
-            .and_then(|session| session.set_feature(feature_id, value.clone()))
-        else {
+        // Every map agent holds a session, so the missing session is the
+        // `TypeError` pinned reading `setFeature` of `null` would throw.
+        let Some(session) = session else {
+            return Err(AgentError {
+                name: "TypeError".to_owned(),
+                message: "Cannot read properties of null (reading 'setFeature')".to_owned(),
+            });
+        };
+        let Some(set_feature) = session.set_feature(feature_id, value.clone()) else {
             return Err(AgentError::new(
                 "Agent session does not support setting features",
             ));
