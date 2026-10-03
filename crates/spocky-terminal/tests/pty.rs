@@ -50,6 +50,9 @@ struct Scenario {
     missing_cwd: bool,
     extra_env: &'static [(&'static str, &'static str)],
     steps: Vec<Step>,
+    /// After the exit event: write, resize, and kill the dead terminal, record
+    /// each outcome, and keep reading output for a while.
+    after_exit: bool,
 }
 
 fn scenario(name: &'static str, file: &'static str, args: &'static [&'static str]) -> Scenario {
@@ -60,6 +63,7 @@ fn scenario(name: &'static str, file: &'static str, args: &'static [&'static str
         missing_cwd: false,
         extra_env: &[],
         steps: Vec::new(),
+        after_exit: false,
     }
 }
 
@@ -135,6 +139,21 @@ fn scenarios() -> Vec<Scenario> {
             "spocky-missing-command-for-pty-test",
             &[],
         ),
+        // A background job keeps the slave open past the exit, so the exit
+        // event waits out node-pty's 200 ms socket timeout and the job's
+        // later output is dropped.
+        Scenario {
+            after_exit: true,
+            ..scenario(
+                "destroy-timeout",
+                "/bin/sh",
+                &["-c", "(sleep 0.6; printf late) & printf early; exit 3"],
+            )
+        },
+        Scenario {
+            after_exit: true,
+            ..scenario("after-exit", "/bin/sh", &["-c", "printf early; exit 3"])
+        },
     ]
 }
 
@@ -162,9 +181,19 @@ p.onData((data) => {
     if (current.kill !== undefined) p.kill(current.kill === null ? undefined : current.kill);
   }
 });
+const finish = (result) => process.stdout.write(JSON.stringify(result), () => process.exit(0));
 p.onExit(({ exitCode, signal }) => {
-  process.stdout.write(JSON.stringify({ out, exitCode, signal }));
-  process.exit(0);
+  if (!s.afterExit) return finish({ out, exitCode, signal });
+  const events = [];
+  const attempt = (name, fn) => {
+    try { fn(); events.push([name, "ok"]); } catch (error) { events.push([name, String(error.message)]); }
+  };
+  attempt("write", () => p.write("x"));
+  attempt("resize", () => p.resize(100, 30));
+  attempt("resize0", () => p.resize(0, 30));
+  attempt("kill", () => p.kill());
+  attempt("killTerm", () => p.kill("SIGTERM"));
+  setTimeout(() => finish({ out, exitCode, signal, events }), 900);
 });
 setTimeout(() => {
   process.stdout.write(JSON.stringify({ out, timeout: true }));
@@ -193,6 +222,7 @@ fn env_for(scenario: &Scenario, cwd: &Path) -> Vec<(String, String)> {
 
 fn scenario_json(scenario: &Scenario, cwd: &Path) -> String {
     let mut object = JsObject::new();
+    object.insert("afterExit", JsValue::Bool(scenario.after_exit));
     object.insert("file", JsValue::String(scenario.file.to_owned()));
     object.insert(
         "args",
@@ -298,14 +328,62 @@ fn run_rust(scenario: &Scenario, cwd: &Path) -> String {
                 }
             }
             PtyEvent::Exit(exit) => {
+                let events = scenario
+                    .after_exit
+                    .then(|| after_exit(&pty, &events, &mut out));
                 let mut object = JsObject::new();
                 object.insert("out", JsValue::String(out));
                 object.insert("exitCode", JsValue::Number(f64::from(exit.exit_code)));
                 object.insert("signal", JsValue::Number(f64::from(exit.signal)));
+                if let Some(events) = events {
+                    object.insert("events", events);
+                }
                 return stringify(&JsValue::Object(object));
             }
         }
     }
+}
+
+/// What the pinned script does after the exit event: poke the dead terminal
+/// and keep reading output for 900 ms.
+fn after_exit(
+    pty: &Pty,
+    events: &std::sync::mpsc::Receiver<PtyEvent>,
+    out: &mut String,
+) -> JsValue {
+    let outcome = |name: &str, result: Result<(), String>| {
+        JsValue::Array(vec![
+            JsValue::String(name.to_owned()),
+            JsValue::String(result.err().unwrap_or_else(|| "ok".to_owned())),
+        ])
+    };
+    pty.write("x");
+    let recorded = vec![
+        outcome("write", Ok(())),
+        outcome(
+            "resize",
+            pty.resize(100, 30).map_err(|error| error.to_string()),
+        ),
+        outcome(
+            "resize0",
+            pty.resize(0, 30).map_err(|error| error.to_string()),
+        ),
+        {
+            pty.kill(None);
+            outcome("kill", Ok(()))
+        },
+        {
+            pty.kill(Some(rustix::process::Signal::TERM));
+            outcome("killTerm", Ok(()))
+        },
+    ];
+    let until = Instant::now() + Duration::from_millis(900);
+    while let Ok(event) = events.recv_timeout(until.saturating_duration_since(Instant::now())) {
+        if let PtyEvent::Data(data) = event {
+            out.push_str(&data);
+        }
+    }
+    JsValue::Array(recorded)
 }
 
 struct TempDir(PathBuf);
