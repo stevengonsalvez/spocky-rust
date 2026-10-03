@@ -12,14 +12,16 @@
 //! order events were dispatched, so a callback may call back into the
 //! manager.
 //!
-//! Ported for the G1 path: provider registry, `createAgent` and
-//! `registerSession`, the session event pipeline with stream coalescing,
-//! `streamAgent`, `runAgent`, `waitForAgentEvent`, `subscribe`, and the
-//! timeline queries. Not ported yet (each is absent here, not stubbed):
-//! plugin lifecycle hooks, the durable timeline store, the Paseo tool
-//! catalog factory, provider sub-agents, resume, import, reload, close,
-//! archive, steer, replace, cancel, rewind, permission responses, and the
-//! per-field setters.
+//! Ported: the provider registry, `createAgent`, `registerSession`, resume,
+//! import, reload, close, archive, steer, replace, cancel, rewind,
+//! permission responses, the per-field setters, the session event pipeline
+//! with stream coalescing, `streamAgent`, `runAgent`, `waitForAgentEvent`,
+//! `subscribe`, the timeline queries and appends, provider sub-agents, the
+//! importable and draft listings, and the metrics snapshot. Not ported yet
+//! (each is absent here, not stubbed): the durable timeline store with its
+//! `deleteCommittedTimeline` and four error logs, the Paseo tool catalog
+//! factory with `setPaseoToolCatalogFactory`, and plugin lifecycle hooks
+//! beyond validating a request.
 
 mod archive;
 mod create;
