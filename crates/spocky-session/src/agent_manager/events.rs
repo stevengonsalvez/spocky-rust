@@ -13,6 +13,7 @@ use spocky_contracts::js::strict_equals;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
+use super::log_error::err_binding;
 use super::run::TrackedRun;
 use super::{AgentAttentionNotice, AgentLifecycle, AgentManager, AgentManagerEvent, State};
 use crate::agent_labels::is_delegated_agent;
@@ -706,13 +707,13 @@ impl AgentManager {
                 .agent(agent_id)
                 .is_some_and(|agent| agent.session.is_some());
             if live
-                && self
-                    .dispatch_session_event_locked(&mut state, agent_id, &event)
-                    .is_err()
+                && let Err(error) = self.dispatch_session_event_locked(&mut state, agent_id, &event)
             {
-                // pino prints the `err` binding, an `Error`, as `{}`.
+                // Logged once the state lock is released, so a sink may call
+                // back into the manager.
+                drop(state);
                 let mut bindings = JsObject::new();
-                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("err", err_binding(&error));
                 bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
                 if let Some(kind) = event
                     .get("type")
@@ -1872,9 +1873,8 @@ impl AgentManager {
         let read = match read_history(history).await {
             Ok(read) => read,
             Err(error) => {
-                // pino prints the `err` binding, an `Error`, as `{}`.
                 let mut bindings = JsObject::new();
-                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("err", err_binding(&error));
                 bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
                 self.emit_warn(
                     JsValue::Object(bindings),

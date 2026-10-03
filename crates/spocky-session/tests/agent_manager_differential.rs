@@ -1128,7 +1128,7 @@ const reloadScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const build = async (name, { provider = "fake", turns = [], specExtra = {}, managerExtra = {} } = {}) => {
     const calls = [];
     const registry = new AgentStorage(`${home}/reload-${name}`, logger);
@@ -1228,7 +1228,7 @@ const reloadScenario = async () => {
 const failureLogsScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const logs = [];
-  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", bindings, message]); }, error(bindings, message) { logs.push(["error", bindings, message]); } };
+  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
   const build = async (name, specExtra, clientsOnly = false) => {
     const calls = [];
     const registry = new AgentStorage(`${home}/failure-${name}`, logger);
@@ -1447,7 +1447,7 @@ const timelineItemsScenario = async () => {
 const availabilityScenario = async () => {
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const manager = new AgentManager({
     logger: warnLogger,
     registry: new AgentStorage(`${home}/availability`, logger),
@@ -1816,7 +1816,7 @@ const archive = async () => {
   for (const [name, id] of Object.entries({ parent: agentId, ...ids })) afterStored[name] = await registry.get(id);
   const byHandleCalls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const byHandleRegistry = new AgentStorage(`${home}/archive-handle`, logger);
   const byHandle = new AgentManager({ logger: warnLogger, registry: byHandleRegistry, clients: { fake: fakeClient(byHandleCalls, spec("fake", { archiveFails: true })) }, providerDefinitions: { fake: { enabled: true } } });
   await byHandle.createAgent({ provider: "fake", cwd }, agentId, { labels: {}, workspaceId: "wks_1" });

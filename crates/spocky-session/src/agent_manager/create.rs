@@ -8,6 +8,7 @@ use std::time::Duration;
 use spocky_contracts::zod::Outcome;
 use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
+use super::log_error::err_binding;
 use super::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
     PaseoToolRuntimeContext, validate_agent_id,
@@ -893,10 +894,9 @@ impl AgentManager {
                         Ok(done) => done.clone(),
                         Err(_) => None,
                     };
-                    if let (Some(Err(_)), Some(warn)) = (late, &manager.inner.log_warn) {
-                        // pino prints the `err` binding, an `Error`, as `{}`.
+                    if let (Some(Err(error)), Some(warn)) = (late, &manager.inner.log_warn) {
                         let mut bindings = JsObject::new();
-                        bindings.insert("err", JsValue::Object(JsObject::new()));
+                        bindings.insert("err", err_binding(&error));
                         bindings.insert("agentId", JsValue::String(agent_id));
                         warn(
                             JsValue::Object(bindings),
@@ -1252,9 +1252,8 @@ impl AgentManager {
         match client.is_available(None, None).await {
             Ok(available) => (provider.to_owned(), available, None),
             Err(error) => {
-                // pino prints the `err` binding, an `Error`, as `{}`.
                 let mut bindings = JsObject::new();
-                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("err", err_binding(&error));
                 bindings.insert("provider", JsValue::String(provider.to_owned()));
                 self.emit_warn(
                     JsValue::Object(bindings),
@@ -1299,10 +1298,9 @@ impl AgentManager {
 
     /// `closeUnregisteredSession`: errors are only logged.
     async fn close_unregistered_session(&self, session: &Arc<dyn AgentSession>) {
-        if session.close().await.is_err() {
-            // pino prints the `err` binding, an `Error`, as `{}`.
+        if let Err(error) = session.close().await {
             let mut bindings = JsObject::new();
-            bindings.insert("err", JsValue::Object(JsObject::new()));
+            bindings.insert("err", err_binding(&error));
             self.emit_warn(
                 JsValue::Object(bindings),
                 "Failed to close unregistered agent session",
