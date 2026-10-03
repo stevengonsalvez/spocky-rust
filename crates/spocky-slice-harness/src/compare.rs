@@ -1747,4 +1747,17 @@ mod tests {
         }
         drop(right);
     }
+
+    #[test]
+    fn the_heartbeat_transform_keeps_the_other_bytes_untouched() {
+        let mut odd = b"{\"o\":1}\n\xff\xfe raw \xc3(\n".to_vec();
+        odd.extend_from_slice(b"{\"type\":\"pong\"}\n\xe2\x28\xa1 tail\r\n{\"type\":\"pong\"}\n");
+        let side = with_wire(pair().0, odd);
+        let (changed, removed) = crate::heartbeat::without_heartbeat_pongs(&side);
+        assert_eq!(removed, [("step-01-run/stdout".to_owned(), 2)]);
+        assert_eq!(
+            changed.steps[0].stdout,
+            b"{\"o\":1}\n\xff\xfe raw \xc3(\n\xe2\x28\xa1 tail\r\n".to_vec()
+        );
+    }
 }
