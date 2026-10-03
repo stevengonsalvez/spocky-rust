@@ -30,7 +30,10 @@
 //! - a decryption or protocol failure closes the transport with 1011 but
 //!   leaves the channel open, so later valid frames are still delivered;
 //! - a daemon re-hello whose key import, key derivation, close, or ready
-//!   send fails falls through to ciphertext decoding of the hello text;
+//!   send fails falls through to ciphertext decoding of the hello text,
+//!   unless the error message contains `plaintext frame`, which closes the
+//!   transport with 1011 and that message instead; a `{` frame whose
+//!   `JSON.parse` error quotes `plaintext frame` closes the same way;
 //! - a daemon hello whose key is rejected leaves every later frame
 //!   buffered and never delivered.
 
@@ -72,6 +75,9 @@ pub const NORMAL_CLOSURE_REASON: &str = "Normal closure";
 pub const ENCRYPTED_PAYLOAD_OVERHEAD_BYTES: u64 = 40;
 
 const PLAINTEXT_FRAME_MESSAGE: &str = "Received plaintext frame on encrypted channel";
+/// The original rethrows any error caught while checking for plaintext
+/// handshake traffic whose message contains this text.
+const RETHROWN_ERROR_TEXT: &str = "plaintext frame";
 const INVALID_HELLO_PREVIEW_LIMIT: usize = 160;
 const INVALID_HELLO_PREVIEW_KEEP: usize = 157;
 
@@ -331,7 +337,8 @@ enum SendStep {
 
 enum RehelloStep {
     Done,
-    Failed,
+    /// The re-hello threw; carries the error message.
+    Failed(String),
     Pending(SendId),
 }
 
@@ -400,9 +407,24 @@ impl<T: Transport> Core<T> {
 
     /// `transport.close(1011, err.message)` inside a swallowing `catch`.
     fn close_for_error(&mut self, error: &ChannelError) {
-        let _ignored = self
-            .transport
-            .close(PROTOCOL_ERROR_CLOSE_CODE, &error.to_string());
+        self.close_with_reason(&error.to_string());
+    }
+
+    fn close_with_reason(&mut self, reason: &str) {
+        let _ignored = self.transport.close(PROTOCOL_ERROR_CLOSE_CODE, reason);
+    }
+
+    /// The catch around the plaintext handshake check: an error whose
+    /// message contains `plaintext frame` is rethrown and closes the
+    /// transport with 1011 and that message. Returns true when it did.
+    fn rethrow_closes(&mut self, message: &[u16]) -> bool {
+        let marker = utf16(RETHROWN_ERROR_TEXT);
+        if !message.windows(marker.len()).any(|window| window == marker) {
+            return false;
+        }
+        // A lone surrogate reaches the WebSocket close frame as U+FFFD.
+        self.close_with_reason(&String::from_utf16_lossy(message));
+        true
     }
 
     /// The ciphertext half of `handleMessage`, after any handshake check.
@@ -438,18 +460,17 @@ impl<T: Transport> Core<T> {
         let Some(daemon_key_pair) = &self.options.daemon_key_pair else {
             return RehelloStep::Done;
         };
-        let Some(JsonValue::String(key)) = hello.get("key") else {
-            return RehelloStep::Failed;
+        let client_public_key = match hello.get("key") {
+            Some(JsonValue::String(key)) => String::from_utf16(key)
+                .map_err(|_| CryptoError::InvalidPublicKeyEncoding)
+                .and_then(|key| import_public_key(&key)),
+            _ => Err(CryptoError::InvalidPublicKeyEncoding),
         };
-        let Ok(key) = String::from_utf16(key) else {
-            return RehelloStep::Failed;
-        };
-        let Ok(client_public_key) = import_public_key(&key) else {
-            return RehelloStep::Failed;
-        };
-        let Ok(retry_key) = derive_shared_key(&daemon_key_pair.secret_key, &client_public_key)
-        else {
-            return RehelloStep::Failed;
+        let retry_key = match client_public_key.and_then(|client_public_key| {
+            derive_shared_key(&daemon_key_pair.secret_key, &client_public_key)
+        }) {
+            Ok(retry_key) => retry_key,
+            Err(error) => return RehelloStep::Failed(error.to_string()),
         };
         if !keys_equal(&retry_key, &self.shared_key) {
             self.state = ChannelState::Closed;
@@ -458,13 +479,13 @@ impl<T: Transport> Core<T> {
                 REHANDSHAKE_KEY_MISMATCH_CLOSE_REASON,
             ) {
                 Ok(()) => RehelloStep::Done,
-                Err(_) => RehelloStep::Failed,
+                Err(error) => RehelloStep::Failed(error.0),
             };
         }
         let ready = ready_frame(self.options.binary_ciphertext);
         match self.transport.send(Data::Text(ready)) {
             SendStatus::Sent => RehelloStep::Done,
-            SendStatus::Failed(_) => RehelloStep::Failed,
+            SendStatus::Failed(error) => RehelloStep::Failed(error.0),
             SendStatus::Pending(id) => RehelloStep::Pending(id),
         }
     }
@@ -760,7 +781,9 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
                 Err(error) => self.fail_flush(&ChannelError::Transport(error)),
             },
             Continuation::Rehello(message) => {
-                if result.is_err() {
+                if let Err(error) = result
+                    && !self.core.rethrow_closes(&utf16(&error.0))
+                {
                     self.deliver_ciphertext(&message);
                 }
             }
@@ -961,7 +984,19 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
         } else {
             let text = decode_transport_text(&message.data);
             if trim(&utf16(&text)).first() == Some(&u16::from(b'{')) {
-                js_json::parse(&text)
+                match js_json::parse_detailed(&text) {
+                    Ok(parsed) => Some(parsed),
+                    Err(error) => {
+                        // V8 quotes the source in some parse errors, so a
+                        // frame can trigger the rethrow by its own text.
+                        if let Some(reason) = error.unexpected_token_message()
+                            && self.core.rethrow_closes(reason)
+                        {
+                            return;
+                        }
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -979,8 +1014,13 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
                             .insert(id, Continuation::Rehello(message));
                         return;
                     }
-                    // A failed re-hello falls through to ciphertext decoding.
-                    RehelloStep::Failed => {}
+                    RehelloStep::Failed(reason) => {
+                        if self.core.rethrow_closes(&utf16(&reason)) {
+                            return;
+                        }
+                        // Otherwise a failed re-hello falls through to
+                        // ciphertext decoding.
+                    }
                 }
             } else if is_ready(&parsed) {
                 return;
