@@ -14,7 +14,7 @@ tokio = { version = "1.53.1", features = ["sync", "rt"] }
 uuid = { version = "1.26.1", features = ["v4"] }
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = ["sync", "rt", "macros"] }
+tokio = { version = "1.53.1", features = ["sync", "rt", "macros", "time"] }
 
 [lints.rust]
 unsafe_code = "forbid"
