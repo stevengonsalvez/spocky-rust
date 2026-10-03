@@ -1817,6 +1817,44 @@ const pluginLifecycleScenario = async () => {
   return { recordingCase, validatingCase };
 };
 
+const traceScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const traces = [];
+  const traceLogger = { ...logger, child() { return this; }, trace(bindings, message) { traces.push([JSON.parse(JSON.stringify(bindings)), message]); } };
+  const calls = [];
+  const manager = new AgentManager({
+    logger: traceLogger,
+    registry: new AgentStorage(`${home}/trace`, logger),
+    clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.ask, scripted.long, scripted.failed, scripted.coalesce, scripted.startSlowDone], response: scripted.response, interrupt: scripted.interrupt })) },
+    providerDefinitions: { fake: { enabled: true } },
+  });
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  await manager.createAgent({ provider: "fake", cwd, title: "Traced" }, agentId, { workspaceId: "wks_1" });
+  const second = manager.streamAgent(agentId, "remove x");
+  const secondEvents = [(await second.next()).value];
+  await manager.waitForAgentEvent(agentId);
+  await manager.respondToPermission(agentId, "perm-1", { behavior: "allow" });
+  await collect(second, secondEvents);
+  await sleep(100);
+  const third = manager.streamAgent(agentId, "long task");
+  const thirdEvents = [(await third.next()).value];
+  await sleep(50);
+  const duplicate = await outcome(async () => { await collect(manager.streamAgent(agentId, "dup"), []); return null; });
+  await manager.cancelAgentRun(agentId);
+  await collect(third, thirdEvents);
+  await sleep(100);
+  const failed = await outcome(async () => await collect(manager.streamAgent(agentId, "fail me"), []));
+  await sleep(100);
+  const coalesced = await outcome(async () => await collect(manager.streamAgent(agentId, "coalesce"), []));
+  await sleep(100);
+  const staged = await outcome(async () => await collect(manager.streamAgent(agentId, "start slowly"), []));
+  await sleep(100);
+  const closed = await outcome(async () => { await manager.closeAgent(agentId); return null; });
+  await sleep(100);
+  await manager.flush();
+  return { secondEvents, thirdEvents, duplicate, failed, coalesced, staged, closed, traces, calls };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1925,7 +1963,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), catalog: await catalogScenario(), pluginLifecycle: await pluginLifecycleScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), catalog: await catalogScenario(), pluginLifecycle: await pluginLifecycleScenario(), trace: await traceScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3932,6 +3970,7 @@ async fn scenarios_match_pinned_manager() {
             "pluginLifecycle",
             plugin_lifecycle_scenario(&cwd, &rust_home.0).await,
         ),
+        ("trace", trace_scenario(&cwd, &rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -7320,6 +7359,125 @@ async fn plugin_lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
     object(vec![
         ("recordingCase", recording_case),
         ("validatingCase", validating_case),
+    ])
+}
+
+/// The manager's `logger.trace` calls through a run of every foreground
+/// path: a permission turn, a cancelled turn refused a second run, a failed
+/// turn, coalesced rows, a turn whose events arrive while it starts, and a
+/// close. The traces compare in the order they were logged.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn trace_scenario(cwd: &str, home: &Path) -> JsValue {
+    let turns = json(SCENARIO_TURNS);
+    let traces: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let sink = Arc::clone(&traces);
+    let calls = Calls::default();
+    let mut fake = spec("fake");
+    scripted(
+        &fake,
+        &["ask", "long", "failed", "coalesce", "startSlowDone"],
+    );
+    fake.response = turns.get("response").cloned();
+    fake.interrupt = turns.get("interrupt").cloned();
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![(
+            "fake".to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        registry: Some(AgentStorage::new(home.join("trace"))),
+        log_trace: Some(Arc::new(move |bindings, message| {
+            sink.lock()
+                .expect("traces")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    manager
+        .create_agent(
+            object(vec![
+                ("provider", text("fake")),
+                ("cwd", text(cwd)),
+                ("title", text("Traced")),
+            ]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    let prompt = |body: &str| AgentPromptInput::Text(body.to_owned());
+    let mut second = manager
+        .stream_agent(AGENT_ID, prompt("remove x"), None)
+        .expect("second stream");
+    let mut second_events = vec![second.next().await.expect("first").expect("event")];
+    manager
+        .wait_for_agent_event(AGENT_ID, WaitForAgentOptions::default())
+        .await
+        .expect("permission wait");
+    manager
+        .respond_to_permission(
+            AGENT_ID,
+            "perm-1",
+            object(vec![("behavior", text("allow"))]),
+        )
+        .await
+        .expect("respond");
+    collect(&mut second, &mut second_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut third = manager
+        .stream_agent(AGENT_ID, prompt("long task"), None)
+        .expect("third stream");
+    let mut third_events = vec![third.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let duplicate = outcome(
+        manager
+            .stream_agent(AGENT_ID, prompt("dup"), None)
+            .map(|_| JsValue::Null),
+    );
+    manager.cancel_agent_run(AGENT_ID).await.expect("cancel");
+    collect(&mut third, &mut third_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut streams = Vec::new();
+    for body in ["fail me", "coalesce", "start slowly"] {
+        let mut stream = manager
+            .stream_agent(AGENT_ID, prompt(body), None)
+            .expect("stream");
+        let mut events = Vec::new();
+        collect(&mut stream, &mut events).await;
+        streams.push(outcome(Ok(JsValue::Array(events))));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let closed = outcome(manager.close_agent(AGENT_ID).await.map(|()| JsValue::Null));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    let mut streams = streams.into_iter();
+    let mut next = || streams.next().expect("stream outcome");
+    let (failed, coalesced, staged) = (next(), next(), next());
+    object(vec![
+        ("secondEvents", JsValue::Array(second_events)),
+        ("thirdEvents", JsValue::Array(third_events)),
+        ("duplicate", duplicate),
+        ("failed", failed),
+        ("coalesced", coalesced),
+        ("staged", staged),
+        ("closed", closed),
+        (
+            "traces",
+            JsValue::Array(std::mem::take(&mut *traces.lock().expect("traces"))),
+        ),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
     ])
 }
 
