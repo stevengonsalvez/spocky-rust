@@ -10,9 +10,9 @@
 //! - Node run with `LANG`, `LC_ALL`, and `LC_MESSAGES` set to `tr_TR.UTF-8`,
 //!   `az_AZ`, `lt_LT`, `en_US`, `C.UTF-8`, and others (and an empty
 //!   environment) resolves the same default locale, and its no-argument
-//!   `toLocaleLowerCase()` agrees. Only one variable, or `LC_ALL` over `LANG`
-//!   with a codeset, is compared: node on macOS mixes several variables in
-//!   ways ICU's POSIX logic does not.
+//!   `toLocaleLowerCase()` agrees. On macOS every mixture of `LC_ALL`,
+//!   `LC_MESSAGES`, `LC_CTYPE`, and `LANG` over a value set is compared too,
+//!   with `@` modifiers (`@euro`, `@latin`, and variant-shaped ones).
 
 #[path = "support/pinned_node.rs"]
 mod support;
@@ -247,6 +247,33 @@ const ENVIRONMENTS: &[&[(&str, &str)]] = &[
     &[("LC_ALL", "tr_TR.UTF-8"), ("LANG", "en_US")],
     &[("LC_ALL", "lt_LT.UTF-8"), ("LANG", "tr_TR")],
     &[("LC_ALL", "en_US.UTF-8"), ("LANG", "tr_TR.UTF-8")],
+    &[("LANG", "az_AZ@latin")],
+    &[("LANG", "de_DE@euro")],
+    &[("LANG", "ca_ES@valencia")],
+    &[("LANG", "sr@latin")],
+    &[("LANG", "de@abcde_fghij")],
+    &[("LANG", "de@fghij_abcde")],
+    &[("LANG", "de@euro_abcde")],
+    &[("LANG", "de@euro_ab")],
+    &[("LANG", "de@abcdefghi")],
+    &[("LANG", "de@12345678")],
+    &[("LANG", "de@1234")],
+    &[("LANG", "de@123")],
+    &[("LANG", "de@calendar=islamic")],
+    &[("LANG", "de@a")],
+    &[("LANG", "de@a_bc")],
+    &[("LANG", "de@aa_b_c")],
+    &[("LANG", "de@posix")],
+    &[("LANG", "en_US@posix")],
+    &[("LANG", "en_GB@posix")],
+    &[("LANG", "en_US_POSIX")],
+    &[("LANG", "de_DE_euro")],
+    &[("LANG", "de_DE_abcde")],
+    &[("LANG", "de_DE.UTF-8@euro")],
+    &[("LANG", "de@abcde.UTF-8")],
+    &[("LANG", "de@abcde@fghij")],
+    &[("LANG", "de@-abcde")],
+    &[("LC_ALL", "az_AZ@latin"), ("LANG", "de_DE")],
 ];
 
 /// xorshift64*, so every run builds the same strings.
@@ -408,6 +435,80 @@ fn default_locale_matches_node() {
             pair[1].as_str(),
             Some(lower.as_str()),
             "toLocaleLowerCase() under {environment:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+const NAMES: [&str; 4] = ["LC_ALL", "LC_MESSAGES", "LC_CTYPE", "LANG"];
+#[cfg(target_os = "macos")]
+const VALUES: [Option<&str>; 5] = [
+    None,
+    Some("tr_TR.UTF-8"),
+    Some("C"),
+    Some("de_DE"),
+    Some(""),
+];
+
+/// Every mixture of the four variables over a value set: node on macOS
+/// resolves the default locale from `LC_ALL`, then `LC_MESSAGES`, then
+/// `LANG`, and ignores `LC_CTYPE`; the port must pick the same.
+#[cfg(target_os = "macos")]
+#[test]
+fn default_locale_mixed_environments_match_node() {
+    let Some((node, _)) = support::pinned() else {
+        return;
+    };
+    let combinations = VALUES.len().pow(4);
+    let environments: Vec<Vec<(&str, &str)>> = (0..combinations)
+        .map(|index| {
+            let mut rest = index;
+            NAMES
+                .iter()
+                .filter_map(|name| {
+                    let value = VALUES[rest % VALUES.len()];
+                    rest /= VALUES.len();
+                    value.map(|value| (*name, value))
+                })
+                .collect()
+        })
+        .collect();
+    let script = r"console.log(Intl.DateTimeFormat().resolvedOptions().locale)";
+    let results: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = environments
+            .chunks(environments.len().div_ceil(8))
+            .map(|chunk| {
+                let node = &node;
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|environment| {
+                            let output = Command::new(node)
+                                .env_clear()
+                                .envs(environment.iter().copied())
+                                .args(["-e", script])
+                                .output()
+                                .expect("run pinned node");
+                            assert!(output.status.success(), "node failed under {environment:?}");
+                            String::from_utf8_lossy(&output.stdout).into_owned()
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("node runs"))
+            .collect()
+    });
+    assert_eq!(results.len(), environments.len());
+    for (environment, printed) in environments.iter().zip(&results) {
+        let variables: BTreeMap<&str, &str> = environment.iter().copied().collect();
+        let tag = default_locale_from(|name| variables.get(name).map(|value| (*value).to_owned()));
+        assert_eq!(
+            printed.as_str(),
+            format!("{tag}\n"),
+            "default locale under {environment:?}"
         );
     }
 }
