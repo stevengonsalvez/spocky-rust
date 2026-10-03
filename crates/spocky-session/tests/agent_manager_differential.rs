@@ -239,6 +239,11 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","turnId":"turn-20","item":{"type":"assistant_message","text":"noted"}},
     {"type":"turn_completed","provider":"fake","turnId":"turn-20"}
   ],
+  "badItem": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-22"},
+    {"type":"timeline","provider":"fake","turnId":"turn-22","item":{"type":"tool_call","callId":"x","name":"shell","status":"running","error":null}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-22"}
+  ],
   "rpIdle": [
     {"type":"turn_started","provider":"fake","turnId":"turn-13"},
     {"type":"timeline","provider":"fake","turnId":"turn-13","item":{"type":"assistant_message","text":"idle replace"}},
@@ -380,7 +385,10 @@ class FakeSession {
       },
     };
   }
-  async *streamHistory() { for (const event of this.spec.history ?? []) yield event; }
+  async *streamHistory() {
+    for (const event of this.spec.history ?? []) yield event;
+    if (this.spec.historyFails) throw new Error("history broke");
+  }
   async getRuntimeInfo() { return JSON.parse(runtimeInfoJson); }
   async getAvailableModes() { return JSON.parse(modesJson); }
   async getCurrentMode() { return "auto"; }
@@ -400,6 +408,7 @@ class FakeSession {
   }
   async close() {
     this.calls.push(["close"]);
+    if (this.spec.closeFails) throw new Error("close failed");
     if (this.spec.closeHangs) await new Promise(() => {});
   }
 }
@@ -1130,6 +1139,41 @@ const reloadScenario = async () => {
   return { a, b, c, d, e, f, g, h, i, j, k, l, unknown, warns };
 };
 
+const failureLogsScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const logs = [];
+  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", bindings, message]); }, error(bindings, message) { logs.push(["error", bindings, message]); } };
+  const build = async (name, specExtra, clientsOnly = false) => {
+    const calls = [];
+    const registry = new AgentStorage(`${home}/failure-${name}`, logger);
+    const manager = new AgentManager({ logger: recorder, registry, clients: { fake: fakeClient(calls, spec("fake", specExtra)) }, providerDefinitions: { fake: { enabled: true } } });
+    const feed = recordFeed(manager);
+    if (!clientsOnly) await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+    return { calls, registry, manager, feed };
+  };
+  const finish = async ({ calls, manager, registry, feed }, extra) => {
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    return { ...extra, calls, feed };
+  };
+
+  const closing = await build("close", { import: scripted.badImport, closeFails: true }, true);
+  const closeResult = await outcome(async () => toAgentPayload(await closing.manager.importProviderSession({ provider: "fake", providerHandleId: "h1", cwd, workspaceId: "wks_9" })));
+  const closeCase = await finish(closing, { result: closeResult });
+
+  const events = await build("event", { turns: [scripted.badItem] });
+  const eventStream = [];
+  for await (const event of events.manager.streamAgent(agentId, "bad item")) eventStream.push(event);
+  const eventCase = await finish(events, { eventStream });
+
+  const history = await build("history", { history: scripted.history, historyFails: true });
+  await history.manager.reloadAgentSession(agentId, undefined, { rehydrateFromDisk: true });
+  const historyResult = await outcome(async () => { await history.manager.hydrateTimelineFromProvider(agentId); return null; });
+  const historyCase = await finish(history, { result: historyResult });
+  return { closeCase, eventCase, historyCase, logs };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1216,7 +1260,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1268,6 +1312,10 @@ struct Spec {
     interrupt_fails: bool,
     /// `interrupt` rejects after this many milliseconds.
     interrupt_late_fail_ms: Option<u64>,
+    /// `close` rejects.
+    close_fails: bool,
+    /// `streamHistory` throws after its events.
+    history_fails: bool,
     /// `close` never resolves.
     close_hangs: bool,
     /// `resumeSession` rejects.
@@ -1293,6 +1341,8 @@ fn spec(provider: &str) -> Spec {
         revert: Vec::new(),
         interrupt_fails: false,
         interrupt_late_fail_ms: None,
+        close_fails: false,
+        history_fails: false,
         close_hangs: false,
         resume_fails: false,
         no_persistence: false,
@@ -1306,12 +1356,20 @@ struct FakeSession {
 }
 
 /// `async *streamHistory()` over the scripted history.
-struct History(std::vec::IntoIter<JsValue>);
+struct History(std::vec::IntoIter<JsValue>, bool);
 
 impl AgentEventStream for History {
     fn next(&mut self) -> BoxFuture<'_, Option<AgentResult<AgentStreamEvent>>> {
         let next = self.0.next();
-        Box::pin(async move { next.map(Ok) })
+        // After its events, a failing history throws once.
+        let fails = next.is_none() && std::mem::take(&mut self.1);
+        Box::pin(async move {
+            if fails {
+                Some(Err(AgentError::new("history broke")))
+            } else {
+                next.map(Ok)
+            }
+        })
     }
 }
 
@@ -1504,7 +1562,7 @@ impl AgentSession for FakeSession {
             .and_then(JsValue::as_array)
             .map(<[JsValue]>::to_vec)
             .unwrap_or_default();
-        Box::new(History(events.into_iter()))
+        Box::new(History(events.into_iter(), self.spec.history_fails))
     }
     fn get_runtime_info(&self) -> BoxFuture<'_, AgentResult<JsValue>> {
         Box::pin(async { Ok(json(RUNTIME_INFO)) })
@@ -1583,7 +1641,11 @@ impl AgentSession for FakeSession {
             .expect("calls")
             .push(JsValue::Array(vec![text("close")]));
         let hang = self.spec.close_hangs;
+        let fails = self.spec.close_fails;
         Box::pin(async move {
+            if fails {
+                return Err(AgentError::new("close failed"));
+            }
             if hang {
                 std::future::pending::<()>().await;
             }
@@ -2951,6 +3013,10 @@ async fn scenarios_match_pinned_manager() {
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
         ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
+        (
+            "failureLogs",
+            failure_logs_scenario(&cwd, &rust_home.0).await,
+        ),
         ("reload", reload_scenario(&cwd, &rust_home.0).await),
         ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
@@ -4106,6 +4172,159 @@ async fn reload_scenario(cwd: &str, home: &Path) -> JsValue {
         ("l", usage_case),
         ("unknown", unknown),
         ("warns", warns),
+    ])
+}
+
+/// A manager over one fake provider for the failure-log cases, with its
+/// warnings and errors recorded in `logs`.
+fn failure_manager(
+    name: &str,
+    home: &Path,
+    logs: &Arc<Mutex<Vec<JsValue>>>,
+    configure: impl FnOnce(&mut Spec),
+    turns: &[&str],
+) -> (AgentManager, AgentStorage, Calls, Feed) {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join(format!("failure-{name}")));
+    let mut fake = spec("fake");
+    scripted(&fake, turns);
+    configure(&mut fake);
+    let warn_sink = Arc::clone(logs);
+    let error_sink = Arc::clone(logs);
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![("fake".to_owned(), rewind_client(fake, &calls))],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        registry: Some(registry.clone()),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink.lock().expect("logs").push(JsValue::Array(vec![
+                text("warn"),
+                bindings,
+                text(message),
+            ]));
+        })),
+        log_error: Some(Arc::new(move |bindings, message| {
+            error_sink.lock().expect("logs").push(JsValue::Array(vec![
+                text("error"),
+                bindings,
+                text(message),
+            ]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let feed = record_feed(&manager);
+    (manager, registry, calls, feed)
+}
+
+async fn failure_create(manager: &AgentManager, cwd: &str) {
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+}
+
+async fn failure_finish(
+    parts: &(AgentManager, AgentStorage, Calls, Feed),
+    mut extra: Vec<(&'static str, JsValue)>,
+) -> JsValue {
+    let (manager, registry, calls, feed) = parts;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    extra.push((
+        "calls",
+        JsValue::Array(calls.lock().expect("calls").clone()),
+    ));
+    extra.push(("feed", JsValue::Array(feed.lock().expect("feed").clone())));
+    object(extra)
+}
+
+async fn failure_logs_scenario(cwd: &str, home: &Path) -> JsValue {
+    let logs: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let fixture = json(SCENARIO_TURNS);
+
+    let closing = failure_manager(
+        "close",
+        home,
+        &logs,
+        |fake| {
+            fake.import = fixture.get("badImport").cloned();
+            fake.close_fails = true;
+        },
+        &[],
+    );
+    let result = outcome(
+        closing
+            .0
+            .import_provider_session(ImportProviderSessionRequest {
+                provider: "fake".to_owned(),
+                provider_handle_id: "h1".to_owned(),
+                cwd: cwd.to_owned(),
+                workspace_id: "wks_9".to_owned(),
+                labels: None,
+            })
+            .await
+            .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+    );
+    let close_case = failure_finish(&closing, vec![("result", result)]).await;
+
+    let events = failure_manager("event", home, &logs, |_| {}, &["badItem"]);
+    failure_create(&events.0, cwd).await;
+    let mut event_stream = Vec::new();
+    collect_stream(
+        events
+            .0
+            .stream_agent(
+                AGENT_ID,
+                AgentPromptInput::Text("bad item".to_owned()),
+                None,
+            )
+            .expect("stream"),
+        &mut event_stream,
+    )
+    .await;
+    let event_case =
+        failure_finish(&events, vec![("eventStream", JsValue::Array(event_stream))]).await;
+
+    let history = failure_manager(
+        "history",
+        home,
+        &logs,
+        |fake| {
+            fake.history = fixture.get("history").cloned();
+            fake.history_fails = true;
+        },
+        &[],
+    );
+    failure_create(&history.0, cwd).await;
+    history
+        .0
+        .reload_agent_session(
+            AGENT_ID,
+            None,
+            ReloadAgentOptions {
+                rehydrate_from_disk: true,
+            },
+        )
+        .await
+        .expect("reload");
+    let result = outcome(
+        history
+            .0
+            .hydrate_timeline_from_provider(AGENT_ID, HydrateTimelineOptions::default())
+            .await
+            .map(|()| JsValue::Null),
+    );
+    let history_case = failure_finish(&history, vec![("result", result)]).await;
+    let logs = JsValue::Array(logs.lock().expect("logs").clone());
+    object(vec![
+        ("closeCase", close_case),
+        ("eventCase", event_case),
+        ("historyCase", history_case),
+        ("logs", logs),
     ])
 }
 
