@@ -4,3 +4,5 @@
 //! Sans-IO. Sockets, timers and logging are reached through caller-supplied handles, so
 //! the same code runs under a real network runtime and under the differential harness
 //! that replays recorded events against the pinned TypeScript.
+
+pub mod endpoint;
