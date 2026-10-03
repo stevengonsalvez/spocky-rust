@@ -9,7 +9,7 @@ mod support;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
-use spocky_provider_codex::{Prompt, ResumeHandle, RunOptions};
+use spocky_provider_codex::{NativeArchiveState, Prompt, ResumeHandle, RunOptions};
 use support::{
     DisposableRoot, Events, Reply, ResponsesStub, manager_full_access_config, stub_provider,
 };
@@ -157,4 +157,38 @@ fn history_purpose_reads_without_resuming() {
     );
     assert_eq!(archived.unported(), Vec::<String>::new());
     archived.close().expect("close");
+}
+
+/// The recorded input of the native archive differential
+/// (`tests/fixtures/native_archive.json`): archive a persisted thread, restore
+/// it, restore it again (nothing archived, so Codex answers `no archived
+/// rollout found` and `thread/read` settles it), and restore an unknown
+/// thread (the `thread/read` fails too, so the first error is the result).
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
+fn native_archive_and_restore_run_against_real_codex() {
+    let codex = support::real_codex();
+    let stub = ResponsesStub::start(vec![message("msg_first", "Hello from stub.")]);
+    let root = DisposableRoot::new("native-archive");
+    let provider = stub_provider(&root, &stub, &codex);
+    let (handle, _) = persisted_turn(&provider, &root);
+    let thread = handle.session_id.as_str();
+
+    let update = |thread: &str, state| provider.update_native_thread_archive_state(thread, state);
+    assert_eq!(update("", NativeArchiveState::Archive), Ok(()));
+    assert_eq!(update(thread, NativeArchiveState::Archive), Ok(()));
+    assert_eq!(update(thread, NativeArchiveState::Restore), Ok(()));
+    assert_eq!(
+        update(thread, NativeArchiveState::Restore),
+        Ok(()),
+        "an unarchived thread is read instead"
+    );
+    let unknown = "00000000-0000-4000-8000-000000000000";
+    let error = update(unknown, NativeArchiveState::Restore).expect_err("unknown thread");
+    assert!(
+        error.contains(&format!(
+            "no archived rollout found for thread id {unknown}"
+        )),
+        "{error}"
+    );
 }
