@@ -14,8 +14,9 @@
 #     second turn makes it 4);
 #   - both sides' probe outcomes equal the expected outcomes below, in order;
 #   - the probe's stdout is the outcomes line, then two labelled wire blocks,
-#     "# recording client" and "# retry-other connection", every frame in
-#     arrival order (pongs included; the gate's compare covers them). Each
+#     "# recording client", "# retry-other connection" and "# race second
+#     connection", every frame in arrival order (the probe leaves out the
+#     bare heartbeat pong; the gate's compare covers every other frame). Each
 #     block starts with exactly one server_info frame, and the two sides'
 #     frames are byte-identical in key order after masking generated values
 #     (as g2-differential.sh does), except features.workspaceLabels: the
@@ -151,21 +152,23 @@ sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for s
     base=$evidence/$side_dir
     : >"$base-client-wire.txt"
     : >"$base-other-wire.txt"
-    awk -v client="$base-client-wire.txt" -v other="$base-other-wire.txt" '
+    : >"$base-race-wire.txt"
+    awk -v client="$base-client-wire.txt" -v other="$base-other-wire.txt" -v race="$base-race-wire.txt" '
       NR == 1 { next }
       $0 == "# recording client" { out = client; seen_client = NR; next }
       $0 == "# retry-other connection" { out = other; seen_other = NR; next }
+      $0 == "# race second connection" { out = race; seen_race = NR; next }
       out != "" { print >> out }
-      END { if (!seen_client || !seen_other || seen_client > seen_other) exit 3 }
+      END { if (!seen_client || !seen_other || !seen_race || seen_client > seen_other || seen_other > seen_race) exit 3 }
     ' "$base-probe-stdout.txt" 2>/dev/null ||
-      fail "$side_dir probe stdout has no outcomes line then the recording client and retry-other connection blocks, in that order"
+      fail "$side_dir probe stdout has no outcomes line then the recording client, retry-other connection and race second connection blocks, in that order"
     sed -n 1p "$base-probe-stdout.txt" >"$base-summary.txt"
     sed -E 's/^\{"outcomes":(.*),"workspaceId":"[^"]*"\}$/\1/' "$base-summary.txt" >"$base-outcomes.txt"
     [ "$(cat "$base-outcomes.txt")" = "$expected_outcomes" ] ||
       fail "$side_dir outcomes differ from the expected outcomes; see $base-outcomes.txt"
 
     # Each block starts with its handshake's server_info frame, and only one.
-    for block in client other; do
+    for block in client other race; do
       wire=$base-$block-wire.txt
       sed -n 1p "$wire" >"$base-$block-server-info.txt"
       jq -e "$server_info | .type == \"status\" and .payload.status == \"server_info\"" "$base-$block-server-info.txt" >/dev/null 2>&1 ||
@@ -196,7 +199,7 @@ sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for s
   if [ -f "$evidence/left-original-receipts.txt" ] && [ -f "$evidence/right-spocky-receipts.txt" ]; then
     cmp -s "$evidence/left-original-receipts.txt" "$evidence/right-spocky-receipts.txt" ||
       fail "send receipts differ between the original and spocky daemons"
-    for block in client other; do
+    for block in client other race; do
       for side_dir in left-original right-spocky; do
         mask "$evidence/$side_dir-$block-server-info.txt" | strip_labels >"$evidence/$side_dir-$block-server-info-compared.txt"
       done

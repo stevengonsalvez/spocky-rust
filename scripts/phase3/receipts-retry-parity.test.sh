@@ -13,10 +13,13 @@
 #   probe outcomes differ between sides, or conflict text is not the expected
 #   send receipt pending, count 3, count 1, fingerprints differ, and both sides
 #     alike pending or alike holding three receipts
-#   server_info frame missing, twice, not first on both sides, differing, in
-#     another key order, the original lacking features.workspaceLabels, or
-#     spocky advertising it as false; and spocky advertising it as true (the
-#     gap closed) is accepted
+#   the probe's three wire blocks ("# recording client", "# retry-other
+#     connection", "# race second connection") missing, or out of order
+#   a block's server_info frame missing, twice (recording client), not first
+#     on both sides, differing in any of the three blocks, in another key
+#     order, the original lacking features.workspaceLabels, or spocky
+#     advertising it as false; and spocky advertising it as true (the gap
+#     closed) or sending extra pongs is accepted
 #   dirty worktree
 #
 # Every case runs the committed runner from a throwaway detached worktree at
@@ -90,6 +93,8 @@ def server_info(kind, block="client"):
         frame["payload"]["version"] = "9.9.9"
     if case == "other-info-differs" and kind == "spocky" and block == "other":
         frame["payload"]["version"] = "9.9.9"
+    if case == "race-info-differs" and kind == "spocky" and block == "race":
+        frame["payload"]["version"] = "9.9.9"
     if case == "server-info-key-order" and kind == "spocky":
         frame["payload"] = {"serverId": frame["payload"]["serverId"], "status": "server_info",
                             "hostname": "host", "version": "1.2.3", "features": frame["payload"]["features"]}
@@ -101,26 +106,33 @@ def side(kind, mutate_outcomes=None):
     if mutate_outcomes:
         mutate_outcomes(shown)
     pong = '{"type":"pong"}'
-    client = [server_info(kind, "client"), pong, '{"type":"session","message":{"type":"fetch_agent_response"}}']
-    other = [server_info(kind, "other"), pong]
+    # The probe leaves out the bare heartbeat pong, so a clean side has none.
+    client = [server_info(kind, "client"), '{"type":"session","message":{"type":"fetch_agent_response"}}']
+    other = [server_info(kind, "other")]
+    race = [server_info(kind, "race")]
     if case == "server-info-both-late":
-        client = [client[1], client[0], client[2]]
+        client = [client[1], client[0]]
     if kind == "spocky":
         if case == "server-info-missing":
             client = client[1:]
         if case == "server-info-twice":
-            client = [client[0], client[0], client[1], client[2]]
+            client = [client[0], client[0], client[1]]
         if case == "other-info-missing":
-            other = other[1:]
+            other = []
+        if case == "race-info-missing":
+            race = []
         if case == "pongs-differ":
-            client = client[:2] + [pong, pong] + client[2:]
+            client = [client[0], pong, pong, client[1]]
     lines = [compact({"outcomes": shown, "workspaceId": "wks_0123456789abcdef"})]
-    if case == "no-blocks" and kind == "spocky":
-        lines += client + other
-    elif case == "blocks-reversed" and kind == "spocky":
-        lines += ["# retry-other connection"] + other + ["# recording client"] + client
+    blocks = [("# recording client", client), ("# retry-other connection", other), ("# race second connection", race)]
+    if kind == "spocky" and case == "no-blocks":
+        lines += client + other + race
+    elif kind == "spocky" and case == "blocks-reversed":
+        lines += [line for label, frames in reversed(blocks) for line in [label] + frames]
+    elif kind == "spocky" and case == "race-block-missing":
+        lines += [line for label, frames in blocks[:2] for line in [label] + frames]
     else:
-        lines += ["# recording client"] + client + ["# retry-other connection"] + other
+        lines += [line for label, frames in blocks for line in [label] + frames]
     stdout = "\n".join(lines) + "\n"
     turns = 4 if case == "turns-4" and kind == "spocky" else 2 if case == "turns-2" and kind == "spocky" else 3
     exit_code = 1 if case == "probe-exit" and kind == "spocky" else 0
@@ -238,7 +250,7 @@ for label in gate-exit unsupported no-evidence-line selfcheck-fail parity-fail p
   receipts-both-pending receipts-both-3 server-info-missing server-info-twice \
   server-info-differs server-info-key-order server-info-original-no-labels \
   server-info-both-late server-info-spocky-false other-info-missing other-info-differs \
-  no-blocks blocks-reversed; do
+  no-blocks blocks-reversed race-block-missing race-info-missing race-info-differs; do
   run_case "$label" nonzero
 done
 grep -F 'expected 3' "$work/turns-4.log" >/dev/null
@@ -250,4 +262,4 @@ run_case dirty-tree nonzero
 grep -F 'worktree is not clean' "$work/dirty-tree.log" >/dev/null
 rm "$tree/retry-dirty-probe"
 
-printf 'receipts-retry-parity.test.sh: 38 cases passed\n'
+printf 'receipts-retry-parity.test.sh: 41 cases passed\n'
