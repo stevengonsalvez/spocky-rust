@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use spocky_contracts::zod::{Outcome, Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::js_value::{JsObject, JsValue, stringify_pretty};
 
+use crate::agent_labels::PARENT_AGENT_ID_LABEL;
 use crate::agent_sdk::{AgentError, AgentResult, BoxFuture};
 
 /// `PluginLifecycle`: `before(name, request)` resolves the request after
@@ -54,6 +55,35 @@ impl PluginLifecycle for NoPluginLifecycle {
     }
 
     fn emit(&self, _name: &str, _event: JsValue) {}
+}
+
+/// `describeHookAgent(agent)`: `{ id, workspaceId, parentAgentId, provider,
+/// cwd, title }`, the agent as a plugin sees it.
+pub(super) fn describe_hook_agent(
+    id: &str,
+    workspace_id: Option<&str>,
+    labels: &JsValue,
+    provider: &str,
+    cwd: &str,
+    title: Option<&str>,
+) -> JsValue {
+    let text = |value: &str| JsValue::String(value.to_owned());
+    let mut agent = JsObject::new();
+    agent.insert("id", text(id));
+    agent.insert("workspaceId", workspace_id.map_or(JsValue::Null, text));
+    // `agent.labels[PARENT_AGENT_ID_LABEL] ?? null`.
+    agent.insert(
+        "parentAgentId",
+        labels
+            .get(PARENT_AGENT_ID_LABEL)
+            .filter(|value| !matches!(value, JsValue::Undefined | JsValue::Null))
+            .cloned()
+            .unwrap_or(JsValue::Null),
+    );
+    agent.insert("provider", text(provider));
+    agent.insert("cwd", text(cwd));
+    agent.insert("title", title.map_or(JsValue::Null, text));
+    JsValue::Object(agent)
 }
 
 fn session_open_schema() -> &'static Schema {

@@ -8,6 +8,7 @@ use std::time::Duration;
 use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
 use super::log_error::err_binding;
+use super::plugin_lifecycle::describe_hook_agent;
 use super::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
     PaseoToolRuntimeContext, validate_agent_id,
@@ -371,20 +372,29 @@ impl AgentManager {
             .await?;
         self.require_external_mcp_support(&session, &prepared.stored_config)
             .await?;
-        self.register_session(
-            session,
-            prepared.stored_config,
-            &resolved_agent_id,
-            RegisterOptions {
-                labels: options.labels,
-                initial_title: options.initial_title,
-                workspace_id: options.workspace_id,
-                owner: options.owner,
-                history_primed: Some(true),
-                ..RegisterOptions::default()
-            },
-        )
-        .await
+        let agent = self
+            .register_session(
+                session,
+                prepared.stored_config,
+                &resolved_agent_id,
+                RegisterOptions {
+                    labels: options.labels,
+                    initial_title: options.initial_title,
+                    workspace_id: options.workspace_id,
+                    owner: options.owner,
+                    history_primed: Some(true),
+                    ..RegisterOptions::default()
+                },
+            )
+            .await?;
+        if !agent.internal
+            && let Some(lifecycle) = self.plugin_lifecycle()
+        {
+            let mut event = JsObject::new();
+            event.insert("agent", describe_hook_agent_of(&agent));
+            lifecycle.emit("agent.created", JsValue::Object(event));
+        }
+        Ok(agent)
     }
 
     /// `importProviderSession(input)`: registers a session the provider
@@ -1644,6 +1654,18 @@ impl AgentManager {
         }
         Ok(())
     }
+}
+
+/// `describeHookAgent({ ...agent, title: agent.config.title })`.
+fn describe_hook_agent_of(agent: &ManagedAgentSnapshot) -> JsValue {
+    describe_hook_agent(
+        &agent.id,
+        agent.workspace_id.as_deref(),
+        &agent.labels,
+        &agent.provider,
+        &agent.cwd,
+        agent.config.get("title").and_then(JsValue::as_str),
+    )
 }
 
 /// `resolveProviderLaunchConfig(launchConfig, launchContext)`: a provider that
