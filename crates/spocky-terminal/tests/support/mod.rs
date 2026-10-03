@@ -126,6 +126,19 @@ pub const PINNED_NODE_PTY_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+/// `strip-ansi` 7.1.2 and `ansi-regex` 6.2.2 under
+/// `packages/server/node_modules`, which `terminal-capture.js` calls.
+pub const PINNED_STRIP_ANSI_FILES: &[(&str, &str)] = &[
+    (
+        "strip-ansi/index.js",
+        "c5bb23b3ca69e97ddefdb76724b1a7936ac18b5e47c3fe3c5391969d6e6d06f8",
+    ),
+    (
+        "ansi-regex/index.js",
+        "705ea426fac3c94d1290359e7d5a9d5dc53762c6ddee16f4852ba6aca47442cc",
+    ),
+];
+
 /// The macOS x64 native pieces of node-pty; other platforms ship their own.
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[
@@ -208,7 +221,9 @@ pub fn assert_pinned_modules(terminal_dir: &Path) {
     let server_dir = terminal_dir.join("..");
     let protocol_dir = protocol_dir(terminal_dir);
     let node_pty_dir = terminal_dir.join("../../../node_modules/node-pty");
-    let tables: [(&Path, &[(&str, &str)]); 5] = [
+    let modules_dir = terminal_dir.join("../../../node_modules");
+    let tables: [(&Path, &[(&str, &str)]); 6] = [
+        (&modules_dir, PINNED_STRIP_ANSI_FILES),
         (terminal_dir, PINNED_TERMINAL_MODULES),
         (&server_dir, PINNED_SERVER_MODULES),
         (&protocol_dir, PINNED_PROTOCOL_MODULES),
