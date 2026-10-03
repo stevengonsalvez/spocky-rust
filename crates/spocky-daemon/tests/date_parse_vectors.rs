@@ -16,6 +16,36 @@ fn pin(name: &str) -> String {
         .to_owned()
 }
 
+/// The strings of `const <name> = [ ... ];` in the generator, one JSON string
+/// per line, so a fixture that was edited by hand or left behind by an edited
+/// generator is caught.
+fn generator_inputs(name: &str) -> Vec<String> {
+    include_str!("fixtures/gen-date-parse-vectors.cjs")
+        .lines()
+        .skip_while(|line| !line.starts_with(&format!("const {name} = [")))
+        .skip(1)
+        .take_while(|line| *line != "];")
+        .map(|line| {
+            let literal = line.trim().trim_end_matches(',');
+            serde_json::from_str::<String>(literal)
+                .unwrap_or_else(|error| panic!("{name}: {literal}: {error}"))
+        })
+        .collect()
+}
+
+#[test]
+fn the_fixture_texts_are_the_generator_inputs() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/date-parse-vectors.json")).unwrap();
+    let texts: Vec<&str> = fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| case["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, generator_inputs("inputs"));
+}
+
 #[test]
 fn parse_iso_matches_node_date_parse() {
     let fixture: Value =
