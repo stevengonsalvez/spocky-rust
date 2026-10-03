@@ -3,8 +3,9 @@
 //! `SPOCKY_PINNED_NODE` names the Node 22.20.0 binary and `SPOCKY_PASEO_DIST`
 //! the pinned server dist, either `packages/server/dist/server` or its parent
 //! `packages/server/dist`. Without both, a differential FAILS unless
-//! `SPOCKY_ALLOW_SKIP=1` (exactly). Every module a test imports is checked
-//! against its SHA-256 first, so a different build fails instead of passing.
+//! `SPOCKY_ALLOW_SKIP=1` (exactly). The Node binary must report `v22.20.0`.
+//! Every module a test imports, protocol modules included, is checked against
+//! its SHA-256 first, so a different build fails instead of passing.
 
 #![allow(dead_code)]
 
@@ -39,10 +40,50 @@ pub const PINNED_TERMINAL_MODULES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The pinned `packages/protocol/dist` modules the terminal modules import,
+/// relative to that directory, with their SHA-256.
+pub const PINNED_PROTOCOL_MODULES: &[(&str, &str)] = &[
+    (
+        "terminal-input-mode.js",
+        "44181dee20a6b937de7ddcaf6bcbbd3d7fd035bad7863011ca5b9b57cbadca42",
+    ),
+    (
+        "terminal-snapshot.js",
+        "288b8e30e97e0d4ed489d9ef96cb3c9b42f1987b1d6b8514083600a9a886dc25",
+    ),
+    (
+        "binary-frames/terminal.js",
+        "b06cc568118e46345e29bf426f5223cef846af2435eadbfee99e1ba660baebb7",
+    ),
+    (
+        "binary-frames/demux.js",
+        "0e960d177cc2133916247d713cb6064a751391c76bb626b523f1726916ea1aad",
+    ),
+    (
+        "binary-frames/file-transfer.js",
+        "4bf534d8a0b7de9b74ddf29ee8f105cabef2e68ea47fb94466412d9214ef5387",
+    ),
+    (
+        "messages.js",
+        "bd22155340099ad027b9daa670139c91ab9cde626662526e0563077956b6cbe1",
+    ),
+    (
+        "binary-frames/index.js",
+        "3af06230bf356743235f87317f388d9205a83dfb736be02ddb53b408347c1f58",
+    ),
+];
+
 pub struct Pinned {
     pub node: PathBuf,
     /// The pinned `dist/server/terminal` directory.
     pub terminal_dir: PathBuf,
+    /// The pinned `packages/protocol/dist` directory.
+    pub protocol_dir: PathBuf,
+}
+
+/// `packages/protocol/dist` beside the server package of `terminal_dir`.
+pub fn protocol_dir(terminal_dir: &Path) -> PathBuf {
+    terminal_dir.join("../../../../protocol/dist")
 }
 
 /// The pinned Node and terminal module directory, or `None` when the caller
@@ -59,13 +100,27 @@ pub fn pinned(what: &str) -> Option<Pinned> {
         }
         _ => panic!("set SPOCKY_PINNED_NODE and SPOCKY_PASEO_DIST (or SPOCKY_ALLOW_SKIP=1)"),
     };
+    let version = Command::new(&node)
+        .arg("--version")
+        .output()
+        .expect("run pinned node --version");
+    assert_eq!(
+        String::from_utf8_lossy(&version.stdout).trim(),
+        "v22.20.0",
+        "SPOCKY_PINNED_NODE must be the pinned node"
+    );
     let direct = dist.join("terminal");
     let terminal_dir = if direct.is_dir() {
         direct
     } else {
         dist.join("server/terminal")
     };
-    Some(Pinned { node, terminal_dir })
+    let protocol_dir = protocol_dir(&terminal_dir);
+    Some(Pinned {
+        node,
+        terminal_dir,
+        protocol_dir,
+    })
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
