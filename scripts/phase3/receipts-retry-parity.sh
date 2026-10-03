@@ -13,6 +13,11 @@
 #     exited 0 and the stub recorded exactly 3 turns (a retry that started a
 #     second turn makes it 4);
 #   - both sides' probe outcomes equal the expected outcomes below, in order;
+#   - each side's probe prints exactly one server_info frame, first after the
+#     summary line, and the two frames are byte-identical in key order after
+#     masking generated values (as g2-differential.sh does), except
+#     features.workspaceLabels: the original must advertise it, and spocky may
+#     omit it (open gap DWLABEL-001) or advertise it too;
 #   - both sides hold exactly two send receipts, both `completed`, with the
 #     same fingerprints.
 # The probe is scripts/phase3/receipts-retry-probe.mjs. Outcomes, receipts and
@@ -42,6 +47,16 @@ export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 # accepted, the same messageId with other text is a key conflict, and the
 # concurrent pair is accepted.
 expected_outcomes='[{"step":"created","ok":true,"error":null},{"step":"first","ok":true,"error":null},{"step":"retry","ok":true,"error":null},{"step":"retry-other","ok":true,"error":null},{"step":"conflict","ok":false,"error":"agent_request_key_conflict"},{"step":"race","ok":true,"error":null}]'
+# Generated values the frames hold, masked like g2-differential.sh does.
+mask() {
+  sed -E -e 's#/private/tmp/spocky-p3-[A-Za-z0-9-]+#<ROOT>#g' \
+    -e 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<UUID>/g' \
+    -e 's/wks_[0-9a-f]+/<WKS>/g' \
+    -e 's/prj_[0-9a-f]+/<PRJ>/g' \
+    -e 's/srv_[A-Za-z0-9_-]{12}/<SRV>/g' \
+    -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
+}
+server_info='if .message then .message else . end'
 expected_turns=3
 expected_receipts=2
 
@@ -126,6 +141,13 @@ sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for s
     [ "$(cat "$evidence/$side_dir-outcomes.json")" = "$expected_outcomes" ] ||
       fail "$side_dir outcomes differ from the expected outcomes; see $evidence/$side_dir-outcomes.json"
 
+    # The handshake's server_info frame is the first frame after the summary.
+    sed -n 2p "$evidence/$side_dir-probe-stdout.txt" >"$evidence/$side_dir-server-info.json"
+    jq -e "$server_info | .type == \"status\" and .payload.status == \"server_info\"" "$evidence/$side_dir-server-info.json" >/dev/null 2>&1 ||
+      fail "$side_dir probe's first frame is not the server_info frame"
+    infos=$(grep -c '"status":"server_info"' "$evidence/$side_dir-probe-stdout.txt" || true)
+    [ "$infos" = 1 ] || fail "$side_dir probe printed $infos server_info frames, expected 1"
+
     # Send receipts: two, both completed; fingerprints kept in file-name order
     # of nothing (names are generated), so they are listed sorted as text.
     receipts=$parity/$side_dir/files/paseo-home/agent-requests
@@ -151,6 +173,18 @@ sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for s
       fail "send receipt fingerprints differ between the original and spocky daemons"
     cmp -s "$evidence/left-original-outcomes.json" "$evidence/right-spocky-outcomes.json" ||
       fail "probe outcomes differ between the original and spocky daemons"
+    for side_dir in left-original right-spocky; do
+      mask "$evidence/$side_dir-server-info.json" |
+        jq -c 'if .message then del(.message.payload.features.workspaceLabels) else del(.payload.features.workspaceLabels) end' \
+          >"$evidence/$side_dir-server-info-compared.json" 2>/dev/null ||
+        fail "$side_dir server_info frame is not valid JSON"
+    done
+    cmp -s "$evidence/left-original-server-info-compared.json" "$evidence/right-spocky-server-info-compared.json" ||
+      fail "server_info frames differ between the original and spocky daemons beyond features.workspaceLabels"
+    jq -e "$server_info | .payload.features.workspaceLabels == true" "$evidence/left-original-server-info.json" >/dev/null 2>&1 ||
+      fail "the original server_info frame does not advertise features.workspaceLabels"
+    jq -e "$server_info | .payload.features.workspaceLabels as \$labels | \$labels == null or \$labels == true" "$evidence/right-spocky-server-info.json" >/dev/null 2>&1 ||
+      fail "the spocky server_info frame has features.workspaceLabels other than absent or true"
   fi
 fi
 
