@@ -71,7 +71,75 @@ pub const PINNED_PROTOCOL_MODULES: &[(&str, &str)] = &[
         "binary-frames/index.js",
         "3af06230bf356743235f87317f388d9205a83dfb736be02ddb53b408347c1f58",
     ),
+    (
+        "terminal-activity.js",
+        "27dedd07115476c8c68601bd3036b87f5591bb353e04c2baba7de0b56554a539",
+    ),
 ];
+
+/// `dist/server` modules the terminal worker imports, relative to
+/// `dist/server`, with their SHA-256.
+pub const PINNED_SERVER_MODULES: &[(&str, &str)] = &[
+    (
+        "terminal/terminal-manager.js",
+        "8c821246d9ffdb49e7b797a5d20ca5a409ccb3062b902c49d9f8dcf7a1f69e1a",
+    ),
+    (
+        "terminal/activity/terminal-activity-tracker.js",
+        "2af0cec69b58dd354ffcdf3073b2d919ace74f9b4e9c5d1149c281490880134e",
+    ),
+    (
+        "server/paseo-env.js",
+        "376ef21a79563a728c048821ae0ab7abbd70e103024bcf6df421887dcff71609",
+    ),
+    (
+        "server/path-utils.js",
+        "d84b5eca7ca19d5134b4e94eb6d909e9531fb8993ffbdfdfd70a9cd7e2c3595a",
+    ),
+    (
+        "server/private-files.js",
+        "2dcbf8742613352d3346c692f0d77173981dffa2a7d2ea237ef067af8b1004d8",
+    ),
+    (
+        "executable-resolution/executable-resolution.js",
+        "660b90fe267769302e06645e33475cf7bb6ec9b3272ca901540ce4fbe5eb2af2",
+    ),
+];
+
+/// node-pty 1.2.0-beta.15 under `packages/server/node_modules/node-pty`.
+pub const PINNED_NODE_PTY_FILES: &[(&str, &str)] = &[
+    (
+        "package.json",
+        "f4a19bbc7cf4c2e35c081e6a18a3d11d21c54c2f3cc25bfe48142742a781b71d",
+    ),
+    (
+        "lib/unixTerminal.js",
+        "63b605fb25c4e6d237493cd1799b01a8d880d89c78850108aae1853d04b4cdf0",
+    ),
+    (
+        "lib/terminal.js",
+        "771f5388103c3eb7bc698b589f41c08f06044d96de609eec45c9a79e4ee4fc00",
+    ),
+    (
+        "lib/utils.js",
+        "807bc62c8b702377d591136862309718ba48fb2b9eca54f4b25fbe43838c8fc6",
+    ),
+];
+
+/// The macOS x64 native pieces of node-pty; other platforms ship their own.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[
+    (
+        "prebuilds/darwin-x64/pty.node",
+        "811f4a357e260fc0e520c250a3de5990483761d82afd635effbdf4b793b8a0e9",
+    ),
+    (
+        "prebuilds/darwin-x64/spawn-helper",
+        "a3bed36ae3ed83b2ac2fce475bd578c51f5b536041f0b2dfe116987f565e9758",
+    ),
+];
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[];
 
 pub struct Pinned {
     pub node: PathBuf,
@@ -134,16 +202,29 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         })
 }
 
-/// Fails unless every pinned module under `terminal_dir` has its digest.
+/// Fails unless every pinned module has its digest: the terminal and server
+/// modules, the protocol modules they import, and node-pty.
 pub fn assert_pinned_modules(terminal_dir: &Path) {
-    for (path, expected) in PINNED_TERMINAL_MODULES {
-        let bytes = std::fs::read(terminal_dir.join(path))
-            .unwrap_or_else(|error| panic!("pinned module {path}: {error}"));
-        assert_eq!(
-            &sha256_hex(&bytes),
-            expected,
-            "{path} is not the pinned build"
-        );
+    let server_dir = terminal_dir.join("..");
+    let protocol_dir = protocol_dir(terminal_dir);
+    let node_pty_dir = terminal_dir.join("../../../node_modules/node-pty");
+    let tables: [(&Path, &[(&str, &str)]); 5] = [
+        (terminal_dir, PINNED_TERMINAL_MODULES),
+        (&server_dir, PINNED_SERVER_MODULES),
+        (&protocol_dir, PINNED_PROTOCOL_MODULES),
+        (&node_pty_dir, PINNED_NODE_PTY_FILES),
+        (&node_pty_dir, PINNED_NODE_PTY_NATIVE),
+    ];
+    for (dir, modules) in tables {
+        for (path, expected) in modules {
+            let bytes = std::fs::read(dir.join(path))
+                .unwrap_or_else(|error| panic!("pinned module {path}: {error}"));
+            assert_eq!(
+                &sha256_hex(&bytes),
+                expected,
+                "{path} is not the pinned build"
+            );
+        }
     }
 }
 
