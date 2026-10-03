@@ -26,6 +26,8 @@ use spocky_store::js_value::js_text_to_utf8;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
+use crate::text::bytes_text;
+
 /// `DEFAULT_GIT_PROCESS_POLICY`.
 const DEFAULT_MAX_PROCESSES_PER_SECOND: usize = 64;
 const DEFAULT_MAX_PROCESS_CONCURRENCY: usize = 8;
@@ -287,8 +289,8 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
     })?;
     let exit_code = status.code();
     let output = GitOutput {
-        stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+        stdout: bytes_text(&stdout_bytes),
+        stderr: bytes_text(&stderr_bytes),
         truncated,
         exit_code,
     };
@@ -448,6 +450,25 @@ mod tests {
         .await
         .expect("a name with U+FFFD is a valid branch name");
         assert_eq!(output.stdout.trim_end(), "a\u{FFFD}b");
+    }
+
+    /// Output holding U+10FFFF comes back as JavaScript text, with the
+    /// character doubled, so it is not mistaken for an encoded surrogate.
+    #[tokio::test]
+    async fn output_holding_the_escape_character_is_javascript_text() {
+        let directory = std::env::temp_dir();
+        let name = spocky_store::js_value::js_text("a\u{10FFFF}\u{F0000}b");
+        let output = run_git(
+            &["check-ref-format", "--branch", &name],
+            &GitOptions::read_only(&directory),
+        )
+        .await
+        .expect("a name with U+10FFFF is a valid branch name");
+        assert_eq!(output.stdout, format!("{name}\n"));
+        assert!(
+            spocky_store::js_value::js_text_units(&output.stdout)
+                .all(|unit| matches!(unit, spocky_store::js_value::JsTextUnit::Char(_)))
+        );
     }
 
     #[tokio::test]
