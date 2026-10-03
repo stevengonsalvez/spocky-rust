@@ -87,12 +87,24 @@ pub struct Services {
 /// The production [`SessionBackend`].
 pub struct DaemonBackend {
     services: Arc<Services>,
+    /// `mcp.enabled` and `mcp.injectIntoAgents`: agents get the MCP url.
+    inject_mcp: bool,
 }
 
 impl DaemonBackend {
     #[must_use]
     pub fn new(services: Arc<Services>) -> Self {
-        Self { services }
+        Self {
+            services,
+            inject_mcp: false,
+        }
+    }
+
+    /// Whether agents are given the MCP url once the daemon listens.
+    #[must_use]
+    pub fn with_mcp_injection(mut self, inject: bool) -> Self {
+        self.inject_mcp = inject;
+        self
     }
 }
 
