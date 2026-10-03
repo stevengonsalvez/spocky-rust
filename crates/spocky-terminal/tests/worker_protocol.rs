@@ -13,6 +13,7 @@
 
 mod support;
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
@@ -94,6 +95,11 @@ struct Worker {
     channel: UnixStream,
     decoder: FrameDecoder,
     frames: Vec<Frame>,
+    /// Frames decoded but not read yet: one read can hold several, and the
+    /// ones after the frame a wait stops on belong to the next wait.
+    pending: VecDeque<Frame>,
+    /// Ids of the requests sent so far, for the failure message.
+    sent: Vec<String>,
     home: TempHome,
 }
 
@@ -150,11 +156,14 @@ impl Worker {
             channel,
             decoder: FrameDecoder::new(),
             frames: Vec::new(),
+            pending: VecDeque::new(),
+            sent: Vec::new(),
             home,
         }
     }
 
     fn send(&mut self, request: &WorkerRequest, request_id: &str) {
+        self.sent.push(request_id.to_owned());
         self.channel
             .write_all(&encode_frame(&request.to_value(request_id)))
             .expect("send request");
@@ -166,9 +175,23 @@ impl Worker {
         let mut messages = Vec::new();
         let mut buffer = vec![0u8; 65536];
         loop {
+            while let Some(frame) = self.pending.pop_front() {
+                let message = parse_frame(frame.value.as_ref().expect("worker frame"))
+                    .expect("worker message");
+                // Byte-exact framing: re-encoding gives the frame back.
+                assert_eq!(encode_frame(&message.to_value()), frame.raw);
+                self.frames.push(frame);
+                let matched = done(&message);
+                messages.push(message);
+                if matched {
+                    return messages;
+                }
+            }
             assert!(
                 Instant::now() < deadline,
-                "no matching worker frame in time: {messages:?}"
+                "no matching worker frame in time: {messages:?}; requests sent: {:?}; frames read: {}",
+                self.sent,
+                self.frames.len()
             );
             let count = match self.channel.read(&mut buffer) {
                 Ok(0) => panic!("worker closed the channel: {messages:?}"),
@@ -183,18 +206,7 @@ impl Worker {
                 }
                 Err(error) => panic!("read worker channel: {error}"),
             };
-            for frame in self.decoder.push(&buffer[..count]) {
-                let message = parse_frame(frame.value.as_ref().expect("worker frame"))
-                    .expect("worker message");
-                // Byte-exact framing: re-encoding gives the frame back.
-                assert_eq!(encode_frame(&message.to_value()), frame.raw);
-                self.frames.push(frame);
-                let matched = done(&message);
-                messages.push(message);
-                if matched {
-                    return messages;
-                }
-            }
+            self.pending.extend(self.decoder.push(&buffer[..count]));
         }
     }
 
