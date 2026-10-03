@@ -1,26 +1,42 @@
 //! Session differential: the pinned `ClaudeAgentClient` and this crate's
 //! `ClaudeClient` run the same scripted scenarios against a scripted Query,
 //! and their logs (stream events, query calls, step results) must be the same
-//! text. Only generated ids are normalized: any UUID becomes `<uuid>`.
+//! text, line for line, in the order they happened. The Rust side drives the
+//! session on one `LocalSet` (`ClaudeClient::create_local_session`), as the
+//! baseline runs on one event loop. Both run in a cleared environment so the
+//! full query options (environment included) can be compared. Normalized: any
+//! UUID becomes `<uuid>` and the scratch directory `<tmp>`. The pinned run
+//! also carries two variables its own runtime adds to `process.env` (node's
+//! `NoDefaultCurrentDirectoryInExePath` and macOS's `__CF_USER_TEXT_ENCODING`);
+//! they are dropped from the pinned text.
 
 mod support;
 
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use spocky_contracts::js_value::{JsObject, JsValue, parse, stringify};
 use spocky_provider_claude::client::{ClaudeClient, ClaudeClientOptions};
-use spocky_provider_claude::local::{AsyncQueue, LocalBoxFuture};
-use spocky_provider_claude::sdk_query::{CanUseToolOptions, ClaudeQuery, QueryFactory, QueryInput};
-use spocky_session::agent_sdk::{
-    AbortController, AgentClient, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
-    SteerActiveTurnOptions,
+use spocky_provider_claude::local::{AsyncQueue, LocalBoxFuture, run_inline};
+use spocky_provider_claude::sdk_query::{
+    CanUseTool, CanUseToolOptions, ClaudeQuery, QueryFactory, QueryInput,
 };
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use spocky_provider_claude::session::ClaudeSession;
+use spocky_session::agent_sdk::{AbortController, AgentError, AgentPromptInput};
 
-const SETTLE: Duration = Duration::from_millis(60);
-const REACTION_GAP: Duration = Duration::from_millis(5);
+/// The child run finds its scenario here, in its working directory, and writes
+/// its log next to it: a file, not an environment variable, so the child's
+/// environment is the pinned run's.
+const CHILD_SCENARIO: &str = "session-child.json";
+const CHILD_LOG: &str = "session-child.log";
+const SETTLE: Duration = Duration::from_millis(120);
+const REACTION_GAP: Duration = Duration::from_millis(25);
+/// See `CAN_USE_TOOL_LOG_DELAY_MS` in `session_harness.mjs`.
+const CAN_USE_TOOL_LOG_DELAY: Duration = Duration::from_millis(20);
 
 const PINNED_MODULES: &[(&str, &str)] = &[
     (
@@ -89,33 +105,29 @@ const PINNED_MODULES: &[(&str, &str)] = &[
     ),
 ];
 
-/// A job the test sends to a scripted query's own thread.
-type QueryJob = Box<
-    dyn FnOnce(spocky_provider_claude::sdk_query::CanUseTool) -> LocalBoxFuture<'static, ()> + Send,
->;
-
-struct QueryHandle {
-    frames: UnboundedSender<Option<JsValue>>,
-    jobs: UnboundedSender<QueryJob>,
-}
-
+/// What the scenario file scripts, shared with the factory closures.
 #[derive(Clone)]
 struct Shared {
     log: Arc<Mutex<Vec<String>>>,
-    /// RESULT lines, flushed into `log` at the end of their step.
-    results: Arc<Mutex<Vec<String>>>,
-    queries: Arc<Mutex<Vec<QueryHandle>>>,
     prompt_count: Arc<Mutex<usize>>,
     commands: JsValue,
     rewind_replies: JsValue,
     on_prompt: Vec<Vec<JsValue>>,
 }
 
-/// Moves the RESULT lines into the log, sorted: see `session_harness.mjs`.
-fn flush_results(shared: &Shared) {
-    let mut results = shared.results.lock().expect("results");
-    results.sort();
-    shared.log.lock().expect("log").append(&mut results);
+/// A scripted query as the test sees it.
+struct QueryHandle {
+    frames: Rc<AsyncQueue<JsValue, AgentError>>,
+    can_use_tool: Option<CanUseTool>,
+}
+
+thread_local! {
+    /// Every query the session opened, oldest first.
+    static QUERIES: RefCell<Vec<QueryHandle>> = const { RefCell::new(Vec::new()) };
+}
+
+fn last_query<T>(work: impl FnOnce(&QueryHandle) -> T) -> T {
+    QUERIES.with(|queries| work(queries.borrow().last().expect("a query")))
 }
 
 /// `text.replace(UUID, "<uuid>")`.
@@ -160,16 +172,16 @@ fn normalize(text: &str) -> String {
 
 impl Shared {
     fn put(&self, kind: &str, value: &str) {
-        let target = if kind == "RESULT" {
-            &self.results
-        } else {
-            &self.log
-        };
-        target
+        self.log
             .lock()
             .expect("log")
             .push(format!("{kind} {}", normalize(value)));
     }
+}
+
+/// One promise tick: an `await` in the baseline yields even for a settled promise.
+async fn tick() {
+    tokio::task::yield_now().await;
 }
 
 struct ScriptedQuery {
@@ -197,7 +209,10 @@ impl ClaudeQuery for ScriptedQuery {
 
     fn interrupt(&self) -> LocalBoxFuture<'static, Result<(), AgentError>> {
         self.call("interrupt");
-        Box::pin(async { Ok(()) })
+        Box::pin(async {
+            tick().await;
+            Ok(())
+        })
     }
 
     fn close(&self) {
@@ -208,17 +223,23 @@ impl ClaudeQuery for ScriptedQuery {
     fn return_(&self) -> LocalBoxFuture<'static, ()> {
         self.call("return");
         self.frames.done();
-        Box::pin(async {})
+        Box::pin(async { tick().await })
     }
 
     fn set_permission_mode(&self, mode: &str) -> LocalBoxFuture<'static, Result<(), AgentError>> {
         self.call_with("setPermissionMode", mode);
-        Box::pin(async { Ok(()) })
+        Box::pin(async {
+            tick().await;
+            Ok(())
+        })
     }
 
     fn set_model(&self, model: Option<&str>) -> LocalBoxFuture<'static, Result<(), AgentError>> {
         self.call_with("setModel", model.unwrap_or("undefined"));
-        Box::pin(async { Ok(()) })
+        Box::pin(async {
+            tick().await;
+            Ok(())
+        })
     }
 
     fn apply_flag_settings(
@@ -226,12 +247,18 @@ impl ClaudeQuery for ScriptedQuery {
         settings: JsValue,
     ) -> LocalBoxFuture<'static, Result<(), AgentError>> {
         self.call_with("applyFlagSettings", &stringify(&settings));
-        Box::pin(async { Ok(()) })
+        Box::pin(async {
+            tick().await;
+            Ok(())
+        })
     }
 
     fn supported_commands(&self) -> LocalBoxFuture<'static, Result<JsValue, AgentError>> {
         let commands = self.shared.commands.clone();
-        Box::pin(async move { Ok(commands) })
+        Box::pin(async move {
+            tick().await;
+            Ok(commands)
+        })
     }
 
     fn rewind_files(
@@ -245,6 +272,7 @@ impl ClaudeQuery for ScriptedQuery {
         );
         let reply = self.shared.rewind_replies.get(user_message_id).cloned();
         Box::pin(async move {
+            tick().await;
             match reply {
                 Some(reply) if reply.as_str() == Some("throw") => {
                     Err(AgentError::new("rewind failed"))
@@ -263,50 +291,34 @@ impl ClaudeQuery for ScriptedQuery {
         uuid: &str,
     ) -> Option<LocalBoxFuture<'static, Result<JsValue, AgentError>>> {
         self.call_with("cancelAsyncMessage", uuid);
-        Some(Box::pin(async { Ok(JsValue::Bool(true)) }))
+        Some(Box::pin(async {
+            tick().await;
+            Ok(JsValue::Bool(true))
+        }))
     }
 }
 
 fn make_query(shared: &Shared, input: &QueryInput) -> Rc<dyn ClaudeQuery> {
-    let index = shared.queries.lock().expect("queries").len();
+    let index = QUERIES.with(|queries| queries.borrow().len());
     let frames: Rc<AsyncQueue<JsValue, AgentError>> = Rc::default();
-    let (frame_sender, mut frame_receiver) = unbounded_channel::<Option<JsValue>>();
-    let (job_sender, mut job_receiver) = unbounded_channel::<QueryJob>();
-    shared.queries.lock().expect("queries").push(QueryHandle {
-        frames: frame_sender,
-        jobs: job_sender,
+    QUERIES.with(|queries| {
+        queries.borrow_mut().push(QueryHandle {
+            frames: Rc::clone(&frames),
+            can_use_tool: input.options.can_use_tool.clone(),
+        });
     });
-    let data = &input.options.data;
-    let mut summary = JsObject::new();
-    for key in ["resume", "model", "permissionMode"] {
-        summary.insert(key, data.get(key).cloned().unwrap_or(JsValue::Undefined));
-    }
     shared.put(
         "CALL",
-        &format!("query#{index} {}", stringify(&JsValue::Object(summary))),
+        &format!(
+            "query#{index} {}",
+            stringify(&JsValue::Object(input.options.data.clone()))
+        ),
     );
-    // External frames and jobs arrive from the test thread.
-    let forward = Rc::clone(&frames);
-    tokio::task::spawn_local(async move {
-        while let Some(frame) = frame_receiver.recv().await {
-            match frame {
-                Some(frame) => forward.enqueue(frame),
-                None => forward.done(),
-            }
-        }
-    });
-    if let Some(can_use_tool) = input.options.can_use_tool.clone() {
-        tokio::task::spawn_local(async move {
-            while let Some(job) = job_receiver.recv().await {
-                tokio::task::spawn_local(job(Rc::clone(&can_use_tool)));
-            }
-        });
-    }
     // The prompt stream: every user message may trigger scripted frames.
     let prompt = Rc::clone(&input.prompt);
     let reaction_frames = Rc::clone(&frames);
     let reaction_shared = shared.clone();
-    tokio::task::spawn_local(async move {
+    run_inline(async move {
         while let Some(message) = prompt.next().await {
             reaction_shared.put("CALL", &format!("prompt#{index} {}", prompt_text(&message)));
             let position = {
@@ -361,17 +373,6 @@ fn prompt_of(value: &JsValue) -> AgentPromptInput {
     }
 }
 
-fn run_options(value: Option<&JsValue>) -> Option<AgentRunOptions> {
-    let value = value?;
-    Some(AgentRunOptions {
-        client_message_id: value
-            .get("clientMessageId")
-            .and_then(JsValue::as_str)
-            .map(str::to_owned),
-        ..AgentRunOptions::default()
-    })
-}
-
 /// A non-negative whole number member of a step, `0` when absent.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Scenario literals.
 fn count(step: &JsValue, key: &str) -> usize {
@@ -388,12 +389,302 @@ fn outcome<T>(result: Result<T, AgentError>, render: impl FnOnce(T) -> JsValue) 
     }
 }
 
+/// `{ "id": session.id }`.
+fn id_result(session: &ClaudeSession) -> JsValue {
+    let mut object = JsObject::new();
+    object.insert("id", session.id().map_or(JsValue::Null, JsValue::String));
+    JsValue::Object(object)
+}
+
 #[allow(clippy::too_many_lines)] // One arm per scenario operation.
+/// A step's RESULT line. `await` in the baseline yields to the jobs already
+/// queued even for a settled promise (a push to the prompt stream wakes its
+/// reader before the caller resumes); one yield models that.
+async fn log_result(shared: &Shared, text: &str) {
+    tokio::task::yield_now().await;
+    shared.put("RESULT", text);
+}
+
+#[allow(clippy::too_many_lines)] // One arm per scenario operation.
+async fn run_scenario_steps(scenario: &JsValue, shared: &Shared, client: &ClaudeClient) {
+    let mut session: Option<Rc<ClaudeSession>> = None;
+    let mut aborts: Vec<AbortController> = Vec::new();
+    let config = scenario.get("config").cloned().unwrap_or(JsValue::Null);
+    for step in scenario
+        .get("steps")
+        .and_then(JsValue::as_array)
+        .unwrap_or_default()
+    {
+        let op = step.get("op").and_then(JsValue::as_str).unwrap_or_default();
+        let active = || Rc::clone(session.as_ref().expect("a created session"));
+        let prompt = || prompt_of(step.get("prompt").unwrap_or(&JsValue::Null));
+        let client_message_id = || {
+            step.get("options")
+                .and_then(|options| options.get("clientMessageId"))
+                .and_then(JsValue::as_str)
+                .map(str::to_owned)
+        };
+        match op {
+            "create" | "resume" => {
+                let opened = if op == "create" {
+                    client.create_local_session(&config)
+                } else {
+                    client.resume_local_session(
+                        step.get("handle").cloned().unwrap_or(JsValue::Null),
+                        step.get("overrides"),
+                    )
+                };
+                let text = outcome(opened, |opened| {
+                    let callback_shared = shared.clone();
+                    opened.subscribe(Arc::new(move |event| {
+                        callback_shared.put("EVENT", &stringify(&event));
+                    }));
+                    let result = id_result(&opened);
+                    session = Some(opened);
+                    result
+                });
+                log_result(shared, &text).await;
+            }
+            "startTurn" => {
+                let result = active().start_turn(&prompt(), client_message_id()).await;
+                log_result(
+                    shared,
+                    &outcome(result, |turn_id| {
+                        let mut object = JsObject::new();
+                        object.insert("turnId", JsValue::String(turn_id));
+                        JsValue::Object(object)
+                    }),
+                )
+                .await;
+            }
+            "run" => {
+                let result = active().run(&prompt(), client_message_id()).await;
+                log_result(shared, &outcome(result, |value| value)).await;
+            }
+            "emit" => last_query(|query| {
+                query
+                    .frames
+                    .enqueue(step.get("message").cloned().unwrap_or(JsValue::Undefined));
+            }),
+            "emitEnd" => last_query(|query| query.frames.done()),
+            "emitInterrupt" => {
+                // The frames are buffered when the interrupt is requested.
+                last_query(|query| {
+                    for message in step
+                        .get("messages")
+                        .and_then(JsValue::as_array)
+                        .unwrap_or_default()
+                    {
+                        query.frames.enqueue(message.clone());
+                    }
+                });
+                let result = active().interrupt().await;
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "wait" => tokio::time::sleep(Duration::from_millis(count(step, "ms") as u64)).await,
+            "interrupt" => {
+                let result = active().interrupt().await;
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "steer" => {
+                let options = step.get("options");
+                let expected = options
+                    .and_then(|options| options.get("expectedTurnId"))
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let clear = options
+                    .and_then(|options| options.get("clearPendingPermissions"))
+                    .and_then(JsValue::as_bool)
+                    == Some(true);
+                let result = active().steer_active_turn(&prompt(), &expected, clear);
+                log_result(
+                    shared,
+                    &outcome(result, |steered| {
+                        let mut object = JsObject::new();
+                        let status = match steered {
+                            spocky_session::agent_sdk::SteerResult::Accepted => "accepted",
+                            spocky_session::agent_sdk::SteerResult::Unavailable => "unavailable",
+                        };
+                        object.insert("status", JsValue::String(status.to_owned()));
+                        JsValue::Object(object)
+                    }),
+                )
+                .await;
+            }
+            "setMode" => {
+                let mode = step
+                    .get("mode")
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default();
+                let result = active().set_mode(mode).await;
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "setModel" => {
+                let model = step.get("model").and_then(JsValue::as_str);
+                let result = active().set_model(model).await;
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "setThinking" => {
+                let option = step.get("option").and_then(JsValue::as_str);
+                let result = active().set_thinking_option(option);
+                log_result(
+                    shared,
+                    &outcome(result, |notice| notice.unwrap_or(JsValue::Undefined)),
+                )
+                .await;
+            }
+            "setFeature" => {
+                let id = step.get("id").and_then(JsValue::as_str).unwrap_or_default();
+                let value = step.get("value").cloned().unwrap_or(JsValue::Undefined);
+                let result = active().set_feature(id, &value).await;
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "canUseTool" => {
+                let controller = AbortController::default();
+                let signal = controller.signal();
+                aborts.push(controller);
+                let tool_name = step
+                    .get("toolName")
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let input = step.get("input").cloned().unwrap_or(JsValue::Undefined);
+                let suggestions = step.get("suggestions").cloned();
+                let tool_use_id = step
+                    .get("toolUseID")
+                    .and_then(JsValue::as_str)
+                    .map(str::to_owned);
+                let can_use_tool =
+                    last_query(|query| query.can_use_tool.clone()).expect("canUseTool is set");
+                let call = can_use_tool(
+                    tool_name,
+                    input,
+                    CanUseToolOptions {
+                        signal,
+                        suggestions,
+                        tool_use_id,
+                    },
+                );
+                let result_shared = shared.clone();
+                // The call starts now; its resolution is logged later.
+                run_inline(async move {
+                    let result = call.await;
+                    tokio::time::sleep(CAN_USE_TOOL_LOG_DELAY).await;
+                    result_shared.put(
+                        "RESULT",
+                        &match result {
+                            Ok(value) => format!("canUseTool {}", stringify(&value)),
+                            Err(error) => format!("canUseTool ERROR {}", error.message),
+                        },
+                    );
+                });
+            }
+            "abortCanUseTool" => {
+                aborts[count(step, "index")].abort(spocky_session::agent_sdk::AbortReason::Value(
+                    JsValue::Undefined,
+                ));
+            }
+            "respondPermission" | "respondPermissionAbort" => {
+                let session = active();
+                let index = count(step, "index");
+                let pending = session.get_pending_permissions();
+                let id = pending[index]
+                    .get("id")
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let response = step.get("response").cloned().unwrap_or(JsValue::Undefined);
+                let mut responding = Box::pin(session.respond_to_permission(&id, &response));
+                let result = if op == "respondPermissionAbort" {
+                    // The abort fires while the response is still being handled.
+                    let first = poll_once(responding.as_mut());
+                    aborts[count(step, "abortIndex")].abort(
+                        spocky_session::agent_sdk::AbortReason::Value(JsValue::Undefined),
+                    );
+                    match first {
+                        std::task::Poll::Ready(result) => result,
+                        std::task::Poll::Pending => responding.await,
+                    }
+                } else {
+                    responding.await
+                };
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "pending" => {
+                let pending = active().get_pending_permissions();
+                shared.put("RESULT", &stringify(&JsValue::Array(pending)));
+            }
+            "state" => {
+                let session = active();
+                let mut state = JsObject::new();
+                state.insert("id", session.id().map_or(JsValue::Null, JsValue::String));
+                state.insert(
+                    "mode",
+                    session
+                        .get_current_mode()
+                        .map_or(JsValue::Null, JsValue::String),
+                );
+                state.insert(
+                    "modes",
+                    JsValue::Array(
+                        session
+                            .get_available_modes()
+                            .iter()
+                            .map(|mode| mode.get("id").cloned().unwrap_or(JsValue::Undefined))
+                            .collect(),
+                    ),
+                );
+                state.insert(
+                    "persistence",
+                    session.describe_persistence().unwrap_or(JsValue::Null),
+                );
+                state.insert("runtime", session.get_runtime_info());
+                state.insert("features", JsValue::Array(session.features()));
+                log_result(shared, &stringify(&JsValue::Object(state))).await;
+            }
+            "listCommands" => {
+                let result = active().list_commands().await;
+                log_result(shared, &outcome(result, |value| value)).await;
+            }
+            "history" => {
+                let events = active().stream_history();
+                log_result(shared, &stringify(&JsValue::Array(events))).await;
+            }
+            "revertFiles" | "revertConversation" => {
+                let message_id = step
+                    .get("messageId")
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default();
+                let result = if op == "revertFiles" {
+                    active().revert_files(message_id).await
+                } else {
+                    active().revert_conversation(message_id).await
+                };
+                log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
+            }
+            "close" => {
+                active().close().await;
+                log_result(shared, &outcome(Ok(()), |()| JsValue::Undefined)).await;
+            }
+            other => panic!("unknown op {other}"),
+        }
+        tokio::time::sleep(SETTLE).await;
+    }
+}
+
+/// Polls `future` once with no waker: the part of an async call that runs
+/// before its first await.
+fn poll_once<F: std::future::Future>(
+    mut future: std::pin::Pin<&mut F>,
+) -> std::task::Poll<F::Output> {
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    future.as_mut().poll(&mut context)
+}
+
 fn run_scenario(scenario: &JsValue) -> Vec<String> {
     let shared = Shared {
         log: Arc::default(),
-        results: Arc::default(),
-        queries: Arc::default(),
         prompt_count: Arc::default(),
         commands: scenario
             .get("commands")
@@ -433,301 +724,8 @@ fn run_scenario(scenario: &JsValue) -> Vec<String> {
         .enable_all()
         .build()
         .expect("runtime");
-    let mut session: Option<Arc<dyn AgentSession>> = None;
-    let mut aborts: Vec<AbortController> = Vec::new();
-    let config = scenario.get("config").cloned().unwrap_or(JsValue::Null);
-    for step in scenario
-        .get("steps")
-        .and_then(JsValue::as_array)
-        .unwrap_or_default()
-    {
-        let op = step.get("op").and_then(JsValue::as_str).unwrap_or_default();
-        let active = || Arc::clone(session.as_ref().expect("a created session"));
-        match op {
-            "create" => {
-                let created = runtime.block_on(client.create_session(config.clone(), None, None));
-                let text = outcome(created, |created| {
-                    let id = created.id();
-                    let callback_shared = shared.clone();
-                    let _unsubscribe = created.subscribe(Arc::new(move |event| {
-                        callback_shared.put("EVENT", &stringify(&event));
-                    }));
-                    session = Some(created);
-                    let mut object = JsObject::new();
-                    object.insert("id", id.map_or(JsValue::Null, JsValue::String));
-                    JsValue::Object(object)
-                });
-                shared.put("RESULT", &text);
-            }
-            "startTurn" => {
-                let session = active();
-                let result = runtime.block_on(session.start_turn(
-                    prompt_of(step.get("prompt").unwrap_or(&JsValue::Null)),
-                    run_options(step.get("options")),
-                ));
-                shared.put(
-                    "RESULT",
-                    &outcome(result, |turn_id| {
-                        let mut object = JsObject::new();
-                        object.insert("turnId", JsValue::String(turn_id));
-                        JsValue::Object(object)
-                    }),
-                );
-            }
-            "run" => {
-                let session = active();
-                let result = runtime.block_on(session.run(
-                    prompt_of(step.get("prompt").unwrap_or(&JsValue::Null)),
-                    run_options(step.get("options")),
-                ));
-                shared.put("RESULT", &outcome(result, |value| value));
-            }
-            "emit" | "emitEnd" => {
-                let queries = shared.queries.lock().expect("queries");
-                let handle = queries.last().expect("a query");
-                let frame = (op == "emit")
-                    .then(|| step.get("message").cloned())
-                    .flatten();
-                let _ = handle.frames.send(frame);
-            }
-            "wait" => {
-                std::thread::sleep(Duration::from_millis(count(step, "ms") as u64));
-            }
-            "interrupt" => {
-                let session = active();
-                let result = runtime.block_on(session.interrupt());
-                shared.put("RESULT", &outcome(result, |()| JsValue::Undefined));
-            }
-            "steer" => {
-                let session = active();
-                let options = step.get("options");
-                let steer = SteerActiveTurnOptions {
-                    run: AgentRunOptions::default(),
-                    clear_pending_permissions: options
-                        .and_then(|options| options.get("clearPendingPermissions"))
-                        .and_then(JsValue::as_bool),
-                    expected_turn_id: options
-                        .and_then(|options| options.get("expectedTurnId"))
-                        .and_then(JsValue::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                };
-                let prompt = prompt_of(step.get("prompt").unwrap_or(&JsValue::Null));
-                let future = session.steer_active_turn(&prompt, &steer);
-                let result = future.map(|future| runtime.block_on(future));
-                shared.put(
-                    "RESULT",
-                    &match result {
-                        Some(result) => outcome(result, |steered| {
-                            let mut object = JsObject::new();
-                            object.insert(
-                                "status",
-                                JsValue::String(
-                                    match steered {
-                                        spocky_session::agent_sdk::SteerResult::Accepted => {
-                                            "accepted"
-                                        }
-                                        spocky_session::agent_sdk::SteerResult::Unavailable => {
-                                            "unavailable"
-                                        }
-                                    }
-                                    .to_owned(),
-                                ),
-                            );
-                            JsValue::Object(object)
-                        }),
-                        None => "null".to_owned(),
-                    },
-                );
-            }
-            "setMode" => {
-                let session = active();
-                let mode = step
-                    .get("mode")
-                    .and_then(JsValue::as_str)
-                    .unwrap_or_default();
-                let result = runtime.block_on(session.set_mode(mode));
-                shared.put(
-                    "RESULT",
-                    &outcome(result, |notice| notice.unwrap_or(JsValue::Undefined)),
-                );
-            }
-            "setModel" => {
-                let session = active();
-                let model = step.get("model").and_then(JsValue::as_str);
-                let future = session.set_model(model).expect("setModel");
-                let result = runtime.block_on(future);
-                shared.put("RESULT", &outcome(result, |()| JsValue::Undefined));
-            }
-            "setThinking" => {
-                let session = active();
-                let option = step.get("option").and_then(JsValue::as_str);
-                let future = session
-                    .set_thinking_option(option)
-                    .expect("setThinkingOption");
-                let result = runtime.block_on(future);
-                shared.put(
-                    "RESULT",
-                    &outcome(result, |notice| notice.unwrap_or(JsValue::Undefined)),
-                );
-            }
-            "setFeature" => {
-                let session = active();
-                let id = step.get("id").and_then(JsValue::as_str).unwrap_or_default();
-                let value = step.get("value").cloned().unwrap_or(JsValue::Undefined);
-                let future = session.set_feature(id, value).expect("setFeature");
-                let result = runtime.block_on(future);
-                shared.put("RESULT", &outcome(result, |()| JsValue::Undefined));
-            }
-            "canUseTool" => {
-                let controller = AbortController::default();
-                let signal = controller.signal();
-                aborts.push(controller);
-                let tool_name = step
-                    .get("toolName")
-                    .and_then(JsValue::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let input = step.get("input").cloned().unwrap_or(JsValue::Undefined);
-                let suggestions = step.get("suggestions").cloned();
-                let tool_use_id = step
-                    .get("toolUseID")
-                    .and_then(JsValue::as_str)
-                    .map(str::to_owned);
-                let result_shared = shared.clone();
-                let job: QueryJob = Box::new(move |can_use_tool| {
-                    Box::pin(async move {
-                        let result = can_use_tool(
-                            tool_name,
-                            input,
-                            CanUseToolOptions {
-                                signal,
-                                suggestions,
-                                tool_use_id,
-                            },
-                        )
-                        .await;
-                        result_shared.put(
-                            "RESULT",
-                            &match result {
-                                Ok(value) => format!("canUseTool {}", stringify(&value)),
-                                Err(error) => format!("canUseTool ERROR {}", error.message),
-                            },
-                        );
-                    })
-                });
-                let queries = shared.queries.lock().expect("queries");
-                let _ = queries.last().expect("a query").jobs.send(job);
-            }
-            "abortCanUseTool" => {
-                let index = count(step, "index");
-                aborts[index].abort(spocky_session::agent_sdk::AbortReason::Value(
-                    JsValue::Undefined,
-                ));
-            }
-            "respondPermission" => {
-                let session = active();
-                let index = count(step, "index");
-                let pending = session.get_pending_permissions().expect("pending");
-                let id = pending[index]
-                    .get("id")
-                    .and_then(JsValue::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let response = step.get("response").cloned().unwrap_or(JsValue::Undefined);
-                let result = runtime.block_on(session.respond_to_permission(&id, response));
-                shared.put(
-                    "RESULT",
-                    &outcome(result, |value| value.unwrap_or(JsValue::Undefined)),
-                );
-            }
-            "pending" => {
-                let session = active();
-                let pending = session.get_pending_permissions().expect("pending");
-                shared.put("RESULT", &stringify(&JsValue::Array(pending)));
-            }
-            "state" => {
-                let session = active();
-                let mut state = JsObject::new();
-                state.insert("id", session.id().map_or(JsValue::Null, JsValue::String));
-                state.insert(
-                    "mode",
-                    runtime
-                        .block_on(session.get_current_mode())
-                        .ok()
-                        .flatten()
-                        .map_or(JsValue::Null, JsValue::String),
-                );
-                let modes = runtime
-                    .block_on(session.get_available_modes())
-                    .unwrap_or(JsValue::Undefined);
-                state.insert(
-                    "modes",
-                    JsValue::Array(
-                        modes
-                            .as_array()
-                            .unwrap_or_default()
-                            .iter()
-                            .map(|mode| mode.get("id").cloned().unwrap_or(JsValue::Undefined))
-                            .collect(),
-                    ),
-                );
-                state.insert(
-                    "persistence",
-                    session.describe_persistence().unwrap_or(JsValue::Null),
-                );
-                state.insert(
-                    "runtime",
-                    runtime
-                        .block_on(session.get_runtime_info())
-                        .unwrap_or(JsValue::Undefined),
-                );
-                state.insert("features", session.features().unwrap_or(JsValue::Undefined));
-                shared.put("RESULT", &stringify(&JsValue::Object(state)));
-            }
-            "listCommands" => {
-                let session = active();
-                let future = session.list_commands().expect("listCommands");
-                let result = runtime.block_on(future);
-                shared.put("RESULT", &outcome(result, |value| value));
-            }
-            "history" => {
-                let session = active();
-                let mut stream = session.stream_history();
-                let mut events = Vec::new();
-                while let Some(Ok(event)) = runtime.block_on(stream.next()) {
-                    events.push(event);
-                }
-                shared.put("RESULT", &stringify(&JsValue::Array(events)));
-            }
-            "revertFiles" | "revertConversation" => {
-                let session = active();
-                let message_id = step
-                    .get("messageId")
-                    .and_then(JsValue::as_str)
-                    .unwrap_or_default();
-                let future = if op == "revertFiles" {
-                    session.revert_files(message_id)
-                } else {
-                    session.revert_conversation(message_id)
-                }
-                .expect(op);
-                let result = runtime.block_on(future);
-                shared.put("RESULT", &outcome(result, |()| JsValue::Undefined));
-            }
-            "close" => {
-                let session = active();
-                let result = runtime.block_on(session.close());
-                shared.put("RESULT", &outcome(result, |()| JsValue::Undefined));
-            }
-            other => panic!("unknown op {other}"),
-        }
-        std::thread::sleep(SETTLE);
-        if op == "wait" {
-            flush_results(&shared);
-        }
-    }
-    flush_results(&shared);
+    let local = tokio::task::LocalSet::new();
+    local.block_on(&runtime, run_scenario_steps(scenario, &shared, &client));
     let log = shared.log.lock().expect("log");
     log.clone()
 }
@@ -752,6 +750,152 @@ fn first_difference(expected: &str, actual: &str) -> String {
     }
 }
 
+/// The environment both builds start from: nothing but these.
+fn fixed_env(scratch: &Path) -> Vec<(&'static str, PathBuf)> {
+    vec![
+        ("HOME", scratch.join("home")),
+        ("CLAUDE_CONFIG_DIR", scratch.join("claude-config")),
+    ]
+}
+
+/// Writes the scenario's transcript fixtures under the scratch config dir.
+fn write_fixtures(scenario: &JsValue, scratch: &Path) {
+    let root = scratch.join("claude-config");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("config dir");
+    for fixture in scenario
+        .get("fixtures")
+        .and_then(JsValue::as_array)
+        .unwrap_or_default()
+    {
+        let path = root.join(
+            fixture
+                .get("path")
+                .and_then(JsValue::as_str)
+                .expect("fixture path"),
+        );
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("fixture dir");
+        let bytes: Vec<u8> = if let Some(hex) = fixture.get("hex").and_then(JsValue::as_str) {
+            (0..hex.len())
+                .step_by(2)
+                .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("hex"))
+                .collect()
+        } else {
+            fixture
+                .get("lines")
+                .and_then(JsValue::as_array)
+                .unwrap_or_default()
+                .iter()
+                .map(|line| stringify(line) + "\n")
+                .collect::<String>()
+                .into_bytes()
+        };
+        std::fs::write(path, bytes).expect("fixture");
+    }
+}
+
+/// `text` without the member `"key":"value"` its runtime added to a JSON
+/// object, with one neighbouring comma.
+fn without_member(text: &str, key: &str) -> String {
+    let needle = format!("\"{key}\":\"");
+    let mut out = text.to_owned();
+    while let Some(start) = out.find(&needle) {
+        let value_start = start + needle.len();
+        let end = value_start + out[value_start..].find('"').expect("closing quote") + 1;
+        let (from, to) = if out[..start].ends_with(',') {
+            (start - 1, end)
+        } else if out[end..].starts_with(',') {
+            (start, end + 1)
+        } else {
+            (start, end)
+        };
+        out.replace_range(from..to, "");
+    }
+    out
+}
+
+fn timeout_binary() -> PathBuf {
+    let path = std::env::var_os("PATH").expect("PATH");
+    ["gtimeout", "timeout"]
+        .iter()
+        .flat_map(|name| std::env::split_paths(&path).map(move |dir| dir.join(name)))
+        .find(|candidate| candidate.is_file())
+        .expect("gtimeout or timeout on PATH")
+}
+
+fn run_pinned(
+    node: &std::ffi::OsString,
+    dist: &Path,
+    scenario_file: &Path,
+    scratch: &Path,
+) -> String {
+    let output = Command::new(timeout_binary())
+        .env_clear()
+        .envs(fixed_env(scratch))
+        .args(["--kill-after=5", "120"])
+        .arg(node)
+        .args([
+            "--input-type=module",
+            "-e",
+            include_str!("session_harness.mjs"),
+        ])
+        .arg(dist)
+        .arg(scenario_file)
+        .current_dir(scratch)
+        .output()
+        .expect("run pinned node");
+    assert!(
+        output.status.success(),
+        "node failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).expect("node stdout is UTF-8");
+    let text = without_member(&text, "NoDefaultCurrentDirectoryInExePath");
+    without_member(&text, "__CF_USER_TEXT_ENCODING")
+}
+
+fn run_rust(scenario_file: &Path, scratch: &Path) -> String {
+    std::fs::copy(scenario_file, scratch.join(CHILD_SCENARIO)).expect("child scenario");
+    let out = scratch.join(CHILD_LOG);
+    let _ = std::fs::remove_file(&out);
+    let output = Command::new(timeout_binary())
+        .env_clear()
+        .envs(fixed_env(scratch))
+        .args(["--kill-after=5", "120"])
+        .arg(std::env::current_exe().expect("test exe"))
+        .args([
+            "--exact",
+            "child_runs_the_scenario",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .current_dir(scratch)
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            std::fs::read_to_string(&out).unwrap_or_else(|_| "<no log>\n".to_owned())
+        }
+        Ok(output) => format!(
+            "<child failed>\n{}\n{}\n",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        Err(error) => format!("<child did not start: {error}>\n"),
+    }
+}
+
+/// The child half: runs the scenario in its working directory against
+/// `ClaudeClient` and writes the log. Does nothing outside the differential.
+#[test]
+fn child_runs_the_scenario() {
+    let Ok(text) = std::fs::read_to_string(CHILD_SCENARIO) else {
+        return;
+    };
+    let scenario = parse(&text).expect("JSON");
+    let log = run_scenario(&scenario).join("\n") + "\n";
+    std::fs::write(CHILD_LOG, log).expect("write the log");
+}
+
 #[test]
 fn sessions_match_the_pinned_build() {
     let Some((node, dist)) = support::pinned() else {
@@ -762,26 +906,26 @@ fn sessions_match_the_pinned_build() {
     let JsValue::Object(ref scenarios) = scenarios else {
         panic!("scenarios are an object");
     };
-    let scratch = std::env::temp_dir().join(format!("spocky-session-diff-{}", std::process::id()));
-    std::fs::create_dir_all(&scratch).expect("scratch");
-    let script = include_str!("session_harness.mjs");
+    let scratch = std::fs::canonicalize(std::env::temp_dir())
+        .expect("temp dir")
+        .join(format!("spocky-session-diff-{}", std::process::id()));
+    std::fs::create_dir_all(scratch.join("home")).expect("scratch");
     let mut failures = Vec::new();
     for (name, scenario) in scenarios.iter() {
         let file = scratch.join(format!("{name}.json"));
         std::fs::write(&file, stringify(scenario)).expect("scenario file");
-        let expected =
-            support::run_node(&node, &dist, script, &[file.to_string_lossy().into_owned()]);
-        let actual = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_scenario(scenario).join("\n") + "\n"
-        }))
-        .unwrap_or_else(|_| "<panic>\n".to_owned());
+        let mask = |text: String| text.replace(&scratch.to_string_lossy().into_owned(), "<tmp>");
+        write_fixtures(scenario, &scratch);
+        let expected = mask(run_pinned(&node, &dist, &file, &scratch));
+        write_fixtures(scenario, &scratch);
+        let actual = mask(run_rust(&file, &scratch));
         if let Some(dump) = std::env::var_os("SPOCKY_SESSION_DUMP") {
-            let dump = std::path::PathBuf::from(dump);
+            let dump = PathBuf::from(dump);
             std::fs::write(dump.join(format!("node-{name}.log")), &expected).expect("dump");
             std::fs::write(dump.join(format!("rust-{name}.log")), &actual).expect("dump");
         }
         assert!(
-            expected.lines().count() > 3,
+            expected.lines().count() >= 2,
             "{name}: the pinned run produced no log"
         );
         if actual != expected {
