@@ -132,6 +132,9 @@ const transport = {
         throw new Error(mode.message);
       case "reject":
         return Promise.reject(new Error(mode.message));
+      case "reject-value":
+        // A rejection value that is not an Error instance.
+        return Promise.reject(mode.message);
       case "pending":
         return new Promise((resolve, reject) => pendingSends.set(id, { resolve, reject }));
       default:
@@ -252,7 +255,8 @@ function run(op) {
     case "settle": {
       const pending = pendingSends.get(op.id);
       pendingSends.delete(op.id);
-      if (op.error === null) pending.resolve();
+      if (op.errorValue !== undefined) pending.reject(op.errorValue);
+      else if (op.error === null) pending.resolve();
       else pending.reject(new Error(op.error));
       break;
     }
