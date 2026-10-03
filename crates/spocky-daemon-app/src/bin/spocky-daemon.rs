@@ -207,6 +207,7 @@ fn main() -> ExitCode {
         home: home_dir,
     });
     let _ = slot.set(Arc::downgrade(&services));
-    let backend = Arc::new(DaemonBackend::new(Arc::clone(&services)));
+    let backend =
+        Arc::new(DaemonBackend::new(Arc::clone(&services)).with_mcp_injection(inject_mcp));
     run(backend)
 }
