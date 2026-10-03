@@ -158,7 +158,7 @@ enum Command {
         mode: SnapshotMode,
     },
     Unsubscribe(u64),
-    OnExit(ExitListener),
+    OnExit(u64, ExitListener),
     OnCommandFinished(u64, CommandFinishedListener),
     OnTitleChange(u64, TitleListener),
     RemoveListener(u64),
@@ -366,8 +366,11 @@ impl TerminalSession {
 
     /// `onExit(listener)`: called once with the exit info, also when the
     /// session already exited.
-    pub fn on_exit(&self, listener: impl FnOnce(ExitInfo) + Send + 'static) {
-        self.command(Command::OnExit(Box::new(listener)));
+    /// Returns the id for [`Self::remove_listener`].
+    pub fn on_exit(&self, listener: impl FnOnce(ExitInfo) + Send + 'static) -> u64 {
+        let id = self.listener_id();
+        self.command(Command::OnExit(id, Box::new(listener)));
+        id
     }
 
     /// `onCommandFinished(listener)`; returns the id for
@@ -509,7 +512,7 @@ struct Actor {
     revision: u64,
     input_mode: InputModeTracker,
     subs: Vec<Subscription>,
-    exit_listeners: Vec<ExitListener>,
+    exit_listeners: Vec<(u64, ExitListener)>,
     command_listeners: Vec<(u64, CommandFinishedListener)>,
     title_listeners: Vec<(u64, TitleListener)>,
     write_queue: VecDeque<WriteItem>,
@@ -632,11 +635,11 @@ impl Actor {
                 self.write_queue.push_back(WriteItem::Barrier(id));
             }
             Command::Unsubscribe(id) => self.subs.retain(|sub| sub.id != id),
-            Command::OnExit(listener) => {
+            Command::OnExit(id, listener) => {
                 if self.killed {
                     self.microtasks.push(Microtask::ExitReplay(listener));
                 } else {
-                    self.exit_listeners.push(listener);
+                    self.exit_listeners.push((id, listener));
                 }
             }
             Command::OnCommandFinished(id, listener) => {
@@ -652,6 +655,7 @@ impl Actor {
                 self.command_listeners
                     .retain(|(listener, _)| *listener != id);
                 self.title_listeners.retain(|(listener, _)| *listener != id);
+                self.exit_listeners.retain(|(listener, _)| *listener != id);
             }
             Command::SetTitle(title) => self.set_title(&title),
             Command::GetState(options, reply) => {
@@ -871,7 +875,7 @@ impl Actor {
         self.exit_emitted = true;
         lock(&self.mirror).exit_info = Some(info.clone());
         self.exit_info = Some(info.clone());
-        for listener in std::mem::take(&mut self.exit_listeners) {
+        for (_, listener) in std::mem::take(&mut self.exit_listeners) {
             listener(info.clone());
         }
     }
