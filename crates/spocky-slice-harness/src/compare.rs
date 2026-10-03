@@ -21,6 +21,7 @@ use crate::normalize::{
     SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
     preimage_digests, receipt_key, root_slug, rules_for, value_classes,
 };
+use crate::persistence::{PERSISTENCE_GATE, PERSISTENCE_TRANSFORM, without_enrichment_race};
 use crate::side::{CapturedFile, Exit, GateSpec, SideRun, StepRun, failed_checks};
 
 fn step_artifacts(prefix: &str, step: &StepRun, out: &mut Vec<Artifact>) {
@@ -283,6 +284,24 @@ fn git_probe_transform(left: &[usize], right: &[usize]) -> Option<Transform> {
         owner: "p3_slice_harness".into(),
         raw_retained: "left-*/side.json and right-*/side.json stub_records, and files/stub".into(),
         reordered: removed,
+    })
+}
+
+/// Describes the persistence enrichment transform; `None` when it changed
+/// nothing.
+fn persistence_transform(left: &[String], right: &[String]) -> Option<Transform> {
+    if left.is_empty() && right.is_empty() {
+        return None;
+    }
+    let mut changed: Vec<String> = left.iter().map(|name| format!("left:{name}")).collect();
+    changed.extend(right.iter().map(|name| format!("right:{name}")));
+    Some(Transform {
+        id: PERSISTENCE_TRANSFORM.into(),
+        target: "g4-retry only: the persistence handle of the agent snapshots at agent_ready, prompt_started, completed and agent.create.response (probe wire) and of the stored creation record: the full handle, byte for byte the one the same side emits at its first wait_for_finish_response, is rewritten to the minimal {provider, sessionId, metadata: {cwd}}; any other shape is left as it is".into(),
+        reason: "the pinned daemon fills the full persistence handle after the minimal one, and when varies with timing (g4-retry-20261003T180759Z: one side had it at prompt_started, the other only from wait_for_finish_response; original vs original)".into(),
+        owner: "p3_slice_harness".into(),
+        raw_retained: "left-*/side.json and right-*/side.json steps stdout and state, and files/".into(),
+        reordered: changed,
     })
 }
 
@@ -654,6 +673,52 @@ fn prepare_side(
     (artifacts, state, counts)
 }
 
+/// The side as it is compared: on the persistence gate, with the early full
+/// handles rewritten (see [`without_enrichment_race`]), and the names of the
+/// artifacts that changed.
+fn enriched(gate: &GateSpec, side: &SideRun) -> (SideRun, Vec<String>) {
+    if gate.id == PERSISTENCE_GATE {
+        without_enrichment_race(side)
+    } else {
+        (side.clone(), Vec::new())
+    }
+}
+
+/// The named transforms a comparison applied, in a fixed order.
+fn transforms_of(
+    sides: (&SideRun, &SideRun),
+    probe: (&[usize], &[usize]),
+    enriched: (&[String], &[String]),
+) -> Vec<Transform> {
+    let mut transforms = vec![client_metadata_transform(sides.0, sides.1)];
+    transforms.extend(git_probe_transform(probe.0, probe.1));
+    transforms.extend(persistence_transform(enriched.0, enriched.1));
+    transforms
+}
+
+fn side_input<'a>(facts: &'a SideFacts, texts: &'a [Text], side: &SideRun) -> SideInput<'a> {
+    SideInput {
+        facts,
+        texts: texts.iter().map(|text| text.text.as_str()).collect(),
+        extracted: side.extracted.clone(),
+        preimages: side.preimages.clone(),
+    }
+}
+
+/// How the comparison ended, for the verdict.
+fn comparison_label(
+    discovery_error: Option<&String>,
+    comparison_error: Option<&String>,
+    compared: bool,
+) -> String {
+    match (discovery_error, comparison_error) {
+        (Some(error), _) => format!("skipped: rule discovery failed: {error}"),
+        (None, Some(error)) => format!("skipped: comparison failed: {error}"),
+        (None, None) if compared => "compared".to_owned(),
+        (None, None) => "skipped: no comparison manifest".to_owned(),
+    }
+}
+
 /// Compares two sides of one gate.
 #[must_use]
 pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcome {
@@ -671,23 +736,15 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
     });
     let harness_errors = labelled(left, right, |side| side.harness_errors.clone());
     let (left_probe, right_probe) = git_probe_strips(left, right);
-    let (left_artifacts, left_state, left_counts) = prepare_side(gate, left, &left_probe);
-    let (right_artifacts, right_state, right_counts) = prepare_side(gate, right, &right_probe);
+    let (left_run, left_enriched) = enriched(gate, left);
+    let (right_run, right_enriched) = enriched(gate, right);
+    let (left_artifacts, left_state, left_counts) = prepare_side(gate, &left_run, &left_probe);
+    let (right_artifacts, right_state, right_counts) = prepare_side(gate, &right_run, &right_probe);
     let left_texts = texts(&left_artifacts, &left_state);
     let right_texts = texts(&right_artifacts, &right_state);
     let (left_facts, right_facts) = (facts(left), facts(right));
-    let left_input = SideInput {
-        facts: &left_facts,
-        texts: left_texts.iter().map(|text| text.text.as_str()).collect(),
-        extracted: left.extracted.clone(),
-        preimages: left.preimages.clone(),
-    };
-    let right_input = SideInput {
-        facts: &right_facts,
-        texts: right_texts.iter().map(|text| text.text.as_str()).collect(),
-        extracted: right.extracted.clone(),
-        preimages: right.preimages.clone(),
-    };
+    let left_input = side_input(&left_facts, &left_texts, left);
+    let right_input = side_input(&right_facts, &right_texts, right);
 
     let scenario = Scenario {
         id: format!("phase3-{}", gate.id),
@@ -724,15 +781,17 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         && check_failures.is_empty()
         && survivors.is_empty()
         && harness_errors.is_empty();
-    let mut transforms = vec![client_metadata_transform(left, right)];
-    transforms.extend(git_probe_transform(&left_probe, &right_probe));
+    let transforms = transforms_of(
+        (left, right),
+        (&left_probe, &right_probe),
+        (&left_enriched, &right_enriched),
+    );
     let compared = manifest.is_some();
-    let comparison = match (&discovery_error, &comparison_error) {
-        (Some(error), _) => format!("skipped: rule discovery failed: {error}"),
-        (None, Some(error)) => format!("skipped: comparison failed: {error}"),
-        (None, None) if compared => "compared".to_owned(),
-        (None, None) => "skipped: no comparison manifest".to_owned(),
-    };
+    let comparison = comparison_label(
+        discovery_error.as_ref(),
+        comparison_error.as_ref(),
+        compared,
+    );
     Outcome {
         verdict: Verdict {
             gate: gate.id.to_owned(),
@@ -1515,5 +1574,82 @@ mod tests {
         // A repeated key would be collapsed by a rewrite.
         let repeated = record.replacen("{\"seq\":0,", "{\"seq\":0,\"seq\":0,", 1);
         assert_eq!(strip_git_probe(&repeated), repeated);
+    }
+
+    const MIN_HANDLE: &str = r#"{"provider":"codex","sessionId":"s1","metadata":{"cwd":"/p"}}"#;
+    const FULL_HANDLE: &str = r#"{"provider":"codex","sessionId":"s1","nativeHandle":"s1","metadata":{"provider":"codex","cwd":"/p","title":null,"threadId":"s1"}}"#;
+
+    /// A probe wire whose early snapshots carry `early` and whose first
+    /// `wait_for_finish_response` carries `later`.
+    fn handle_wire(early: &str, later: &str) -> Vec<u8> {
+        let frame = |kind: &str, phase: &str, handle: &str| {
+            format!(
+                r#"{{"type":"session","message":{{"type":"{kind}","payload":{{"phase":"{phase}","agent":{{"id":"a","persistence":{handle}}}}}}}}}"#
+            )
+        };
+        let lines = [
+            "{\"outcomes\":[]}".to_owned(),
+            "# recording client".to_owned(),
+            frame("agent.create.update", "prompt_started", early),
+            frame("agent.create.response", "", early),
+            format!(
+                r#"{{"type":"session","message":{{"type":"wait_for_finish_response","payload":{{"final":{{"id":"a","persistence":{later}}}}}}}}}"#
+            ),
+        ];
+        format!("{}\n", lines.join("\n")).into_bytes()
+    }
+
+    fn retry_gate() -> GateSpec {
+        let mut gate = gate_with(Vec::new());
+        gate.id = PERSISTENCE_GATE;
+        gate
+    }
+
+    fn with_wire(mut side: SideRun, wire: Vec<u8>) -> SideRun {
+        side.steps[0].stdout = wire;
+        side
+    }
+
+    #[test]
+    fn the_enrichment_race_passes_only_on_g4_retry_and_is_named() {
+        let usual = handle_wire(MIN_HANDLE, FULL_HANDLE);
+        let raced = handle_wire(FULL_HANDLE, FULL_HANDLE);
+        let (left, right) = pair();
+        let (left, right) = (
+            with_wire(left, usual.clone()),
+            with_wire(right, raced.clone()),
+        );
+        let outcome = compare_sides(&retry_gate(), &left, &right);
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
+        let named = outcome
+            .verdict
+            .transforms
+            .iter()
+            .find(|t| t.id == PERSISTENCE_TRANSFORM)
+            .expect("transform named");
+        assert_eq!(named.reordered, ["right:step-01-run/stdout"]);
+        // The other gates compare the two shapes raw.
+        assert!(
+            !compare_sides(&gate_with(Vec::new()), &left, &right)
+                .verdict
+                .pass
+        );
+    }
+
+    #[test]
+    fn a_third_persistence_shape_or_a_different_full_handle_fails() {
+        let usual = handle_wire(MIN_HANDLE, FULL_HANDLE);
+        let third =
+            r#"{"provider":"codex","sessionId":"s1","nativeHandle":"s1","metadata":{"cwd":"/p"}}"#;
+        let other = FULL_HANDLE.replace("threadId\":\"s1", "threadId\":\"s2");
+        for (early, later) in [(third, FULL_HANDLE), (other.as_str(), FULL_HANDLE)] {
+            let (left, right) = pair();
+            let outcome = compare_sides(
+                &retry_gate(),
+                &with_wire(left, usual.clone()),
+                &with_wire(right, handle_wire(early, later)),
+            );
+            assert!(!outcome.verdict.pass, "{early}");
+        }
     }
 }
