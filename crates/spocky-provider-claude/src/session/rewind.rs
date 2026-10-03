@@ -8,7 +8,8 @@ use spocky_contracts::text::{is_js_whitespace, js_trim};
 use spocky_session::agent_sdk::AgentError;
 
 use super::turns::SlashCommand;
-use super::{ClaudeSession, RewindAnchor, text};
+use super::{ClaudeSession, RewindAnchor, RewindSdk, text};
+use crate::fork_session::RealRewindSdk;
 use crate::sdk_query::ClaudeQuery;
 use crate::transcript::{
     is_synthetic_user_entry, is_tool_result_user_entry, read_parent_tool_use_id,
@@ -241,15 +242,20 @@ impl ClaudeSession {
                 Ok(())
             }
             RewindTarget::Fork(target) => {
-                let session_id = self.state.borrow().claude_session_id.clone();
+                let session_id = self
+                    .state
+                    .borrow()
+                    .claude_session_id
+                    .clone()
+                    .filter(|id| !id.is_empty());
                 let Some(session_id) = session_id else {
                     return Err(AgentError::new("Claude session is not ready for rewind"));
                 };
-                let Some(sdk) = self.options.rewind_sdk.clone() else {
-                    return Err(AgentError::new(
-                        "Claude forkSession is not available in this build",
-                    ));
-                };
+                let sdk: Rc<dyn RewindSdk> = self
+                    .options
+                    .rewind_sdk
+                    .clone()
+                    .unwrap_or_else(|| Rc::new(RealRewindSdk));
                 let forked = sdk.fork_session(&session_id, &target).await?;
                 self.rebind_conversation_session(&forked);
                 Ok(())
