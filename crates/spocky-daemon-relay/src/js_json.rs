@@ -16,6 +16,26 @@ pub enum Value {
     Object(Vec<(JsString, Value)>),
 }
 
+impl Drop for Value {
+    /// Dropping a deeply nested value must not recurse: V8 parses 100,000 levels, so a
+    /// hostile control frame can build them.
+    fn drop(&mut self) {
+        let mut pending: Vec<Value> = Vec::new();
+        take_children(self, &mut pending);
+        while let Some(mut value) = pending.pop() {
+            take_children(&mut value, &mut pending);
+        }
+    }
+}
+
+fn take_children(value: &mut Value, into: &mut Vec<Value>) {
+    match value {
+        Value::Array(elements) => into.append(elements),
+        Value::Object(members) => into.extend(members.drain(..).map(|(_, member)| member)),
+        _ => {}
+    }
+}
+
 impl Value {
     /// `parsed[key]` on an object: the last member with that name.
     #[must_use]
