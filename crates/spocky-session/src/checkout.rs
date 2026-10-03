@@ -18,7 +18,7 @@ use crate::git::{GitError, GitOptions, run_git};
 use crate::paths::{
     basename, dirname, expand_tilde, realpath_aware_relative_path, realpath_js, resolve,
 };
-use crate::text::js_trim;
+use crate::text::{js_trim, read_text};
 
 /// `ProjectCheckoutLitePayload`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +103,7 @@ async fn rebase_head_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
             continue;
         };
         let head_name_path = js_text_to_utf8(&resolve(cwd_text, js_trim(&stdout)));
-        let Ok(contents) = blocking(move || std::fs::read_to_string(head_name_path)).await else {
+        let Ok(contents) = blocking(move || read_text(head_name_path)).await else {
             continue;
         };
         let head = js_trim(&contents);
@@ -303,7 +303,7 @@ fn git_dir_for_worktree_root(worktree_root: &str) -> Result<String, GitError> {
             message: format!("Not a git repository: {worktree_root}"),
         });
     }
-    if let Ok(contents) = std::fs::read_to_string(&git_os_path)
+    if let Ok(contents) = read_text(&git_os_path)
         && let Some(start) = contents.find("gitdir:")
     {
         let after =
@@ -669,7 +669,7 @@ fn stored_base_ref(worktree_root: &str) -> Result<Option<String>, GitError> {
     if std::fs::metadata(&metadata_os_path).is_err() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&metadata_os_path).map_err(|error| GitError {
+    let text = read_text(&metadata_os_path).map_err(|error| GitError {
         message: error.to_string(),
     })?;
     let value = parse(&text).map_err(|error| GitError {
@@ -792,6 +792,31 @@ pub async fn get_checkout(cwd: &str, context: &CheckoutContext) -> Result<Checko
 #[cfg(test)]
 mod tests {
     use super::{branch_name_from_ref, git_dir_for_worktree_root, parse_rev_parse_path};
+
+    /// A `.git` file naming a git directory with U+10FFFF and U+F0000 is read
+    /// as those characters (the escape doubled), and invalid UTF-8 in it
+    /// becomes U+FFFD instead of hiding the file.
+    #[test]
+    fn a_gitdir_file_is_read_as_javascript_text() {
+        let root = std::env::temp_dir().join(format!("spocky-gitdir-text-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create dirs");
+        let worktree = root.to_string_lossy().into_owned();
+        std::fs::write(
+            root.join(".git"),
+            "gitdir: /g/a\u{10FFFF}\u{F0000}b\n".as_bytes(),
+        )
+        .expect("write");
+        assert_eq!(
+            git_dir_for_worktree_root(&worktree).expect("git dir"),
+            "/g/a\u{10FFFF}\u{10FFFF}\u{F0000}b"
+        );
+        std::fs::write(root.join(".git"), b"gitdir: /g/\xffz\n").expect("write");
+        assert_eq!(
+            git_dir_for_worktree_root(&worktree).expect("git dir"),
+            "/g/\u{FFFD}z"
+        );
+        std::fs::remove_dir_all(&root).expect("clean");
+    }
 
     /// A worktree root that is JavaScript text is statted as UTF-8: a lone
     /// surrogate is U+FFFD, as for node's `fs`.
