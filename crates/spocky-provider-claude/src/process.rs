@@ -43,25 +43,83 @@ pub struct ChildProcess {
     killed: RefCell<bool>,
 }
 
-fn signal_name(number: i32) -> String {
-    match number {
-        1 => "SIGHUP",
-        2 => "SIGINT",
-        3 => "SIGQUIT",
-        4 => "SIGILL",
-        5 => "SIGTRAP",
-        6 => "SIGABRT",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        10 => "SIGBUS",
-        11 => "SIGSEGV",
-        12 => "SIGSYS",
-        13 => "SIGPIPE",
-        14 => "SIGALRM",
-        15 => "SIGTERM",
-        _ => return format!("SIG{number}"),
-    }
-    .to_owned()
+/// The name Node gives a signal number: the host's table.
+pub(crate) fn signal_name(number: i32) -> String {
+    #[cfg(target_os = "macos")]
+    const NAMES: [&str; 32] = [
+        "",
+        "SIGHUP",
+        "SIGINT",
+        "SIGQUIT",
+        "SIGILL",
+        "SIGTRAP",
+        "SIGABRT",
+        "SIGEMT",
+        "SIGFPE",
+        "SIGKILL",
+        "SIGBUS",
+        "SIGSEGV",
+        "SIGSYS",
+        "SIGPIPE",
+        "SIGALRM",
+        "SIGTERM",
+        "SIGURG",
+        "SIGSTOP",
+        "SIGTSTP",
+        "SIGCONT",
+        "SIGCHLD",
+        "SIGTTIN",
+        "SIGTTOU",
+        "SIGIO",
+        "SIGXCPU",
+        "SIGXFSZ",
+        "SIGVTALRM",
+        "SIGPROF",
+        "SIGWINCH",
+        "SIGINFO",
+        "SIGUSR1",
+        "SIGUSR2",
+    ];
+    #[cfg(not(target_os = "macos"))]
+    const NAMES: [&str; 32] = [
+        "",
+        "SIGHUP",
+        "SIGINT",
+        "SIGQUIT",
+        "SIGILL",
+        "SIGTRAP",
+        "SIGABRT",
+        "SIGBUS",
+        "SIGFPE",
+        "SIGKILL",
+        "SIGUSR1",
+        "SIGSEGV",
+        "SIGUSR2",
+        "SIGPIPE",
+        "SIGALRM",
+        "SIGTERM",
+        "SIGSTKFLT",
+        "SIGCHLD",
+        "SIGCONT",
+        "SIGSTOP",
+        "SIGTSTP",
+        "SIGTTIN",
+        "SIGTTOU",
+        "SIGURG",
+        "SIGXCPU",
+        "SIGXFSZ",
+        "SIGVTALRM",
+        "SIGPROF",
+        "SIGWINCH",
+        "SIGIO",
+        "SIGPWR",
+        "SIGSYS",
+    ];
+    usize::try_from(number)
+        .ok()
+        .and_then(|index| NAMES.get(index))
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| format!("SIG{number}"), |name| (*name).to_owned())
 }
 
 /// The spawn request `spawnClaudeCodeProcess` receives, after Paseo's
@@ -295,7 +353,7 @@ impl ChildProcess {
     }
 }
 
-fn send_signal(pid: u32, signal: &str) {
+pub(crate) fn send_signal(pid: u32, signal: &str) {
     let name = signal.trim_start_matches("SIG");
     let _ = std::process::Command::new("/bin/kill")
         .args(["-s", name, &pid.to_string()])
