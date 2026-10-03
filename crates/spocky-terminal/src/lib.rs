@@ -13,4 +13,5 @@ pub mod size_ownership;
 pub mod snapshot;
 pub mod terminal_env;
 pub mod utf8_decoder;
+pub mod v8_serialize;
 pub mod worker_protocol;
