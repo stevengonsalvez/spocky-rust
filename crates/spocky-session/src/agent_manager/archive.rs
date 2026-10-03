@@ -400,8 +400,14 @@ impl AgentManager {
     /// `fireAgentArchived(agentId)`.
     async fn fire_agent_archived(&self, agent_id: &str) {
         let callback = self.lock().on_agent_archived.clone();
-        if let Some(callback) = callback {
-            let _ = callback(agent_id.to_owned()).await;
+        if let Some(callback) = callback
+            && callback(agent_id.to_owned()).await.is_err()
+        {
+            // pino prints the `err` binding, an `Error`, as `{}`.
+            let mut bindings = JsObject::new();
+            bindings.insert("err", JsValue::Object(JsObject::new()));
+            bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+            self.emit_warn(JsValue::Object(bindings), "onAgentArchived callback failed");
         }
     }
 
