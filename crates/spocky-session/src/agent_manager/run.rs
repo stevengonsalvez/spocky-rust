@@ -148,10 +148,7 @@ fn abort_error(signal: &AbortSignal, fallback: &str) -> AgentError {
         Some(AbortReason::Error(error)) => error.message.clone(),
         _ => fallback.to_owned(),
     };
-    AgentError {
-        name: "AbortError".to_owned(),
-        message,
-    }
+    AgentError::named("AbortError", message)
 }
 
 /// Runs the wait's `unsubscribe` when the wait ends, however it ends:
@@ -741,10 +738,7 @@ impl AgentManager {
                 let epoch = state
                     .timeline
                     .epoch(&id)
-                    .map_err(|error| AgentError {
-                        name: "TypeError".to_owned(),
-                        message: error.to_string(),
-                    })?
+                    .map_err(|error| AgentError::named("TypeError".to_owned(), error.to_string()))?
                     .to_owned();
                 self.dispatch(
                     &state,
@@ -841,12 +835,12 @@ impl AgentManager {
         action: &str,
     ) -> Result<(), AgentError> {
         if self.cancel_agent_run(agent_id).await? == AgentRunCancellationResult::Refused {
-            return Err(AgentError {
-                name: "AgentRunCancellationError".to_owned(),
-                message: format!(
+            return Err(AgentError::named(
+                "AgentRunCancellationError".to_owned(),
+                format!(
                     "Cannot {action} agent {agent_id} because its active run cancellation was not acknowledged"
                 ),
-            });
+            ));
         }
         Ok(())
     }
