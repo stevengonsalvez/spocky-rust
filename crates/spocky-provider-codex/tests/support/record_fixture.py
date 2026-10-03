@@ -16,6 +16,10 @@ the fixture with its provenance in `_source`:
 The fixture's own SHA-256 lives in tests/fixtures/SHA256SUMS, which the replay
 differential checks before it reads a fixture.
 
+A scenario can instead pick a launch by what the client sent:
+`<scenario>=<label>@<method>#<n>` is the n-th (0 = oldest) launch under
+that label whose client sent <method>.
+
 usage: record_fixture.py <out.json> <recording command> <record dir> <scenario>=<label>...
 """
 import hashlib
@@ -48,6 +52,24 @@ def session_launch(record_dir, label):
     sys.exit(f"no recorded session for label {label} under {record_dir}")
 
 
+def method_launch(record_dir, label, method, nth):
+    """The `nth` (0 = oldest) launch of the root labelled `label` whose client
+    sent `method`, in the order the launches ran."""
+    root = re.compile(rf"^spocky-p3-codex-{re.escape(label)}-\d+-\d+$")
+    launches = []
+    for root_dir in Path(record_dir).iterdir():
+        if root.match(root_dir.name):
+            launches += [d for d in root_dir.iterdir() if (d / "in.jsonl").is_file()]
+    matching = [
+        d
+        for d in sorted(launches, key=lambda d: d.stat().st_mtime)
+        if method in [json.loads(line).get("method") for line in (d / "in.jsonl").open()]
+    ]
+    if nth >= len(matching):
+        sys.exit(f"launch {nth} sending {method} not found for label {label} under {record_dir}")
+    return matching[nth]
+
+
 def main():
     out, command, record_dir, *pairs = sys.argv[1:]
     codex_sha = sha256_file(PINNED_CODEX)
@@ -58,7 +80,12 @@ def main():
     scenarios = {}
     for pair in pairs:
         scenario, label = pair.split("=", 1)
-        launch = session_launch(record_dir, label)
+        if "@" in label:
+            label, selector = label.split("@", 1)
+            method, nth = selector.split("#", 1)
+            launch = method_launch(record_dir, label, method, int(nth))
+        else:
+            launch = session_launch(record_dir, label)
         sides = {}
         for name in ("in", "out"):
             text = (launch / f"{name}.jsonl").read_text()
