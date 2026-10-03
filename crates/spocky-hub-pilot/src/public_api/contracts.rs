@@ -12,9 +12,10 @@ use super::operations::{
 };
 use super::validation::{
     Issue, Issues, ParseFailure, PathPart, StringRule, array_field, array_length, index,
-    invalid_type, is_uuid, key, object_fields, string_field, unrecognized_keys, utf16_len,
+    invalid_type, is_uuid, key, object_fields, string_field, unrecognized_keys,
 };
 use super::value::{JsValueExt as _, Json};
+use spocky_contracts::text::js_length;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TriggerYamlInput {
@@ -585,7 +586,7 @@ pub fn dispatched_run_body(
 
 #[must_use]
 pub fn enrollment_token_body(token: &str, expires_at_ms: i64) -> Option<Json> {
-    if utf16_len(token) < 32 {
+    if js_length(token) < 32 {
         return None;
     }
     Some(Json::object([
