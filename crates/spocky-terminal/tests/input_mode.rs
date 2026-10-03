@@ -33,7 +33,51 @@ fn holds_a_sequence_split_across_chunks() {
     assert_eq!(tracker.preamble(), "");
 }
 
+#[test]
+fn an_overflowing_parameter_prints_infinity() {
+    let mut tracker = InputModeTracker::new();
+    let nines = "9".repeat(400);
+    tracker.feed(&format!("\u{1b}[>{nines}u"));
+    assert_eq!(tracker.feed("\u{1b}[?u").responses, ["\u{1b}[?Infinityu"]);
+    assert_eq!(tracker.preamble(), "\u{1b}[=Infinity;1u");
+}
+
+#[test]
+fn kitty_pops_reach_the_pinned_final_state_for_small_counts() {
+    let Some(pinned) = support::pinned("kitty pop differential") else {
+        return;
+    };
+    support::assert_pinned_modules(&pinned.terminal_dir);
+    let protocol_dir = pinned.protocol_dir.to_string_lossy().into_owned();
+    // The baseline pops once per count; the port stops at an empty stack.
+    // Both end in the same state for any count that finishes.
+    let cases = [
+        "\u{1b}[>1u\u{1b}[>2u\u{1b}[>3u\u{1b}[<u",
+        "\u{1b}[>1u\u{1b}[>2u\u{1b}[>3u\u{1b}[<2u",
+        "\u{1b}[>1u\u{1b}[>2u\u{1b}[>3u\u{1b}[<3u",
+        "\u{1b}[>1u\u{1b}[>2u\u{1b}[>3u\u{1b}[<4u",
+        "\u{1b}[>5u\u{1b}[<0u",
+        "\u{1b}[<7u",
+        "\u{1b}[>5u\u{1b}[<9u\u{1b}[>6u\u{1b}[<u",
+        "\u{1b}[>5u\u{1b}[>6u\u{1b}[<1000u\u{1b}[?u",
+    ];
+    let input = stringify(&JsValue::Array(
+        cases
+            .iter()
+            .map(|c| JsValue::Array(vec![JsValue::String((*c).to_owned())]))
+            .collect(),
+    ));
+    let expected = support::run_node(&pinned, NODE_SCRIPT, &[&protocol_dir, &input]);
+    let streams: Vec<Vec<String>> = cases.iter().map(|c| vec![(*c).to_owned()]).collect();
+    assert_eq!(rust_output(&streams), expected);
+}
+
 const PIECES: &[&str] = &[
+    // 400 digits overflow a double: the flags become Infinity.
+    "\u{1b}[>999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999u",
+    "\u{1b}[=999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999u",
+    "\u{1b}[<3u",
+    "\u{1b}[<20u",
     "\u{1b}[>1u",
     "\u{1b}[>u",
     "\u{1b}[>15u",
