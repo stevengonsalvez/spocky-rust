@@ -5,7 +5,7 @@ use std::io;
 use std::sync::Arc;
 
 use spocky_contracts::zod::Outcome;
-use spocky_store::js_value::{JsObject, JsValue};
+use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
 use super::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
@@ -173,9 +173,10 @@ fn uv_description(code: &str) -> &'static str {
     }
 }
 
-/// `assertUsableWorkingDirectory(cwd)`.
+/// `assertUsableWorkingDirectory(cwd)`. `cwd` is JavaScript text; node
+/// encodes it to UTF-8 for the `stat`, so a lone surrogate is U+FFFD there.
 fn assert_usable_working_directory(cwd: &str) -> Result<(), AgentError> {
-    match std::fs::metadata(cwd) {
+    match std::fs::metadata(js_text_to_utf8(cwd)) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
         Ok(_) => Err(AgentError::new(format!(
             "Working directory is not a directory: {cwd}"
@@ -1297,4 +1298,28 @@ fn validate_tool_policy_servers(config: &JsValue) -> Result<(), AgentError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::assert_usable_working_directory;
+
+    /// A working directory that is JavaScript text is statted as UTF-8: a
+    /// lone surrogate is U+FFFD, as for node's `fs.stat`.
+    #[test]
+    fn working_directory_check_encodes_a_lone_surrogate_as_node_does() {
+        let root = std::env::temp_dir().join(format!("spocky-cwd-js-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("\u{FFFD}d")).expect("create dir");
+        let lone = spocky_store::js_value::js_text_from_utf16(&[0xD800]);
+        let given = format!("{}/{lone}d", root.to_string_lossy());
+        assert!(assert_usable_working_directory(&given).is_ok());
+        let missing = format!("{}/{lone}missing", root.to_string_lossy());
+        assert_eq!(
+            assert_usable_working_directory(&missing)
+                .expect_err("missing")
+                .message,
+            format!("Working directory does not exist: {missing}")
+        );
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
 }
