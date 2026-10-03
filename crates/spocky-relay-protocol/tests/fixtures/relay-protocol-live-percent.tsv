@@ -1,0 +1,9 @@
+control	{"type":"sync","connectionIds":[]}
+query	role=client&serverId=live_percent&v=%32&connectionId=%63%31	text {"type":"connected","connectionId":"c1"}
+query	role=client&serverId=live_percent&v=2&connectionId=c%2B2	text {"type":"connected","connectionId":"c+2"}
+query	role=client&serverId=live_percent&v=2&connectionId=c+3	text {"type":"connected","connectionId":"c 3"}
+query	role=client&serverId=live_percent&v=2&connectionId=%20c4%20	text {"type":"connected","connectionId":"c4"}
+query	role=client&serverId=live_percent&v=2&connectionId=%2563	text {"type":"connected","connectionId":"%63"}
+query	role=client&serverId=live_percent&v=%202%20&connectionId=c6	text {"type":"connected","connectionId":"c6"}
+query	role=client&serverId=live_percent&v=2&connectionId=%C3%A9%e2%82%ac	text {"type":"connected","connectionId":"é€"}
+query	%72ole=client&%73erverId=live_percent&%76=2&%63onnectionId=c8	text {"type":"connected","connectionId":"c8"}
