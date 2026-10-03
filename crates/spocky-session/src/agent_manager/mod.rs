@@ -38,7 +38,9 @@ pub use archive::{AgentArchivedCallback, DetachedAgent, LogWarn, UnarchiveUpdate
 
 /// `logger.info(bindings, message)`.
 pub type LogInfo = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
-pub use create::{CreateAgentOptions, ImportProviderSessionRequest, ResumeAgentOptions};
+pub use create::{
+    CreateAgentOptions, ImportProviderSessionRequest, ReloadAgentOptions, ResumeAgentOptions,
+};
 pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
 pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgentResult};
@@ -272,6 +274,8 @@ pub struct AgentManagerOptions {
     pub plugin_lifecycle: bool,
     /// `rescueTimeouts.interruptSessionMs` (default 2000).
     pub rescue_interrupt_session_ms: Option<u64>,
+    /// `rescueTimeouts.reloadSessionCloseMs` (default 3000).
+    pub rescue_reload_session_close_ms: Option<u64>,
 }
 
 /// A live agent: the snapshot fields plus what never leaves the manager.
@@ -324,6 +328,8 @@ pub(crate) struct State {
     pub(crate) foreground_lanes: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
     /// `inFlightAgentCloses`.
     pub(crate) inflight_closes: HashMap<String, lifecycle::SharedClose>,
+    /// `reloadedSessionCloses`: the close of each session a reload replaced.
+    pub(crate) reloaded_session_closes: Vec<create::ReloadedClose>,
     pub(crate) mcp_base_url: Option<String>,
     pub(crate) paseo_tools_enabled: bool,
     pub(crate) append_system_prompt: String,
@@ -387,6 +393,7 @@ pub(crate) struct Inner {
     /// Signalled when an agent's session event queue empties.
     pub(crate) drain_idle: Notify,
     pub(crate) interrupt_session_ms: u64,
+    pub(crate) reload_session_close_ms: u64,
     /// `waitForAgentRunStart` subscribers, settled as each `agent_state`
     /// is dispatched.
     pub(crate) run_start_waiters: Mutex<Vec<run::RunStartWaiter>>,
@@ -488,6 +495,7 @@ impl AgentManager {
             lifecycle_lanes: HashMap::new(),
             foreground_lanes: HashMap::new(),
             inflight_closes: HashMap::new(),
+            reloaded_session_closes: Vec::new(),
             mcp_base_url: options.mcp_base_url,
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
@@ -518,6 +526,9 @@ impl AgentManager {
                 interrupt_session_ms: options
                     .rescue_interrupt_session_ms
                     .unwrap_or(lifecycle::INTERRUPT_SESSION_TIMEOUT_MS),
+                reload_session_close_ms: options
+                    .rescue_reload_session_close_ms
+                    .unwrap_or(create::RELOAD_SESSION_CLOSE_TIMEOUT_MS),
                 run_start_waiters: Mutex::new(Vec::new()),
             }),
         }

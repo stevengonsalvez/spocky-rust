@@ -3,6 +3,7 @@
 
 use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 
 use spocky_contracts::zod::Outcome;
 use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
@@ -115,6 +116,8 @@ pub(crate) struct RegisterOptions {
     pub(crate) attention: Option<AgentAttention>,
     /// `persistence ?? session.describePersistence()`.
     pub(crate) persistence: Option<JsValue>,
+    pub(crate) last_usage: Option<JsValue>,
+    pub(crate) last_error: Option<String>,
     /// Bringing a known agent back: installing the session is not activity
     /// in it, so `updatedAt` is not touched.
     pub(crate) restoring: bool,
@@ -124,6 +127,45 @@ pub(crate) struct RegisterOptions {
     pub(crate) timeline_next_seq: Option<i64>,
     /// `publishWhenReady`: the agent is first announced once it is ready.
     pub(crate) publish_when_ready: bool,
+}
+
+/// `reloadAgentSession` options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReloadAgentOptions {
+    /// `rehydrateFromDisk`: wipe the in-memory timeline and read the
+    /// provider's history again.
+    pub rehydrate_from_disk: bool,
+}
+
+/// `RELOAD_SESSION_CLOSE_TIMEOUT_MS`.
+pub(crate) const RELOAD_SESSION_CLOSE_TIMEOUT_MS: u64 = 3_000;
+
+/// The close of a session a reload replaced (`reloadedSessionCloses`, a
+/// `WeakMap` keyed by session).
+pub(crate) struct ReloadedClose {
+    session: std::sync::Weak<dyn AgentSession>,
+    result: tokio::sync::watch::Receiver<Option<Result<(), AgentError>>>,
+}
+
+/// What `reloadAgentSessionInternal` has worked out before it closes the
+/// old session.
+struct ReloadPlan<'a> {
+    agent_id: &'a str,
+    existing: ManagedAgentSnapshot,
+    existing_session: Arc<dyn AgentSession>,
+    handle: Option<JsValue>,
+    client: Arc<dyn AgentClient>,
+    prepared: PreparedSessionConfig,
+    launch_context: AgentLaunchContext,
+    rehydrate_from_disk: bool,
+}
+
+/// How far a reload got, for its `catch` and `finally`.
+#[derive(Default)]
+struct ReloadProgress {
+    closed_existing: Option<ManagedAgentSnapshot>,
+    session: Option<Arc<dyn AgentSession>>,
+    handed_to_registration: bool,
 }
 
 /// `resumeAgentFromPersistence` options: what the stored record says
@@ -559,6 +601,323 @@ impl AgentManager {
         .await
     }
 
+    /// `reloadAgentSession(agentId, overrides, options)`: closes the agent's
+    /// session and opens a replacement from the same persistence handle (or
+    /// a new session when it has none), keeping the agent's labels,
+    /// timestamps and timeline.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, `AgentRunCancellationError`
+    /// when an active run cannot be cancelled, `No client registered for
+    /// provider '<p>'`, `Provider '<p>' does not support MCP servers`,
+    /// `Timed out closing previous session during refresh`, or the
+    /// provider's, persistence or registration error. A failure after the
+    /// old session closed leaves the agent closed.
+    pub async fn reload_agent_session(
+        &self,
+        agent_id: &str,
+        overrides: Option<JsValue>,
+        options: ReloadAgentOptions,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        let _registration = self.track_agent_registration();
+        let lane = Self::lane(&mut self.lock().lifecycle_lanes, agent_id);
+        let _turn = lane.lock().await;
+        self.reload_agent_session_internal(agent_id, overrides.as_ref(), options)
+            .await
+    }
+
+    /// The agent and its session, as `requireSessionAgent` hands them out.
+    fn require_session_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<(ManagedAgentSnapshot, Arc<dyn AgentSession>), AgentError> {
+        let state = self.lock();
+        let agent = Self::require_agent(&state, agent_id)?;
+        let Some(session) = agent.session.clone() else {
+            return Err(AgentError::new(format!(
+                "Agent '{}' has no managed session",
+                agent.snapshot.id
+            )));
+        };
+        Ok((agent.snapshot.clone(), session))
+    }
+
+    async fn reload_agent_session_internal(
+        &self,
+        agent_id: &str,
+        overrides: Option<&JsValue>,
+        options: ReloadAgentOptions,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        self.assert_accepting_agent_registrations()?;
+        let (mut existing, mut existing_session) = self.require_session_agent(agent_id)?;
+        if self.has_in_flight_run(agent_id) {
+            self.cancel_agent_run_before(agent_id, "reload").await?;
+            (existing, existing_session) = self.require_session_agent(agent_id)?;
+        }
+        let handle = existing.persistence.clone();
+        let provider = handle
+            .as_ref()
+            .and_then(|handle| handle.get("provider"))
+            .filter(|provider| !matches!(provider, JsValue::Undefined | JsValue::Null))
+            .map_or_else(|| existing.provider.clone(), |p| js_string(Some(p)));
+        let Some(client) = self.lock().client(&provider) else {
+            return Err(AgentError::new(format!(
+                "No client registered for provider '{provider}'"
+            )));
+        };
+        let mut refresh = spread(Some(&existing.config));
+        spread_into(&mut refresh, overrides);
+        refresh.insert("provider", JsValue::String(provider.clone()));
+        let prepared = self
+            .prepare_session_config(
+                &JsValue::Object(refresh),
+                agent_id,
+                None,
+                AgentResumePurpose::Interactive,
+            )
+            .await?;
+        let previous_policy = self.lock().paseo_tool_policies.get(agent_id).cloned();
+        let cwd = js_string(prepared.stored_config.get("cwd"));
+        let launch_context = Self::build_launch_context(agent_id, &cwd, None);
+        let has_mcp_servers = matches!(
+            prepared.stored_config.get("mcpServers"),
+            Some(JsValue::Object(servers)) if servers.iter().next().is_some()
+        );
+        if has_mcp_servers
+            && existing_session.capabilities().get("supportsMcpServers")
+                != Some(&JsValue::Bool(true))
+        {
+            return Err(AgentError::new(format!(
+                "Provider '{provider}' does not support MCP servers"
+            )));
+        }
+        let plan = ReloadPlan {
+            agent_id,
+            existing,
+            existing_session,
+            handle,
+            client,
+            prepared,
+            launch_context,
+            rehydrate_from_disk: options.rehydrate_from_disk,
+        };
+        let mut progress = ReloadProgress::default();
+        let result = self.swap_reloaded_session(&plan, &mut progress).await;
+        if let Err(error) = &result {
+            if let Some(closed) = progress.closed_existing.take() {
+                let mut state = self.lock();
+                self.emit_detached_state_locked(&mut state, closed);
+            } else {
+                let same_agent = self.lock().agent(agent_id).is_some_and(|agent| {
+                    agent
+                        .session
+                        .as_ref()
+                        .is_some_and(|session| Arc::ptr_eq(session, &plan.existing_session))
+                });
+                if same_agent {
+                    if let Some(agent) = self.lock().agent_mut(agent_id) {
+                        agent.snapshot.lifecycle = AgentLifecycle::Error;
+                        agent.snapshot.last_error = Some(error.message.clone());
+                    }
+                    self.emit_state(agent_id, true);
+                }
+            }
+        }
+        if !progress.handed_to_registration {
+            {
+                let mut state = self.lock();
+                match previous_policy {
+                    Some(policy) => {
+                        state
+                            .paseo_tool_policies
+                            .insert(agent_id.to_owned(), policy);
+                    }
+                    None => {
+                        state.paseo_tool_policies.remove(agent_id);
+                    }
+                }
+            }
+            if let Some(session) = &progress.session {
+                Self::close_unregistered_session(session).await;
+            }
+        }
+        result
+    }
+
+    /// The `try` of `reloadAgentSessionInternal`: close the old session,
+    /// close the agent, open the replacement and register it.
+    async fn swap_reloaded_session(
+        &self,
+        plan: &ReloadPlan<'_>,
+        progress: &mut ReloadProgress,
+    ) -> Result<ManagedAgentSnapshot, AgentError> {
+        let agent_id = plan.agent_id;
+        // A persisted thread can have only one writer, even when its turn
+        // is idle.
+        self.close_reloaded_session(&plan.existing_session, agent_id)
+            .await?;
+        self.drain_session_events_async(agent_id).await;
+        let closed = {
+            let mut state = self.lock();
+            self.cancel_running_provider_subagents(&mut state, agent_id);
+            self.prepare_agent_for_closure(&mut state, agent_id, "agent reloaded")
+        }
+        .unwrap_or_else(|| {
+            let mut closed = plan.existing.clone();
+            closed.lifecycle = AgentLifecycle::Closed;
+            closed
+        });
+        progress.closed_existing = Some(closed.clone());
+        self.persist_snapshot_of(agent_id, Some(closed.clone()), SnapshotOverrides::default())
+            .await?;
+        self.assert_accepting_agent_registrations()?;
+        self.lock()
+            .paseo_tool_policies
+            .insert(agent_id.to_owned(), plan.prepared.paseo_tool_policy.clone());
+        let session = match &plan.handle {
+            Some(handle) => {
+                plan.client
+                    .resume_session(
+                        handle.clone(),
+                        Some(plan.prepared.launch_config.clone()),
+                        Some(plan.launch_context.clone()),
+                        None,
+                    )
+                    .await?
+            }
+            None => {
+                plan.client
+                    .create_session(
+                        plan.prepared.launch_config.clone(),
+                        Some(plan.launch_context.clone()),
+                        None,
+                    )
+                    .await?
+            }
+        };
+        progress.session = Some(Arc::clone(&session));
+        self.require_external_mcp_support(&session, &plan.prepared.stored_config)
+            .await?;
+        self.assert_accepting_agent_registrations()?;
+        if plan.rehydrate_from_disk {
+            // Wipe the in-memory timeline so registerSession mints a new
+            // epoch and the provider history is read again.
+            let mut state = self.lock();
+            state.timeline.delete(agent_id);
+            for event in state.provider_subagents.delete_parent(agent_id) {
+                self.dispatch(&state, AgentManagerEvent::ProviderSubagent(event));
+            }
+        }
+        progress.handed_to_registration = true;
+        let preserved = &plan.existing;
+        self.register_session(
+            session,
+            plan.prepared.stored_config.clone(),
+            agent_id,
+            RegisterOptions {
+                labels: Some(closed.labels),
+                workspace_id: closed.workspace_id,
+                owner: closed.owner,
+                created_at_millis: Some(closed.created_at_millis),
+                updated_at_millis: Some(closed.updated_at_millis),
+                last_user_message_at_millis: closed.last_user_message_at_millis,
+                history_primed: Some(!plan.rehydrate_from_disk && preserved.history_primed),
+                last_usage: preserved.last_usage.clone(),
+                last_error: preserved.last_error.clone(),
+                attention: Some(preserved.attention.clone()),
+                restoring: true,
+                ..RegisterOptions::default()
+            },
+        )
+        .await
+    }
+
+    /// `closeReloadedSession(session, agentId)`: one shared close per
+    /// session, kept across a timeout so a retry waits for the same
+    /// release.
+    async fn close_reloaded_session(
+        &self,
+        session: &Arc<dyn AgentSession>,
+        agent_id: &str,
+    ) -> Result<(), AgentError> {
+        let mut result = self.reloaded_session_close(session);
+        let timeout = Duration::from_millis(self.inner.reload_session_close_ms);
+        let waited = tokio::time::timeout(timeout, result.wait_for(Option::is_some))
+            .await
+            .map(|inner| inner.map(|done| done.clone()));
+        match waited {
+            Ok(Ok(done)) => done.unwrap_or(Ok(())),
+            Ok(Err(_)) => Ok(()),
+            Err(_) => {
+                // A failure after the timeout is only logged.
+                let manager = self.clone();
+                let agent_id = agent_id.to_owned();
+                tokio::spawn(async move {
+                    let late = match result.wait_for(Option::is_some).await {
+                        Ok(done) => done.clone(),
+                        Err(_) => None,
+                    };
+                    if let (Some(Err(_)), Some(warn)) = (late, &manager.inner.log_warn) {
+                        // pino prints the `err` binding, an `Error`, as `{}`.
+                        let mut bindings = JsObject::new();
+                        bindings.insert("err", JsValue::Object(JsObject::new()));
+                        bindings.insert("agentId", JsValue::String(agent_id));
+                        warn(
+                            JsValue::Object(bindings),
+                            "Previous session close failed after refresh timeout",
+                        );
+                    }
+                });
+                Err(AgentError::new(
+                    "Timed out closing previous session during refresh",
+                ))
+            }
+        }
+    }
+
+    /// The close of `session`, started once: a failed close is forgotten so
+    /// a retry closes again.
+    fn reloaded_session_close(
+        &self,
+        session: &Arc<dyn AgentSession>,
+    ) -> tokio::sync::watch::Receiver<Option<Result<(), AgentError>>> {
+        let mut state = self.lock();
+        state
+            .reloaded_session_closes
+            .retain(|close| close.session.strong_count() > 0);
+        if let Some(close) = state.reloaded_session_closes.iter().find(|close| {
+            close
+                .session
+                .upgrade()
+                .is_some_and(|known| Arc::ptr_eq(&known, session))
+        }) {
+            return close.result.clone();
+        }
+        let (tx, rx) = tokio::sync::watch::channel(None);
+        state.reloaded_session_closes.push(ReloadedClose {
+            session: Arc::downgrade(session),
+            result: rx.clone(),
+        });
+        drop(state);
+        let manager = self.clone();
+        let session = Arc::clone(session);
+        tokio::spawn(async move {
+            let result = session.close().await;
+            let failed = result.is_err();
+            tx.send_replace(Some(result));
+            if failed {
+                manager.lock().reloaded_session_closes.retain(|close| {
+                    close
+                        .session
+                        .upgrade()
+                        .is_none_or(|known| !Arc::ptr_eq(&known, &session))
+                });
+            }
+        });
+        rx
+    }
+
     /// `deleteAgentState` without a durable store:
     /// `discardRetainedAgentState`.
     pub(crate) fn delete_agent_state(&self, agent_id: &str) {
@@ -981,6 +1340,8 @@ impl AgentManager {
                 last_user_message_at_millis: options.last_user_message_at_millis,
                 attention: options.attention,
                 persistence: options.persistence,
+                last_usage: options.last_usage,
+                last_error: options.last_error,
             },
             now,
         );
@@ -1159,6 +1520,8 @@ struct InitialAgentFields {
     last_user_message_at_millis: Option<i64>,
     attention: Option<AgentAttention>,
     persistence: Option<JsValue>,
+    last_usage: Option<JsValue>,
+    last_error: Option<String>,
 }
 
 /// `buildManagedAgentForRegister`: an initializing agent over `session`.
@@ -1200,8 +1563,8 @@ fn initial_snapshot(
         last_user_message_at_millis: fields.last_user_message_at_millis,
         active_turn_id: None,
         active_turn_started_at_millis: None,
-        last_usage: None,
-        last_error: None,
+        last_usage: fields.last_usage,
+        last_error: fields.last_error,
         attention: fields.attention.unwrap_or(AgentAttention::None),
         labels: fields
             .labels
