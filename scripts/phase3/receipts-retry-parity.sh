@@ -13,15 +13,20 @@
 #     exited 0 and the stub recorded exactly 3 turns (a retry that started a
 #     second turn makes it 4);
 #   - both sides' probe outcomes equal the expected outcomes below, in order;
-#   - each side's probe prints exactly one server_info frame, first after the
-#     summary line, and the two frames are byte-identical in key order after
-#     masking generated values (as g2-differential.sh does), except
-#     features.workspaceLabels: the original must advertise it, and spocky may
-#     omit it (open gap DWLABEL-001) or advertise it too;
+#   - the probe's stdout is the outcomes line, then two labelled wire blocks,
+#     "# recording client" and "# retry-other connection", every frame in
+#     arrival order (pongs included; the gate's compare covers them). Each
+#     block starts with exactly one server_info frame, and the two sides'
+#     frames are byte-identical in key order after masking generated values
+#     (as g2-differential.sh does), except features.workspaceLabels: the
+#     original must advertise it, and spocky may omit it (open gap
+#     DWLABEL-001) or advertise it too;
 #   - both sides hold exactly two send receipts, both `completed`, with the
 #     same fingerprints.
-# The probe is scripts/phase3/receipts-retry-probe.mjs. Outcomes, receipts and
-# verdicts are compared as raw text; nothing is re-sorted.
+# The probe is scripts/phase3/receipts-retry-probe.mjs. Everything is compared
+# as raw bytes after the masks; jq only answers yes or no and never writes
+# back a re-encoded value. Receipt files are joined into one line each and
+# sorted, since their names are generated.
 # scripts/phase3/receipts-retry-parity.test.sh proves each failure exits
 # nonzero.
 #
@@ -56,7 +61,12 @@ mask() {
     -e 's/srv_[A-Za-z0-9_-]{12}/<SRV>/g' \
     -e 's/20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/<TS>/g' "$1"
 }
+# jq is only a predicate here: is this line a server_info status frame?
 server_info='if .message then .message else . end'
+# Textual removal of features.workspaceLabels, wherever it sits in the frame.
+strip_labels() {
+  sed -E -e 's/,"workspaceLabels":(true|false)//' -e 's/"workspaceLabels":(true|false),//'
+}
 expected_turns=3
 expected_receipts=2
 
@@ -129,62 +139,76 @@ else
     [ "$turns" = "$expected_turns" ] ||
       fail "$side_dir stub recorded $turns turns, expected $expected_turns (a retry started a turn, or a send never did)"
 
-    # First stdout line of the probe, decoded from its byte array.
+    # The probe's stdout, decoded from its byte array.
     python3 -c '
 import json, sys
 steps = json.load(open(sys.argv[1]))["steps"]
 sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for step in s["stdout"]]))
 ' "$side" >"$evidence/$side_dir-probe-stdout.txt" ||
       fail "$side_dir probe stdout could not be decoded"
-    head -n 1 "$evidence/$side_dir-probe-stdout.txt" | jq -c '.outcomes' >"$evidence/$side_dir-outcomes.json" ||
-      fail "$side_dir probe printed no outcomes line"
-    [ "$(cat "$evidence/$side_dir-outcomes.json")" = "$expected_outcomes" ] ||
-      fail "$side_dir outcomes differ from the expected outcomes; see $evidence/$side_dir-outcomes.json"
 
-    # The handshake's server_info frame is the first frame after the summary.
-    sed -n 2p "$evidence/$side_dir-probe-stdout.txt" >"$evidence/$side_dir-server-info.json"
-    jq -e "$server_info | .type == \"status\" and .payload.status == \"server_info\"" "$evidence/$side_dir-server-info.json" >/dev/null 2>&1 ||
-      fail "$side_dir probe's first frame is not the server_info frame"
-    infos=$(grep -c '"status":"server_info"' "$evidence/$side_dir-probe-stdout.txt" || true)
-    [ "$infos" = 1 ] || fail "$side_dir probe printed $infos server_info frames, expected 1"
+    # Line 1 is the outcomes summary; the labelled blocks follow.
+    base=$evidence/$side_dir
+    : >"$base-client-wire.txt"
+    : >"$base-other-wire.txt"
+    awk -v client="$base-client-wire.txt" -v other="$base-other-wire.txt" '
+      NR == 1 { next }
+      $0 == "# recording client" { out = client; seen_client = NR; next }
+      $0 == "# retry-other connection" { out = other; seen_other = NR; next }
+      out != "" { print >> out }
+      END { if (!seen_client || !seen_other || seen_client > seen_other) exit 3 }
+    ' "$base-probe-stdout.txt" 2>/dev/null ||
+      fail "$side_dir probe stdout has no outcomes line then the recording client and retry-other connection blocks, in that order"
+    sed -n 1p "$base-probe-stdout.txt" >"$base-summary.txt"
+    sed -E 's/^\{"outcomes":(.*),"workspaceId":"[^"]*"\}$/\1/' "$base-summary.txt" >"$base-outcomes.txt"
+    [ "$(cat "$base-outcomes.txt")" = "$expected_outcomes" ] ||
+      fail "$side_dir outcomes differ from the expected outcomes; see $base-outcomes.txt"
 
-    # Send receipts: two, both completed; fingerprints kept in file-name order
-    # of nothing (names are generated), so they are listed sorted as text.
+    # Each block starts with its handshake's server_info frame, and only one.
+    for block in client other; do
+      wire=$base-$block-wire.txt
+      sed -n 1p "$wire" >"$base-$block-server-info.txt"
+      jq -e "$server_info | .type == \"status\" and .payload.status == \"server_info\"" "$base-$block-server-info.txt" >/dev/null 2>&1 ||
+        fail "$side_dir $block block does not start with the server_info frame"
+      infos=$(grep -c '"status":"server_info"' "$wire" || true)
+      [ "$infos" = 1 ] || fail "$side_dir $block block holds $infos server_info frames, expected 1"
+    done
+
+    # Send receipts: two, both completed. Each file becomes one masked line;
+    # the lines are sorted because the file names are generated.
     receipts=$parity/$side_dir/files/paseo-home/agent-requests
-    : >"$evidence/$side_dir-receipts.txt"
+    : >"$base-receipts.txt"
     count=0
     if [ -d "$receipts" ]; then
       for receipt in "$receipts"/*.json; do
         [ -f "$receipt" ] || continue
         count=$((count + 1))
-        jq -c '[.fingerprint, .state]' "$receipt" >>"$evidence/$side_dir-receipts.txt" ||
-          fail "$side_dir receipt $receipt is not valid JSON"
+        mask "$receipt" | tr '\n' ' ' >>"$base-receipts.txt"
+        printf '\n' >>"$base-receipts.txt"
+        grep -q '"state": "completed"' "$receipt" ||
+          fail "$side_dir has a send receipt that is not completed: $receipt"
       done
     fi
-    sort -o "$evidence/$side_dir-receipts.txt" "$evidence/$side_dir-receipts.txt"
+    sort -o "$base-receipts.txt" "$base-receipts.txt"
     [ "$count" -eq "$expected_receipts" ] ||
       fail "$side_dir holds $count send receipts, expected $expected_receipts"
-    if grep -v '"completed"\]$' "$evidence/$side_dir-receipts.txt" >/dev/null; then
-      fail "$side_dir has a send receipt that is not completed"
-    fi
   done
   if [ -f "$evidence/left-original-receipts.txt" ] && [ -f "$evidence/right-spocky-receipts.txt" ]; then
     cmp -s "$evidence/left-original-receipts.txt" "$evidence/right-spocky-receipts.txt" ||
-      fail "send receipt fingerprints differ between the original and spocky daemons"
-    cmp -s "$evidence/left-original-outcomes.json" "$evidence/right-spocky-outcomes.json" ||
-      fail "probe outcomes differ between the original and spocky daemons"
-    for side_dir in left-original right-spocky; do
-      mask "$evidence/$side_dir-server-info.json" |
-        jq -c 'if .message then del(.message.payload.features.workspaceLabels) else del(.payload.features.workspaceLabels) end' \
-          >"$evidence/$side_dir-server-info-compared.json" 2>/dev/null ||
-        fail "$side_dir server_info frame is not valid JSON"
+      fail "send receipts differ between the original and spocky daemons"
+    for block in client other; do
+      for side_dir in left-original right-spocky; do
+        mask "$evidence/$side_dir-$block-server-info.txt" | strip_labels >"$evidence/$side_dir-$block-server-info-compared.txt"
+      done
+      cmp -s "$evidence/left-original-$block-server-info-compared.txt" "$evidence/right-spocky-$block-server-info-compared.txt" ||
+        fail "$block block server_info frames differ between the original and spocky daemons beyond features.workspaceLabels"
+      grep -q '"workspaceLabels":true' "$evidence/left-original-$block-server-info.txt" ||
+        fail "the original $block block server_info frame does not advertise features.workspaceLabels"
+      if grep -q '"workspaceLabels":' "$evidence/right-spocky-$block-server-info.txt" &&
+        ! grep -q '"workspaceLabels":true' "$evidence/right-spocky-$block-server-info.txt"; then
+        fail "the spocky $block block server_info frame has features.workspaceLabels other than absent or true"
+      fi
     done
-    cmp -s "$evidence/left-original-server-info-compared.json" "$evidence/right-spocky-server-info-compared.json" ||
-      fail "server_info frames differ between the original and spocky daemons beyond features.workspaceLabels"
-    jq -e "$server_info | .payload.features.workspaceLabels == true" "$evidence/left-original-server-info.json" >/dev/null 2>&1 ||
-      fail "the original server_info frame does not advertise features.workspaceLabels"
-    jq -e "$server_info | .payload.features.workspaceLabels as \$labels | \$labels == null or \$labels == true" "$evidence/right-spocky-server-info.json" >/dev/null 2>&1 ||
-      fail "the spocky server_info frame has features.workspaceLabels other than absent or true"
   fi
 fi
 

@@ -72,7 +72,7 @@ def compact(value):
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
-def server_info(kind):
+def server_info(kind, block="client"):
     """The handshake frame: spocky omits features.workspaceLabels (DWLABEL-001)."""
     features = {"workspaceLabels": True, "voice": False}
     if kind == "spocky":
@@ -86,7 +86,9 @@ def server_info(kind):
         frame["payload"]["features"] = {"workspaceLabels": False, "voice": False}
     if case == "server-info-original-no-labels" and kind == "original":
         frame["payload"]["features"] = {"voice": False}
-    if case == "server-info-differs" and kind == "spocky":
+    if case == "server-info-differs" and kind == "spocky" and block == "client":
+        frame["payload"]["version"] = "9.9.9"
+    if case == "other-info-differs" and kind == "spocky" and block == "other":
         frame["payload"]["version"] = "9.9.9"
     if case == "server-info-key-order" and kind == "spocky":
         frame["payload"] = {"serverId": frame["payload"]["serverId"], "status": "server_info",
@@ -98,14 +100,28 @@ def side(kind, mutate_outcomes=None):
     shown = json.loads(json.dumps(outcomes))
     if mutate_outcomes:
         mutate_outcomes(shown)
-    frames = [server_info(kind), '{"type":"session","message":{"type":"fetch_agent_response"}}']
+    pong = '{"type":"pong"}'
+    client = [server_info(kind, "client"), pong, '{"type":"session","message":{"type":"fetch_agent_response"}}']
+    other = [server_info(kind, "other"), pong]
     if case == "server-info-both-late":
-        frames = [frames[1], frames[0]]
-    if case == "server-info-missing" and kind == "spocky":
-        frames = [frames[1]]
-    if case == "server-info-twice" and kind == "spocky":
-        frames = [frames[0], frames[0], frames[1]]
-    stdout = compact({"outcomes": shown, "workspaceId": "wks_0123456789abcdef"}) + "\n" + "\n".join(frames) + "\n"
+        client = [client[1], client[0], client[2]]
+    if kind == "spocky":
+        if case == "server-info-missing":
+            client = client[1:]
+        if case == "server-info-twice":
+            client = [client[0], client[0], client[1], client[2]]
+        if case == "other-info-missing":
+            other = other[1:]
+        if case == "pongs-differ":
+            client = client[:2] + [pong, pong] + client[2:]
+    lines = [compact({"outcomes": shown, "workspaceId": "wks_0123456789abcdef"})]
+    if case == "no-blocks" and kind == "spocky":
+        lines += client + other
+    elif case == "blocks-reversed" and kind == "spocky":
+        lines += ["# retry-other connection"] + other + ["# recording client"] + client
+    else:
+        lines += ["# recording client"] + client + ["# retry-other connection"] + other
+    stdout = "\n".join(lines) + "\n"
     turns = 4 if case == "turns-4" and kind == "spocky" else 2 if case == "turns-2" and kind == "spocky" else 3
     exit_code = 1 if case == "probe-exit" and kind == "spocky" else 0
     return {
@@ -128,10 +144,10 @@ def receipts(kind):
         states[1] = "pending"
     if case == "receipts-both-pending":
         states[1] = "pending"
-    files = [{"fingerprint": prints[0], "agentId": "agent-" + kind, "state": states[0]},
-             {"fingerprint": prints[1], "agentId": "agent-" + kind, "state": states[1]}]
+    files = [{"fingerprint": prints[0], "agentId": ("11111111-1111-4111-8111-111111111111" if kind == "original" else "22222222-2222-4222-8222-222222222222"), "state": states[0]},
+             {"fingerprint": prints[1], "agentId": ("11111111-1111-4111-8111-111111111111" if kind == "original" else "22222222-2222-4222-8222-222222222222"), "state": states[1]}]
     if (case == "receipt-3" and kind == "spocky") or case == "receipts-both-3":
-        files.append({"fingerprint": "d" * 64, "agentId": "agent-" + kind, "state": "completed"})
+        files.append({"fingerprint": "d" * 64, "agentId": ("11111111-1111-4111-8111-111111111111" if kind == "original" else "22222222-2222-4222-8222-222222222222"), "state": "completed"})
     if case == "receipt-1" and kind == "spocky":
         files = files[:1]
     return files
@@ -215,21 +231,23 @@ run_case good 0
 grep -F 'passed' "$work/good.log" >/dev/null
 run_case allow-skip 0 SPOCKY_ALLOW_SKIP=1
 run_case server-info-gap-closed 0
+run_case pongs-differ 0
 for label in gate-exit unsupported no-evidence-line selfcheck-fail parity-fail parity-missing \
   parity-diff parity-check parity-discovery wrong-kind probe-exit turns-4 turns-2 \
   outcome-diff conflict-text receipt-pending receipt-3 receipt-1 receipt-fp \
   receipts-both-pending receipts-both-3 server-info-missing server-info-twice \
   server-info-differs server-info-key-order server-info-original-no-labels \
-  server-info-both-late server-info-spocky-false; do
+  server-info-both-late server-info-spocky-false other-info-missing other-info-differs \
+  no-blocks blocks-reversed; do
   run_case "$label" nonzero
 done
 grep -F 'expected 3' "$work/turns-4.log" >/dev/null
 grep -F 'not completed' "$work/receipt-pending.log" >/dev/null
-grep -F 'differ between the original and spocky' "$work/outcome-diff.log" >/dev/null
+grep -F 'outcomes differ from the expected outcomes' "$work/outcome-diff.log" >/dev/null
 
 printf 'probe\n' >"$tree/retry-dirty-probe"
 run_case dirty-tree nonzero
 grep -F 'worktree is not clean' "$work/dirty-tree.log" >/dev/null
 rm "$tree/retry-dirty-probe"
 
-printf 'receipts-retry-parity.test.sh: 32 cases passed\n'
+printf 'receipts-retry-parity.test.sh: 38 cases passed\n'
