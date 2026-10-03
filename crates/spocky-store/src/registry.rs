@@ -16,11 +16,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use spocky_contracts::js::{self, js_sort_by};
+use spocky_contracts::js::{self, js_sort_by, locale_compare};
 
 use crate::StoreError;
 use crate::atomic::write_json_atomic;
-use crate::collate::locale_compare;
 use crate::js_value::{JsObject, JsValue, parse, stringify_pretty};
 use crate::path_compare::are_equivalent_paths;
 
