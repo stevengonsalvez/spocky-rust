@@ -142,7 +142,7 @@ SPOCKY_PINNED_NODE=$node $gate cargo test --locked -p spocky-xterm -- --nocaptur
 SPOCKY_XTERM_FUZZ_SEEDS=5000 SPOCKY_PINNED_NODE=$node $gate \
   cargo test --locked -p spocky-xterm --test xterm_fuzz seeded -- --nocapture
 SPOCKY_XTERM_BIASED_SEEDS=1000 SPOCKY_PINNED_NODE=$node $gate \
-  cargo test --locked -p spocky-xterm --test xterm_fuzz biased -- --nocapture
+  cargo test --locked -p spocky-xterm --test xterm_fuzz biased_exception_fuzz -- --nocapture
 SPOCKY_PINNED_NODE=$node $gate scripts/phase4/xterm-throw-probe.sh
 $gate cargo clippy --locked -p spocky-xterm --all-targets -- -D warnings
 $gate cargo fmt --package spocky-xterm -- --check
@@ -164,7 +164,7 @@ with `-D warnings` and the format check are clean.
 | `scripts/phase4/xterm-corpus.json` | `70e706aa58d994c5c877eaff783d273cef8e0f7595cfbf10897264192c861f26` |
 | `crates/spocky-xterm/tests/common/mod.rs` | `2fc992e1f0db464d1403245aa10ddaf415f0fe91194c77c08ea1365a18f6b499` |
 | `crates/spocky-xterm/tests/xterm_corpus.rs` | `2b677d62bdd158fd6b1ee0503c67032955c8c32161274a4a0dca75bcb3168929` |
-| `scripts/phase4/xterm-throw-probe.sh` | `610921f7cc8202d80e5d90fce1ac1976fda06dafe9b1ee1c1b3c945b961684aa` |
+| `scripts/phase4/xterm-throw-probe.sh` | `09b9fbca2f5a17423373bde2d9e412baef9b86c2f518c9f1a37117b430db9186` |
 | `crates/spocky-xterm/tests/xterm_fuzz.rs` | `9f4b0893e286e87eaef76fc04eca1dbccbbabdac754de214921ac9e155ea248a` |
 | `evidence/raw/phase4/xterm-corpus-capture.jsonl` (untracked, two runs identical) | `773f864b0d43de2c8a48c004deaee16489c83eb2983aabc06951b14da855d7e1` |
 
@@ -180,9 +180,10 @@ with `-D warnings` and the format check are clean.
   read of an `undefined` line or a range check fails, at the same statement.
   `scripts/phase4/xterm-throw-probe.sh` reproduces the site counts: it embeds
   a probe patch (a `THROW-SITE` line to stderr at every throw, via
-  `#[track_caller]`), applies it, runs the corpus, the default fuzz and the
-  biased fuzz with `--nocapture`, counts the lines per run, and reverses the
-  patch. Command:
+  `#[track_caller]`), exports the committed HEAD into a scratch directory,
+  applies the patch there (the working tree is never touched), runs the
+  corpus, the default fuzz and `biased_exception_fuzz` with `--nocapture`,
+  and counts the lines per run. Command:
   `CARGO_TARGET_DIR=/private/tmp/spocky-targets/p4_xterm_core CARGO_BUILD_JOBS=3
   SPOCKY_PINNED_NODE=$node /private/tmp/spocky-targets/build-gate.sh
   scripts/phase4/xterm-throw-probe.sh`. It ran the 62 corpus scenarios, the
