@@ -26,7 +26,7 @@ use spocky_store::js_value::js_text_to_utf8;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
-use crate::text::bytes_text;
+use crate::text::{bytes_text, js_trim};
 
 /// `DEFAULT_GIT_PROCESS_POLICY`.
 const DEFAULT_MAX_PROCESSES_PER_SECOND: usize = 64;
@@ -52,8 +52,7 @@ fn process_policy() -> (usize, usize) {
 /// `Number` trims white space, reads `0x`/`0o`/`0b` prefixed integers and
 /// decimal literals, and gives `NaN` (rejected) for anything else.
 fn positive_integer(value: &str) -> Option<usize> {
-    let trimmed =
-        value.trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}');
+    let trimmed = js_trim(value);
     let radix = [
         ("0x", 16),
         ("0X", 16),
@@ -517,6 +516,10 @@ mod tests {
         assert_eq!(positive_integer("inf"), None);
         assert_eq!(positive_integer("Infinity"), None);
         assert_eq!(positive_integer("1_0"), None);
+        // `Number` trims U+FEFF but not U+0085, which Rust's `trim` removes.
+        assert_eq!(positive_integer("\u{feff}8\u{feff}"), Some(8));
+        assert_eq!(positive_integer("\u{85}8"), None);
+        assert_eq!(positive_integer("8\u{85}"), None);
     }
 
     #[tokio::test]
