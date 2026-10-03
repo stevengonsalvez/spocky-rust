@@ -184,7 +184,7 @@ schema. The two CLI routes document their responses without headers.
 ## Rust coverage and differential result
 
 Every item below is exercised by `scripts/phase2/hub-api-original.integration.test.ts` (the real
-pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.0, zod 4.4.3,
+pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v22.20.0 (version and sha256 asserted by the capture script), zod 4.4.3,
 `@asteasolutions/zod-to-openapi` 9.1.0) and by `crates/spocky-hub-pilot/tests/hub_api_evidence.rs`
 (Rust). Both run one case list, `scripts/phase2/hub-api-cases.json`, which
 `scripts/phase2/hub-api-cases.mjs` generates; the capture script refuses to run when the two differ.
@@ -196,7 +196,7 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
   of the comparison; there is no key sorting and no normalization.
 - `hub_api_evidence` asserts on every run that the Rust trace equals the committed trace
   `evidence/phase2/hub-api-original.json` and that the Rust OpenAPI document equals the committed
-  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (470 HTTP cases, 62
+  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (471 HTTP cases, 68
   scenarios, 10 manifest operations), so an empty or shrunken baseline fails.
 - Trace headers are the response `Headers` iteration: names lower case, sorted by name, equal names
   combined with `, `. Operation inputs longer than 2,048 UTF-16 units are recorded as
@@ -221,12 +221,12 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v26.7.
 | OpenAPI | the whole document, byte for byte, and its headers, size and SHA-256 |
 | CLI device authorization | start, poll, inspect and decide bodies and states, polling throttle, expiry at the exact second, per-client and global limits, verification URIs for configured and request URLs, user code normalization including compatibility characters, every access failure kind |
 | API key scope order | keys created with `[runs:dispatch, projects:read]` and with a repeated scope report their scopes in creation order with duplicates removed, as the baseline's `[...new Set(scopes)]` does |
-| Deep `length` arrays | a wrong-typed value whose `length` is an array nested 1,000 to 4,400 deep is answered 400, and 4,600 or more nested levels 500 `internal_error` (V8 throws a `RangeError` while joining); the exact boundary between those two depths depends on the V8 stack, so it is not compared and is listed as a divergence of the stack-depth family. Rust joins iteratively and stops at 4,500 levels |
+| Deep `length` arrays | a wrong-typed value whose `length` is an array nested 1,000 to 3,000 deep is answered 400, and 3,200 or more nested levels 500 `internal_error` (V8 on node 22.20.0 throws a `RangeError` while joining; node 26 had joined 4,400, so the boundary moves with the Node version and the stack). The exact boundary between 3,000 and 3,200 is not compared and is listed as a divergence of the stack-depth family. Rust joins iteratively and stops at 3,100 levels. The CLI authorization bodies (`poll`, `inspect`, `decide`) throw the same `RangeError` out of the handler, which Rust reports as a handler error with the same message |
 | Credential rules | Bearer parsing, prefix routing, API key scopes and revocation, CLI credential issue, disclosure and revocation, forbidden and unauthorized outcomes over 43 distinct authorization header shapes and five scopes (59 checks) |
 
 Result of the last run of `hub-api-compare.sh`: `matched: true`, `comparison: byte-identical`,
 `normalization: none`. The traces have SHA-256
-`0b741abe2c77333b3de4bf8dcaa6574f3a41e2ae5944ccc632058a4ce60e4cdb` and the OpenAPI documents have
+`78a18e074a8cee6d81387a8e2d6cbd4b95de500aad0956c9535c893679815ba9` and the OpenAPI documents have
 SHA-256 `7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69` (see
 `hub-api-sha256.txt`). Behavioral tests of the same flows are in `crates/spocky-hub-pilot/tests/hub_api.rs`.
 
