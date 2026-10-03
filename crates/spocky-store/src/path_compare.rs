@@ -3,6 +3,8 @@
 //! trailing separators, and case-fold only when either side looks like a
 //! Windows path. Symlinks are not resolved.
 
+use spocky_contracts::text::js_to_lowercase;
+
 /// `areEquivalentPaths`.
 #[must_use]
 pub fn are_equivalent_paths(left: &str, right: &str) -> bool {
@@ -71,7 +73,9 @@ fn normalize_windows_for_comparison(value: &str) -> String {
     } else {
         format!("{root}{tail}")
     };
-    strip_trailing(&joined, root.len(), |character| character == '\\').to_lowercase()
+    js_to_lowercase(&strip_trailing(&joined, root.len(), |character| {
+        character == '\\'
+    }))
 }
 
 fn strip_windows_namespace_prefix(value: &str) -> String {
@@ -289,5 +293,18 @@ mod tests {
             "//server/share/X"
         ));
         assert!(!are_equivalent_paths("C:\\repo", "D:\\repo"));
+    }
+
+    /// `areEquivalentPaths` ends in `toLowerCase`, which follows node's
+    /// Unicode 16 tables: node v22.20.0 printed `false`, `true`, `true`,
+    /// `true`, `true` for these pairs. U+A7CE has no lowercase there, and
+    /// `str::to_lowercase` (a newer Unicode) maps it to U+A7CF.
+    #[test]
+    fn windows_case_fold_follows_nodes_unicode_tables() {
+        assert!(!are_equivalent_paths("C:\\\u{a7ce}", "C:\\\u{a7cf}"));
+        assert!(are_equivalent_paths("C:\\\u{130}", "c:\\i\u{307}"));
+        assert!(are_equivalent_paths("C:\\\u{1e9e}", "c:\\\u{df}"));
+        assert!(are_equivalent_paths("C:\\\u{3a3}", "c:\\\u{3c3}"));
+        assert!(are_equivalent_paths("C:\\a\u{3a3}", "c:\\a\u{3c2}"));
     }
 }
