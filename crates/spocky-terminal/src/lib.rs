@@ -2,10 +2,13 @@
 //! coalescing, and backpressure over the binary terminal frames, following
 //! pinned Paseo `5de45e2`.
 
+pub mod capture;
 pub mod exit_lines;
 pub mod handlers;
 pub mod input_mode;
+pub mod manager;
 pub mod output_coalescer;
+pub mod path_utils;
 pub mod process_title;
 pub mod pty;
 pub mod restore;
