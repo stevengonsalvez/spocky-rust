@@ -1,24 +1,15 @@
-//! `Date.prototype.toISOString` and the `Date.parse` forms the daemon writes.
-//!
-//! Used for the `startedAt` field of `paseo.pid`. Parsing covers the ISO 8601
-//! forms with an explicit `Z` or numeric offset and the date-only form; V8's
-//! legacy and local-time fallbacks are not ported, and an unrecognised string
-//! parses as `NaN` (`None`), which the caller treats as "not before boot".
+//! `Date.prototype.toISOString` and `Date.parse` for the `startedAt` field of
+//! `paseo.pid`. Parsing is V8's: `precedesThisBoot` calls `Date.parse(startedAt)`
+//! on whatever a lock file holds, so every form V8 accepts, legacy ones and the
+//! local time zone included, goes through `spocky_contracts::js::date_parse`. A
+//! string V8 rejects is `NaN` (`None`), which the caller treats as "not before
+//! boot".
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Days since 1970-01-01 for a proleptic Gregorian date (Hinnant).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let shifted_month = (month + 9) % 12;
-    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
+use spocky_contracts::js::date_parse;
 
-/// Inverse of [`days_from_civil`].
+/// Calendar date for days since 1970-01-01 in the proleptic Gregorian calendar (Hinnant).
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -62,93 +53,12 @@ pub fn to_iso_string(ms: i64) -> String {
     )
 }
 
-fn digits(text: &str, length: usize) -> Option<i64> {
-    (text.len() == length && text.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| text.parse().ok())
-        .flatten()
-}
-
-/// `Date.parse` of `YYYY-MM-DD` and `YYYY-MM-DDTHH:mm[:ss[.sss]]` with `Z` or
-/// `+HH:mm` and `-HH:mm`, as milliseconds since the epoch.
-///
-/// Not the whole of `Date.parse`: V8 also accepts legacy forms (`2026/10/01`,
-/// `Oct 1 2026`, RFC 2822 dates, `+YYYYYY` extended years, a bare `T` time),
-/// which this returns `None` for. The values read here are `startedAt` fields
-/// the baseline wrote with `toISOString`, which are always the ISO form.
+/// `Date.parse(startedAt)` at `pid-lock.ts:59`, as milliseconds since the epoch;
+/// `None` is `NaN`. The whole of V8's date parser, legacy forms and the local
+/// time zone included, comes from `spocky_contracts::js::date_parse`.
 #[must_use]
 pub fn parse_iso(text: &str) -> Option<i64> {
-    let (date, time) = text
-        .split_once('T')
-        .map_or((text, None), |(d, t)| (d, Some(t)));
-    let mut date_parts = date.split('-');
-    let year = digits(date_parts.next()?, 4)?;
-    let month = digits(date_parts.next()?, 2)?;
-    let day = digits(date_parts.next()?, 2)?;
-    if date_parts.next().is_some() || !(1..=12).contains(&month) {
-        return None;
-    }
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let month_days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    if !(1..=month_days[usize::try_from(month - 1).ok()?]).contains(&day) {
-        return None;
-    }
-    let midnight = days_from_civil(year, month, day) * 86_400_000;
-    let Some(time) = time else {
-        return Some(midnight);
-    };
-    let (clock, offset_ms) = if let Some(clock) = time.strip_suffix('Z') {
-        (clock, 0)
-    } else {
-        let split = time.rfind(['+', '-'])?;
-        let (clock, offset) = time.split_at(split);
-        let sign = if offset.starts_with('-') { -1 } else { 1 };
-        let (hours, minutes) = offset[1..].split_once(':')?;
-        let (hours, minutes) = (digits(hours, 2)?, digits(minutes, 2)?);
-        if hours > 23 || minutes > 59 {
-            return None;
-        }
-        (clock, sign * (hours * 60 + minutes) * 60_000)
-    };
-    let mut parts = clock.splitn(3, ':');
-    let hours = digits(parts.next()?, 2)?;
-    let minutes = digits(parts.next()?, 2)?;
-    let (seconds, fraction_ms) = match parts.next() {
-        None => (0, 0),
-        Some(rest) => {
-            let (seconds, fraction) = rest
-                .split_once('.')
-                .map_or((rest, None), |(s, f)| (s, Some(f)));
-            let fraction_ms = match fraction {
-                None => 0,
-                Some(f) if !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()) => {
-                    digits(&format!("{:0<3}", &f[..f.len().min(3)]), 3)?
-                }
-                Some(_) => return None,
-            };
-            (digits(seconds, 2)?, fraction_ms)
-        }
-    };
-    if hours > 24
-        || minutes > 59
-        || seconds > 59
-        || (hours == 24 && (minutes, seconds, fraction_ms) != (0, 0, 0))
-    {
-        return None;
-    }
-    Some(midnight + ((hours * 60 + minutes) * 60 + seconds) * 1000 + fraction_ms - offset_ms)
+    date_parse(text)
 }
 
 #[cfg(test)]
