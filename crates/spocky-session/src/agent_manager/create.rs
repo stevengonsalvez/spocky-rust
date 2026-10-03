@@ -179,6 +179,18 @@ pub struct ResumeAgentOptions {
     pub attention: Option<AgentAttention>,
 }
 
+/// What `buildLaunchContext` takes besides the client.
+struct LaunchRequest<'a> {
+    agent_id: &'a str,
+    cwd: &'a str,
+    paseo_tool_policy: Option<&'a JsValue>,
+    env: Option<&'a JsObject>,
+    /// `PluginSessionOpenRequest.reason`.
+    reason: &'static str,
+    purpose: AgentResumePurpose,
+    workspace_id: Option<&'a str>,
+}
+
 /// `PreparedSessionConfig`.
 struct PreparedSessionConfig {
     stored_config: JsValue,
@@ -332,11 +344,16 @@ impl AgentManager {
             .to_owned();
         let launch_context = self
             .build_launch_context(
-                &resolved_agent_id,
                 &client,
-                &cwd,
-                prepared.paseo_tool_policy.as_ref(),
-                options.env.as_ref(),
+                LaunchRequest {
+                    agent_id: &resolved_agent_id,
+                    cwd: &cwd,
+                    paseo_tool_policy: prepared.paseo_tool_policy.as_ref(),
+                    env: options.env.as_ref(),
+                    reason: "create",
+                    purpose: AgentResumePurpose::Interactive,
+                    workspace_id: options.workspace_id.as_deref(),
+                },
             )
             .await?;
         let create_options =
@@ -378,6 +395,10 @@ impl AgentManager {
     /// The shutdown, provider and client errors of a create, `Provider '<p>'
     /// does not support importing sessions`, and the provider's own import
     /// or registration failure.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one baseline method, kept in the baseline's order"
+    )]
     pub async fn import_provider_session(
         &self,
         input: ImportProviderSessionRequest,
@@ -414,11 +435,16 @@ impl AgentManager {
             .to_owned();
         let launch_context = self
             .build_launch_context(
-                &resolved_agent_id,
                 &client,
-                &cwd,
-                prepared.paseo_tool_policy.as_ref(),
-                None,
+                LaunchRequest {
+                    agent_id: &resolved_agent_id,
+                    cwd: &cwd,
+                    paseo_tool_policy: prepared.paseo_tool_policy.as_ref(),
+                    env: None,
+                    reason: "import",
+                    purpose: AgentResumePurpose::Interactive,
+                    workspace_id: Some(&input.workspace_id),
+                },
             )
             .await?;
         let Some(import) = client.import_session(
@@ -596,11 +622,16 @@ impl AgentManager {
         let cwd = js_string(prepared.stored_config.get("cwd"));
         let launch_context = self
             .build_launch_context(
-                &resolved_agent_id,
                 &client,
-                &cwd,
-                prepared.paseo_tool_policy.as_ref(),
-                None,
+                LaunchRequest {
+                    agent_id: &resolved_agent_id,
+                    cwd: &cwd,
+                    paseo_tool_policy: prepared.paseo_tool_policy.as_ref(),
+                    env: None,
+                    reason: "resume",
+                    purpose,
+                    workspace_id: options.workspace_id.as_deref(),
+                },
             )
             .await?;
         let session = client
@@ -720,11 +751,16 @@ impl AgentManager {
         let cwd = js_string(prepared.stored_config.get("cwd"));
         let launch_context = self
             .build_launch_context(
-                agent_id,
                 &client,
-                &cwd,
-                prepared.paseo_tool_policy.as_ref(),
-                None,
+                LaunchRequest {
+                    agent_id,
+                    cwd: &cwd,
+                    paseo_tool_policy: prepared.paseo_tool_policy.as_ref(),
+                    env: None,
+                    reason: "refresh",
+                    purpose: AgentResumePurpose::Interactive,
+                    workspace_id: existing.workspace_id.as_deref(),
+                },
             )
             .await?;
         let has_mcp_servers = matches!(
@@ -1143,24 +1179,58 @@ impl AgentManager {
         })
     }
 
-    /// `buildLaunchContext` without plugin hooks:
-    /// `{ agentId, env: { ...env, PASEO_AGENT_ID, PASEO_AGENT_CWD } }`, plus the
-    /// Paseo tool catalog when tools are on, the policy allows them, the
+    /// `buildLaunchContext`: the plugin lifecycle's `agent.session_open`
+    /// request first (a host may change the env), then
+    /// `{ agentId, env: { ...env, PASEO_AGENT_ID, PASEO_AGENT_CWD } }`, plus
+    /// the Paseo tool catalog when tools are on, the policy allows them, the
     /// client has native Paseo tools and a factory is set.
     ///
     /// # Errors
     ///
-    /// The factory's own rejection.
+    /// The lifecycle's or the factory's own rejection.
     async fn build_launch_context(
         &self,
-        agent_id: &str,
         client: &Arc<dyn AgentClient>,
-        cwd: &str,
-        paseo_tool_policy: Option<&JsValue>,
-        env: Option<&JsObject>,
+        request: LaunchRequest<'_>,
     ) -> Result<AgentLaunchContext, AgentError> {
+        let LaunchRequest {
+            agent_id,
+            cwd,
+            paseo_tool_policy,
+            env,
+            reason,
+            purpose,
+            workspace_id,
+        } = request;
+        let mut env = env.cloned();
+        if let Some(lifecycle) = self.plugin_lifecycle() {
+            let mut open = JsObject::new();
+            open.insert("agentId", JsValue::String(agent_id.to_owned()));
+            open.insert("provider", JsValue::String(client.provider()));
+            open.insert("cwd", JsValue::String(cwd.to_owned()));
+            open.insert(
+                "workspaceId",
+                workspace_id.map_or(JsValue::Null, |id| JsValue::String(id.to_owned())),
+            );
+            open.insert("reason", JsValue::String(reason.to_owned()));
+            open.insert(
+                "purpose",
+                JsValue::String(
+                    match purpose {
+                        AgentResumePurpose::Interactive => "interactive",
+                        AgentResumePurpose::History => "history",
+                    }
+                    .to_owned(),
+                ),
+            );
+            open.insert("env", JsValue::Object(env.clone().unwrap_or_default()));
+            let transformed = lifecycle
+                .before("agent.session_open", JsValue::Object(open))
+                .await?;
+            env = transformed.get("env").and_then(JsValue::as_object).cloned();
+        }
         let mut launch_env = JsObject::new();
-        if let Some(env) = env {
+        if let Some(env) = &env {
             spread_into(&mut launch_env, Some(&JsValue::Object(env.clone())));
         }
         launch_env.insert("PASEO_AGENT_ID", JsValue::String(agent_id.to_owned()));
