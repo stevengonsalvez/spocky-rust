@@ -133,10 +133,10 @@ impl AbortController {
     /// "This operation was aborted").
     pub fn abort(&self, reason: AbortReason) {
         let reason = match reason {
-            AbortReason::Value(JsValue::Undefined) => AbortReason::Error(AgentError {
-                name: "AbortError".to_owned(),
-                message: "This operation was aborted".to_owned(),
-            }),
+            AbortReason::Value(JsValue::Undefined) => AbortReason::Error(AgentError::named(
+                "AbortError".to_owned(),
+                "This operation was aborted".to_owned(),
+            )),
             reason => reason,
         };
         let _ = self.state.reason.set(reason);
@@ -734,10 +734,10 @@ mod tests {
         default.abort(AbortReason::Value(JsValue::Undefined));
         assert_eq!(
             default.signal().reason(),
-            Some(&AbortReason::Error(AgentError {
-                name: "AbortError".to_owned(),
-                message: "This operation was aborted".to_owned(),
-            }))
+            Some(&AbortReason::Error(AgentError::named(
+                "AbortError".to_owned(),
+                "This operation was aborted".to_owned()
+            )))
         );
         let event =
             parse(r#"{"type":"turn_started","provider":"codex","turnId":"t"}"#).expect("event");
