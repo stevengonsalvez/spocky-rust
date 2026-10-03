@@ -5660,7 +5660,6 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "spocky-contracts",
- "spocky-provider-codex",
  "spocky-session",
  "uuid",
 ]
