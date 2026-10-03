@@ -136,9 +136,26 @@ same `messageId` with other text (rejected as a key conflict), and two
 concurrent sends of a fresh `messageId` (one turn). It prints each step's
 outcome and the recording client's raw wire text. The stub script must hold
 exactly three turns: the initial prompt, the first send, and the concurrent
-pair. The probe is syntax-checked only: no gate fixture runs it yet, since
-`gates.rs` and `gate.sh` belong to `p3_slice_harness`, so wire parity of the
-daemon's retry handling is not claimed here.
+pair. `gates.rs` and `gate.sh` belong to `p3_slice_harness`, which owns the
+`g4-retry` fixture. Run on the pinned original daemon through a scratch copy
+of that fixture, the probe's outcomes were all as expected and the stub held
+exactly three turns; that gate's compare then stopped on a 5 ms
+`updatedAt` and `attentionTimestamp` gap that the harness now masks under
+`wall_clock`. No run has compared the original and `spocky-daemon` yet, so
+wire parity of the daemon's retry handling is not claimed here.
+
+`scripts/phase3/receipts-retry-parity.sh` is the runner for that parity run.
+It runs `scripts/phase3/gate.sh g4-retry` and then re-checks the gate's
+evidence on its own: both verdicts clean, the sides are the original and
+spocky daemons, each probe step exited 0, the stub recorded exactly three
+turns (a retry that started a turn makes four), both sides' probe outcomes
+equal the expected ones in order, and both sides hold two completed send
+receipts with equal fingerprints. It requires a clean tree, unsets
+`SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
+`scripts/phase3/receipts-retry-parity.test.sh` proves that with a fake gate
+over 24 cases (a clean match, and one injected defect each); removing any one
+of the runner's checks makes its own case fail. The runner itself has not run
+against the real gate, which does not support `g4-retry` on main yet.
 
 ## Gaps
 
