@@ -467,6 +467,148 @@ fn project_allocation_orders_created_at_by_date_parse() {
     );
 }
 
+/// The id `getOrCreateActiveByRoot` allocates among `(projectId, createdAt)`
+/// projects at one root, in file order.
+fn allocated_project_id(projects: &[(&str, &str)]) -> String {
+    let home = TestDir::new("registry-project-sort");
+    let mut registry = ProjectRegistry::new(home.path().join("projects.json"));
+    for (project_id, created_at) in projects {
+        registry
+            .upsert(PersistedProjectRecord {
+                project_id: (*project_id).to_owned(),
+                root_path: "/tmp/project".to_owned(),
+                kind: ProjectKind::NonGit,
+                display_name: "project".to_owned(),
+                project_key: None,
+                custom_name: None,
+                custom_icon_revision: None,
+                created_at: (*created_at).to_owned(),
+                updated_at: "2020-01-01T00:00:00.000Z".to_owned(),
+                archived_at: None,
+            })
+            .expect("seed project");
+    }
+    let allocation = registry
+        .get_or_create_active_by_root(
+            &ProjectRootInput {
+                root_path: "/tmp/project",
+                kind: ProjectKind::NonGit,
+                display_name: "project",
+                project_key: None,
+                timestamp: "2026-10-01T10:00:00.000Z",
+            },
+            || unreachable!("an active project exists"),
+        )
+        .expect("allocate");
+    allocation.record().project_id.clone()
+}
+
+/// `getOrCreateActiveByRoot` reads `.sort(compare)[0]`. With unparseable dates
+/// the comparator is not a consistent ordering, so the result depends on
+/// V8's comparison sequence and is not the minimum a scan finds. Every case
+/// is a project list for which the pinned `FileBackedProjectRegistry` (node
+/// v22.20.0) returned the listed id and a minimum scan returns another;
+/// `(projectId, createdAt)` in file order.
+const CASES: &[(&[(&str, &str)], &str)] = &[
+    (
+        &[
+            ("prj_b", "garbage"),
+            ("prj_a", "2020-01-02T00:00:00.000Z"),
+            ("prj_e", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_c", "2020-01-02T00:00:00.000Z"),
+            ("prj_f", "2020-01-02T00:00:00.000Z"),
+            ("prj_d", "2020-01-01T00:00:00.000Z"),
+        ],
+        "prj_a",
+    ),
+    (
+        &[
+            ("prj_e", "2019-12-31T00:00:00.000Z"),
+            ("prj_a", "2020-01-01T00:00:00.000Z"),
+            ("prj_b", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_c", "later?"),
+            ("prj_g", "later?"),
+            ("prj_d", "2020-01-02T00:00:00.000Z"),
+            ("prj_f", "2020-01-02T00:00:00.000Z"),
+        ],
+        "prj_e",
+    ),
+    (
+        &[
+            ("prj_b", "garbage"),
+            ("prj_d", "2020-01-02T00:00:00.000Z"),
+            ("prj_a", "2020-01-01T00:00:00.000Z"),
+            ("prj_c", "2019-12-31T00:00:00.000Z"),
+            ("prj_f", "later?"),
+            ("prj_g", "Jan 3 2020 00:00:00 GMT"),
+        ],
+        "prj_a",
+    ),
+    (
+        &[
+            ("prj_a", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_b", "garbage"),
+            ("prj_c", "2019-12-31T00:00:00.000Z"),
+            ("prj_d", ""),
+            ("prj_e", "2020-01-01T00:00:00.000Z"),
+            ("prj_f", "2019-12-31T00:00:00.000Z"),
+            ("prj_g", "garbage"),
+        ],
+        "prj_a",
+    ),
+    (
+        &[
+            ("prj_f", ""),
+            ("prj_d", ""),
+            ("prj_c", "2019-12-31T00:00:00.000Z"),
+            ("prj_e", "2020-01-02T00:00:00.000Z"),
+            ("prj_b", "garbage"),
+            ("prj_g", "2020-01-02T00:00:00.000Z"),
+            ("prj_a", "2020-01-01T00:00:00.000Z"),
+        ],
+        "prj_b",
+    ),
+    (
+        &[
+            ("prj_a", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_b", "garbage"),
+            ("prj_c", "2020-01-02T00:00:00.000Z"),
+            ("prj_e", "2019-12-31T00:00:00.000Z"),
+            ("prj_d", ""),
+        ],
+        "prj_a",
+    ),
+    (
+        &[
+            ("prj_a", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_b", "garbage"),
+            ("prj_d", "later?"),
+            ("prj_c", "2020-01-01T00:00:00.000Z"),
+            ("prj_f", "garbage"),
+        ],
+        "prj_a",
+    ),
+    (
+        &[
+            ("prj_a", "2020-01-02T00:00:00.000Z"),
+            ("prj_b", "Jan 3 2020 00:00:00 GMT"),
+            ("prj_f", "garbage"),
+            ("prj_c", "later?"),
+            ("prj_d", "garbage"),
+            ("prj_e", "2019-12-31T00:00:00.000Z"),
+            ("prj_g", "later?"),
+        ],
+        "prj_a",
+    ),
+];
+
+#[test]
+fn project_allocation_matches_sort_first_with_unparseable_dates() {
+    for (index, (projects, expected)) in CASES.iter().enumerate() {
+        assert_eq!(allocated_project_id(projects), *expected, "case {index}");
+    }
+}
+
 #[test]
 fn update_keeps_the_stored_key_when_the_updater_changes_the_id() {
     let home = TestDir::new("registry-rekey");
