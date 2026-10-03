@@ -18,6 +18,7 @@
 //! | `generated-id-<shape>-<n>` | generated id | the n-th distinct id of one [`SLICE_SHAPES`] shape, paired by first appearance |
 //! | `short7-of-<id class>` | generated id | the quoted 7-character prefix `"xxxxxxx"` of a paired UUID (`agent.id.slice(0, 7)`) |
 //! | `wall-clock-<format>-<n>` | wall clock | the n-th group of instants of one format inside the run window, paired by occurrence position; a group may merge distinct literals only within the format's resolution (same millisecond for `iso-frac3` and `epoch-ms`) |
+//! | `wall-clock-<format>-<field>-<n>` | wall clock | an instant that is the value of one of [`INDEPENDENT_CLOCK_FIELDS`] (`"updatedAt"`, `"attentionTimestamp"`), masked with its key as one literal and paired only with the same field, never with another field's equal instant |
 //! | `codex-wall-time` | wall clock | Codex's measured tool cell duration `Wall time <d+>.<d> seconds`, applied only in Responses stub request bodies (`stub/<nnn>`) |
 //! | `cli-relative-age` | wall clock | the pinned CLI's rendering of an agent's age, `"created": "just now"` or `"created": "<n> <unit> ago"`, applied only in step stdout artifacts (`.../stdout`); the createdAt instant stays compared in state and `inspect` |
 //! | `stub-content-length-<n>` | wall clock | the n-th stub request's `["content-length","<n>"]` header, only where it equals that side's raw body byte length; applied only in `stub/<nnn>` |
@@ -364,7 +365,13 @@ impl Instant {
     /// this can print identically on one side and differently on the other.
     #[must_use]
     pub fn resolution_ms(&self) -> u64 {
-        match self.format.as_str() {
+        // A per-field format is `<base>-<field>`; the base decides the unit.
+        let base = self
+            .format
+            .match_indices('-')
+            .nth(1)
+            .map_or(self.format.as_str(), |(index, _)| &self.format[..index]);
+        match base {
             "epoch-s" | "iso-frac0" => 1000,
             "iso-frac1" => 100,
             "iso-frac2" => 10,
@@ -373,19 +380,110 @@ impl Instant {
     }
 }
 
+/// JSON keys whose instants are masked each on its own. Pinned-vs-pinned runs
+/// show the two are one value in one run and 5 ms apart in the next
+/// (`updatedAt` 08:59:40.153 with `attentionTimestamp` 08:59:40.153 on one
+/// daemon, 09:00:55.371 and 09:00:55.376 on the other), so their equality is
+/// daemon timing, not contract. Every other wall-clock pairing stays.
+pub const INDEPENDENT_CLOCK_FIELDS: [&str; 2] = ["updatedAt", "attentionTimestamp"];
+
+/// One `"<field>": "<iso instant>"` occurrence in a text.
+struct FieldSpan {
+    field: &'static str,
+    key_start: usize,
+    value_start: usize,
+    value_end: usize,
+    unix_ms: u64,
+    fraction: usize,
+}
+
+/// Every [`INDEPENDENT_CLOCK_FIELDS`] key holding a quoted ISO instant, in
+/// text order. The key must be unescaped, followed by a colon and the quoted
+/// instant, with only whitespace between.
+fn field_spans(text: &str) -> Vec<FieldSpan> {
+    let bytes = text.as_bytes();
+    let skip_space = |mut at: usize| {
+        while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+            at += 1;
+        }
+        at
+    };
+    let mut spans = Vec::new();
+    for field in INDEPENDENT_CLOCK_FIELDS {
+        let key = format!("\"{field}\"");
+        let mut from = 0;
+        while let Some(found) = text[from..].find(&key) {
+            let key_start = from + found;
+            let after_key = key_start + key.len();
+            from = after_key;
+            let colon = skip_space(after_key);
+            if bytes.get(colon) != Some(&b':') {
+                continue;
+            }
+            let quote = skip_space(colon + 1);
+            if bytes.get(quote) != Some(&b'"') {
+                continue;
+            }
+            let value_start = quote + 1;
+            let Some((value_end, unix_ms, fraction)) = iso_at(bytes, value_start) else {
+                continue;
+            };
+            if bytes.get(value_end) != Some(&b'"') {
+                continue;
+            }
+            spans.push(FieldSpan {
+                field,
+                key_start,
+                value_start,
+                value_end,
+                unix_ms,
+                fraction,
+            });
+        }
+    }
+    spans.sort_by_key(|span| span.key_start);
+    spans
+}
+
+/// The in-window instants held by [`INDEPENDENT_CLOCK_FIELDS`] keys, in scan
+/// order with repeats. Each literal is the key through its closing quote, so
+/// a replacement can only ever touch that field. The format is
+/// `iso-frac<n>-<field>`; the generic scan ([`wall_clock_values`]) skips these.
+#[must_use]
+pub fn independent_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Instant> {
+    let mut found = Vec::new();
+    for text in texts {
+        for span in field_spans(text) {
+            if (start_ms..=end_ms).contains(&span.unix_ms) {
+                found.push(Instant {
+                    format: format!("iso-frac{}-{}", span.fraction, span.field),
+                    value: text[span.key_start..=span.value_end].to_owned(),
+                    unix_ms: span.unix_ms,
+                });
+            }
+        }
+    }
+    found
+}
+
 /// Lists every wall-clock literal occurrence inside `[start_ms, end_ms]`, in
 /// scan order with repeats: ISO-8601 UTC instants, 13-digit epoch
 /// milliseconds, and 10-digit epoch seconds. Digit runs of any other length
-/// are never touched.
+/// are never touched. Instants held by [`INDEPENDENT_CLOCK_FIELDS`] keys are
+/// left to [`independent_clock_values`].
 #[must_use]
 pub fn wall_clock_values(texts: &[&str], start_ms: u64, end_ms: u64) -> Vec<Instant> {
     let mut found: Vec<Instant> = Vec::new();
     for text in texts {
+        let owned: Vec<usize> = field_spans(text)
+            .iter()
+            .map(|span| span.value_start)
+            .collect();
         let bytes = text.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
             if let Some((end, unix_ms, fraction)) = iso_at(bytes, index) {
-                if (start_ms..=end_ms).contains(&unix_ms) {
+                if (start_ms..=end_ms).contains(&unix_ms) && !owned.contains(&index) {
                     found.push(Instant {
                         format: format!("iso-frac{fraction}"),
                         value: text[index..end].to_owned(),
@@ -1228,6 +1326,23 @@ pub fn value_classes(
     classes.extend(shorts);
 
     let (lf, rf) = (left.facts, right.facts);
+    // Field-owned instants first: their literals include the key, so the
+    // generic classes below can no longer claim a part of them.
+    let left_fields = independent_clock_values(&left.texts, lf.window_start_ms, lf.window_end_ms);
+    let right_fields = independent_clock_values(&right.texts, rf.window_start_ms, rf.window_end_ms);
+    let mut field_formats: Vec<&str> = Vec::new();
+    for instant in left_fields.iter().chain(&right_fields) {
+        if !field_formats.contains(&instant.format.as_str()) {
+            field_formats.push(&instant.format);
+        }
+    }
+    for format in field_formats {
+        classes.extend(wall_clock_classes(
+            format,
+            &of_format(&left_fields, format),
+            &of_format(&right_fields, format),
+        )?);
+    }
     let left_clock = wall_clock_values(&left.texts, lf.window_start_ms, lf.window_end_ms);
     let right_clock = wall_clock_values(&right.texts, rf.window_start_ms, rf.window_end_ms);
     let mut formats: Vec<&str> = Vec::new();
@@ -2247,5 +2362,111 @@ mod tests {
             format!("{}{}", listing("just now"), listing("just now")),
         )];
         assert!(equivalent(&left, &[aged]).is_err());
+    }
+
+    fn state(updated: &str, attention: &str) -> String {
+        format!(
+            "{{\"updatedAt\":\"{updated}\",\"attentionTimestamp\":\"{attention}\",\"createdAt\":\"2026-10-01T13:51:42.000Z\"}}"
+        )
+    }
+
+    #[test]
+    fn updated_at_and_attention_timestamp_are_masked_independently() {
+        // One value on the left, 5 ms apart on the right (the pinned-vs-pinned
+        // pattern): no cross-field pairing, so it is equivalent.
+        let left = one(state(
+            "2026-10-01T13:51:43.153Z",
+            "2026-10-01T13:51:43.153Z",
+        ));
+        let right = one(state(
+            "2026-10-01T13:51:45.371Z",
+            "2026-10-01T13:51:45.376Z",
+        ));
+        assert_eq!(equivalent(&left, &right), Ok(true));
+        // And the reverse: apart on the left, one value on the right.
+        assert_eq!(equivalent(&right, &left), Ok(true));
+    }
+
+    #[test]
+    fn other_clock_fields_keep_their_equality_pairing() {
+        // The same shape with createdAt and lastUserMessageAt must still fail:
+        // only the two ruled fields are decoupled.
+        let pair = |first: &str, second: &str| {
+            one(format!(
+                "{{\"createdAt\":\"{first}\",\"lastUserMessageAt\":\"{second}\"}}"
+            ))
+        };
+        let left = pair("2026-10-01T13:51:43.153Z", "2026-10-01T13:51:43.153Z");
+        let right = pair("2026-10-01T13:51:45.371Z", "2026-10-01T13:51:45.376Z");
+        let error = equivalent(&left, &right).unwrap_err();
+        assert!(error.contains("equality structure"), "{error}");
+    }
+
+    #[test]
+    fn a_ruled_field_keeps_its_own_equality_structure_and_count() {
+        let two = |first: &str, second: &str| {
+            one(format!(
+                "{{\"updatedAt\":\"{first}\"}} {{\"updatedAt\":\"{second}\"}}"
+            ))
+        };
+        // Inside one field, an equal pair against a distant pair still fails.
+        let equal = two("2026-10-01T13:51:43.153Z", "2026-10-01T13:51:43.153Z");
+        let apart = two("2026-10-01T13:51:45.100Z", "2026-10-01T13:51:46.200Z");
+        assert!(equivalent(&equal, &apart).is_err());
+        // A different number of occurrences fails.
+        let one_only = one(state(
+            "2026-10-01T13:51:43.153Z",
+            "2026-10-01T13:51:43.153Z",
+        ));
+        let missing = one("{\"updatedAt\":\"2026-10-01T13:51:45.371Z\"}".into());
+        assert!(equivalent(&one_only, &missing).is_err());
+    }
+
+    #[test]
+    fn ruled_fields_mask_only_a_quoted_instant_after_an_unescaped_key() {
+        let texts = [
+            "{\"updatedAt\": \"2026-10-01T13:51:43.153Z\"}",
+            "{\"attentionTimestamp\" :\"2026-10-01T13:51:44.000Z\"}",
+            "{\"updatedAt\":null} {\"updatedAt\":\"yesterday\"} {\\\"updatedAt\\\":\\\"2026-10-01T13:51:45.000Z\\\"}",
+            "Updated at 2026-10-01T13:51:46.000Z and \"updatedAtX\":\"2026-10-01T13:51:47.000Z\"",
+        ];
+        let (start, end) = (1_790_862_700_000, 1_790_862_710_000);
+        let fields: Vec<String> = independent_clock_values(&texts, start, end)
+            .iter()
+            .map(|instant| instant.value.clone())
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                "\"updatedAt\": \"2026-10-01T13:51:43.153Z\"",
+                "\"attentionTimestamp\" :\"2026-10-01T13:51:44.000Z\"",
+            ]
+        );
+        // The generic scan leaves exactly those two out and keeps the rest.
+        let generic: Vec<String> = wall_clock_values(&texts, start, end)
+            .iter()
+            .map(|instant| instant.value.clone())
+            .collect();
+        assert_eq!(
+            generic,
+            [
+                "2026-10-01T13:51:45.000Z",
+                "2026-10-01T13:51:46.000Z",
+                "2026-10-01T13:51:47.000Z",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_ruled_field_outside_the_run_window_stays_literal() {
+        let late = one(state(
+            "2026-10-01T14:00:00.000Z",
+            "2026-10-01T14:00:00.000Z",
+        ));
+        let later = one(state(
+            "2026-10-01T14:00:01.000Z",
+            "2026-10-01T14:00:01.000Z",
+        ));
+        assert_eq!(equivalent(&late, &later), Ok(false));
     }
 }
