@@ -253,6 +253,8 @@ pub struct AgentManagerOptions {
     pub on_agent_archived: Option<AgentArchivedCallback>,
     /// `logger.warn(bindings, message)`; warnings are dropped without it.
     pub log_warn: Option<LogWarn>,
+    /// `logger.error(bindings, message)`; errors are dropped without it.
+    pub log_error: Option<LogInfo>,
     /// `logger.info(bindings, message)`; the messages the manager logs at
     /// info level are dropped without it.
     pub log_info: Option<LogInfo>,
@@ -371,6 +373,7 @@ pub(crate) struct Inner {
     pub(crate) on_agent_attention: Option<AttentionCallback>,
     pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
     pub(crate) log_warn: Option<LogWarn>,
+    pub(crate) log_error: Option<LogInfo>,
     pub(crate) log_info: Option<LogInfo>,
     pub(crate) on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub(crate) mcp_auth_token: Option<String>,
@@ -503,6 +506,7 @@ impl AgentManager {
                 on_agent_attention: options.on_agent_attention,
                 on_agent_archived: options.on_agent_archived,
                 log_warn: options.log_warn,
+                log_error: options.log_error,
                 log_info: options.log_info,
                 on_workspace_state_may_have_changed: options.on_workspace_state_may_have_changed,
                 mcp_auth_token: options.mcp_auth_token,
@@ -516,6 +520,20 @@ impl AgentManager {
                     .unwrap_or(lifecycle::INTERRUPT_SESSION_TIMEOUT_MS),
                 run_start_waiters: Mutex::new(Vec::new()),
             }),
+        }
+    }
+
+    /// `logger.warn(bindings, message)`.
+    pub(crate) fn emit_warn(&self, bindings: JsValue, message: &str) {
+        if let Some(warn) = &self.inner.log_warn {
+            warn(bindings, message);
+        }
+    }
+
+    /// `logger.error(bindings, message)`.
+    pub(crate) fn emit_error(&self, bindings: JsValue, message: &str) {
+        if let Some(error) = &self.inner.log_error {
+            error(bindings, message);
         }
     }
 

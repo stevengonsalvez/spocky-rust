@@ -304,12 +304,53 @@ impl AgentManager {
     }
 
     /// `interruptSession(session, agentId)`: whether the interrupt was
-    /// acknowledged in time.
-    async fn interrupt_session(&self, session: &Arc<dyn AgentSession>) -> bool {
-        matches!(
-            wait_with_timeout(session.interrupt(), self.inner.interrupt_session_ms).await,
-            Ok(TimeoutResult::Completed)
-        )
+    /// acknowledged in time. The interrupt keeps running after a timeout,
+    /// and a failure then is only logged.
+    async fn interrupt_session(&self, session: &Arc<dyn AgentSession>, agent_id: &str) -> bool {
+        let timeout_ms = self.inner.interrupt_session_ms;
+        let mut interrupt = tokio::spawn({
+            let session = Arc::clone(session);
+            async move { session.interrupt().await }
+        });
+        // pino prints the `err` binding, an `Error`, as `{}`.
+        let bindings = |extra: Option<(&str, JsValue)>| {
+            let mut bindings = JsObject::new();
+            if extra.is_none() {
+                bindings.insert("err", JsValue::Object(JsObject::new()));
+            }
+            bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+            if let Some((key, value)) = extra {
+                bindings.insert(key, value);
+            }
+            JsValue::Object(bindings)
+        };
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), &mut interrupt).await {
+            Ok(Ok(Ok(()))) => true,
+            Ok(Ok(Err(_))) => {
+                self.emit_error(bindings(None), "Failed to interrupt session");
+                false
+            }
+            Ok(Err(_)) => false,
+            Err(_) => {
+                #[allow(clippy::cast_precision_loss, reason = "a few seconds in milliseconds")]
+                let timeout = JsValue::Number(timeout_ms as f64);
+                self.emit_warn(
+                    bindings(Some(("timeoutMs", timeout))),
+                    "Timed out interrupting session during cancel",
+                );
+                let manager = self.clone();
+                let late = bindings(None);
+                tokio::spawn(async move {
+                    if let Ok(Err(_)) = interrupt.await {
+                        manager.emit_warn(
+                            late,
+                            "Session interrupt failed after timeout during cancel",
+                        );
+                    }
+                });
+                false
+            }
+        }
     }
 
     /// `cancelAgentRun(agentId)`, serialized with other foreground mutations.
@@ -349,7 +390,7 @@ impl AgentManager {
             };
             (session, run.settled(), provider)
         };
-        let acknowledged = self.interrupt_session(&session).await;
+        let acknowledged = self.interrupt_session(&session, agent_id).await;
         let timeout = if acknowledged {
             INTERRUPT_SESSION_TIMEOUT_MS
         } else {
@@ -405,11 +446,30 @@ impl AgentManager {
                 _ => None,
             };
             let autonomous = matches!(run, Some(TrackedRun::Autonomous { .. }));
+            let warn_cancel = |turn_id: Option<&str>, kind: &str, message: &str| {
+                let mut bindings = JsObject::new();
+                bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+                if let Some(turn_id) = turn_id {
+                    bindings.insert("turnId", JsValue::String(turn_id.to_owned()));
+                }
+                bindings.insert("kind", JsValue::String(kind.to_owned()));
+                self.emit_warn(JsValue::Object(bindings), message);
+            };
+            let kind = if autonomous {
+                "autonomous"
+            } else {
+                "foreground"
+            };
             let mut event = JsObject::new();
             event.insert("type", JsValue::String("turn_canceled".to_owned()));
             event.insert("provider", JsValue::String(provider.to_owned()));
             event.insert("reason", JsValue::String("interrupted".to_owned()));
             if let Some(turn_id) = turn_id.filter(|turn| !turn.is_empty()) {
+                warn_cancel(
+                    Some(&turn_id),
+                    kind,
+                    "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
+                );
                 event.insert("turnId", JsValue::String(turn_id));
                 let _ = self.dispatch_session_event_locked(
                     &mut state,
@@ -418,6 +478,11 @@ impl AgentManager {
                 );
                 true
             } else if let Some(token) = foreground_token {
+                warn_cancel(
+                    None,
+                    kind,
+                    "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
+                );
                 Self::settle_foreground_run(&mut state, agent_id, token);
                 let replacing = state
                     .agent(agent_id)
@@ -432,6 +497,11 @@ impl AgentManager {
                 false
             } else {
                 if autonomous {
+                    warn_cancel(
+                        None,
+                        kind,
+                        "cancelAgentRun: acknowledged turn still active after timeout, force-canceling",
+                    );
                     let _ = self.dispatch_session_event_locked(
                         &mut state,
                         agent_id,
