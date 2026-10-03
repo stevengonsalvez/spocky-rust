@@ -597,9 +597,11 @@ fn iso_date(value: &JsValue) -> Result<String, crate::agent_sdk::AgentError> {
         .as_str()
         .and_then(spocky_contracts::js::date_parse)
         .map(iso_from_millis)
-        .ok_or_else(|| crate::agent_sdk::AgentError {
-            name: "RangeError".to_owned(),
-            message: "Invalid time value".to_owned(),
+        .ok_or_else(|| {
+            crate::agent_sdk::AgentError::named(
+                "RangeError".to_owned(),
+                "Invalid time value".to_owned(),
+            )
         })
 }
 
