@@ -12,12 +12,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
+use spocky_contracts::js::date_parse;
 use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::request::AgentDirectoryFilter;
 use spocky_daemon::session_api::{SessionSink, SocketId};
 use spocky_session::agent_manager::{AgentLifecycle, ManagedAgentSnapshot};
 use spocky_session::clock::random_uuid;
-use spocky_store::time::parse_iso_millis;
 use tokio::sync::oneshot;
 
 use crate::agent_directory::matches_agent_updates_filter;
@@ -289,7 +289,7 @@ impl AgentUpdates {
                     .get("agent")
                     .and_then(|agent| agent.get("updatedAt"))
                     .and_then(JsValue::as_str)
-                    .and_then(parse_iso_millis)
+                    .and_then(date_parse)
                     .is_some_and(|updated_at| updated_at < *snapshot_at)
             {
                 continue;
@@ -482,6 +482,28 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn pending_updates_are_compared_as_date_parse_reads_them() {
+        let sink = Arc::new(Recorder::default());
+        let updates = updates(&sink);
+        let owner = updates.begin(5, true, true, None, None).unwrap();
+        // Printed by node 22: Date.parse("Fri, 02 Oct 2026 12:00:00 GMT") is
+        // 1790942400000 and "... 12:00:01 GMT" is 1790942401000.
+        publish(
+            &updates,
+            &upsert("a", "codex", "Fri, 02 Oct 2026 12:00:00 GMT"),
+        );
+        publish(
+            &updates,
+            &upsert("a", "codex", "Fri, 02 Oct 2026 12:00:01 GMT"),
+        );
+        let snapshot = HashMap::from([("a".to_owned(), 1_790_942_400_500_i64)]);
+        updates.flush_bootstrapped(&owner.id, &snapshot);
+        let frames = sink.0.lock().unwrap().clone();
+        assert_eq!(frames.len(), 1, "{frames:?}");
+        assert!(frames[0].1.contains("12:00:01 GMT"), "{frames:?}");
     }
 
     #[tokio::test]
