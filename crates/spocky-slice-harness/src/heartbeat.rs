@@ -16,21 +16,27 @@ pub const HEARTBEAT_TRANSFORM: &str = "client-heartbeat-pong";
 /// The only gate this transform applies to.
 pub const HEARTBEAT_GATE: &str = "g4-retry";
 
-/// The one frame text that is removed, compared whole.
-pub const BARE_PONG: &str = r#"{"type":"pong"}"#;
+/// The one frame text that is removed, compared whole, as bytes.
+pub const BARE_PONG: &[u8] = br#"{"type":"pong"}"#;
 
 /// The side with the bare pongs removed from each step's stdout, and each
 /// step's `step-<nn>-<name>/stdout` name with the count removed (0 included).
+/// Works on the raw bytes: the lines it keeps are written back untouched,
+/// whatever they hold.
 #[must_use]
 pub fn without_heartbeat_pongs(side: &SideRun) -> (SideRun, Vec<(String, usize)>) {
     let mut side = side.clone();
     let mut removed = Vec::new();
     for (index, step) in side.steps.iter_mut().enumerate() {
-        let text = String::from_utf8_lossy(&step.stdout).into_owned();
-        let kept: Vec<&str> = text.split('\n').filter(|line| *line != BARE_PONG).collect();
-        let count = text.split('\n').count() - kept.len();
+        let lines: Vec<&[u8]> = step.stdout.split(|byte| *byte == b'\n').collect();
+        let kept: Vec<&[u8]> = lines
+            .iter()
+            .copied()
+            .filter(|line| *line != BARE_PONG)
+            .collect();
+        let count = lines.len() - kept.len();
         if count > 0 {
-            step.stdout = kept.join("\n").into_bytes();
+            step.stdout = kept.join(&b'\n');
         }
         removed.push((format!("step-{:02}-{}/stdout", index + 1, step.name), count));
     }
