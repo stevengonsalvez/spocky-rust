@@ -44,7 +44,12 @@ const RECORDS: &str = r#"[
    "lastStatus":"running","runtimeInfo":{"provider":"codex","sessionId":null},
    "persistence":{"provider":"claude","sessionId":""},"labels":{}},
   {"id":"a5","provider":"codex","cwd":"/z","createdAt":"2026-07-12T10:00:00.000Z","updatedAt":"2026-07-12T10:00:00.000Z",
-   "lastStatus":"idle","persistence":{"provider":"claude","sessionId":"s5","metadata":{"mcpServers":{}}}}
+   "lastStatus":"idle","persistence":{"provider":"claude","sessionId":"s5","metadata":{"mcpServers":{}}}},
+  {"id":"a6","provider":"codex","cwd":"/z","createdAt":"Jan 3 2020 00:00:00 GMT","updatedAt":"Wed, 01 Jan 2020 12:00:00 GMT",
+   "lastActivityAt":"2020-01-02 00:00:00 GMT","lastUserMessageAt":"1/3/2020 00:00:00 GMT","lastStatus":"idle",
+   "requiresAttention":true,"attentionReason":"finished","attentionTimestamp":"1 Jan 2020 00:00:00 UTC"},
+  {"id":"a7","provider":"codex","cwd":"/z","createdAt":"Jan 3 2020 00:00:00 +0530","updatedAt":"2020-01-01T00:00:00.000Z",
+   "lastStatus":"idle","lastUserMessageAt":"not a date"}
 ]"#;
 
 const NODE_SCRIPT: &str = r#"
