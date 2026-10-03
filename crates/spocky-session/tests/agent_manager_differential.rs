@@ -1154,9 +1154,14 @@ const reloadScenario = async () => {
   await idle.manager.hydrateTimelineFromProvider(agentId);
   const a = await finish(idle, { idleEvents, result: idleResult });
 
-  const rehydrate = await build("rehydrate", { turns: [scripted.subagents] });
+  const rehydrate = await build("rehydrate", { turns: [scripted.subagents], specExtra: { history: scripted.history } });
   const rehydrateEvents = await run(rehydrate, "delegate");
-  const b = await finish(rehydrate, { rehydrateEvents, result: await reload(rehydrate, undefined, { rehydrateFromDisk: true }) });
+  // Hydrating once primes the history, which a rehydrating reload must drop.
+  await rehydrate.manager.hydrateTimelineFromProvider(agentId);
+  const rehydrateResult = await reload(rehydrate, undefined, { rehydrateFromDisk: true });
+  // The history is no longer primed, so this hydrates again.
+  await rehydrate.manager.hydrateTimelineFromProvider(agentId);
+  const b = await finish(rehydrate, { rehydrateEvents, result: rehydrateResult });
 
   const running = await build("running", { turns: [scripted.long] });
   const held = running.manager.streamAgent(agentId, "long task");
@@ -4760,8 +4765,17 @@ async fn reload_scenario(cwd: &str, home: &Path) -> JsValue {
     )
     .await;
 
-    let rehydrate = reload_manager("rehydrate", "fake", &["subagents"], home, cwd, |_, _| {}).await;
+    let rehydrate = reload_manager("rehydrate", "fake", &["subagents"], home, cwd, |fake, _| {
+        fake.history = json(SCENARIO_TURNS).get("history").cloned();
+    })
+    .await;
     let rehydrate_events = reload_run(&rehydrate.0, "delegate").await;
+    // Hydrating once primes the history, which a rehydrating reload must drop.
+    rehydrate
+        .0
+        .hydrate_timeline_from_provider(AGENT_ID, HydrateTimelineOptions::default())
+        .await
+        .expect("hydrate");
     let result = reload_outcome(
         &rehydrate.0,
         AGENT_ID,
@@ -4771,6 +4785,12 @@ async fn reload_scenario(cwd: &str, home: &Path) -> JsValue {
         },
     )
     .await;
+    // The history is no longer primed, so this hydrates again.
+    rehydrate
+        .0
+        .hydrate_timeline_from_provider(AGENT_ID, HydrateTimelineOptions::default())
+        .await
+        .expect("hydrate");
     let rehydrate_case = reload_finish(
         &rehydrate,
         vec![
