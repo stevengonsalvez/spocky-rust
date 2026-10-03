@@ -1134,17 +1134,58 @@ impl AgentManager {
         ids
     }
 
-    /// `listProviderAvailability()`: `(provider, available, error)` per client.
+    /// `listProviderAvailability()`: `(provider, available, error)` per client,
+    /// each checked concurrently like `Promise.all`.
     pub async fn list_provider_availability(&self) -> Vec<(String, bool, Option<String>)> {
-        let clients: Vec<(String, Arc<dyn AgentClient>)> = self.lock().clients.clone();
-        let mut availability = Vec::with_capacity(clients.len());
-        for (provider, client) in clients {
-            availability.push(match client.is_available(None, None).await {
-                Ok(available) => (provider, available, None),
-                Err(error) => (provider, false, Some(error.message)),
-            });
+        let providers: Vec<String> = self
+            .lock()
+            .clients
+            .iter()
+            .map(|(provider, _)| provider.clone())
+            .collect();
+        let checks: Vec<_> = providers
+            .into_iter()
+            .map(|provider| {
+                let manager = self.clone();
+                tokio::spawn(async move { manager.get_provider_availability(&provider).await })
+            })
+            .collect();
+        let mut availability = Vec::with_capacity(checks.len());
+        for check in checks {
+            match check.await {
+                Ok(entry) => availability.push(entry),
+                Err(error) => std::panic::resume_unwind(error.into_panic()),
+            }
         }
         availability
+    }
+
+    /// `getProviderAvailability(provider)`: `(provider, available, error)`.
+    pub async fn get_provider_availability(
+        &self,
+        provider: &str,
+    ) -> (String, bool, Option<String>) {
+        let Some(client) = self.lock().client(provider) else {
+            return (
+                provider.to_owned(),
+                false,
+                Some(format!("No client registered for provider '{provider}'")),
+            );
+        };
+        match client.is_available(None, None).await {
+            Ok(available) => (provider.to_owned(), available, None),
+            Err(error) => {
+                // pino prints the `err` binding, an `Error`, as `{}`.
+                let mut bindings = JsObject::new();
+                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("provider", JsValue::String(provider.to_owned()));
+                self.emit_warn(
+                    JsValue::Object(bindings),
+                    "Failed to check provider availability",
+                );
+                (provider.to_owned(), false, Some(error.message))
+            }
+        }
     }
 
     /// `requireAvailableClient({ provider })`.
