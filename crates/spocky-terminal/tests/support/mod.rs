@@ -38,6 +38,10 @@ pub const PINNED_TERMINAL_MODULES: &[(&str, &str)] = &[
         "terminal-capture.js",
         "29f93395cd168b5663c5ffe4303172cb334be2517cc423db41b9d54ca1b7a164",
     ),
+    (
+        "terminal-session-controller.js",
+        "423181516f78375b079fa5eaf41b71f1ab17fb243b99fb3aa84ccb44dce0887a",
+    ),
 ];
 
 /// The pinned `packages/protocol/dist` modules the terminal modules import,
@@ -72,6 +76,10 @@ pub const PINNED_PROTOCOL_MODULES: &[(&str, &str)] = &[
         "3af06230bf356743235f87317f388d9205a83dfb736be02ddb53b408347c1f58",
     ),
     (
+        "terminal-subscription-key.js",
+        "d7331c42b466d3779696c1a9289db3c1c9debb6af5c9b3e62c4ba48567bfcbd2",
+    ),
+    (
         "terminal-activity.js",
         "27dedd07115476c8c68601bd3036b87f5591bb353e04c2baba7de0b56554a539",
     ),
@@ -95,6 +103,18 @@ pub const PINNED_SERVER_MODULES: &[(&str, &str)] = &[
     (
         "server/path-utils.js",
         "d84b5eca7ca19d5134b4e94eb6d909e9531fb8993ffbdfdfd70a9cd7e2c3595a",
+    ),
+    (
+        "server/session/owned-subscriptions/index.js",
+        "e9a0349bd40cc6211cf79ad01155c23419001f24da3aa1ed92c18e369dc670fc",
+    ),
+    (
+        "server/session/owned-subscriptions/replies.js",
+        "dff57bcfcea7a1f5be934e8b0b3996fe266c9e73a38d3b2d7aa32352e631b529",
+    ),
+    (
+        "server/workspace-archive-service.js",
+        "c3409ea8bbcfb278ec4ccdab4fc68808160d0bb98c4dc4fd317f476f8c8ac48e",
     ),
     (
         "server/private-files.js",
