@@ -3,6 +3,7 @@
 //! pinned Paseo `5de45e2`.
 
 pub mod capture;
+pub mod controller;
 pub mod exit_lines;
 pub mod handlers;
 pub mod input_mode;
