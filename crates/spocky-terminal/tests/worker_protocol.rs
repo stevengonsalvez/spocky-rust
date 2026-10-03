@@ -1,11 +1,15 @@
-//! Terminal worker framing against the real pinned worker: this test starts
-//! the pinned `terminal-worker-process.js` on the pinned Node with a JSON IPC
-//! channel (`NODE_CHANNEL_FD`, `serialization: "json"`), sends requests built
-//! by [`WorkerRequest`], and reads every frame with [`FrameDecoder`]. Each
-//! frame must parse into a [`WorkerMessage`] whose re-encoding is the same
-//! bytes, and the pinned worker must answer every request, including its
-//! exact error text for a missing workspace. All reads and the worker exit
-//! are bounded; only the recorded worker pid is ever signalled.
+//! Terminal worker framing against the real pinned worker. The parent
+//! forks the worker with `serialization: "advanced"` (V8 structured clone
+//! behind a 4-byte length), so this test starts the pinned
+//! `terminal-worker-process.js` on the pinned Node with
+//! `NODE_CHANNEL_SERIALIZATION_MODE=advanced`, sends requests built by
+//! [`WorkerRequest`], and reads every frame with [`FrameDecoder`]. Each frame
+//! must parse into a [`WorkerMessage`] whose re-encoding is the same bytes,
+//! and the pinned worker must answer every request, including its exact
+//! error text for a missing workspace. Requests are also compared byte for
+//! byte with `v8.serialize` of the objects the parent builds
+//! (`{ ...input, requestId }`). All reads and the worker exit are bounded;
+//! only the recorded worker pid is ever signalled.
 
 mod support;
 
@@ -16,9 +20,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use spocky_contracts::js_value::{JsObject, JsValue, parse, stringify};
+use spocky_contracts::js_value::{JsObject, JsValue, stringify};
 use spocky_terminal::worker_protocol::{
-    FrameDecoder, WorkerMessage, WorkerRequest, encode_frame, parse_frame,
+    Frame, FrameDecoder, WorkerMessage, WorkerRequest, encode_frame, parse_frame,
 };
 
 const READ_DEADLINE: Duration = Duration::from_secs(20);
@@ -31,38 +35,53 @@ fn requests_put_type_first_and_request_id_last() {
         end: None,
         strip_ansi: Some(false),
     };
+    let mut decoder = FrameDecoder::new();
+    let frames = decoder.push(&encode_frame(&request.to_value("r1")));
+    assert_eq!(frames.len(), 1);
     assert_eq!(
-        encode_frame(&request.to_value("r1")),
-        "{\"type\":\"captureTerminal\",\"terminalId\":\"t1\",\"start\":-2,\"stripAnsi\":false,\"requestId\":\"r1\"}\n"
-    );
-    assert_eq!(
-        encode_frame(&WorkerRequest::KillAll.to_value("r2")),
-        "{\"type\":\"killAll\",\"requestId\":\"r2\"}\n"
+        stringify(frames[0].value.as_ref().expect("value")),
+        "{\"type\":\"captureTerminal\",\"terminalId\":\"t1\",\"start\":-2,\"stripAnsi\":false,\"requestId\":\"r1\"}"
     );
 }
 
 #[test]
-fn frames_split_on_newlines_across_reads() {
+fn frames_split_across_reads_and_keep_undefined_keys() {
+    let first = WorkerMessage::Response {
+        request_id: "a".to_owned(),
+        outcome: Ok(None),
+    };
+    let second = WorkerMessage::TerminalTitleChange {
+        terminal_id: "t".to_owned(),
+        title: None,
+    };
+    let mut bytes = encode_frame(&first.to_value());
+    bytes.extend(encode_frame(&second.to_value()));
+    let (head, tail) = bytes.split_at(bytes.len() / 2);
     let mut decoder = FrameDecoder::new();
-    assert!(
-        decoder
-            .push(b"{\"type\":\"response\",\"requestId\":\"a\",")
-            .is_empty()
-    );
-    let frames = decoder.push(b"\"ok\":true}\n{\"type\":\"response\",\"requestId\":\"b\",\"ok\":false,\"error\":\"x\"}\n{");
+    let mut frames: Vec<Frame> = decoder.push(head);
+    frames.extend(decoder.push(tail));
     assert_eq!(frames.len(), 2);
+    let parsed: Vec<WorkerMessage> = frames
+        .iter()
+        .map(|frame| parse_frame(frame.value.as_ref().expect("value")).expect("message"))
+        .collect();
+    assert_eq!(parsed, [first, second]);
+    // `title: undefined` is on the wire, where JSON would drop the key.
+    let title = frames[1].value.as_ref().expect("value");
+    assert_eq!(title.get("title"), Some(&JsValue::Undefined));
+}
+
+#[test]
+fn a_truthy_ok_is_a_success() {
+    let mut object = JsObject::new();
+    object.insert("type", JsValue::String("response".to_owned()));
+    object.insert("requestId", JsValue::String("x".to_owned()));
+    object.insert("ok", JsValue::Number(1.0));
     assert_eq!(
-        parse_frame(&frames[0]).expect("frame"),
+        parse_frame(&JsValue::Object(object)).expect("message"),
         WorkerMessage::Response {
-            request_id: "a".to_owned(),
+            request_id: "x".to_owned(),
             outcome: Ok(None),
-        }
-    );
-    assert_eq!(
-        parse_frame(&frames[1]).expect("frame"),
-        WorkerMessage::Response {
-            request_id: "b".to_owned(),
-            outcome: Err("x".to_owned()),
         }
     );
 }
@@ -71,7 +90,7 @@ struct Worker {
     child: Child,
     channel: UnixStream,
     decoder: FrameDecoder,
-    frames: Vec<String>,
+    frames: Vec<Frame>,
     home: TempHome,
 }
 
@@ -112,7 +131,7 @@ impl Worker {
             .env("PATH", "/usr/bin:/bin")
             .env("HOME", &home.0)
             .env("NODE_CHANNEL_FD", child_end.as_raw_fd().to_string())
-            .env("NODE_CHANNEL_SERIALIZATION_MODE", "json")
+            .env("NODE_CHANNEL_SERIALIZATION_MODE", "advanced")
             .current_dir(&home.0)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -134,7 +153,7 @@ impl Worker {
 
     fn send(&mut self, request: &WorkerRequest, request_id: &str) {
         self.channel
-            .write_all(encode_frame(&request.to_value(request_id)).as_bytes())
+            .write_all(&encode_frame(&request.to_value(request_id)))
             .expect("send request");
     }
 
@@ -162,9 +181,10 @@ impl Worker {
                 Err(error) => panic!("read worker channel: {error}"),
             };
             for frame in self.decoder.push(&buffer[..count]) {
-                let message = parse_frame(&frame).expect("worker frame");
+                let message = parse_frame(frame.value.as_ref().expect("worker frame"))
+                    .expect("worker message");
                 // Byte-exact framing: re-encoding gives the frame back.
-                assert_eq!(encode_frame(&message.to_value()), format!("{frame}\n"));
+                assert_eq!(encode_frame(&message.to_value()), frame.raw);
                 self.frames.push(frame);
                 let matched = done(&message);
                 messages.push(message);
@@ -383,7 +403,123 @@ fn pinned_worker_round_trips_every_frame() {
     plain_requests_succeed(&mut worker, &cwd);
     let frames = worker.frames.clone();
     worker.stop();
-    for frame in frames {
-        parse(&frame).expect("json frame");
-    }
+    assert!(frames.iter().all(|frame| frame.value.is_ok()));
+}
+
+const REQUESTS_NODE_SCRIPT: &str = r#"
+import v8 from "node:v8";
+const mk = (input, requestId) => ({ ...input, requestId });
+const list = [
+  mk({ type: "killAll" }, "r0"),
+  mk({ type: "killTerminal", terminalId: "t" }, "r1"),
+  mk({ type: "clearAttention", terminalId: "t" }, "r2"),
+  mk({ type: "setActivity", terminalId: "t", state: "working" }, "r3"),
+  mk({ type: "registerCwdEnv", cwd: "/w", env: { A: "1" } }, "r4"),
+  mk({ type: "getTerminalState", terminalId: "t" }, "r5"),
+  mk({ type: "getTerminalState", terminalId: "t", options: { scrollbackLines: 7 } }, "r6"),
+  mk({ type: "killTerminalAndWait", terminalId: "t", options: { gracefulTimeoutMs: 10 } }, "r7"),
+  mk({ type: "captureTerminal", terminalId: "t" }, "r8"),
+  mk({ type: "captureTerminal", terminalId: "t", start: -2, end: 5, stripAnsi: false }, "r9"),
+  mk({ type: "send", terminalId: "t", message: { type: "input", data: "héllo 中" } }, "r10"),
+  mk({ type: "send", terminalId: "t", message: { type: "resize", rows: 30, cols: 100 } }, "r11"),
+  mk({ type: "createTerminal", options: { cwd: "/w", workspaceId: "ws", rows: 24, cols: 80, id: "t", activityToken: "tok", activityUrl: null } }, "r12"),
+];
+process.stdout.write(JSON.stringify(list.map((value) => v8.serialize(value).toString("hex"))));
+"#;
+
+fn number(value: f64) -> JsValue {
+    JsValue::Number(value)
+}
+
+#[test]
+fn requests_serialize_like_the_parents_objects() {
+    let Some(pinned) = support::pinned("worker request serialization differential") else {
+        return;
+    };
+    support::assert_pinned_modules(&pinned.terminal_dir);
+    let requests = [
+        WorkerRequest::KillAll,
+        WorkerRequest::KillTerminal {
+            terminal_id: "t".to_owned(),
+        },
+        WorkerRequest::ClearAttention {
+            terminal_id: "t".to_owned(),
+        },
+        WorkerRequest::SetActivity {
+            terminal_id: "t".to_owned(),
+            state: "working".to_owned(),
+        },
+        WorkerRequest::RegisterCwdEnv {
+            cwd: "/w".to_owned(),
+            env: object(vec![("A", text("1"))]),
+        },
+        WorkerRequest::GetTerminalState {
+            terminal_id: "t".to_owned(),
+            options: None,
+        },
+        WorkerRequest::GetTerminalState {
+            terminal_id: "t".to_owned(),
+            options: Some(object(vec![("scrollbackLines", number(7.0))])),
+        },
+        WorkerRequest::KillTerminalAndWait {
+            terminal_id: "t".to_owned(),
+            options: Some(object(vec![("gracefulTimeoutMs", number(10.0))])),
+        },
+        WorkerRequest::CaptureTerminal {
+            terminal_id: "t".to_owned(),
+            start: None,
+            end: None,
+            strip_ansi: None,
+        },
+        WorkerRequest::CaptureTerminal {
+            terminal_id: "t".to_owned(),
+            start: Some(-2.0),
+            end: Some(5.0),
+            strip_ansi: Some(false),
+        },
+        WorkerRequest::Send {
+            terminal_id: "t".to_owned(),
+            message: object(vec![
+                ("type", text("input")),
+                ("data", text("h\u{e9}llo \u{4e2d}")),
+            ]),
+        },
+        WorkerRequest::Send {
+            terminal_id: "t".to_owned(),
+            message: object(vec![
+                ("type", text("resize")),
+                ("rows", number(30.0)),
+                ("cols", number(100.0)),
+            ]),
+        },
+        WorkerRequest::CreateTerminal {
+            options: object(vec![
+                ("cwd", text("/w")),
+                ("workspaceId", text("ws")),
+                ("rows", number(24.0)),
+                ("cols", number(80.0)),
+                ("id", text("t")),
+                ("activityToken", text("tok")),
+                ("activityUrl", JsValue::Null),
+            ]),
+        },
+    ];
+    let expected = support::run_node(&pinned, REQUESTS_NODE_SCRIPT, &[]);
+    let actual = stringify(&JsValue::Array(
+        requests
+            .iter()
+            .enumerate()
+            .map(|(index, request)| {
+                let bytes = spocky_terminal::v8_serialize::serialize(
+                    &request.to_value(&format!("r{index}")),
+                );
+                JsValue::String(bytes.iter().fold(String::new(), |mut hex, byte| {
+                    use std::fmt::Write as _;
+                    let _ = write!(hex, "{byte:02x}");
+                    hex
+                }))
+            })
+            .collect(),
+    ));
+    assert_eq!(actual, expected);
 }

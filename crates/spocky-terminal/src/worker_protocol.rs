@@ -2,13 +2,17 @@
 //! `packages/server/src/terminal/terminal-worker-protocol.ts` and the senders
 //! in `terminal-worker-process.ts` and `worker-terminal-manager.ts`.
 //!
-//! The worker runs as a Node child process with `serialization: "json"`
-//! IPC: every message is `JSON.stringify(message)` followed by `\n`. Keys are
-//! written in the order the baseline object literals create them; payloads
-//! that the baseline passes through untouched (terminal state, activity,
-//! request options, results) stay [`JsValue`].
+//! The parent forks the worker with `serialization: "advanced"`, so every
+//! message crosses the IPC channel as a V8 structured clone behind a 4-byte
+//! big-endian length (see [`crate::v8_serialize`]). Keys keep the order the
+//! baseline object literals create them, and a key whose value is
+//! `undefined` stays on the wire as such; payloads the baseline passes
+//! through untouched (terminal state, activity, request options, results)
+//! stay [`JsValue`].
 
-use spocky_contracts::js_value::{self, JsObject, JsValue, JsonSyntaxError};
+use spocky_contracts::js_value::{JsObject, JsValue};
+
+use crate::v8_serialize::{self, DecodeError};
 
 /// Parent to worker. The parent builds `{ ...input, requestId }`, so
 /// `requestId` is the last key.
@@ -171,14 +175,14 @@ pub enum WorkerMessage {
 /// Why a frame is not a worker message.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameError {
-    Json(JsonSyntaxError),
+    Decode(DecodeError),
     Shape(&'static str),
 }
 
 impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Json(error) => error.fmt(f),
+            Self::Decode(error) => error.fmt(f),
             Self::Shape(what) => write!(f, "malformed terminal worker message: {what}"),
         }
     }
@@ -277,10 +281,11 @@ impl WorkerMessage {
         Ok(match kind.as_str() {
             "response" => Self::Response {
                 request_id: text("requestId")?,
-                outcome: match value.get("ok") {
-                    Some(JsValue::Bool(true)) => Ok(value.get("result").cloned()),
-                    Some(JsValue::Bool(false)) => Err(text("error")?),
-                    _ => return Err(FrameError::Shape("ok")),
+                // The parent only tests `ok` for truthiness.
+                outcome: if value.get("ok").is_some_and(truthy) {
+                    Ok(value.get("result").cloned())
+                } else {
+                    Err(text("error")?)
                 },
             },
             "terminalCreated" => Self::TerminalCreated {
@@ -323,28 +328,33 @@ fn string(text: &str) -> JsValue {
     JsValue::String(text.to_owned())
 }
 
-/// One IPC frame: `JSON.stringify(message) + "\n"`.
+/// One IPC frame: the message as the channel writes it.
 #[must_use]
-pub fn encode_frame(message: &JsValue) -> String {
-    let mut frame = js_value::stringify(message);
-    frame.push('\n');
-    frame
+pub fn encode_frame(message: &JsValue) -> Vec<u8> {
+    v8_serialize::encode_frame(message)
 }
 
-/// Parses one frame's text into a worker message.
+/// Reads one decoded frame as a worker message.
 ///
 /// # Errors
 ///
-/// The `JSON.parse` error, or [`FrameError::Shape`].
-pub fn parse_frame(text: &str) -> Result<WorkerMessage, FrameError> {
-    WorkerMessage::from_value(&js_value::parse(text).map_err(FrameError::Json)?)
+/// [`FrameError::Shape`] when the value is not a worker message.
+pub fn parse_frame(value: &JsValue) -> Result<WorkerMessage, FrameError> {
+    WorkerMessage::from_value(value)
 }
 
-/// Splits the IPC byte stream into frame texts, without their newline.
-#[derive(Debug, Default)]
-pub struct FrameDecoder {
-    pending: Vec<u8>,
+/// One frame read from the IPC channel.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame {
+    /// The bytes as read, length prefix included.
+    pub raw: Vec<u8>,
+    /// The decoded message value.
+    pub value: Result<JsValue, FrameError>,
 }
+
+/// Splits the IPC byte stream into messages.
+#[derive(Debug, Default)]
+pub struct FrameDecoder(v8_serialize::FrameDecoder);
 
 impl FrameDecoder {
     #[must_use]
@@ -352,14 +362,26 @@ impl FrameDecoder {
         Self::default()
     }
 
-    /// Appends bytes and returns every completed frame.
-    pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
-        self.pending.extend_from_slice(bytes);
-        let mut frames = Vec::new();
-        while let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
-            let line: Vec<u8> = self.pending.drain(..=end).collect();
-            frames.push(String::from_utf8_lossy(&line[..end]).into_owned());
-        }
-        frames
+    /// Appends bytes and returns every message that is now complete.
+    pub fn push(&mut self, bytes: &[u8]) -> Vec<Frame> {
+        self.0
+            .push(bytes)
+            .into_iter()
+            .map(|frame| Frame {
+                raw: frame.raw,
+                value: frame.value.map_err(FrameError::Decode),
+            })
+            .collect()
+    }
+}
+
+/// JavaScript truthiness of a value.
+fn truthy(value: &JsValue) -> bool {
+    match value {
+        JsValue::Undefined | JsValue::Null => false,
+        JsValue::Bool(flag) => *flag,
+        JsValue::Number(number) => !(number.is_nan() || *number == 0.0),
+        JsValue::String(text) => !text.is_empty(),
+        JsValue::Array(_) | JsValue::Object(_) => true,
     }
 }
