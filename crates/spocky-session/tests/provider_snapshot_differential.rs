@@ -92,6 +92,7 @@ if (process.version !== "v22.20.0") {
 const { ProviderSnapshotManager } = await import(`${dist}/server/agent/provider-snapshot-manager.js`);
 const { BUILTIN_PROVIDER_IDS } = await import(`${protocolDist}/provider-manifest.js`);
 const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = [];
 const queues = {};
 const next = (provider, method) => (queues[`${provider}.${method}`] ?? []).shift();
@@ -188,6 +189,9 @@ for (const step of JSON.parse(stepsJson)) {
   }
   row.log = log.splice(0);
   steps.push(row);
+  // `fetchedAt` is the wall clock to the millisecond and a snapshot only changes
+  // when it differs, so every step starts in a later millisecond than the last.
+  await sleep(3);
 }
 process.stdout.write(JSON.stringify({ defs, steps }));
 "#;
@@ -576,6 +580,10 @@ async fn rust_steps(defs: &JsValue) -> JsValue {
             JsValue::Array(lines.into_iter().map(JsValue::String).collect()),
         );
         rows.push(JsValue::Object(row));
+        // `fetchedAt` is the wall clock to the millisecond and a snapshot only
+        // changes when it differs, so every step starts in a later millisecond
+        // than the last.
+        tokio::time::sleep(std::time::Duration::from_millis(3)).await;
     }
     JsValue::Array(rows)
 }
