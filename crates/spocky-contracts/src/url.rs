@@ -21,6 +21,9 @@
 )]
 
 pub mod idna;
+pub mod search_params;
+
+pub use search_params::UrlSearchParams;
 
 use std::fmt::Write as _;
 
@@ -1433,6 +1436,18 @@ impl Url {
             &remove_tabs_and_newlines(rest),
             &FRAGMENT_SET,
         ));
+    }
+
+    /// `url.searchParams`: the list `new URLSearchParams(url.search)` holds.
+    #[must_use]
+    pub fn search_params(&self) -> UrlSearchParams {
+        UrlSearchParams::parse(&self.search())
+    }
+
+    /// What a `searchParams` mutation does to the URL: `url.search` becomes
+    /// the serialized list, or is cleared when the list is empty.
+    pub fn set_search_params(&mut self, params: &UrlSearchParams) {
+        self.set_search(&params.to_string());
     }
 
     /// `url.search = value`.
