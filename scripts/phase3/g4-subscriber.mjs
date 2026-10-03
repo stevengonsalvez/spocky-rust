@@ -9,11 +9,19 @@
 //
 // stdout line 1 is {"dropped": "<signal that ended A>", "status": "<status B
 // fetched>", "errorFrames": <n>, "workspaceId": "<id>"}; the remaining lines
-// are client B's raw wire text, unmodified except that pings, pongs and the
-// server_info status are left out. Wire text is taken by hooking
+// are every frame client B received, pongs and the server_info status
+// included, as raw wire text in arrival order. Per-run ids and instants in
+// them are masked by the harness's existing generated_id and wall_clock
+// classes, never dropped here. Wire text is taken by hooking
 // DaemonClient.prototype.handleJsonPayload, so key order and unknown keys are
-// preserved. errorFrames counts B's frames that are an rpc_error or carry a
-// non-null payload error: the daemon must not turn A's drop into an error.
+// preserved.
+//
+// What the first line proves, and what it does not: B connects only after A
+// is gone, so the daemon has no way to send B an error about A's drop, and
+// dropped only shows that the probe killed its own child. errorFrames and
+// dropped are sanity checks of the probe itself. The proof is B's raw wire,
+// compared across daemons: the agent is still running after A's abrupt drop,
+// the cancel works, and B's frames match byte for byte.
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -72,14 +80,10 @@ const fetched = await b.fetchAgent({ agentId: info.agentId });
 await b.cancelAgent(info.agentId);
 await sleep(1500);
 
-const frames = [];
-for (const text of raw.get(b)) {
+const frames = raw.get(b).map((text) => {
   const frame = JSON.parse(text);
-  const message = frame.type === "session" ? frame.message : frame;
-  if (message.type !== "pong" && !(message.type === "status" && message.payload?.status === "server_info")) {
-    frames.push({ text, message });
-  }
-}
+  return { text, message: frame.type === "session" ? frame.message : frame };
+});
 const errorFrames = frames.filter(
   ({ message }) => message.type === "rpc_error" || (message.payload?.error ?? null) !== null,
 ).length;
