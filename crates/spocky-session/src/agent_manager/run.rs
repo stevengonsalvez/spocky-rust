@@ -15,6 +15,7 @@ use super::events::{
 };
 use super::lifecycle::AgentRunCancellationResult;
 use super::log_error::err_binding;
+use super::trace;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
 use crate::agent_projection::SnapshotOverrides;
 use crate::agent_prompt::submitted_prompt_text;
@@ -305,6 +306,30 @@ impl AgentManager {
         if let Some(attached) = attach_persistence_cwd(handle, &agent.snapshot.cwd) {
             agent.snapshot.persistence = Some(attached);
         }
+        self.emit_trace(
+            || {
+                let snapshot = &agent.snapshot;
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", trace::text(&snapshot.provider)),
+                    ("sessionId", trace::session_id(snapshot)),
+                    ("turnId", turn_id.map_or(JsValue::Undefined, trace::text)),
+                    ("lifecycle", trace::lifecycle(snapshot)),
+                    (
+                        "terminalError",
+                        snapshot
+                            .last_error
+                            .as_deref()
+                            .map_or(JsValue::Undefined, trace::text),
+                    ),
+                    (
+                        "pendingReplacement",
+                        JsValue::Bool(snapshot.pending_replacement),
+                    ),
+                ])
+            },
+            "agent.manager.finalize",
+        );
         if !hold_busy {
             touch_updated_at(&mut agent.snapshot);
             self.emit_state_locked(state, agent_id, true);
@@ -402,9 +427,55 @@ impl AgentManager {
                 "Agent '{normalized}' has no managed session"
             )));
         };
+        self.emit_trace(
+            || {
+                let snapshot = &agent.snapshot;
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", trace::text(&snapshot.provider)),
+                    ("sessionId", trace::session_id(snapshot)),
+                    ("turnId", trace::foreground_turn_id_or_undefined(snapshot)),
+                    ("lifecycle", trace::lifecycle(snapshot)),
+                    (
+                        "activeForegroundTurnId",
+                        trace::foreground_turn_id(snapshot),
+                    ),
+                    (
+                        "hasTrackedRun",
+                        JsValue::Bool(state.runs.contains_key(&normalized)),
+                    ),
+                    (
+                        "promptType",
+                        trace::text(match prompt {
+                            AgentPromptInput::Text(_) => "string",
+                            AgentPromptInput::Blocks(_) => "structured",
+                        }),
+                    ),
+                    ("hasRunOptions", JsValue::Bool(options.is_some())),
+                ])
+            },
+            "agent.manager.stream.request",
+        );
         if agent.snapshot.active_foreground_turn_id.is_some()
             || state.runs.contains_key(&normalized)
         {
+            self.emit_trace(
+                || {
+                    let snapshot = &agent.snapshot;
+                    trace::bindings([
+                        ("agentId", trace::text(agent_id)),
+                        ("provider", trace::text(&snapshot.provider)),
+                        ("sessionId", trace::session_id(snapshot)),
+                        ("turnId", trace::foreground_turn_id_or_undefined(snapshot)),
+                        ("lifecycle", trace::lifecycle(snapshot)),
+                        (
+                            "hasTrackedRun",
+                            JsValue::Bool(state.runs.contains_key(&normalized)),
+                        ),
+                    ])
+                },
+                "agent.manager.stream.reject",
+            );
             return Err(AgentError::new(format!(
                 "Agent {normalized} already has an active run"
             )));
@@ -909,6 +980,36 @@ impl AgentManager {
         Err(error)
     }
 
+    /// `logger.trace(..., "agent.manager.stream.start")`.
+    fn trace_stream_start(&self, state: &State, agent_id: &str, turn_id: &str) {
+        self.emit_trace(
+            || {
+                let snapshot = state.agent(agent_id).map(|agent| &agent.snapshot);
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    (
+                        "provider",
+                        snapshot.map_or(JsValue::Undefined, |agent| trace::text(&agent.provider)),
+                    ),
+                    (
+                        "sessionId",
+                        snapshot.map_or(JsValue::Undefined, trace::session_id),
+                    ),
+                    ("turnId", trace::text(turn_id)),
+                    (
+                        "lifecycle",
+                        snapshot.map_or(JsValue::Undefined, trace::lifecycle),
+                    ),
+                    (
+                        "activeForegroundTurnId",
+                        snapshot.map_or(JsValue::Undefined, trace::foreground_turn_id),
+                    ),
+                ])
+            },
+            "agent.manager.stream.start",
+        );
+    }
+
     /// The accepted-turn stretch of `streamAgent` after `startTurn`
     /// resolved, up to registering the turn stream's waiter.
     fn accept_foreground_turn(
@@ -971,7 +1072,17 @@ impl AgentManager {
                 },
             )?;
         }
+        for event in &replay {
+            self.trace_event_locked(
+                &state,
+                agent_id,
+                event,
+                super::events::raw_turn_id(event).unwrap_or(JsValue::Undefined),
+                "agent.manager.enqueue",
+            );
+        }
         self.emit_state_locked(&mut state, agent_id, true);
+        self.trace_stream_start(&state, agent_id, turn_id);
         let (tx, rx) = mpsc::unbounded_channel();
         let waiter_id = Self::next_token(&mut state);
         if let Some(agent) = state.agent_mut(agent_id) {
