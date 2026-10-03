@@ -6,6 +6,7 @@ use std::time::Duration;
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::Serialize;
+use spocky_contracts::text::js_trim;
 
 use crate::{HubError, InvitationEmailMessage};
 
@@ -26,7 +27,7 @@ impl ResendConfig {
         let Some(raw_key) = environment.get("RESEND_API_KEY") else {
             return Ok(None);
         };
-        let api_key = raw_key.trim();
+        let api_key = js_trim(raw_key);
         if api_key.is_empty() {
             return Ok(None);
         }
@@ -35,7 +36,7 @@ impl ResendConfig {
         }
         let from = environment
             .get("RESEND_FROM")
-            .map(|value| value.trim())
+            .map(|value| js_trim(value))
             .filter(|value| !value.is_empty())
             .ok_or(HubError::EmailDeliveryConfig)?;
         Ok(Some(Self {
