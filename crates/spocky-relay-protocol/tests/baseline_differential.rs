@@ -202,11 +202,15 @@ fn render_corpus(corpus: &str) -> String {
     output
 }
 
-const FIXTURE_PAIRS: [(&str, &str); 2] = [
+const FIXTURE_PAIRS: [(&str, &str); 3] = [
     ("relay-protocol-corpus.tsv", "relay-protocol-baseline.tsv"),
     (
         "relay-protocol-extra-corpus.tsv",
         "relay-protocol-extra-baseline.tsv",
+    ),
+    (
+        "relay-protocol-percent-corpus.tsv",
+        "relay-protocol-percent-baseline.tsv",
     ),
 ];
 
@@ -1066,6 +1070,98 @@ fn write_extra_corpus() {
             )
             .unwrap();
         }
+    }
+    fs::write(output, corpus).unwrap();
+}
+
+/// Percent-encoded and plus-encoded route parameters: `cow_qs` decodes names and values
+/// before `Connection.from_query/1` sees them, as `URLSearchParams.get` does.
+#[test]
+#[ignore = "regenerates the committed percent corpus fixture"]
+fn write_percent_corpus() {
+    let output = std::env::var("SPOCKY_RELAY_CORPUS_OUT").unwrap();
+    let versions = [
+        "2",
+        "%32",
+        "%31",
+        "%33",
+        "%2",
+        "%20%32%20",
+        "2%20",
+        "+2",
+        "%2B2",
+        "%C2%A02",
+        "2%C2%A0",
+        "%32%00",
+        "%e2%80%832",
+        "%EF%BB%BF2",
+        "%C2%852",
+        "",
+        "%",
+    ];
+    let connection_ids = [
+        "c1",
+        "%63%31",
+        "%63%1",
+        "c%2B1",
+        "c+1",
+        "%20c1%20",
+        "+c1+",
+        "%2563",
+        "%zz",
+        "%e2%82%ac",
+        "%FF",
+        "%C3%A9",
+        "%00",
+        "c%0A",
+        "%C2%A0c%C2%A0",
+        "%EF%BB%BFc",
+        "%C2%85c",
+        "%",
+    ];
+    let mut corpus = String::new();
+    for role in ["server", "client"] {
+        for version in versions {
+            for connection_id in connection_ids {
+                writeln!(
+                    corpus,
+                    "qs\t{}",
+                    b64(
+                        format!("role={role}&serverId=s&v={version}&connectionId={connection_id}")
+                            .as_bytes()
+                    )
+                )
+                .unwrap();
+            }
+        }
+    }
+    for server_id in [
+        "%73", "s%2Fx", "%C3%A9", "%FF", "%2", "%20", "+", "%00", "a%26b", "%25",
+    ] {
+        for field in ["serverId", "%73erverId", "role", "%72ole"] {
+            writeln!(
+                corpus,
+                "qs\t{}",
+                b64(
+                    format!("role=server&{field}={server_id}&serverId=s&v=2&connectionId=c")
+                        .as_bytes()
+                )
+            )
+            .unwrap();
+        }
+    }
+    // Encoded parameter names, and an encoded value that decodes to a name separator.
+    for query in [
+        "%72ole=server&%73erverId=s&%76=2&%63onnectionId=c",
+        "role=client&serverId=s&v=%32&connectionId=%63%31",
+        "role=client&serverId=s&v=2&connectionId=a%26connectionId%3Db",
+        "role=client&serverId=s&v=2&connectionId=a%3Db",
+        "role=client&serverId=s&v=2&connectionId=a&connectionId=%62",
+        "role=client&serverId=s&v=2&connectionId=%62&connectionId=a",
+        "role=client&serverId=s&v=%32&v=1",
+        "role=client&serverId=s&v=1&v=%32",
+    ] {
+        writeln!(corpus, "qs\t{}", b64(query.as_bytes())).unwrap();
     }
     fs::write(output, corpus).unwrap();
 }
