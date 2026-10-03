@@ -9,6 +9,7 @@
 
 pub mod admission;
 pub mod bearer;
+pub mod binary_frames;
 pub mod config_file;
 pub mod daemon;
 pub mod daemon_keypair;
