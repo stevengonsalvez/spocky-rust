@@ -7,6 +7,7 @@
 
 pub mod close;
 pub mod connection;
+pub mod json;
 pub mod limits;
 pub mod query;
 pub mod rejection;
