@@ -96,10 +96,21 @@ export function settle(op) {
 export function event(op) {
   const entry = channels[op.n - 1];
   if (op.event === "message") {
-    entry.events.onmessage?.(op.text !== undefined ? op.text : Uint8Array.from(Buffer.from(op.binary, "hex")).buffer);
+    // EncryptedChannel.handleMessage runs events.onmessage inside a try whose catch closes the
+    // transport with 1011 and the error's message (encrypted-channel.ts:443-457).
+    try {
+      entry.events.onmessage?.(op.text !== undefined ? op.text : Uint8Array.from(Buffer.from(op.binary, "hex")).buffer);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      try {
+        entry.transport.close(1011, err.message);
+      } catch {
+        // ignore
+      }
+    }
   } else if (op.event === "close") {
     entry.events.onclose?.(op.code, op.reason);
   } else {
-    entry.events.onerror?.(new Error(op.message));
+    entry.events.onerror?.(Object.assign(new Error(op.message), { [Symbol.for("spocky.modeled")]: true }));
   }
 }

@@ -31,6 +31,15 @@ if (!paseoRoot || !nodeModules) {
   throw new Error("usage: relay-daemon-driver.mjs <paseo-root> <node-modules-dir>");
 }
 
+/**
+ * A throw the scenarios ask the fakes for (or an error event nobody listens to, which
+ * EventEmitter rethrows); anything else thrown by the driver is a driver bug.
+ */
+const MODELED = Symbol.for("spocky.modeled");
+class Modeled extends Error {
+  [MODELED] = true;
+}
+
 const server = `${paseoRoot}/packages/server/src/server`;
 const files = {
   "relay-transport.ts": `${server}/relay-transport.ts`,
@@ -217,7 +226,7 @@ class FakeSocket {
   send(data, callback) {
     log({ t: "ws", a: "send", id: this.id, ...dataEntry(data) });
     const mode = this.modes.send ?? "ok";
-    if (mode === "throw") throw new Error("send threw");
+    if (mode === "throw") throw new Modeled("send threw");
     if (mode === "error") callback?.(new Error("send failed"));
     else if (mode === "pending") this.pendingCallbacks.push(callback);
     else callback?.();
@@ -225,17 +234,17 @@ class FakeSocket {
 
   close(code, reason) {
     log({ t: "ws", a: "close", id: this.id, code, reason });
-    if (this.modes.close === "throw") throw new Error("close threw");
+    if (this.modes.close === "throw") throw new Modeled("close threw");
   }
 
   terminate() {
     log({ t: "ws", a: "terminate", id: this.id });
-    if (this.modes.terminate === "throw") throw new Error("terminate threw");
+    if (this.modes.terminate === "throw") throw new Modeled("terminate threw");
   }
 
   ping() {
     log({ t: "ws", a: "ping", id: this.id });
-    if (this.modes.ping === "throw") throw new Error("ping threw");
+    if (this.modes.ping === "throw") throw new Modeled("ping threw");
   }
 }
 
@@ -263,15 +272,15 @@ const attachSocket = (ws, metadata) => {
   if (listenerMode !== "none") {
     ws.on("message", (data) => {
       log({ t: "app", a: "message", id, ...dataEntry(data) });
-      if (throwing("message")) throw new Error("listener threw");
+      if (throwing("message")) throw new Modeled("listener threw");
     });
     ws.on("close", (code, reason) => {
       log({ t: "app", a: "close", id, code, reason: reason === undefined ? undefined : String(reason) });
-      if (throwing("close")) throw new Error("listener threw");
+      if (throwing("close")) throw new Modeled("listener threw");
     });
     ws.on("error", (error) => {
       log({ t: "app", a: "error", id, message: failure(error) });
-      if (throwing("error")) throw new Error("listener threw");
+      if (throwing("error")) throw new Modeled("listener threw");
     });
   }
   if (attachMode === "ok") return Promise.resolve();
@@ -433,7 +442,7 @@ async function operate(op) {
           );
           return;
         case "error":
-          socket.fire("error", new Error(op.message));
+          socket.fire("error", new Modeled(op.message));
           return;
         case "pong":
           socket.fire("pong");
@@ -465,11 +474,11 @@ async function operate(op) {
         startTransport: (options) => {
           runtimeStarts.push(options.relayEndpoint);
           log({ t: "runtime", a: "start", endpoint: options.relayEndpoint, useTls: options.relayUseTls, serverId: options.serverId });
-          if (runtimeStartMode === "throw") throw new Error("Invalid relay endpoint");
+          if (runtimeStartMode === "throw") throw new Modeled("Invalid relay endpoint");
           return {
             stop: async () => {
               log({ t: "runtime", a: "stop" });
-              if (runtimeStartMode === "stop-rejects") throw new Error("stop failed");
+              if (runtimeStartMode === "stop-rejects") throw new Modeled("stop failed");
             },
           };
         },
@@ -520,7 +529,7 @@ async function operate(op) {
           (op.overhead ?? 40),
         close: (code, reason) => {
           log({ t: "enc", a: "channel.close", code, reason });
-          if (op.closeThrows) throw new Error("channel close threw");
+          if (op.closeThrows) throw new Modeled("channel close threw");
         },
       };
       const emitter = new EventEmitter();
@@ -531,7 +540,7 @@ async function operate(op) {
         getTransportBufferedAmount: () => state.buffered,
         terminateTransport: () => {
           log({ t: "enc", a: "terminateTransport" });
-          if (op.terminateThrows) throw new Error("terminate threw");
+          if (op.terminateThrows) throw new Modeled("terminate threw");
         },
       });
       if (op.listeners !== false) {
@@ -590,7 +599,7 @@ async function operate(op) {
     }
     case "enc.emit": {
       if (op.event === "close") enc.emitter.emit("close", op.code, op.reason);
-      else if (op.event === "error") enc.emitter.emit("error", new Error(op.message));
+      else if (op.event === "error") enc.emitter.emit("error", new Modeled(op.message));
       else enc.emitter.emit("message", op.text);
       return;
     }
@@ -676,8 +685,12 @@ lines.on("line", (line) => {
     try {
       await operate(JSON.parse(line));
     } catch (error) {
-      // daemon-worker.ts logs fatal and exits on an uncaught exception.
-      log({ t: "fatal", kind: "uncaughtException", message: failure(error) });
+      if (error?.[MODELED] === true) {
+        // daemon-worker.ts logs fatal and exits on an uncaught exception.
+        log({ t: "fatal", kind: "uncaughtException", message: failure(error) });
+      } else {
+        log({ t: "driver-error", message: failure(error) });
+      }
     }
     await drain();
     for (const entry of entries) console.log(toJson(entry));

@@ -11,7 +11,10 @@
 use crate::control::{
     ControlMessage, MessageData, normalize_message_data, try_parse_control_message,
 };
-use crate::encrypted_socket::{EncryptedRelayEnv, EncryptedRelaySocket, EnvFailure, SendOutcome};
+use crate::encrypted_socket::{
+    EncryptedRelayEnv, EncryptedRelaySocket, EnvFailure, READY_STATE_CLOSED, RelaySocketError,
+    SendOutcome,
+};
 use crate::endpoint::{
     EndpointError, RelayRole, RelayUrlParams, VersionInput, build_relay_websocket_url,
 };
@@ -260,9 +263,6 @@ struct DataClosure {
     url: String,
     open_timer: TimerId,
     attached: bool,
-    /// The socket's `close` event ran. The closure is dropped once the end-to-end attach has
-    /// settled too, so a long-running daemon does not keep every client it ever served.
-    closed: bool,
     e2ee: Option<E2ee>,
 }
 
@@ -752,7 +752,6 @@ impl RelayTransport {
             url,
             open_timer,
             attached: false,
-            closed: false,
             e2ee: None,
         });
     }
@@ -862,10 +861,13 @@ impl RelayTransport {
         if self.adapter_active(socket) {
             io.channel_closed(socket, code, &reason_text(reason).unwrap_or_default());
         }
-        if let Some(closure) = self.closure(socket) {
-            closure.closed = true;
-        }
-        self.prune(socket);
+    }
+
+    /// The runner dropped the socket: no callback of it can run again, so its closure goes.
+    /// Until then the closure stays live, as the original's `ws` listeners do after `close`
+    /// (a late send callback still logs, and a late `error` still reaches the channel).
+    pub fn socket_released(&mut self, socket: SocketId) {
+        self.closures.retain(|closure| closure.socket != socket);
     }
 
     /// A data socket's `error` event.
@@ -970,7 +972,6 @@ impl RelayTransport {
                 return;
             }
         }
-        self.prune(socket);
     }
 
     /// A plain `attachSocket(socket, metadata)` settled. The original does not await it
@@ -1005,41 +1006,26 @@ impl RelayTransport {
             fields: vec![("err", FieldValue::Error(message.to_owned()))],
         });
         let _ = io.close(socket, Some(1011), Some("E2EE handshake failed"));
-        self.prune(socket);
     }
 
-    /// Drops the closure of a socket that has closed and whose end-to-end attach is over.
-    fn prune(&mut self, socket: SocketId) {
-        self.closures.retain(|closure| {
-            closure.socket != socket
-                || !closure.closed
-                || closure.e2ee.as_ref().is_some_and(|e2ee| {
-                    matches!(
-                        e2ee.phase,
-                        E2eePhase::AwaitingChannel | E2eePhase::AwaitingAttach
-                    )
-                })
-        });
-    }
-
-    /// The channel decrypted an application message (`events.onmessage`). An exception from
-    /// a listener on an attached socket is uncaught in the original.
-    #[must_use]
-    pub fn on_channel_message(
-        &mut self,
-        io: &mut dyn RelayIo,
-        socket: SocketId,
-        data: Data,
-    ) -> Option<Fatal> {
-        let e2ee = self.closure(socket)?.e2ee.as_mut()?;
+    /// The channel decrypted an application message (`events.onmessage`). The channel runs it
+    /// inside the `try` of `EncryptedChannel.handleMessage` (`encrypted-channel.ts:443-457`):
+    /// a throwing listener closes the transport with `1011` and its message, and nothing is
+    /// uncaught.
+    pub fn on_channel_message(&mut self, io: &mut dyn RelayIo, socket: SocketId, data: Data) {
+        let Some(e2ee) = self
+            .closure(socket)
+            .and_then(|closure| closure.e2ee.as_mut())
+        else {
+            return;
+        };
         if e2ee.phase == E2eePhase::Attached {
-            return io
-                .emit_message(socket, &data)
-                .err()
-                .map(Fatal::UncaughtException);
+            if let Err(message) = io.emit_message(socket, &data) {
+                let _ = io.close(socket, Some(1011), Some(&message));
+            }
+            return;
         }
         e2ee.pending.push(data);
-        None
     }
 
     /// The channel closed (`events.onclose`): the emitter reports it at once.
@@ -1153,9 +1139,16 @@ impl RelayTransport {
         io: &mut dyn RelayIo,
         socket: SocketId,
         data: &Data,
-    ) -> Option<Result<SendOutcome, EnvFailure>> {
-        let encrypted = self.closure(socket)?.e2ee.as_mut()?.socket.as_mut()?;
-        Some(encrypted.send(&mut SocketEnv { io, socket }, data))
+    ) -> Result<SendOutcome, EnvFailure> {
+        match self
+            .closure(socket)
+            .and_then(|closure| closure.e2ee.as_mut())
+            .and_then(|e2ee| e2ee.socket.as_mut())
+        {
+            Some(encrypted) => encrypted.send(&mut SocketEnv { io, socket }, data),
+            // The runner released the socket: the original's object still answers `closed`.
+            None => Ok(SendOutcome::Rejected(RelaySocketError::NotOpen)),
+        }
     }
 
     /// The channel's send for an application frame settled. A failure reaches the
@@ -1222,17 +1215,15 @@ impl RelayTransport {
         }
     }
 
-    /// The `readyState` of the application's encrypted socket. `None` once the socket has
-    /// closed and its closure was dropped: treat it as closed.
+    /// The `readyState` of the application's encrypted socket; a socket the runner released
+    /// is closed.
     #[must_use]
-    pub fn encrypted_ready_state(&self, socket: SocketId) -> Option<u8> {
+    pub fn encrypted_ready_state(&self, socket: SocketId) -> u8 {
         self.closures
             .iter()
-            .find(|closure| closure.socket == socket)?
-            .e2ee
-            .as_ref()?
-            .socket
-            .as_ref()
-            .map(EncryptedRelaySocket::ready_state)
+            .find(|closure| closure.socket == socket)
+            .and_then(|closure| closure.e2ee.as_ref())
+            .and_then(|e2ee| e2ee.socket.as_ref())
+            .map_or(READY_STATE_CLOSED, EncryptedRelaySocket::ready_state)
     }
 }
