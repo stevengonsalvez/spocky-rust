@@ -235,11 +235,13 @@ impl InputModeTracker {
             Some('<') => {
                 let mut remaining = param(params, 0).unwrap_or(1.0).max(1.0);
                 while remaining > 0.0 {
-                    // DEVIATION: the baseline pops `count` times, so a huge or
-                    // infinite count never returns (pinned node ran past 20 s
-                    // on 2000000000). Popping an empty stack yields 0 and every
-                    // later pop does too, so stopping at the empty stack gives
-                    // the same final state without the hang.
+                    // DEVIATION DIV-005 (proposed row in
+                    // `evidence/phase4/terminal-deviations.md`): the baseline
+                    // pops `count` times, so a huge or infinite count never
+                    // returns (pinned node ran past 20 s on 2000000000).
+                    // Popping an empty stack yields 0 and every later pop does
+                    // too, so stopping at the empty stack gives the same final
+                    // state without the hang.
                     let Some(flags) = self.kitty_keyboard_stack.pop() else {
                         self.state.kitty_keyboard_flags = 0.0;
                         break;
