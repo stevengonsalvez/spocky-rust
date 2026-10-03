@@ -15,12 +15,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 
-use spocky_contracts::js_value::{JsObject, JsValue, stringify};
+use spocky_contracts::js_value::{JsObject, JsValue, parse, stringify};
 use spocky_contracts::text::js_trim;
 use spocky_xterm::{CellView, CursorStyle, Param, Terminal, Utf8Decoder};
 
 const DEFAULT_PASEO_ROOT: &str = "/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204";
 const XTERM_HEADLESS_JS: &str = "node_modules/@xterm/headless/lib-headless/xterm-headless.js";
+const PINNED_NODE_VERSION: &str = "v22.20.0";
+const PINNED_XTERM_VERSION: &str = "6.0.0";
+const PASEO_COMMIT: &str = "5de45e208690b0efc51c59a585ae9729325a9204";
 const XTERM_HEADLESS_SHA256: &str =
     "17a90b650cf6b77cce2b98c4063884d43545e4ce177a54b76ccfc906f1aacaed";
 const EXIT_OUTPUT_LINE_LIMIT: usize = 12;
@@ -40,6 +43,11 @@ pub fn pinned() -> Option<(OsString, PathBuf)> {
         eprintln!("SKIPPED by SPOCKY_ALLOW_SKIP: xterm differential not run");
         return None;
     };
+    assert_eq!(
+        node_version(&node),
+        PINNED_NODE_VERSION,
+        "SPOCKY_PINNED_NODE is not the pinned node"
+    );
     let root = std::env::var_os("SPOCKY_XTERM_PASEO_ROOT")
         .map_or_else(|| PathBuf::from(DEFAULT_PASEO_ROOT), PathBuf::from);
     assert_eq!(
@@ -48,6 +56,29 @@ pub fn pinned() -> Option<(OsString, PathBuf)> {
         "{XTERM_HEADLESS_JS} is not the pinned build"
     );
     Some((node, root))
+}
+
+fn timeout_command() -> &'static str {
+    if Command::new("gtimeout").arg("--version").output().is_ok() {
+        "gtimeout"
+    } else {
+        "timeout"
+    }
+}
+
+/// `node --version`, bounded.
+fn node_version(node: &OsString) -> String {
+    let output = Command::new(timeout_command())
+        .args(["--kill-after=5", "30"])
+        .arg(node)
+        .arg("--version")
+        .output()
+        .expect("run node --version");
+    assert!(output.status.success(), "node --version failed");
+    String::from_utf8(output.stdout)
+        .expect("node version text")
+        .trim()
+        .to_owned()
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -74,12 +105,7 @@ pub fn capture(
     out: &Path,
     timeout_secs: u32,
 ) -> Vec<String> {
-    let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
-        "gtimeout"
-    } else {
-        "timeout"
-    };
-    let output = Command::new(timeout)
+    let output = Command::new(timeout_command())
         .args(["--kill-after=5", &timeout_secs.to_string()])
         .arg(node)
         .arg(repo_path("scripts/phase4/xterm-capture.mjs"))
@@ -97,7 +123,54 @@ pub fn capture(
         String::from_utf8_lossy(&output.stderr)
     );
     let text = std::fs::read_to_string(out).expect("capture output");
-    text.lines().skip(1).map(str::to_owned).collect()
+    let mut lines = text.lines();
+    assert_header(
+        lines.next().expect("capture header"),
+        &std::fs::read(corpus).expect("corpus"),
+        scenario_count(&std::fs::read_to_string(corpus).expect("corpus")),
+    );
+    lines.map(str::to_owned).collect()
+}
+
+fn scenario_count(corpus_text: &str) -> usize {
+    let corpus = parse(corpus_text).expect("corpus json");
+    corpus
+        .get("scenarios")
+        .and_then(JsValue::as_array)
+        .expect("scenarios")
+        .len()
+}
+
+/// Checks that the capture ran on the pinned node, xterm and Paseo commit
+/// and read exactly this corpus, before any scenario line is compared.
+fn assert_header(header: &str, corpus_bytes: &[u8], scenarios: usize) {
+    let header = parse(header).expect("capture header json");
+    let text = |key: &str| {
+        header
+            .get(key)
+            .and_then(JsValue::as_str)
+            .unwrap_or_else(|| panic!("capture header {key}"))
+            .to_owned()
+    };
+    assert_eq!(text("node"), PINNED_NODE_VERSION, "capture node version");
+    assert_eq!(
+        text("xtermHeadless"),
+        PINNED_XTERM_VERSION,
+        "capture xterm version"
+    );
+    assert_eq!(text("paseoCommit"), PASEO_COMMIT, "capture Paseo commit");
+    assert_eq!(
+        text("corpusSha256"),
+        sha256_hex(corpus_bytes),
+        "capture read a different corpus"
+    );
+    assert_eq!(
+        header.get("scenarios"),
+        Some(&JsValue::Number(
+            u32::try_from(scenarios).map_or(f64::MAX, f64::from)
+        )),
+        "capture scenario count"
+    );
 }
 
 fn number(value: i64) -> JsValue {
