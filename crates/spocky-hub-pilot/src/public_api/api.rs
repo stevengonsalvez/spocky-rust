@@ -21,7 +21,7 @@ use super::operations::{
 };
 use super::validation::{Issue, ParseFailure};
 use super::value::{JsValueExt as _, Json, decode_request_json};
-use spocky_contracts::text::js_trim;
+use spocky_contracts::text::{js_to_lowercase, js_trim};
 
 /// `PublicApiComposition`.
 pub enum Composition {
@@ -183,7 +183,7 @@ impl PublicApi {
 
 fn read_json(request: &ApiRequest) -> Option<Json> {
     let content_type = request.headers.get("content-type")?;
-    if !content_type.to_lowercase().contains("application/json") {
+    if !js_to_lowercase(&content_type).contains("application/json") {
         return None;
     }
     decode_request_json(&request.body)
