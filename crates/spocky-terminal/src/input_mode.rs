@@ -93,6 +93,19 @@ fn match_at(text: &str, start: usize) -> Option<(Sequence<'_>, usize)> {
     None
 }
 
+/// A number as a template literal writes it. A parameter longer than a double
+/// holds becomes `Infinity`, which `js_number` (the `JSON.stringify` rule)
+/// would turn into `null`.
+fn number_text(value: f64) -> String {
+    if value.is_nan() {
+        "NaN".to_owned()
+    } else if value.is_infinite() {
+        if value > 0.0 { "Infinity" } else { "-Infinity" }.to_owned()
+    } else {
+        js_number(value)
+    }
+}
+
 /// `/^\d+$/` then `Number(...)`.
 fn whole_number(text: &str) -> Option<f64> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -182,7 +195,7 @@ impl InputModeTracker {
             let _ = write!(
                 preamble,
                 "{ESC}[={};1u",
-                js_number(self.state.kitty_keyboard_flags)
+                number_text(self.state.kitty_keyboard_flags)
             );
         }
         if self.state.win32_input_mode {
@@ -235,7 +248,7 @@ impl InputModeTracker {
             Some('?') => {
                 responses.push(format!(
                     "{ESC}[?{}u",
-                    js_number(self.state.kitty_keyboard_flags)
+                    number_text(self.state.kitty_keyboard_flags)
                 ));
                 return false;
             }
