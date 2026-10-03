@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use sha2::{Digest, Sha256};
 use spocky_contracts::js_value::{
@@ -77,6 +77,10 @@ impl<E: Debug + Display> std::error::Error for ReceiptError<E> {}
 
 /// Owns message delivery receipts; creation is owned by `CreationService`.
 pub struct MessageReceipts {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
     directory: String,
     /// `pending`: the last send queued for each key.
     pending: Mutex<HashMap<String, Tail>>,
@@ -94,58 +98,85 @@ impl MessageReceipts {
     #[must_use]
     pub fn new(directory: impl Into<String>) -> Self {
         Self {
-            directory: directory.into(),
-            pending: Mutex::new(HashMap::new()),
-            calls: AtomicU64::new(0),
+            inner: Arc::new(Inner {
+                directory: directory.into(),
+                pending: Mutex::new(HashMap::new()),
+                calls: AtomicU64::new(0),
+            }),
         }
     }
 
     /// `send(input)`: sends of one `(agent_id, message_id)` on this instance
     /// run one at a time in call order, whatever the previous outcome.
     ///
-    /// As in the baseline, the call itself joins the key's queue: a send
-    /// called earlier runs first even when its future is polled later.
-    /// Queues are per instance: two instances on one directory can both
-    /// deliver the same message, as in the baseline.
+    /// Like a JavaScript promise, the send starts when this is called: it
+    /// joins the key's queue and is spawned on the current runtime right
+    /// away. The returned future only awaits the outcome, so it can be awaited
+    /// in any order and dropping it does not cancel the send. A panic in the
+    /// send resumes in the awaiting caller, and is lost when that future was
+    /// dropped. Queues are per instance: two instances on one directory can
+    /// both deliver the same message, as in the baseline.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called outside a Tokio runtime.
     ///
     /// # Errors
     ///
-    /// Rejects as the baseline does; see [`ReceiptError`].
-    pub fn send<'a, D: Delivery + 'a>(
-        &'a self,
-        agent_id: &'a str,
-        message_id: &'a str,
-        request: &'a JsValue,
+    /// The future rejects as the baseline does; see [`ReceiptError`].
+    pub fn send<D>(
+        &self,
+        agent_id: &str,
+        message_id: &str,
+        request: &JsValue,
         delivery: D,
-    ) -> impl Future<Output = Result<(), ReceiptError<D::Error>>> + 'a {
+    ) -> impl Future<Output = Result<(), ReceiptError<D::Error>>> + use<D>
+    where
+        D: Delivery + Send + 'static,
+        D::Error: Send + 'static,
+    {
         // Preserve the existing on-disk identity and shape across daemon upgrades.
         let key = digest(&JsValue::Array(vec![
             JsValue::String("send".to_owned()),
             JsValue::String(agent_id.to_owned()),
             JsValue::String(message_id.to_owned()),
         ]));
-        let call = self.calls.fetch_add(1, Ordering::Relaxed);
+        let inner = Arc::clone(&self.inner);
+        let call = inner.calls.fetch_add(1, Ordering::Relaxed);
         let (settle, settled) = oneshot::channel::<()>();
-        let previous = self
+        let previous = inner
             .pending_map()
             .insert(key.clone(), Tail { call, settled });
-        async move {
+        let agent_id = agent_id.to_owned();
+        let request = request.clone();
+        let task = tokio::spawn(async move {
             // `previous.catch(() => undefined)`: wait until it settles, whatever
             // the outcome (a dropped sender also counts as settled).
             if let Some(previous) = previous {
                 let _ = previous.settled.await;
             }
-            let result = self.send_once(&key, agent_id, request, delivery).await;
-            let mut pending = self.pending_map();
+            let result = inner.send_once(&key, &agent_id, &request, delivery).await;
+            let mut pending = inner.pending_map();
             if pending.get(&key).is_some_and(|tail| tail.call == call) {
                 pending.remove(&key);
             }
             drop(pending);
             drop(settle);
             result
+        });
+        async move {
+            match task.await {
+                Ok(result) => result,
+                Err(error) => match error.try_into_panic() {
+                    Ok(payload) => std::panic::resume_unwind(payload),
+                    Err(error) => panic!("receipt send task did not finish: {error}"),
+                },
+            }
         }
     }
+}
 
+impl Inner {
     fn pending_map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Tail>> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
