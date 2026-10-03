@@ -563,8 +563,8 @@ impl<S: DurableHubStore> HubPilot<S> {
         display_name: &str,
         password: &str,
     ) -> Result<RecoveryToken, HubError> {
-        if !account.as_str().contains('@') || display_name.trim().is_empty() || password.is_empty()
-        {
+        // The sign-up `name` is `z.string()` in better-auth: no trim and no minimum length.
+        if !account.as_str().contains('@') || password.is_empty() {
             return Err(HubError::InvalidRecoveryInput);
         }
         if self.state.accounts.contains_key(account) {
@@ -575,7 +575,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             Account {
                 password_fingerprint: fingerprint(password),
                 must_change_password: false,
-                display_name: Some(display_name.trim().to_owned()),
+                display_name: Some(display_name.to_owned()),
                 verified: false,
             },
         );
