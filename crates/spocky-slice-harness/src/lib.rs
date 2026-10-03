@@ -4,6 +4,7 @@
 
 pub mod compare;
 pub mod gates;
+pub mod heartbeat;
 pub mod normalize;
 pub mod persistence;
 pub mod side;
