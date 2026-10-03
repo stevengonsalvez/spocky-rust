@@ -21,7 +21,7 @@ use spocky_contracts::js_value::JsValue;
 
 use crate::hostnames::Hostnames;
 use crate::js;
-use crate::log::Logger;
+use crate::log::{Level, Logger, resolve_level};
 use crate::private_files::{ensure_private_file, write_private_file_atomic};
 
 /// `JSON.stringify(DEFAULT_PERSISTED_CONFIG, null, 2) + "\n"`.
@@ -122,6 +122,38 @@ pub fn load_persisted_config(
     let config = parse_config_text(&config_path, &String::from_utf8_lossy(&raw))?;
     logger.info(&[], &format!("Loaded from {}", config_path.display()));
     Ok(config)
+}
+
+/// The level the root logger is created with, from the `log` section of
+/// `config.json` (`createRootLogger({ log: config.log }, { paseoHome, file })`).
+/// The worker passes `files_allowed` false. A missing or refused config gives
+/// the default, `info`: the start reports the refusal itself.
+#[must_use]
+pub fn configured_log_level(paseo_home: &Path, files_allowed: bool) -> Level {
+    let config_path = paseo_home.join("config.json");
+    let Ok(raw) = fs::read(&config_path) else {
+        return Level::Info;
+    };
+    let Ok(config) = check_config_text(
+        &config_path.display().to_string(),
+        &String::from_utf8_lossy(&raw),
+    ) else {
+        return Level::Info;
+    };
+    let level = |section: Option<&JsValue>| {
+        section
+            .and_then(|section| section.get("level"))
+            .and_then(JsValue::as_str)
+            .and_then(Level::from_name)
+    };
+    let log = config.get("log");
+    let file = log.and_then(|log| log.get("file"));
+    resolve_level(
+        level(log),
+        level(log.and_then(|log| log.get("console"))),
+        file.map(|file| level(Some(file))),
+        files_allowed,
+    )
 }
 
 /// `parseConfigFile`: `check_config_text` in spocky-contracts runs the pinned
