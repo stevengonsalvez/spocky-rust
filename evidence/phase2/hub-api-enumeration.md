@@ -196,7 +196,7 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v22.20
   of the comparison; there is no key sorting and no normalization.
 - `hub_api_evidence` asserts on every run that the Rust trace equals the committed trace
   `evidence/phase2/hub-api-original.json` and that the Rust OpenAPI document equals the committed
-  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (471 HTTP cases, 68
+  `evidence/phase2/hub-api-openapi-original.json`. It also pins the case counts (476 HTTP cases, 68
   scenarios, 10 manifest operations), so an empty or shrunken baseline fails.
 - Trace headers are the response `Headers` iteration: names lower case, sorted by name, equal names
   combined with `, `. Operation inputs longer than 2,048 UTF-16 units are recorded as
@@ -226,7 +226,7 @@ pinned Hub code at `28f6c78`, offline, in-memory database, `TZ=UTC`, node v22.20
 
 Result of the last run of `hub-api-compare.sh`: `matched: true`, `comparison: byte-identical`,
 `normalization: none`. The traces have SHA-256
-`78a18e074a8cee6d81387a8e2d6cbd4b95de500aad0956c9535c893679815ba9` and the OpenAPI documents have
+`e2d31c62b42cf94b7d461dca9f08b914ddf0385df5a01253b10e966b68265c93` and the OpenAPI documents have
 SHA-256 `7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69` (see
 `hub-api-sha256.txt`). Behavioral tests of the same flows are in `crates/spocky-hub-pilot/tests/hub_api.rs`.
 
@@ -245,7 +245,10 @@ outcome, credential kind, organization and scopes.
   the four known values and structurally invalid results rejected by the baseline's `is*Result`
   guards. Integer versions at or below zero and non-UUID identifiers are covered.
 - JSON strings with lone surrogate escapes are held by `spocky_contracts::js_value` as an escape pair;
-  no case compares them against the baseline yet. Nesting is covered up to about 1 MB of brackets
+  five cases compare them against the baseline (a high and a low surrogate alone in `yaml`, and one
+  each in `actor`, `projectSlug` and a nested `input` string): the pinned Hub passes the string to the
+  operation and echoes it unchanged, and Rust keeps request text as JavaScript text rather than
+  encoding it again. Nesting is covered up to about 1 MB of brackets
   (500,000 arrays, 200,000 objects and an unterminated run): `js_value` parses, clones and drops
   iteratively, and the pinned Hub answers 400 `invalid_request` or `invalid_json`.
 - Header values outside Latin-1 and request URLs with credentials cannot occur in fetch and are not
