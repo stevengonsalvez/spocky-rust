@@ -6,9 +6,10 @@ use spocky_store::js_value::{JsObject, JsValue, stringify};
 
 use crate::agent_sdk::AgentError;
 
-use crate::text::{slice_utf16, utf16_len};
+use crate::text::slice_utf16;
 use crate::timeline::JsTypeError;
 use spocky_contracts::js::spread;
+use spocky_contracts::text::js_length;
 
 /// `TOOL_CALL_CONTENT_MAX_LENGTH`.
 pub const TOOL_CALL_CONTENT_MAX_LENGTH: usize = 64 * 1024;
@@ -63,7 +64,7 @@ fn oversized<'a>(object: Option<&'a JsValue>, key: &str) -> Option<&'a str> {
     object
         .and_then(|object| object.get(key))
         .and_then(JsValue::as_str)
-        .filter(|text| utf16_len(text) > TOOL_CALL_CONTENT_MAX_LENGTH)
+        .filter(|text| js_length(text) > TOOL_CALL_CONTENT_MAX_LENGTH)
 }
 
 /// `{ ...item, [outer]: { ...item[outer], [inner]: text.slice(0, max) } }`.
