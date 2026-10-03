@@ -50,6 +50,14 @@
           "password": "rival-password-1"
         },
         {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "maker",
+          "name": "Max Maker",
+          "email": "maker@example.test",
+          "password": "maker-password-1"
+        },
+        {
           "kind": "request",
           "id": "open/001-anon-state-anonymous",
           "actor": "anon",
@@ -1266,34 +1274,50 @@
         },
         {
           "kind": "request",
-          "id": "open/123-outsider-create-organization-name-padded-101",
-          "actor": "outsider",
+          "id": "open/123-maker-create-organization-name-padded-101",
+          "actor": "maker",
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "orgPadded": "organizationId",
+            "orgPaddedSlug": "organizationSlug"
+          },
           "body": "{\"name\":\" nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn \"}"
         },
         {
           "kind": "request",
-          "id": "open/124-outsider-create-organization-proto-key",
-          "actor": "outsider",
+          "id": "open/124-maker-create-organization-proto-key",
+          "actor": "maker",
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "orgProto": "organizationId",
+            "orgProtoSlug": "organizationSlug"
+          },
           "body": "{\"name\":\"Valid\",\"__proto__\":{\"a\":1}}"
         },
         {
           "kind": "request",
-          "id": "open/125-outsider-create-organization-duplicate-key",
-          "actor": "outsider",
+          "id": "open/125-maker-create-organization-duplicate-key",
+          "actor": "maker",
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "orgDup": "organizationId",
+            "orgDupSlug": "organizationSlug"
+          },
           "body": "{\"name\":\"\",\"name\":\"Valid\"}"
         },
         {
           "kind": "request",
-          "id": "open/126-outsider-create-organization-bom",
-          "actor": "outsider",
+          "id": "open/126-maker-create-organization-bom",
+          "actor": "maker",
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "orgBom": "organizationId",
+            "orgBomSlug": "organizationSlug"
+          },
           "body": "﻿{\"name\":\"Valid\"}"
         },
         {
@@ -1327,16 +1351,21 @@
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
           "capture": {
-            "rivalOrg": "organizationId"
+            "rivalOrg": "organizationId",
+            "rivalOrgSlug": "organizationSlug"
           },
           "body": "{\"name\":\"Zeta Labs\"}"
         },
         {
           "kind": "request",
-          "id": "open/130-outsider-create-organization-second",
-          "actor": "outsider",
+          "id": "open/130-maker-create-organization-second",
+          "actor": "maker",
           "method": "POST",
           "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "orgSecond": "organizationId",
+            "orgSecondSlug": "organizationSlug"
+          },
           "body": "{\"name\":\"Otto &  Co!\"}"
         },
         {
@@ -1447,6 +1476,9 @@
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invEmailPlus": "id"
+          },
           "body": "{\"email\":\"a+tag@example.test\",\"role\":\"member\"}"
         },
         {
@@ -1479,6 +1511,9 @@
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invEmailLong": "id"
+          },
           "body": "{\"email\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.test\",\"role\":\"member\"}"
         },
         {
@@ -1860,7 +1895,9 @@
           "method": "POST",
           "path": "/api/auth/paseo/api-keys",
           "capture": {
-            "keyOwner": "key.id"
+            "keyOwner": "key.id",
+            "secretOwner": "secret",
+            "prefixOwner": "key.prefix"
           },
           "body": "{\"name\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"scopes\":[\"projects:read\",\"configuration:validate\",\"configuration:install\",\"runs:dispatch\",\"daemons:enroll\"]}"
         },
@@ -2034,255 +2071,7 @@
         },
         {
           "kind": "request",
-          "id": "open/215-member-change-member-role-member-forbidden",
-          "actor": "member",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{admin.member}}\",\"role\":\"member\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/216-admin-change-member-role-admin-demotes-owner",
-          "actor": "admin",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"member\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/217-admin-change-member-role-admin-promotes-owner",
-          "actor": "admin",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/218-owner-change-member-role-unknown-member",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/219-rival-change-member-role-other-org",
-          "actor": "rival",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/220-owner-change-member-role-sole-owner-demote",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/221-owner-change-member-role-invalid-json",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{"
-        },
-        {
-          "kind": "request",
-          "id": "open/222-owner-change-member-role-empty-object",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{}"
-        },
-        {
-          "kind": "request",
-          "id": "open/223-owner-change-member-role-role-invalid",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"root\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/224-owner-change-member-role-role-missing",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/225-owner-change-member-role-member-empty",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/226-owner-change-member-role-extra-key",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\",\"extra\":1}"
-        },
-        {
-          "kind": "request",
-          "id": "open/227-admin-change-member-role-admin-promotes-member",
-          "actor": "admin",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/228-owner-change-member-role-demote",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"member\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/229-owner-change-member-role-promote-owner",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/230-owner-change-member-role-two-owners-demote-self",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/231-member-change-member-role-new-owner-restores",
-          "actor": "member",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/232-member-state-after-role-changes",
-          "actor": "member",
-          "method": "GET",
-          "path": "/api/auth/paseo/state",
-          "body": null
-        },
-        {
-          "kind": "request",
-          "id": "open/233-owner-change-member-role-owner-to-owner",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/change-member-role",
-          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/234-admin-remove-member-admin-removes-owner",
-          "actor": "admin",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"{{owner.member}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/235-owner-remove-member-unknown",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/236-rival-remove-member-other-org",
-          "actor": "rival",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"{{admin.member}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/237-owner-remove-member-invalid-json",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{"
-        },
-        {
-          "kind": "request",
-          "id": "open/238-owner-remove-member-empty-object",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{}"
-        },
-        {
-          "kind": "request",
-          "id": "open/239-owner-remove-member-member-empty",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/240-owner-remove-member-extra-key",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"{{admin.member}}\",\"extra\":1}"
-        },
-        {
-          "kind": "request",
-          "id": "open/241-owner-remove-member-owner-removes-other-owner",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"{{owner.member}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/242-owner-remove-member-admin",
-          "actor": "owner",
-          "method": "POST",
-          "path": "/api/auth/paseo/remove-member",
-          "body": "{\"memberId\":\"{{admin.member}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/243-admin-state-removed-admin",
-          "actor": "admin",
-          "method": "GET",
-          "path": "/api/auth/paseo/state",
-          "body": null
-        },
-        {
-          "kind": "request",
-          "id": "open/244-admin-select-organization-removed",
-          "actor": "admin",
-          "method": "POST",
-          "path": "/api/auth/paseo/select-organization",
-          "body": "{\"organizationId\":\"{{org}}\"}"
-        },
-        {
-          "kind": "request",
-          "id": "open/245-owner-state-owner-final",
-          "actor": "owner",
-          "method": "GET",
-          "path": "/api/auth/paseo/state",
-          "body": null
-        },
-        {
-          "kind": "request",
-          "id": "open/246-member-cancel-invitation-member-forbidden",
+          "id": "open/215-member-cancel-invitation-member-forbidden",
           "actor": "member",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2290,7 +2079,7 @@
         },
         {
           "kind": "request",
-          "id": "open/247-owner-cancel-invitation-unknown",
+          "id": "open/216-owner-cancel-invitation-unknown",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2298,7 +2087,7 @@
         },
         {
           "kind": "request",
-          "id": "open/248-rival-cancel-invitation-other-org",
+          "id": "open/217-rival-cancel-invitation-other-org",
           "actor": "rival",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2306,7 +2095,7 @@
         },
         {
           "kind": "request",
-          "id": "open/249-owner-cancel-invitation-invalid-json",
+          "id": "open/218-owner-cancel-invitation-invalid-json",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2314,7 +2103,7 @@
         },
         {
           "kind": "request",
-          "id": "open/250-owner-cancel-invitation-empty-object",
+          "id": "open/219-owner-cancel-invitation-empty-object",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2322,7 +2111,7 @@
         },
         {
           "kind": "request",
-          "id": "open/251-owner-cancel-invitation-empty-id",
+          "id": "open/220-owner-cancel-invitation-empty-id",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2330,7 +2119,7 @@
         },
         {
           "kind": "request",
-          "id": "open/252-owner-cancel-invitation-extra-key",
+          "id": "open/221-owner-cancel-invitation-extra-key",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2338,7 +2127,7 @@
         },
         {
           "kind": "request",
-          "id": "open/253-owner-cancel-invitation-canceled",
+          "id": "open/222-owner-cancel-invitation-canceled",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2346,7 +2135,7 @@
         },
         {
           "kind": "request",
-          "id": "open/254-owner-cancel-invitation-replay",
+          "id": "open/223-owner-cancel-invitation-replay",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
@@ -2354,11 +2143,267 @@
         },
         {
           "kind": "request",
-          "id": "open/255-owner-cancel-invitation-accepted",
+          "id": "open/224-owner-cancel-invitation-accepted",
           "actor": "owner",
           "method": "POST",
           "path": "/api/auth/paseo/cancel-invitation",
           "body": "{\"invitationId\":\"{{invAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/225-member-change-member-role-member-forbidden",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{admin.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/226-admin-change-member-role-admin-demotes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/227-admin-change-member-role-admin-promotes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/228-owner-change-member-role-unknown-member",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/229-rival-change-member-role-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/230-owner-change-member-role-sole-owner-demote",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/231-owner-change-member-role-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/232-owner-change-member-role-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/233-owner-change-member-role-role-invalid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"root\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/234-owner-change-member-role-role-missing",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/235-owner-change-member-role-member-empty",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/236-owner-change-member-role-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/237-admin-change-member-role-admin-promotes-member",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/238-owner-change-member-role-demote",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/239-owner-change-member-role-promote-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/240-owner-change-member-role-two-owners-demote-self",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/241-member-change-member-role-new-owner-restores",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/242-member-state-after-role-changes",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/243-owner-change-member-role-owner-to-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/244-admin-remove-member-admin-removes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{owner.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/245-owner-remove-member-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/246-rival-remove-member-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/247-owner-remove-member-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/248-owner-remove-member-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/249-owner-remove-member-member-empty",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/250-owner-remove-member-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/251-owner-remove-member-owner-removes-other-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{member.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/252-member-state-removed-owner",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/253-owner-remove-member-admin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/254-admin-state-removed-admin",
+          "actor": "admin",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/255-admin-select-organization-removed",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"{{org}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/256-owner-state-owner-final",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
         }
       ]
     },
