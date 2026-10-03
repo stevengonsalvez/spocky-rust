@@ -1656,6 +1656,33 @@ const callbacksScenario = async () => {
   return { results, log, warns, feed };
 };
 
+const persistFailureScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const calls = [];
+  const errors = [];
+  const errorLogger = { ...logger, child() { return this; }, error(bindings, message) { errors.push([bindings, message]); } };
+  const base = `${home}/persist-failure`;
+  const manager = new AgentManager({ logger: errorLogger, registry: new AgentStorage(base, logger), clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.coalesce] })) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  await sleep(50);
+  await manager.flush();
+  // A read-only record directory makes every later write fail.
+  const dirs = [base, ...fs.readdirSync(base, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => `${base}/${entry.name}`)];
+  for (const dir of dirs) fs.chmodSync(dir, 0o500);
+  try {
+    const result = await outcome(async () => { await manager.runAgent(agentId, "go"); return null; });
+    await sleep(100);
+    await manager.flush();
+    // The record directory, process id, clock and uuid in a temporary file name.
+    const maskTemp = (path) => path.replace(/^.*\/persist-failure\//, "").replace(/\.\d+\.\d+\.[0-9a-f-]{36}\.tmp$/, ".<pid>.<ms>.<uuid>.tmp");
+    const masked = errors.map(([bindings, message]) => [{ ...bindings, err: { ...bindings.err, path: maskTemp(bindings.err.path) } }, message]);
+    return { result, errors: masked, feed };
+  } finally {
+    for (const dir of dirs) fs.chmodSync(dir, 0o700);
+  }
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1764,7 +1791,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3745,6 +3772,10 @@ async fn scenarios_match_pinned_manager() {
         ("draft", draft_scenario(&cwd, &rust_home.0).await),
         ("registry", registry_scenario(&cwd, &rust_home.0).await),
         ("callbacks", callbacks_scenario(&cwd, &rust_home.0).await),
+        (
+            "persistFailure",
+            persist_failure_scenario(&cwd, &rust_home.0).await,
+        ),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -6530,6 +6561,124 @@ async fn callbacks_scenario(cwd: &str, home: &Path) -> JsValue {
             "warns",
             JsValue::Array(warns.lock().expect("warns").clone()),
         ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+    ])
+}
+
+/// The record directory, process id, clock and uuid of a temporary file's
+/// path, the parts that differ between the two runs.
+fn mask_temp_path(path: &str) -> String {
+    let relative = path
+        .rsplit_once("/persist-failure/")
+        .map_or(path, |(_, rest)| rest);
+    let Some((directory, name)) = relative.rsplit_once('/') else {
+        return relative.to_owned();
+    };
+    let mut parts: Vec<&str> = name.split('.').collect();
+    if parts.len() == 7 && parts[6] == "tmp" && parts[5].len() == 36 {
+        parts[3] = "<pid>";
+        parts[4] = "<ms>";
+        parts[5] = "<uuid>";
+    }
+    format!("{directory}/{}", parts.join("."))
+}
+
+#[test]
+fn temp_path_mask_keeps_the_directory_and_record_name() {
+    let id = "00000000-0000-4000-8000-0000000000a1";
+    let uuid = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b";
+    assert_eq!(
+        mask_temp_path(&format!(
+            "/tmp/x-1/persist-failure/proj/.{id}.json.4242.1791005720937.{uuid}.tmp"
+        )),
+        format!("proj/.{id}.json.<pid>.<ms>.<uuid>.tmp")
+    );
+    assert_eq!(mask_temp_path("/a/b/record.json"), "/a/b/record.json");
+}
+
+async fn persist_failure_scenario(cwd: &str, home: &Path) -> JsValue {
+    use std::os::unix::fs::PermissionsExt;
+    let calls = Calls::default();
+    let errors: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let error_sink = Arc::clone(&errors);
+    let base = home.join("persist-failure");
+    let fake = spec("fake");
+    scripted(&fake, &["coalesce"]);
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![(
+            "fake".to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        registry: Some(AgentStorage::new(&base)),
+        log_error: Some(Arc::new(move |bindings, message| {
+            error_sink
+                .lock()
+                .expect("errors")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.flush().await;
+    // A read-only record directory makes every later write fail.
+    let mut dirs = vec![base.clone()];
+    for entry in std::fs::read_dir(&base).expect("records") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    let set_mode = |mode: u32| {
+        for dir in &dirs {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).expect("mode");
+        }
+    };
+    set_mode(0o500);
+    let result = outcome(
+        manager
+            .run_agent(AGENT_ID, AgentPromptInput::Text("go".to_owned()), None)
+            .await
+            .map(|_| JsValue::Null),
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    set_mode(0o700);
+    let masked = errors
+        .lock()
+        .expect("errors")
+        .iter()
+        .map(|entry| {
+            let [JsValue::Object(bindings), message] = entry.as_array().expect("entry") else {
+                panic!("an error log is [bindings, message]");
+            };
+            let mut bindings = bindings.clone();
+            let mut err = bindings
+                .get("err")
+                .and_then(JsValue::as_object)
+                .expect("err")
+                .clone();
+            let path = err.get("path").and_then(JsValue::as_str).expect("path");
+            err.insert("path", text(&mask_temp_path(path)));
+            bindings.insert("err", JsValue::Object(err));
+            JsValue::Array(vec![JsValue::Object(bindings), message.clone()])
+        })
+        .collect();
+    object(vec![
+        ("result", result),
+        ("errors", JsValue::Array(masked)),
         ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
     ])
 }
