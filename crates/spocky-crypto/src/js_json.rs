@@ -9,8 +9,14 @@
 //! escaped lone surrogates survive. Objects record their members only at
 //! the top level and one level below it; deeper values are validated and
 //! then reduced to their kind.
+//!
+//! A rejected text also yields V8's `SyntaxError` message where that message
+//! quotes the source: the channel rethrows a parse error whose message
+//! contains `plaintext frame`, and only these `Unexpected token` messages
+//! can contain source text. Every other `JSON.parse` message is fixed text
+//! with a position.
 
-use crate::js_string::JsString;
+use crate::js_string::{JsString, utf16};
 
 /// The kind and, where the handshake reads it, the content of a value.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,15 +65,85 @@ enum Frame {
     },
 }
 
+/// V8 quotes the whole source in an `Unexpected token` message up to this
+/// many UTF-16 code units.
+const SHORT_SOURCE_UNITS: usize = 20;
+/// Otherwise it quotes this many code units on each side of the token.
+const CONTEXT_UNITS: usize = 10;
+
+/// A `JSON.parse` rejection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyntaxError {
+    unexpected_token_message: Option<JsString>,
+}
+
+impl SyntaxError {
+    /// The exact V8 `Unexpected token '…', "…" is not valid JSON` message,
+    /// or `None` for every message that does not quote the source.
+    #[must_use]
+    pub fn unexpected_token_message(&self) -> Option<&[u16]> {
+        self.unexpected_token_message.as_deref()
+    }
+}
+
 /// Parses text exactly as `JSON.parse` accepts it. `None` is the
 /// `SyntaxError` case.
 #[must_use]
 pub fn parse(text: &str) -> Option<JsonValue> {
+    parse_detailed(text).ok()
+}
+
+/// Parses text exactly as `JSON.parse` does, keeping the source-quoting
+/// part of a rejection.
+///
+/// # Errors
+///
+/// Returns the `SyntaxError` for text `JSON.parse` rejects.
+pub fn parse_detailed(text: &str) -> Result<JsonValue, SyntaxError> {
     let mut parser = Parser {
         text,
         bytes: text.as_bytes(),
         position: 0,
+        unexpected_token: None,
     };
+    parse_value(&mut parser).ok_or_else(|| SyntaxError {
+        unexpected_token_message: parser
+            .unexpected_token
+            .map(|byte| unexpected_token_message(text, byte)),
+    })
+}
+
+/// `GetErrorMessageWithEllipses` for the character at `byte`.
+fn unexpected_token_message(text: &str, byte: usize) -> JsString {
+    let source = utf16(text);
+    let position = text[..byte].encode_utf16().count();
+    let mut message = utf16("Unexpected token '");
+    message.push(source[position]);
+    message.extend(utf16("', "));
+    if source.len() <= SHORT_SOURCE_UNITS {
+        message.push(u16::from(b'"'));
+        message.extend_from_slice(&source);
+        message.push(u16::from(b'"'));
+    } else {
+        let start = position.saturating_sub(CONTEXT_UNITS);
+        let end = (position + CONTEXT_UNITS).min(source.len());
+        // V8 starts the window with an ellipsis once the token is at least
+        // `CONTEXT_UNITS` in, even when the window then begins at zero.
+        if position >= CONTEXT_UNITS {
+            message.extend(utf16("..."));
+        }
+        message.push(u16::from(b'"'));
+        message.extend_from_slice(&source[start..end]);
+        message.push(u16::from(b'"'));
+        if position + CONTEXT_UNITS < source.len() {
+            message.extend(utf16("..."));
+        }
+    }
+    message.extend(utf16(" is not valid JSON"));
+    message
+}
+
+fn parse_value(parser: &mut Parser<'_>) -> Option<JsonValue> {
     let mut stack: Vec<Frame> = Vec::new();
     parser.skip_whitespace();
     loop {
@@ -101,7 +177,10 @@ pub fn parse(text: &str) -> Option<JsonValue> {
             b'f' => parser.literal("false", JsonValue::Bool(false))?,
             b'n' => parser.literal("null", JsonValue::Null)?,
             b'-' | b'0'..=b'9' => parser.number()?,
-            _ => return None,
+            _ => {
+                parser.unexpected_token = Some(parser.position);
+                return None;
+            }
         };
         // Attach the completed value to its parents, closing finished
         // containers, until one expects another element.
@@ -152,6 +231,8 @@ struct Parser<'a> {
     text: &'a str,
     bytes: &'a [u8],
     position: usize,
+    /// Byte offset of a rejection V8 reports as `Unexpected token`.
+    unexpected_token: Option<usize>,
 }
 
 impl Parser<'_> {
@@ -180,13 +261,23 @@ impl Parser<'_> {
         Some(key)
     }
 
+    /// `ScanLiteral`: the first differing character is an unexpected token
+    /// unless it starts a string or number, which V8 reports without
+    /// quoting the source, and running out of text is `Unexpected end`.
     fn literal(&mut self, word: &str, value: JsonValue) -> Option<JsonValue> {
         if self.bytes[self.position..].starts_with(word.as_bytes()) {
             self.position += word.len();
-            Some(value)
-        } else {
-            None
+            return Some(value);
         }
+        let offset = word
+            .bytes()
+            .zip(&self.bytes[self.position..])
+            .position(|(expected, actual)| expected != *actual)?;
+        let byte = self.position + offset;
+        if !matches!(self.bytes[byte], b'"' | b'-' | b'0'..=b'9') {
+            self.unexpected_token = Some(byte);
+        }
+        None
     }
 
     fn digits(&mut self) -> usize {
@@ -325,6 +416,56 @@ mod tests {
             "{1:2}",
         ] {
             assert!(parse(invalid).is_none(), "{invalid:?}");
+        }
+    }
+
+    fn message(text: &str) -> Option<String> {
+        parse_detailed(text)
+            .unwrap_err()
+            .unexpected_token_message()
+            .map(String::from_utf16_lossy)
+    }
+
+    #[test]
+    fn unexpected_token_messages_quote_the_source_like_v8() {
+        assert_eq!(
+            message(r#"{"plaintext frame":}"#).unwrap(),
+            r#"Unexpected token '}', "{"plaintext frame":}" is not valid JSON"#
+        );
+        assert_eq!(
+            message(r#"{"a":plaintext frame}"#).unwrap(),
+            r#"Unexpected token 'p', "{"a":plaintext "... is not valid JSON"#
+        );
+        assert_eq!(
+            message(r#"{"a":["plaintext frame",]}"#).unwrap(),
+            r#"Unexpected token ']', ..."xt frame",]}" is not valid JSON"#
+        );
+        assert_eq!(
+            message(&format!(r#"{{"a":[1,x{}]}}"#, " ".repeat(20))).unwrap(),
+            r#"Unexpected token 'x', "{"a":[1,x         "... is not valid JSON"#
+        );
+        assert_eq!(
+            message(&format!("{} {{\"a\":tz", " ".repeat(20))).unwrap(),
+            r#"Unexpected token 'z', ..."    {"a":tz" is not valid JSON"#
+        );
+        assert_eq!(
+            message(r#"{"a":t }"#).unwrap(),
+            r#"Unexpected token ' ', "{"a":t }" is not valid JSON"#
+        );
+        let surrogate = parse_detailed("{\"a\":\u{1f600}}").unwrap_err();
+        assert_eq!(surrogate.unexpected_token_message().unwrap()[18], 0xd83d);
+        for fixed in [
+            "",
+            "{plaintext frame}",
+            r#"{"a":1 plaintext frame}"#,
+            r#"{"a":t"}"#,
+            r#"{"a":t1}"#,
+            r#"{"a":tr"#,
+            r#"{"a":-x}"#,
+            r#"{"a":01}"#,
+            "{} plaintext frame",
+        ] {
+            assert_eq!(message(fixed), None, "{fixed:?}");
         }
     }
 
