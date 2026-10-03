@@ -40,17 +40,16 @@ const target = { kind: "endpoint", host };
 const probe = await connectToDaemon({ target });
 const prototype = Object.getPrototypeOf(probe);
 await probe.close();
+// Keyed by instance from the first payload: connectToDaemon resolves inside
+// the server_info handler, so a map filled after it returns would miss it.
 const recorded = new Map();
 const handleJsonPayload = prototype.handleJsonPayload;
 prototype.handleJsonPayload = function (payload, length) {
-  if (recorded.has(this)) recorded.get(this).push(payload);
+  if (!recorded.has(this)) recorded.set(this, []);
+  recorded.get(this).push(payload);
   return handleJsonPayload.call(this, payload, length);
 };
-const record = (connection) => {
-  const frames = [];
-  recorded.set(connection, frames);
-  return frames;
-};
+const record = (connection) => recorded.get(connection);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const outcomes = [];
 const attempt = async (step, run) => {
@@ -62,7 +61,7 @@ const attempt = async (step, run) => {
   }
 };
 const client = await connectToDaemon({ target });
-const clientFrames = record(client);
+const clientFrames = () => record(client);
 const created = await client.createWorkspace({ source: { kind: "directory", path: project } });
 const agent = await client.createAgent({
   provider: "codex",
@@ -78,7 +77,7 @@ await attempt("first", async () => {
 });
 await attempt("retry", () => client.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
 const other = await connectToDaemon({ target });
-const otherFrames = record(other);
+const otherFrames = () => record(other);
 await attempt("retry-other", () => other.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
 await sleep(1000);
 await other.close();
@@ -100,8 +99,8 @@ await attempt("race", async () => {
 await sleep(1500);
 console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
 console.log("# recording client");
-for (const text of clientFrames) console.log(text);
+for (const text of clientFrames()) console.log(text);
 console.log("# retry-other connection");
-for (const text of otherFrames) console.log(text);
+for (const text of otherFrames()) console.log(text);
 await client.close();
 process.exit(0);
