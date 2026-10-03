@@ -1,0 +1,18 @@
+{
+  "reference": "5de45e208690b0efc51c59a585ae9729325a9204",
+  "referencePackageLockSha256": "844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6",
+  "expectedElectronAndChromium": "44.2.0 152.0.7977.76",
+  "observedBrowser": {
+    "product": "Chrome/152.0.7977.76",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Paseo/0.10.0 Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+  },
+  "app": "packages/desktop built as shipped, unpacked and unsigned",
+  "os": {
+    "name": "macOS",
+    "version": "15.7.3",
+    "build": "24G419",
+    "kernel": "24.6.0",
+    "arch": "x86_64"
+  },
+  "normalization": "none"
+}
