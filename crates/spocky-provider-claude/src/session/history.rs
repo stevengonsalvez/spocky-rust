@@ -30,6 +30,11 @@ use crate::transcript::{
     is_tool_result_user_entry, is_transcript_noise_content, read_non_empty_string,
 };
 
+/// `readFileSync(path, "utf8")`: invalid UTF-8 decodes to U+FFFD and never fails.
+fn read_utf8(path: &std::path::Path) -> std::io::Result<String> {
+    std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn str_of<'a>(value: &'a JsValue, key: &str) -> Option<&'a str> {
     value.get(key).and_then(JsValue::as_str)
 }
@@ -338,7 +343,7 @@ fn read_claude_sidechain_history(history_path: &Path) -> std::io::Result<Sidecha
             if !kind.is_file() || !name.ends_with(".json") {
                 continue;
             }
-            if let Ok(contents) = std::fs::read_to_string(path) {
+            if let Ok(contents) = read_utf8(&path) {
                 history.workflow_contents.push(contents);
             }
         }
@@ -367,7 +372,7 @@ fn read_claude_sidechain_history(history_path: &Path) -> std::io::Result<Sidecha
             else {
                 continue;
             };
-            if let Ok(contents) = std::fs::read_to_string(&path)
+            if let Ok(contents) = read_utf8(&path)
                 && let Some(meta) = parse_claude_subagent_meta(&contents)
             {
                 history.meta_by_agent_id.insert(agent_id.to_owned(), meta);
@@ -383,7 +388,7 @@ fn record_sidechain_contents(
     sidechain_directory: &Path,
     entry_path: &Path,
 ) -> std::io::Result<()> {
-    let contents = std::fs::read_to_string(entry_path)?;
+    let contents = read_utf8(entry_path)?;
     let relative: Vec<String> = entry_path
         .strip_prefix(sidechain_directory)
         .unwrap_or(entry_path)
