@@ -8,6 +8,13 @@
 //! [`TerminalOutputCoalescer::fire`] when it elapses. A token whose timer was
 //! cleared by a flush or dispose is ignored, as `clearTimeout` guarantees in
 //! the baseline.
+//!
+//! `handle` takes a Rust `&str`, so it cannot carry a JavaScript lone
+//! surrogate, which the baseline's `Buffer.from(data, "utf8")` would encode as
+//! `EF BF BD` while counting one char. Output reaches the coalescer through
+//! the utf8 decode of node-pty's `setEncoding("utf8")` (here
+//! [`crate::utf8_decoder::Utf8Decoder`]), which never yields one, so that
+//! input is unreachable.
 
 use spocky_contracts::js_value::js_text_utf16;
 
