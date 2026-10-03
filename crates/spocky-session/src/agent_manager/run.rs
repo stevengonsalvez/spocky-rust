@@ -588,7 +588,7 @@ impl AgentManager {
     /// `cancelAgentRunBefore(agentId, action)`: cancels the active run, and
     /// fails with `AgentRunCancellationError` when the cancellation is
     /// refused.
-    async fn cancel_agent_run_before(
+    pub(super) async fn cancel_agent_run_before(
         &self,
         agent_id: &str,
         action: &str,
