@@ -84,6 +84,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
+use spocky_contracts::js::date_parse;
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
@@ -910,7 +911,29 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), archive: await archive() }));
+const storedDates = async () => {
+  const calls = [];
+  const registry = new AgentStorage(`${home}/stored-dates`, logger);
+  const options = () => ({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const first = new AgentManager(options());
+  await first.createAgent({ provider: "fake", cwd }, agentId, { labels: {}, workspaceId: "wks_1" });
+  await first.closeAgent(agentId);
+  await first.flush();
+  await registry.flush();
+  const stored = await registry.get(agentId);
+  await registry.upsert({ ...stored, id: otherId, createdAt: "Jan 3 2020 00:00:00 GMT", updatedAt: "Wed, 01 Jan 2020 12:00:00 GMT", lastUserMessageAt: "1/3/2020 00:00:00 GMT" });
+  const second = new AgentManager(options());
+  const feed = recordFeed(second);
+  const results = [];
+  results.push(await outcome(async () => await second.archiveSnapshot(otherId, "Jan 4 2020 00:00:00 GMT")));
+  const times = feed.filter((entry) => entry[0] === "agent_state").map((entry) => [entry[1].createdAt, entry[1].updatedAt, entry[1].lastUserMessageAt].map((at) => (at === null ? null : Date.parse(at))));
+  results.push(await outcome(async () => await second.unarchiveSnapshot(otherId)));
+  await second.flush();
+  await registry.flush();
+  return { results, times, feed, stored: await registry.get(otherId) };
+};
+
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -2484,6 +2507,10 @@ async fn scenarios_match_pinned_manager() {
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
+        (
+            "storedDates",
+            stored_dates_scenario(&cwd, &rust_home.0).await,
+        ),
     ]);
     assert_eq!(normalize(&stringify(&rust)), expected);
 }
@@ -2942,6 +2969,92 @@ async fn archive_scenario(cwd: &str, home: &Path) -> JsValue {
                     JsValue::Array(warns.lock().expect("warns").clone()),
                 ),
             ]),
+        ),
+    ])
+}
+
+/// A closed agent whose stored dates are not ISO text: `archiveSnapshot`
+/// then `unarchiveSnapshot` read them with `new Date(text)` and
+/// `Date.parse`, which accept every form V8 reads. `times` are the
+/// `agent_state` dates in epoch milliseconds, which `normalize` leaves alone.
+async fn stored_dates_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("stored-dates"));
+    let first = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    first
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                labels: Some(object(vec![])),
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    first.close_agent(AGENT_ID).await.expect("close");
+    first.flush().await;
+    registry.flush().await;
+    let stored = registry.get(AGENT_ID).await.expect("stored");
+    let JsValue::Object(record) = &stored else {
+        panic!("record");
+    };
+    let mut record = record.clone();
+    record.insert("id", text(OTHER_ID));
+    record.insert("createdAt", text("Jan 3 2020 00:00:00 GMT"));
+    record.insert("updatedAt", text("Wed, 01 Jan 2020 12:00:00 GMT"));
+    record.insert("lastUserMessageAt", text("1/3/2020 00:00:00 GMT"));
+    registry
+        .upsert(JsValue::Object(record))
+        .await
+        .expect("upsert");
+    let second = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&second);
+    let mut results = vec![outcome(
+        second
+            .archive_snapshot(OTHER_ID, "Jan 4 2020 00:00:00 GMT".to_owned())
+            .await,
+    )];
+    // Epoch milliseconds are below 2^53.
+    #[allow(clippy::cast_precision_loss)]
+    let epoch_millis =
+        |payload: &JsValue, key: &str| match payload.get(key).and_then(JsValue::as_str) {
+            Some(at) => JsValue::Number(date_parse(at).expect("ISO date") as f64),
+            None => JsValue::Null,
+        };
+    let times: Vec<JsValue> = feed
+        .lock()
+        .expect("feed")
+        .iter()
+        .filter_map(|entry| match entry.as_array()? {
+            [kind, payload] if kind.as_str() == Some("agent_state") => Some(payload),
+            _ => None,
+        })
+        .map(|payload| {
+            JsValue::Array(
+                ["createdAt", "updatedAt", "lastUserMessageAt"]
+                    .map(|key| epoch_millis(payload, key))
+                    .to_vec(),
+            )
+        })
+        .collect();
+    results.push(outcome(
+        second
+            .unarchive_snapshot(OTHER_ID, None)
+            .await
+            .map(JsValue::Bool),
+    ));
+    second.flush().await;
+    registry.flush().await;
+    let feed = feed.lock().expect("feed").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("times", JsValue::Array(times)),
+        ("feed", JsValue::Array(feed)),
+        (
+            "stored",
+            registry.get(OTHER_ID).await.unwrap_or(JsValue::Null),
         ),
     ])
 }
