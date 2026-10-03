@@ -8,6 +8,9 @@
 
 use std::fmt;
 
+use crate::js::js_string;
+use crate::js_value::{JsObject, js_text_to_utf8};
+
 /// An `application/x-www-form-urlencoded` list.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UrlSearchParams {
@@ -79,7 +82,26 @@ impl UrlSearchParams {
         Self { list }
     }
 
-    /// `new URLSearchParams([[name, value], ...])` (or a record, in key order).
+    /// `new URLSearchParams({ name: value, ... })`: one pair per own key in
+    /// property order (array-index keys ascending, then insertion order), with
+    /// each value converted as `String(value)` and each name and value as a
+    /// `USVString`.
+    #[must_use]
+    pub fn from_record(record: &JsObject) -> Self {
+        Self {
+            list: record
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        js_text_to_utf8(name),
+                        js_text_to_utf8(&js_string(Some(value))),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// `new URLSearchParams([[name, value], ...])`.
     #[must_use]
     pub fn from_pairs(pairs: &[(&str, &str)]) -> Self {
         Self {
