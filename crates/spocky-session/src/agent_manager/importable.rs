@@ -7,7 +7,10 @@ use spocky_contracts::js::truthy;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::AgentManager;
-use crate::agent_sdk::{AgentClient, ImportableProviderSession, ListImportableSessionsOptions};
+use super::log_error::err_binding;
+use crate::agent_sdk::{
+    AgentClient, AgentError, ImportableProviderSession, ListImportableSessionsOptions,
+};
 use crate::paths::basename;
 use crate::text::js_trim;
 
@@ -139,8 +142,8 @@ impl AgentManager {
         )
         .await
         {
-            Ok(result) => result.map_err(|error| error.message),
-            Err(_elapsed) => Err(timeout_message),
+            Ok(result) => result,
+            Err(_elapsed) => Err(AgentError::new(timeout_message)),
         };
         Some(match outcome {
             Ok(found) => (
@@ -154,10 +157,10 @@ impl AgentManager {
                     .collect(),
                 None,
             ),
-            Err(message) => {
-                // pino prints the `err` binding, an `Error`, as `{}`.
+            Err(error) => {
+                let message = error.message.clone();
                 let mut bindings = JsObject::new();
-                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("err", err_binding(&error));
                 bindings.insert("provider", JsValue::String(provider.clone()));
                 self.emit_warn(
                     JsValue::Object(bindings),

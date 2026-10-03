@@ -1471,7 +1471,7 @@ const importableScenario = async () => {
   const bulk = { sessions: Array.from({ length: 22 }, (_, index) => ({ providerHandleId: `bulk-${index}`, cwd: "/bulk", title: `Bulk ${index}`, firstPromptPreview: null, lastPromptPreview: null, lastActivityAt: 1600000000000 + index * 1000 })) };
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const listing = { ...JSON.parse(capabilitiesJson), supportsSessionListing: true };
   const make = (provider, importable) => fakeClient(calls, spec(provider, { capabilities: listing, ...(importable ? { importable } : {}) }));
   const clients = {
@@ -7642,6 +7642,6 @@ async fn importable_listing_gives_up_after_ninety_seconds() {
     );
     assert_eq!(
         stringify(&JsValue::Array(warns.lock().expect("warns").clone())),
-        r#"[[{"err":{},"provider":"hung"},"Failed to list importable sessions for provider"]]"#
+        r#"[[{"err":{"type":"Error","message":"Timed out listing importable sessions for provider 'hung' after 90000ms"},"provider":"hung"},"Failed to list importable sessions for provider"]]"#
     );
 }
