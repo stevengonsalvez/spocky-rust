@@ -32,6 +32,13 @@ use spocky_contracts::js_value::js_text_to_utf8;
 use spocky_contracts::js_value::{JsValue, parse, stringify};
 use spocky_contracts::url::Url;
 
+/// Inputs in `fixtures/url-corpus.json` (896 WPT `urltestdata.json` cases and
+/// 2671 `IdnaTestV2.json` cases) and generated cases (12000 absolute, 8000
+/// relative, 6000 delimiter strings, plus the fixed `ContextJ` hosts). A
+/// shrinking corpus or generator fails the counts, not just the comparison.
+const FIXTURE_CASES: usize = 3567;
+const GENERATED_CASES: usize = 12_000 + 8_000 + 6_000 + CONTEXT_J_CASES.len();
+
 const NODE_SCRIPT: &str = r#"
 const [dist, file, generatedFile] = process.argv.slice(1);
 const { readFileSync } = await import("node:fs");
@@ -439,6 +446,7 @@ fn url_parsing_matches_node() {
     let file =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/url-corpus.json");
     let generated = generated_cases();
+    assert_eq!(generated.len(), GENERATED_CASES, "the generator shrank");
     let generated_json = stringify(&JsValue::Array(
         generated
             .iter()
@@ -470,6 +478,7 @@ fn url_parsing_matches_node() {
         .expect("cases");
     // A lone surrogate is U+FFFD once it reaches a USVString, as `new URL` takes it.
     let usv = |value: &JsValue| value.as_str().map(js_text_to_utf8);
+    assert_eq!(cases.len(), FIXTURE_CASES, "the corpus shrank");
     let mut mismatches = Vec::new();
     let mut lines = expected.lines();
     let fixture = cases.iter().map(|case| {
