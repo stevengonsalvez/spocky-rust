@@ -37,6 +37,24 @@ pub enum RuntimeEffect {
     StopFailed(String),
 }
 
+impl RuntimeEffect {
+    /// The log message of the record.
+    #[must_use]
+    pub const fn message(&self) -> &'static str {
+        match self {
+            Self::StopFailed(_) => "Failed to stop relay transport",
+        }
+    }
+
+    /// The `err` field of the record: the error's message.
+    #[must_use]
+    pub fn error(&self) -> &str {
+        match self {
+            Self::StopFailed(message) => message,
+        }
+    }
+}
+
 pub struct RelayRuntime<S: TransportStarter> {
     config: RelayRuntimeConfig,
     starter: S,
