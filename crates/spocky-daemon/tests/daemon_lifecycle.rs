@@ -6,16 +6,16 @@ mod common;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use spocky_daemon::daemon::{DaemonEnv, NoSessionBackend, resolve_paseo_home, start};
 use spocky_daemon::listen::resolve_listen_address;
 use spocky_daemon::listen::{ListenTarget, format_listen_target};
-use spocky_daemon::log::{Logger, NullLogger};
+use spocky_daemon::log::{JsonLineLogger, Logger, NullLogger};
 use spocky_daemon::session_api::{SessionBackend, SessionHandle, SessionOpen};
 use tungstenite::Message;
 use tungstenite::client::IntoClientRequest;
@@ -200,6 +200,52 @@ fn the_backend_is_told_the_bound_address_after_a_port_zero_bind() {
     daemon.stop();
 }
 
+/// A log sink the test can read back.
+#[derive(Clone, Default)]
+struct Sink(Arc<Mutex<Vec<u8>>>);
+
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Sink {
+    /// The records written so far, as JSON.
+    fn records(&self) -> Vec<Value> {
+        String::from_utf8(self.0.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+}
+
+/// The start logged one fatal record and nothing that says it listened or was
+/// closed gracefully.
+fn assert_only_one_fatal(records: &[Value]) {
+    let messages: Vec<&str> = records
+        .iter()
+        .map(|record| record["msg"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record["level"] == 60)
+            .count(),
+        1,
+        "{messages:?}"
+    );
+    assert!(
+        !messages.contains(&"Server listening") && !messages.contains(&"Server closed"),
+        "{messages:?}"
+    );
+}
+
 /// A failure in the `'listening'` handler rejects the start in the baseline,
 /// which undoes it: the credential is deleted, the heartbeat stopped, the
 /// server closed. The start fails with the handler's message.
@@ -212,7 +258,8 @@ fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
         fail: Some("agent MCP base url is unusable"),
         ..ListeningBackend::default()
     });
-    let logger: Arc<dyn Logger> = Arc::new(NullLogger);
+    let sink = Sink::default();
+    let logger: Arc<dyn Logger> = Arc::new(JsonLineLogger::new(sink.clone(), vec![]));
     let error = start(
         &env(&home, &[]),
         Arc::clone(&backend) as Arc<dyn SessionBackend>,
@@ -221,6 +268,16 @@ fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
     .err()
     .expect("the start must fail");
     assert_eq!(error.0, "agent MCP base url is unusable");
+    // The worker's fatal record comes last, after the undo; no "Server
+    // listening" before it, and no "Server closed", which the graceful stop
+    // alone writes.
+    let records = sink.records();
+    let fatal = records.last().unwrap();
+    assert_eq!(fatal["level"], 60);
+    assert_eq!(fatal["msg"], "Daemon failed to start listening");
+    assert_eq!(fatal["err"], "agent MCP base url is unusable");
+    assert_eq!(fatal.as_object().unwrap().len(), 5, "{fatal}");
+    assert_only_one_fatal(&records);
     assert!(
         !home.join("local-credential").exists(),
         "credential deleted"
@@ -237,6 +294,32 @@ fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
         TcpStream::connect((host.as_str(), port)).is_err(),
         "the listener is closed"
     );
+}
+
+/// `daemon-worker.ts` logs every rejection of `daemon.start()`, a bind error
+/// included, at fatal.
+#[test]
+fn a_bind_error_is_logged_at_fatal() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let holder = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = holder.local_addr().unwrap().port();
+    assert!(port != 6767 && port != 6768);
+    write_config(&home, &json!({"listen": format!("127.0.0.1:{port}")}));
+    let sink = Sink::default();
+    let logger: Arc<dyn Logger> = Arc::new(JsonLineLogger::new(sink.clone(), vec![]));
+    let error = start(&env(&home, &[]), Arc::new(NoSessionBackend), &logger)
+        .err()
+        .expect("the port is taken");
+    assert!(error.0.starts_with("listen EADDRINUSE"), "{}", error.0);
+    let records = sink.records();
+    let fatal = records.last().unwrap();
+    assert_eq!(fatal["level"], 60);
+    assert_eq!(fatal["msg"], "Daemon failed to start listening");
+    assert_eq!(fatal["err"], error.0.as_str());
+    assert_only_one_fatal(&records);
+    assert!(!home.join("local-credential").exists());
+    assert!(!home.join("paseo.pid").exists());
 }
 
 #[test]
