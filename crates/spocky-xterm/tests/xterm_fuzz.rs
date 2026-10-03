@@ -557,8 +557,73 @@ fn biased_exception_fuzz_matches_pinned_xterm() {
     let start = env_u64("SPOCKY_XTERM_BIASED_START", 0);
     let count = env_u64("SPOCKY_XTERM_BIASED_SEEDS", 200);
     let wedged = run_differential("biased fuzz", start, count, biased_scenario);
-    // Skipped runs return 0; a real run of this size must reach the throw.
+    // Skipped runs return 0; a real run of this size must reach the throw,
+    // and must not wedge every seed (modes 2 and 3 never throw at the ED).
     if count >= 20 && std::env::var_os("SPOCKY_PINNED_NODE").is_some() {
         assert!(wedged > 0, "the biased mode never wedged xterm");
+        assert!(
+            usize::try_from(count).is_ok_and(|count| wedged < count),
+            "the biased mode wedged xterm on every seed"
+        );
+    }
+}
+
+/// The three biased branches as fixed 4 by 6 scenarios with no resizes: the
+/// cursor goes to the bottom right, then `CSI 1 J`, then a tail write.
+/// Only the fresh normal screen may throw; with scrollback (the line below
+/// the cursor exists) or on the alternate screen (the ring wraps to a line)
+/// the erase must not.
+fn fixed_branch_scenario(name: &str, prefix: &str) -> JsValue {
+    let stream = format!("{prefix}\x1b[4;6H\x1b[1Jtail\r\n");
+    let mut op = JsObject::new();
+    op.insert("hex", JsValue::String(hex(stream.as_bytes())));
+    let mut object = JsObject::new();
+    object.insert("name", JsValue::String(name.to_owned()));
+    object.insert("rows", number(4));
+    object.insert("cols", number(6));
+    object.insert("ops", JsValue::Array(vec![JsValue::Object(op)]));
+    JsValue::Object(object)
+}
+
+#[test]
+fn biased_branches_wedge_only_on_a_fresh_screen() {
+    let Some((node, paseo_root)) = common::pinned() else {
+        return;
+    };
+    let mut scrolled = String::new();
+    for index in 0..7 {
+        scrolled += &index.to_string();
+        scrolled += "\r\n";
+    }
+    let cases = [
+        ("fresh-screen", String::new(), true),
+        ("scroll-first", scrolled, false),
+        ("alternate-screen", "\x1b[?1049h".to_owned(), false),
+    ];
+    let scenarios: Vec<JsValue> = cases
+        .iter()
+        .map(|(name, prefix, _)| fixed_branch_scenario(name, prefix))
+        .collect();
+    let mut corpus = JsObject::new();
+    corpus.insert("scenarios", JsValue::Array(scenarios.clone()));
+    let tag = format!("branches-{}", std::process::id());
+    let corpus_path = std::env::temp_dir().join(format!("spocky-xterm-{tag}.json"));
+    let out = std::env::temp_dir().join(format!("spocky-xterm-{tag}.jsonl"));
+    std::fs::write(&corpus_path, stringify(&JsValue::Object(corpus))).expect("write corpus");
+    let captured = common::capture(&node, &paseo_root, &corpus_path, &out, 120);
+    let _ = std::fs::remove_file(&corpus_path);
+    let _ = std::fs::remove_file(&out);
+    assert_eq!(captured.len(), cases.len(), "one capture line per case");
+    for (((name, _, wedges), scenario), expected) in cases.iter().zip(&scenarios).zip(&captured) {
+        assert_eq!(
+            expected.contains("\"wedged\":true"),
+            *wedges,
+            "xterm wedge state of {name}"
+        );
+        assert_eq!(
+            &common::replay(scenario),
+            expected,
+            "{name} differs from xterm"
+        );
     }
 }
