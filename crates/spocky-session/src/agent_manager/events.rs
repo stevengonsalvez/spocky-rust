@@ -14,6 +14,7 @@ use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
 use super::log_error::err_binding;
+use super::plugin_lifecycle::{describe_hook_agent_of, publish_agent_stream};
 use super::run::TrackedRun;
 use super::{AgentAttentionNotice, AgentLifecycle, AgentManager, AgentManagerEvent, State};
 use crate::agent_labels::is_delegated_agent;
@@ -264,6 +265,7 @@ impl AgentManager {
         timestamp: Option<String>,
     ) -> Result<(), AgentError> {
         let event = limit_stream_event_content(event)?;
+        let published = event.clone();
         self.dispatch(
             state,
             AgentManagerEvent::AgentStream {
@@ -274,6 +276,23 @@ impl AgentManager {
                 timestamp,
             },
         );
+        if published.get("type").and_then(JsValue::as_str) != Some("timeline")
+            && let Some(lifecycle) = state.plugin_lifecycle.clone()
+            && let Some(agent) = state.agent(agent_id)
+            && !agent.snapshot.internal
+        {
+            publish_agent_stream(
+                &*lifecycle,
+                &describe_hook_agent_of(&agent.snapshot),
+                &published,
+                || {
+                    state.timeline.rows(agent_id).map_or_else(
+                        |_| Vec::new(),
+                        |rows| rows.iter().map(|row| row.item.clone()).collect(),
+                    )
+                },
+            );
+        }
         Ok(())
     }
 

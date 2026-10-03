@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use spocky_contracts::zod::{Outcome, Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::js_value::{JsObject, JsValue, stringify_pretty};
 
+use super::ManagedAgentSnapshot;
 use crate::agent_labels::PARENT_AGENT_ID_LABEL;
 use crate::agent_sdk::{AgentError, AgentResult, BoxFuture};
 
@@ -84,6 +85,88 @@ pub(super) fn describe_hook_agent(
     agent.insert("cwd", text(cwd));
     agent.insert("title", title.map_or(JsValue::Null, text));
     JsValue::Object(agent)
+}
+
+/// `describeHookAgent({ ...agent, title: agent.config.title })`.
+pub(super) fn describe_hook_agent_of(agent: &ManagedAgentSnapshot) -> JsValue {
+    describe_hook_agent(
+        &agent.id,
+        agent.workspace_id.as_deref(),
+        &agent.labels,
+        &agent.provider,
+        &agent.cwd,
+        agent.config.get("title").and_then(JsValue::as_str),
+    )
+}
+
+/// `publishAgentStream(lifecycle, agent, event, timeline)`: the turn and
+/// permission events plugins hear about; `timeline` runs only for a turn end.
+pub(super) fn publish_agent_stream(
+    lifecycle: &dyn PluginLifecycle,
+    agent: &JsValue,
+    event: &JsValue,
+    timeline: impl FnOnce() -> Vec<JsValue>,
+) {
+    let field = |key: &str| event.get(key).cloned().unwrap_or(JsValue::Undefined);
+    // `event.turnId ?? null`.
+    let turn_id = || match event.get("turnId") {
+        None | Some(JsValue::Undefined | JsValue::Null) => JsValue::Null,
+        Some(turn) => turn.clone(),
+    };
+    let object = |entries: Vec<(&str, JsValue)>| {
+        let mut out = JsObject::new();
+        for (key, value) in entries {
+            out.insert(key, value);
+        }
+        JsValue::Object(out)
+    };
+    let kind = |kind: &str, extra: Vec<(&str, JsValue)>| {
+        let mut entries = vec![("kind", JsValue::String(kind.to_owned()))];
+        entries.extend(extra);
+        object(entries)
+    };
+    let ended = |outcome: JsValue| {
+        lifecycle.emit(
+            "agent.turn_ended",
+            object(vec![
+                ("agent", agent.clone()),
+                ("turnId", turn_id()),
+                ("timeline", JsValue::Array(timeline())),
+                ("outcome", outcome),
+            ]),
+        );
+    };
+    match event.get("type").and_then(JsValue::as_str) {
+        Some("turn_started") => lifecycle.emit(
+            "agent.turn_started",
+            object(vec![("agent", agent.clone()), ("turnId", turn_id())]),
+        ),
+        Some("turn_completed") => ended(kind("completed", Vec::new())),
+        Some("turn_failed") => ended(kind(
+            "failed",
+            vec![(
+                "error",
+                object(vec![("message", field("error")), ("code", field("code"))]),
+            )],
+        )),
+        Some("turn_canceled") => ended(kind("canceled", vec![("reason", field("reason"))])),
+        Some("permission_requested") => lifecycle.emit(
+            "agent.permission_requested",
+            object(vec![
+                ("agent", agent.clone()),
+                ("request", field("request")),
+            ]),
+        ),
+        Some("permission_resolved") => lifecycle.emit(
+            "agent.permission_resolved",
+            object(vec![
+                ("agent", agent.clone()),
+                ("requestId", field("requestId")),
+                ("resolution", field("resolution")),
+            ]),
+        ),
+        _ => {}
+    }
 }
 
 fn session_open_schema() -> &'static Schema {

@@ -8,7 +8,7 @@ use std::time::Duration;
 use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
 use super::log_error::err_binding;
-use super::plugin_lifecycle::describe_hook_agent;
+use super::plugin_lifecycle::describe_hook_agent_of;
 use super::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
     PaseoToolRuntimeContext, validate_agent_id,
@@ -1654,18 +1654,6 @@ impl AgentManager {
         }
         Ok(())
     }
-}
-
-/// `describeHookAgent({ ...agent, title: agent.config.title })`.
-fn describe_hook_agent_of(agent: &ManagedAgentSnapshot) -> JsValue {
-    describe_hook_agent(
-        &agent.id,
-        agent.workspace_id.as_deref(),
-        &agent.labels,
-        &agent.provider,
-        &agent.cwd,
-        agent.config.get("title").and_then(JsValue::as_str),
-    )
 }
 
 /// `resolveProviderLaunchConfig(launchConfig, launchContext)`: a provider that
