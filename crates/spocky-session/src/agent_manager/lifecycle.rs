@@ -12,6 +12,7 @@ use tokio::sync::OnceCell;
 use super::create::touch_updated_at;
 use super::log_error::{err_binding, err_binding_with};
 use super::run::TrackedRun;
+use super::trace;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot, State};
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
 use crate::agent_sdk::{AgentError, AgentSession};
@@ -149,6 +150,27 @@ impl AgentManager {
         let session = {
             let state = self.lock();
             let agent = Self::require_agent(&state, agent_id)?;
+            self.emit_trace(
+                || {
+                    let snapshot = &agent.snapshot;
+                    trace::bindings([
+                        ("agentId", trace::text(agent_id)),
+                        ("provider", trace::text(&snapshot.provider)),
+                        ("sessionId", trace::session_id(snapshot)),
+                        ("turnId", trace::foreground_turn_id_or_undefined(snapshot)),
+                        ("lifecycle", trace::lifecycle(snapshot)),
+                        (
+                            "activeForegroundTurnId",
+                            trace::foreground_turn_id(snapshot),
+                        ),
+                        (
+                            "pendingPermissions",
+                            trace::count(snapshot.pending_permissions.len()),
+                        ),
+                    ])
+                },
+                "agent.manager.close.start",
+            );
             agent.session.clone()
         };
         self.drain_session_events_async(agent_id).await;
@@ -166,10 +188,21 @@ impl AgentManager {
         let persist = self
             .persist_snapshot_of(agent_id, Some(closed.clone()), SnapshotOverrides::default())
             .await;
+        let (provider, session_id) = (closed.provider.clone(), trace::session_id(&closed));
         {
             let mut state = self.lock();
             self.emit_detached_state_locked(&mut state, closed);
         }
+        self.emit_trace(
+            || {
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", trace::text(&provider)),
+                    ("sessionId", session_id),
+                ])
+            },
+            "agent.manager.close.complete",
+        );
         persist
     }
 

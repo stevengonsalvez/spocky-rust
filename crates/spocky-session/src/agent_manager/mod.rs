@@ -34,6 +34,7 @@ mod metrics;
 mod plugin_lifecycle;
 mod provider_registry;
 mod run;
+mod trace;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -303,6 +304,9 @@ pub struct AgentManagerOptions {
     /// `logger.info(bindings, message)`; the messages the manager logs at
     /// info level are dropped without it.
     pub log_info: Option<LogInfo>,
+    /// `logger.trace(bindings, message)`; the manager's trace messages are
+    /// dropped without it.
+    pub log_trace: Option<LogInfo>,
     pub on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub mcp_base_url: Option<String>,
     pub mcp_auth_token: Option<String>,
@@ -442,6 +446,7 @@ pub(crate) struct Inner {
     pub(crate) log_warn: Option<LogWarn>,
     pub(crate) log_error: Option<LogInfo>,
     pub(crate) log_info: Option<LogInfo>,
+    pub(crate) log_trace: Option<LogInfo>,
     pub(crate) on_workspace_state_may_have_changed: Option<WorkspaceStateCallback>,
     pub(crate) mcp_auth_token: Option<String>,
     pub(crate) resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
@@ -584,6 +589,7 @@ impl AgentManager {
                 log_warn: options.log_warn,
                 log_error: options.log_error,
                 log_info: options.log_info,
+                log_trace: options.log_trace,
                 on_workspace_state_may_have_changed: options.on_workspace_state_may_have_changed,
                 mcp_auth_token: options.mcp_auth_token,
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
@@ -614,6 +620,15 @@ impl AgentManager {
     pub(crate) fn emit_error(&self, bindings: JsValue, message: &str) {
         if let Some(error) = &self.inner.log_error {
             error(bindings, message);
+        }
+    }
+
+    /// `logger.trace(bindings, message)`. The bindings are only built when a
+    /// sink is set. A sink must not call back into the manager, see
+    /// [`LogWarn`].
+    pub(crate) fn emit_trace(&self, bindings: impl FnOnce() -> JsValue, message: &str) {
+        if let Some(trace) = &self.inner.log_trace {
+            trace(bindings(), message);
         }
     }
 
