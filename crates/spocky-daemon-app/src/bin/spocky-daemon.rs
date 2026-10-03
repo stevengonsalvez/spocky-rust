@@ -10,7 +10,6 @@ use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
 use spocky_daemon::daemon::{DaemonEnv, resolve_paseo_home};
-use spocky_daemon::listen::{ListenTarget, parse_listen_string, resolve_listen_address};
 use spocky_daemon::log::JsonLineLogger;
 use spocky_daemon::process::run;
 use spocky_daemon::server_id::get_or_create_server_id;
@@ -75,43 +74,6 @@ fn mcp_flag(persisted: &Value, key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-/// `createAgentMcpBaseUrl(listenTarget)` for the listen address the
-/// transport resolves (`PASEO_LISTEN`, then `daemon.listen`, then `PORT`).
-/// `null` for a socket or pipe listener.
-// ponytail: uses the configured port; a `:0` listener would need the bound
-// port from the transport.
-fn agent_mcp_base_url(env: &DaemonEnv, persisted: &Value) -> Option<String> {
-    let listen = resolve_listen_address(
-        None,
-        env.get("PASEO_LISTEN"),
-        persisted
-            .get("daemon")
-            .and_then(|daemon| daemon.get("listen"))
-            .and_then(Value::as_str),
-        env.get("PORT"),
-    );
-    let ListenTarget::Tcp { host, port } = parse_listen_string(&listen).ok()? else {
-        return None;
-    };
-    // `resolveAgentMcpClientHost`, then `formatHostForHttpUrl`.
-    let host = match host.as_str() {
-        "0.0.0.0" => "127.0.0.1".to_owned(),
-        "::" | "[::]" => "::1".to_owned(),
-        _ => host,
-    };
-    let host = if host.contains(':') && !host.starts_with('[') {
-        format!("[{host}]")
-    } else {
-        host
-    };
-    // `new URL(...).toString()` drops the default http port.
-    Some(if port == 80 {
-        format!("http://{host}/mcp/agents")
-    } else {
-        format!("http://{host}:{port}/mcp/agents")
-    })
-}
-
 fn main() -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -136,7 +98,8 @@ fn main() -> ExitCode {
         env.get("PASEO_SERVER_ID"),
         &JsonLineLogger::new(std::io::stderr(), Vec::new()),
     );
-    // Bootstrap's `setMcpBaseUrl` and `setPaseoToolsEnabled` once listening.
+    // Bootstrap's `setPaseoToolsEnabled`; `setMcpBaseUrl` follows once the
+    // listener has bound (`DaemonBackend::listening`).
     let inject_mcp =
         mcp_flag(&persisted, "enabled", true) && mcp_flag(&persisted, "injectIntoAgents", false);
 
@@ -161,7 +124,6 @@ fn main() -> ExitCode {
             },
         )],
         registry: Some((*storage).clone()),
-        mcp_base_url: agent_mcp_base_url(&env, &persisted).filter(|_| inject_mcp),
         paseo_tools_enabled: Some(inject_mcp),
         ..AgentManagerOptions::default()
     }));
