@@ -574,10 +574,14 @@ wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nrequires_openai_auth = f
 pub const RECORD_DIR_ENV: &str = "SPOCKY_RECORD_DIR";
 
 /// The launcher lines that tee an `app-server` launch's stdio into
-/// `RECORD_DIR_ENV`, or nothing when it is unset. Only the launcher script
+/// `record_dir`, else `RECORD_DIR_ENV`, or nothing when neither is set. Only the launcher script
 /// changes: Codex still runs the same command under the same seatbelt.
-fn recording_lines(root: &DisposableRoot, codex: &str) -> String {
-    let Some(dir) = std::env::var_os(RECORD_DIR_ENV) else {
+fn recording_lines(root: &DisposableRoot, codex: &str, record_dir: Option<&Path>) -> String {
+    let Some(dir) = record_dir
+        .map(Path::as_os_str)
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os(RECORD_DIR_ENV))
+    else {
         return String::new();
     };
     let name = root.path.file_name().expect("root dir name");
@@ -589,7 +593,7 @@ fn recording_lines(root: &DisposableRoot, codex: &str) -> String {
 }
 
 /// A launcher that runs `codex` under the loopback-only seatbelt profile.
-fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
+fn loopback_only_launcher(root: &DisposableRoot, codex: &str, record_dir: Option<&Path>) -> String {
     let bin = root.join("bin");
     std::fs::create_dir_all(&bin).expect("bin dir");
     let launcher = bin.join("codex");
@@ -599,7 +603,7 @@ fn loopback_only_launcher(root: &DisposableRoot, codex: &str) -> String {
             "#!/bin/sh\necho $$ >> '{}'\necho \"$*\" >> '{}'\n{}exec /usr/bin/sandbox-exec -p '{LOOPBACK_ONLY_PROFILE}' '{codex}' \"$@\"\n",
             root.join(APP_SERVER_PIDS).display(),
             root.join(CODEX_ARGV_LOG).display(),
-            recording_lines(root, codex)
+            recording_lines(root, codex, record_dir)
         ),
     )
     .expect("write launcher");
@@ -620,6 +624,32 @@ pub fn stub_provider(root: &DisposableRoot, stub: &ResponsesStub, codex: &str) -
     hermetic_provider(root, stub, codex, false)
 }
 
+/// [`stub_provider`] that also tees every `app-server` launch's stdio into
+/// `<root>/record`, so a test can read what Codex sent (see
+/// [`recorded_server_lines`]).
+pub fn recording_stub_provider(
+    root: &DisposableRoot,
+    stub: &ResponsesStub,
+    codex: &str,
+) -> CodexProvider {
+    hermetic_provider_recording(root, stub, codex, false, Some(&root.join("record")))
+}
+
+/// Every line Codex wrote on stdout, over all launches recorded by
+/// [`recording_stub_provider`], as JSON.
+pub fn recorded_server_lines(root: &DisposableRoot) -> Vec<Value> {
+    let name = root.path.file_name().expect("root dir name");
+    let dir = root.join("record").join(name);
+    let mut lines = Vec::new();
+    for launch in std::fs::read_dir(dir).expect("recorded launches") {
+        let out = launch.expect("launch dir").path().join("out.jsonl");
+        for line in std::fs::read_to_string(out).unwrap_or_default().lines() {
+            lines.push(serde_json::from_str(line).expect("recorded line is JSON"));
+        }
+    }
+    lines
+}
+
 /// [`stub_provider`] with Codex's upstream retries turned off, so a scripted
 /// failure (a 500) ends the turn at once.
 pub fn failing_stub_provider(
@@ -636,8 +666,18 @@ fn hermetic_provider(
     codex: &str,
     fail_fast: bool,
 ) -> CodexProvider {
+    hermetic_provider_recording(root, stub, codex, fail_fast, None)
+}
+
+fn hermetic_provider_recording(
+    root: &DisposableRoot,
+    stub: &ResponsesStub,
+    codex: &str,
+    fail_fast: bool,
+    record_dir: Option<&Path>,
+) -> CodexProvider {
     write_hermetic_config(root, stub, fail_fast);
-    let launcher = loopback_only_launcher(root, codex);
+    let launcher = loopback_only_launcher(root, codex, record_dir);
     let env = [
         ("CODEX_HOME".to_owned(), path_string(&root.join("codex"))),
         ("OPENAI_API_KEY".to_owned(), "test-key".to_owned()),
