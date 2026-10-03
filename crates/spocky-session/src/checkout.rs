@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use spocky_store::js_value::{JsObject, JsValue, parse, stringify_pretty};
+use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8, parse, stringify_pretty};
 
 use crate::git::{GitError, GitOptions, run_git};
 use crate::paths::{
@@ -102,7 +102,7 @@ async fn rebase_head_branch(cwd: &Path, cwd_text: &str) -> Option<String> {
         let Ok(stdout) = git_stdout(&["rev-parse", "--git-path", name], cwd).await else {
             continue;
         };
-        let head_name_path = resolve(cwd_text, js_trim(&stdout));
+        let head_name_path = js_text_to_utf8(&resolve(cwd_text, js_trim(&stdout)));
         let Ok(contents) = blocking(move || std::fs::read_to_string(head_name_path)).await else {
             continue;
         };
@@ -296,12 +296,14 @@ fn is_owned_worktree_path(cwd: &str, context: &CheckoutContext) -> bool {
 /// git dir with `/gitdir:\s*(.+)/`.
 fn git_dir_for_worktree_root(worktree_root: &str) -> Result<String, GitError> {
     let git_path = format!("{}/.git", worktree_root.trim_end_matches('/'));
-    if std::fs::metadata(&git_path).is_err() {
+    // JavaScript text reaches the file system as UTF-8.
+    let git_os_path = js_text_to_utf8(&git_path);
+    if std::fs::metadata(&git_os_path).is_err() {
         return Err(GitError {
             message: format!("Not a git repository: {worktree_root}"),
         });
     }
-    if let Ok(contents) = std::fs::read_to_string(&git_path)
+    if let Ok(contents) = std::fs::read_to_string(&git_os_path)
         && let Some(start) = contents.find("gitdir:")
     {
         let after =
@@ -663,10 +665,11 @@ fn stored_base_ref(worktree_root: &str) -> Result<Option<String>, GitError> {
         "{}/paseo/worktree.json",
         git_dir_for_worktree_root(worktree_root)?
     );
-    if std::fs::metadata(&metadata_path).is_err() {
+    let metadata_os_path = js_text_to_utf8(&metadata_path);
+    if std::fs::metadata(&metadata_os_path).is_err() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(&metadata_path).map_err(|error| GitError {
+    let text = std::fs::read_to_string(&metadata_os_path).map_err(|error| GitError {
         message: error.to_string(),
     })?;
     let value = parse(&text).map_err(|error| GitError {
@@ -698,7 +701,8 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) 
 /// --porcelain`, the ahead/behind `rev-list`, or invalid worktree metadata.
 pub async fn get_checkout(cwd: &str, context: &CheckoutContext) -> Result<CheckoutLite, GitError> {
     let cwd_text = crate::paths::resolve_from_cwd(cwd);
-    let cwd_path = Path::new(&cwd_text);
+    let cwd_os_text = js_text_to_utf8(&cwd_text);
+    let cwd_path = Path::new(&cwd_os_text);
     let Some(worktree_root) = git_stdout(&["rev-parse", "--show-toplevel"], cwd_path)
         .await
         .ok()
@@ -787,7 +791,20 @@ pub async fn get_checkout(cwd: &str, context: &CheckoutContext) -> Result<Checko
 
 #[cfg(test)]
 mod tests {
-    use super::{branch_name_from_ref, parse_rev_parse_path};
+    use super::{branch_name_from_ref, git_dir_for_worktree_root, parse_rev_parse_path};
+
+    /// A worktree root that is JavaScript text is statted as UTF-8: a lone
+    /// surrogate is U+FFFD, as for node's `fs`.
+    #[test]
+    fn worktree_root_encodes_a_lone_surrogate_as_node_does() {
+        let root = std::env::temp_dir().join(format!("spocky-root-js-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("\u{FFFD}w/.git")).expect("create dirs");
+        let lone = spocky_store::js_value::js_text_from_utf16(&[0xD800]);
+        let given = format!("{}/{lone}w", root.to_string_lossy());
+        assert!(git_dir_for_worktree_root(&given).is_ok());
+        assert!(git_dir_for_worktree_root(&format!("{given}x")).is_err());
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
 
     #[test]
     fn rev_parse_path_rules() {
