@@ -1,0 +1,69 @@
+{
+ "_source": {
+  "description": "Stdio of a real codex app-server driven by spocky-provider-codex tests, hermetic, loopback stub.",
+  "codex": {
+   "version": "codex-cli 0.159.0",
+   "sha256": "1ad71e5ed117114f9d04cdd8d5dd411515b5ab7ebc725b8ca2f484695d71c838"
+  },
+  "command": "SPOCKY_REAL_CODEX=1 SPOCKY_RECORD_DIR=<dir> cargo test --locked -p spocky-provider-codex --test real_codex_resume native_archive -- --include-ignored",
+  "recording_sha256": "0775896e4b47a94eb77d117634ada5cc8d597fc40f7b074706ad2bddbdb00cd4",
+  "normalization": "each disposable root path is replaced by {root}",
+  "fixture_digest": "tests/fixtures/SHA256SUMS"
+ },
+ "scenarios": {
+  "archive": {
+   "in": [
+    "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codex_app_server_daemon\",\"title\":\"Codex App Server Daemon\",\"version\":\"0.0.0\"},\"capabilities\":{\"experimentalApi\":true,\"mcpServerOpenaiFormElicitation\":true}}}",
+    "{\"method\":\"initialized\",\"params\":{}}",
+    "{\"id\":2,\"method\":\"thread/archive\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"}}"
+   ],
+   "out": [
+    "{\"id\":1,\"result\":{\"userAgent\":\"codex_cli_rs/0.159.0 (Mac OS 15.7.3; x86_64) unknown\",\"codexHome\":\"{root}/codex\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}",
+    "{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\",\"serverName\":\"Stevens-MacBook-Pro-5.local\",\"installationId\":\"5bc84e67-456e-4d90-9cd2-b3b2f8d61dc1\",\"environmentId\":null},\"emittedAtMs\":1791015666553}",
+    "{\"id\":2,\"result\":{}}",
+    "{\"method\":\"thread/archived\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"},\"emittedAtMs\":1791015666561}"
+   ]
+  },
+  "restore": {
+   "in": [
+    "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codex_app_server_daemon\",\"title\":\"Codex App Server Daemon\",\"version\":\"0.0.0\"},\"capabilities\":{\"experimentalApi\":true,\"mcpServerOpenaiFormElicitation\":true}}}",
+    "{\"method\":\"initialized\",\"params\":{}}",
+    "{\"id\":2,\"method\":\"thread/unarchive\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"}}"
+   ],
+   "out": [
+    "{\"id\":1,\"result\":{\"userAgent\":\"codex_cli_rs/0.159.0 (Mac OS 15.7.3; x86_64) unknown\",\"codexHome\":\"{root}/codex\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}",
+    "{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\",\"serverName\":\"Stevens-MacBook-Pro-5.local\",\"installationId\":\"5bc84e67-456e-4d90-9cd2-b3b2f8d61dc1\",\"environmentId\":null},\"emittedAtMs\":1791015666956}",
+    "{\"id\":2,\"result\":{\"thread\":{\"id\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\",\"environments\":null,\"extra\":null,\"sessionId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\",\"forkedFromId\":null,\"parentThreadId\":null,\"preview\":\"Say hello\",\"ephemeral\":false,\"section\":null,\"sectionEnteredAt\":null,\"projectId\":null,\"historyMode\":\"paginated\",\"modelProvider\":\"codex-stub\",\"model\":\"gpt-6-astra\",\"reasoningEffort\":null,\"createdAt\":1791015665,\"updatedAt\":1791015666,\"recencyAt\":1791015665,\"status\":{\"type\":\"notLoaded\"},\"path\":\"{root}/codex/sessions/2026/10/03/rollout-2026-10-03T09-21-05-01a100da-4043-7210-ac58-2ac1775ca4ee.jsonl\",\"cwd\":\"{root}/project\",\"cliVersion\":\"0.159.0\",\"originator\":\"codex_cli_rs\",\"source\":\"vscode\",\"canAcceptDirectInput\":null,\"threadSource\":null,\"agentNickname\":null,\"agentRole\":null,\"gitInfo\":null,\"name\":null,\"daybreakEnabled\":null,\"turns\":[]}}}",
+    "{\"method\":\"thread/unarchived\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"},\"emittedAtMs\":1791015666976}"
+   ]
+  },
+  "restore_not_archived": {
+   "in": [
+    "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codex_app_server_daemon\",\"title\":\"Codex App Server Daemon\",\"version\":\"0.0.0\"},\"capabilities\":{\"experimentalApi\":true,\"mcpServerOpenaiFormElicitation\":true}}}",
+    "{\"method\":\"initialized\",\"params\":{}}",
+    "{\"id\":2,\"method\":\"thread/unarchive\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"}}",
+    "{\"id\":3,\"method\":\"thread/read\",\"params\":{\"threadId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\"}}"
+   ],
+   "out": [
+    "{\"id\":1,\"result\":{\"userAgent\":\"codex_cli_rs/0.159.0 (Mac OS 15.7.3; x86_64) unknown\",\"codexHome\":\"{root}/codex\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}",
+    "{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\",\"serverName\":\"Stevens-MacBook-Pro-5.local\",\"installationId\":\"5bc84e67-456e-4d90-9cd2-b3b2f8d61dc1\",\"environmentId\":null},\"emittedAtMs\":1791015667438}",
+    "{\"error\":{\"code\":-32600,\"message\":\"no archived rollout found for thread id 01a100da-4043-7210-ac58-2ac1775ca4ee\"},\"id\":2}",
+    "{\"id\":3,\"result\":{\"thread\":{\"id\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\",\"environments\":null,\"extra\":null,\"sessionId\":\"01a100da-4043-7210-ac58-2ac1775ca4ee\",\"forkedFromId\":null,\"parentThreadId\":null,\"preview\":\"Say hello\",\"ephemeral\":false,\"section\":null,\"sectionEnteredAt\":null,\"projectId\":null,\"historyMode\":\"paginated\",\"modelProvider\":\"codex-stub\",\"model\":\"gpt-6-astra\",\"reasoningEffort\":null,\"createdAt\":1791015665,\"updatedAt\":1791015666,\"recencyAt\":1791015665,\"status\":{\"type\":\"notLoaded\"},\"path\":\"{root}/codex/sessions/2026/10/03/rollout-2026-10-03T09-21-05-01a100da-4043-7210-ac58-2ac1775ca4ee.jsonl\",\"cwd\":\"{root}/project\",\"cliVersion\":\"0.159.0\",\"originator\":\"codex_cli_rs\",\"source\":\"vscode\",\"canAcceptDirectInput\":null,\"threadSource\":null,\"agentNickname\":null,\"agentRole\":null,\"gitInfo\":null,\"name\":null,\"daybreakEnabled\":null,\"turns\":[]}}}"
+   ]
+  },
+  "restore_unknown": {
+   "in": [
+    "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"codex_app_server_daemon\",\"title\":\"Codex App Server Daemon\",\"version\":\"0.0.0\"},\"capabilities\":{\"experimentalApi\":true,\"mcpServerOpenaiFormElicitation\":true}}}",
+    "{\"method\":\"initialized\",\"params\":{}}",
+    "{\"id\":2,\"method\":\"thread/unarchive\",\"params\":{\"threadId\":\"00000000-0000-4000-8000-000000000000\"}}",
+    "{\"id\":3,\"method\":\"thread/read\",\"params\":{\"threadId\":\"00000000-0000-4000-8000-000000000000\"}}"
+   ],
+   "out": [
+    "{\"id\":1,\"result\":{\"userAgent\":\"codex_cli_rs/0.159.0 (Mac OS 15.7.3; x86_64) unknown\",\"codexHome\":\"{root}/codex\",\"platformFamily\":\"unix\",\"platformOs\":\"macos\"}}",
+    "{\"method\":\"remoteControl/status/changed\",\"params\":{\"status\":\"disabled\",\"serverName\":\"Stevens-MacBook-Pro-5.local\",\"installationId\":\"5bc84e67-456e-4d90-9cd2-b3b2f8d61dc1\",\"environmentId\":null},\"emittedAtMs\":1791015667997}",
+    "{\"error\":{\"code\":-32600,\"message\":\"no archived rollout found for thread id 00000000-0000-4000-8000-000000000000\"},\"id\":2}",
+    "{\"error\":{\"code\":-32600,\"message\":\"thread not loaded: 00000000-0000-4000-8000-000000000000\"},\"id\":3}"
+   ]
+  }
+ }
+}
