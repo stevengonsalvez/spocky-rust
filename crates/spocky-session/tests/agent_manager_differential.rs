@@ -1038,7 +1038,7 @@ const rewindScenario = async () => {
   const warns = [];
   const infos = [];
   // Only the rewind messages: the manager logs other info lines this port does not.
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); }, info(bindings, message) { if (message.startsWith("agent.rewind.")) infos.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); }, info(bindings, message) { if (message.startsWith("agent.rewind.")) infos.push([bindings, message]); } };
   const calls = [];
   const registry = new AgentStorage(`${home}/rewind`, logger);
   const manager = new AgentManager({

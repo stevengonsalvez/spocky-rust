@@ -14,6 +14,7 @@ use super::events::{
     is_turn_terminal_event, raw_turn_id,
 };
 use super::lifecycle::AgentRunCancellationResult;
+use super::log_error::err_binding;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
 use crate::agent_projection::SnapshotOverrides;
 use crate::agent_prompt::submitted_prompt_text;
@@ -819,16 +820,9 @@ impl AgentManager {
         let Some(warn) = &self.inner.log_warn else {
             return;
         };
-        // pino prints the `err` binding, an `Error`, as its own enumerable
-        // properties: `RewindCapabilityError` assigns `name`, other errors
-        // have none.
-        let mut err = JsObject::new();
-        if error.name == "RewindCapabilityError" {
-            err.insert("name", JsValue::String(error.name.clone()));
-        }
         warn(
             Self::rewind_bindings(
-                Some(JsValue::Object(err)),
+                Some(err_binding(error)),
                 agent_id,
                 provider,
                 message_id,
