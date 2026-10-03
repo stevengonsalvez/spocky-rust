@@ -8,7 +8,6 @@ mod support;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::process::Command;
 use std::rc::Rc;
 
 use spocky_contracts::js_value::{JsObject, JsValue, parse, stringify};
@@ -140,14 +139,16 @@ fn corpus_matches_the_pinned_xterm_capture() {
     let scripts = repo_root().join("scripts/phase4");
     let out =
         std::env::temp_dir().join(format!("spocky-xterm-capture-{}.json", std::process::id()));
-    let output = Command::new(&pinned.node)
-        .arg(scripts.join("terminal-emulator-capture.mjs"))
-        .arg("--paseo-root")
-        .arg(&paseo_root)
-        .arg("--out")
-        .arg(&out)
-        .output()
-        .expect("run capture");
+    let output = support::run_node_file(
+        &pinned,
+        &scripts.join("terminal-emulator-capture.mjs"),
+        &[
+            "--paseo-root".as_ref(),
+            paseo_root.as_os_str(),
+            "--out".as_ref(),
+            out.as_os_str(),
+        ],
+    );
     assert!(
         output.status.success(),
         "{}",
