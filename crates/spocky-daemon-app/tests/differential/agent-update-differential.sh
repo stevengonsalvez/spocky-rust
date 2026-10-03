@@ -22,6 +22,11 @@
 # Usage: agent-update-differential.sh <out-dir>
 # Env: SPOCKY_AU_SUBSCRIBER (default agent-update-subscriber.mjs): the recorder
 #      script, so handler-differential.sh reuses this harness,
+#      SPOCKY_AU_SEED_SUBSCRIBER and SPOCKY_AU_RUN_STUB: a seeded run. The
+#      seed recorder runs once against the pinned daemon on the one-response
+#      stub, and the home it leaves (home, paseo-home, codex-home, project) is
+#      saved; each side then starts from a copy of that home, at the same
+#      path, on the stub script in SPOCKY_AU_RUN_STUB,
 #      CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_g1_wiring),
 #      which holds debug/spocky-daemon and debug/spocky-responses-stub.
 set -u
@@ -65,7 +70,7 @@ track_tree() {
 }
 
 run_side() {
-side=$1; out=$2
+side=$1; out=$2; phase=${3:-main}
 started=$(date +%s)
 PASEO_ROOT=/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204
 NODE_BIN=$HOME/.nvm/versions/node/v22.20.0/bin
@@ -74,8 +79,15 @@ STUB=$target/debug/spocky-responses-stub
 SPOCKY=$target/debug/spocky-daemon
 PROFILE='(version 1)(allow default)(deny network-outbound (remote ip "*:*"))(allow network-outbound (remote ip "localhost:*"))'
 mkdir -p "$out"
-root=$(mktemp -d /private/tmp/spocky-p3-wiring-au-XXXXXXXX)
+if [ -n "${SPOCKY_AU_SEED_SUBSCRIBER:-}" ]; then
+  # One path for the seed and both sides: the agent record holds its cwd.
+  root=/private/tmp/spocky-p3-wiring-au-seed-$$
+  rm -rf "$root"; mkdir -p "$root"
+else
+  root=$(mktemp -d /private/tmp/spocky-p3-wiring-au-XXXXXXXX)
+fi
 for d in home paseo-home codex-home project bin tmp stub; do mkdir -p "$root/$d"; done
+[ -n "${SPOCKY_AU_SEED_SUBSCRIBER:-}" ] && [ "$phase" = main ] && tar -C "$root" -xf "$top/seed.tar"
 ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
 mark() { echo "$(ms) STEP $*" >>"$out/timeline"; }
 : >"$out/timeline"
@@ -86,10 +98,11 @@ echo \$\$ >>$out/pids
 exec $CODEX "\$@"
 EOS
 chmod +x "$root/bin/codex"
-(cd "$root/project" && printf 'hello\n' >README.md && env -i PATH=/usr/bin:/bin HOME="$root/home" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t sh -c 'git init -q -b main && git add README.md && git commit -q -m init')
+[ -s "$root/project/README.md" ] || (cd "$root/project" && printf 'hello\n' >README.md && env -i PATH=/usr/bin:/bin HOME="$root/home" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t sh -c 'git init -q -b main && git add README.md && git commit -q -m init')
 cat >"$root/stub/script.json" <<'EOS'
 {"responses":[{"status":200,"events":[{"type":"response.created","response":{"id":"resp_g1_1"}},{"type":"response.output_item.done","item":{"type":"message","role":"assistant","id":"msg_g1_1","content":[{"type":"output_text","text":"READY"}]}},{"type":"response.completed","response":{"id":"resp_g1_1","usage":{"input_tokens":0,"input_tokens_details":null,"output_tokens":0,"output_tokens_details":null,"total_tokens":0}}}],"json":null}]}
 EOS
+if [ -n "${SPOCKY_AU_SEED_SUBSCRIBER:-}" ] && [ "$phase" = main ]; then cp "$SPOCKY_AU_RUN_STUB" "$root/stub/script.json"; fi
 env -i "$STUB" "$root/stub/script.json" "$root/stub/record.jsonl" "$root/stub/port" >"$root/stub/stub.log" 2>&1 &
 stub_pid=$!
 i=0; while [ $i -lt 100 ] && [ ! -s "$root/stub/port" ]; do sleep 0.1; i=$((i+1)); done
@@ -123,7 +136,8 @@ tracker_pid=$!
 cli() { env -i $ENVV $GT --kill-after=5 120 "$PASEO_ROOT/packages/cli/bin/paseo" "$@"; }
 i=0; while [ $i -lt 60 ]; do cli ls --host "127.0.0.1:$port" --json >/dev/null 2>&1 && break; sleep 1; i=$((i+1)); done
 mark ready
-mark subscriber; env -i $ENVV $GT --kill-after=5 200 "$NODE_BIN/node" ${SPOCKY_AU_SUBSCRIBER:-$here/agent-update-subscriber.mjs} "$PASEO_ROOT" "127.0.0.1:$port" "$root/project" >"$out/frames.jsonl" 2>"$out/subscriber.err"; echo "subscriber exit=$?"
+if [ "$phase" = seed ]; then subscriber=$SPOCKY_AU_SEED_SUBSCRIBER; else subscriber=${SPOCKY_AU_SUBSCRIBER:-$here/agent-update-subscriber.mjs}; fi
+mark subscriber; env -i $ENVV $GT --kill-after=5 200 "$NODE_BIN/node" $subscriber "$PASEO_ROOT" "127.0.0.1:$port" "$root/project" >"$out/frames.jsonl" 2>"$out/subscriber.err"; echo "subscriber exit=$?"
 mark stop
 # SIGTERM by recorded PID: the graceful stop closes every agent and persists
 # its record, which must then match across sides.
@@ -133,6 +147,7 @@ i=0; while [ $i -lt 150 ] && [ ! -s "$root/daemon.exit" ]; do sleep 0.1; i=$((i+
 records=$(find "$root/paseo-home/agents" -name '*.json' -type f | sort)
 [ "$(printf '%s\n' "$records" | grep -c .)" = 1 ] || { echo "FAIL: $side persisted $(printf '%s\n' "$records" | grep -c .) agent records"; exit 1; }
 cp $records "$out/agent-record.json"
+[ "$phase" = seed ] && tar -C "$root" -cf "$top/seed.tar" home paseo-home codex-home project
 cp "$root/stub/record.jsonl" "$out/stub-record.jsonl"
 cp "$root/daemon.out" "$out/daemon.out"; cp "$root/paseo-home/daemon.log" "$out/daemon.log" 2>/dev/null
 daemon_root=$root
@@ -170,6 +185,7 @@ mask() {
 [ "$(printf 'x srv_aB-_cD0123xy y\n' | mask /dev/stdin)" = 'x <SRV> y' ] ||
   { echo "FAIL: mask misses a base64url server id"; exit 1; }
 
+[ -n "${SPOCKY_AU_SEED_SUBSCRIBER:-}" ] && { run_side original "$top/seed" seed || exit 1; }
 run_side original "$top/original"
 run_side spocky "$top/spocky"
 for side in original spocky; do
