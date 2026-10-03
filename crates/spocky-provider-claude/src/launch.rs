@@ -49,6 +49,12 @@ pub struct ClaudeRuntimeSettings {
 }
 
 /// `process.env` as an object of strings, in `environ` order.
+///
+/// The pinned Claude Agent SDK runs `process.env.NoDefaultCurrentDirectoryInExePath = "1"`
+/// when it is imported, so every later reader of `process.env` (query options,
+/// the spawned Claude Code, the diagnostic probes) sees it, appended after the
+/// variables the process started with. The Rust process cannot change its own
+/// environment (`unsafe_code` is forbidden), so the record carries it instead.
 #[must_use]
 pub fn process_env() -> JsObject {
     let mut env = JsObject::new();
@@ -58,6 +64,10 @@ pub fn process_env() -> JsObject {
             JsValue::String(value.to_string_lossy().into_owned()),
         );
     }
+    env.insert(
+        "NoDefaultCurrentDirectoryInExePath",
+        JsValue::String("1".to_owned()),
+    );
     env
 }
 

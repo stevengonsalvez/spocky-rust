@@ -15,10 +15,6 @@ const { ClaudeAgentClient } = await import(`${dist}/server/agent/providers/claud
 
 const SETTLE_MS = 120;
 const REACTION_GAP_MS = 25;
-// A canUseTool resolution is logged this long after it settles: how many
-// promise ticks the baseline takes to deliver it is not a contract, and the
-// session thread of the Rust side cannot count them.
-const CAN_USE_TOOL_LOG_DELAY_MS = 20;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const log = [];
 const normalize = (text) => text.replace(UUID, "<uuid>");
@@ -65,6 +61,12 @@ function promptText(message) {
 
 const queries = [];
 let promptCount = 0;
+// With `holdSetPermissionMode`, setPermissionMode settles only at the
+// scenario's `releaseSetPermissionMode` step.
+let openModeGate;
+const modeGate = new Promise((resolve) => {
+  openModeGate = resolve;
+});
 
 function makeQuery(input) {
   const frames = createQueue();
@@ -86,7 +88,10 @@ function makeQuery(input) {
       frames.end();
     },
     interrupt: async () => put("CALL", `interrupt#${index}`),
-    setPermissionMode: async (mode) => put("CALL", `setPermissionMode#${index} ${mode}`),
+    setPermissionMode: async (mode) => {
+      put("CALL", `setPermissionMode#${index} ${mode}`);
+      if (scenario.holdSetPermissionMode) await modeGate;
+    },
     setModel: async (model) => put("CALL", `setModel#${index} ${model}`),
     applyFlagSettings: async (settings) => put("CALL", `applyFlagSettings#${index} ${JSON.stringify(settings)}`),
     supportedCommands: async () => scenario.commands ?? [],
@@ -200,10 +205,9 @@ for (const step of scenario.steps) {
         suggestions: step.suggestions,
         toolUseID: step.toolUseID,
       });
-      const later = (text) => setTimeout(() => put("RESULT", text), CAN_USE_TOOL_LOG_DELAY_MS);
       call.then(
-        (value) => later(`canUseTool ${JSON.stringify(value)}`),
-        (error) => later(`canUseTool ERROR ${error.message}`),
+        (value) => put("RESULT", `canUseTool ${JSON.stringify(value)}`),
+        (error) => put("RESULT", `canUseTool ERROR ${error.message}`),
       );
       break;
     }
@@ -223,6 +227,18 @@ for (const step of scenario.steps) {
       await stepResult(responding);
       break;
     }
+    case "respondPermissionHeld": {
+      // Not awaited: the held setPermissionMode keeps it pending across the next steps.
+      const pending = session.getPendingPermissions();
+      session.respondToPermission(pending[step.index].id, step.response).then(
+        (value) => put("RESULT", value ?? null),
+        (error) => put("RESULT", `ERROR ${error instanceof Error ? error.message : String(error)}`),
+      );
+      break;
+    }
+    case "releaseSetPermissionMode":
+      openModeGate();
+      break;
     case "pending":
       put("RESULT", session.getPendingPermissions());
       break;

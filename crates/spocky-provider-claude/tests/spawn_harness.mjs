@@ -23,10 +23,15 @@ try {
   const session = scenario.resume
     ? await client.resumeSession(scenario.resume, scenario.overrides)
     : await client.createSession(scenario.config);
-  session.subscribe(() => {});
-  await session.startTurn(scenario.prompt ?? "hello").catch(() => {});
+  const observed = [];
+  session.subscribe((event) => observed.push(`EVENT ${JSON.stringify(event)}`));
+  await session.startTurn(scenario.prompt ?? "hello").then(
+    (started) => observed.push(`RESULT ${JSON.stringify(started)}`),
+    (error) => observed.push(`RESULT ERROR ${error instanceof Error ? error.message : String(error)}`),
+  );
   await sleep(scenario.waitMs ?? 1500);
   await session.close().catch(() => {});
+  if (scenario.observe) process.stdout.write(observed.join("\n") + "\n");
 } catch (error) {
   process.stdout.write(`ERROR ${error instanceof Error ? error.message : String(error)}\n`);
 }

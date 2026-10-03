@@ -2683,5 +2683,82 @@
     "op": "close"
    }
   ]
+ },
+ "plan_approval_abort_held": {
+  "holdSetPermissionMode": true,
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "plan"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "ExitPlanMode",
+    "input": {
+     "plan": "1. do it"
+    },
+    "toolUseID": "toolu_p"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "respondPermissionHeld",
+    "index": 0,
+    "response": {
+     "behavior": "allow"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "abortCanUseTool",
+    "index": 0
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "releaseSetPermissionMode"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "pending"
+   },
+   {
+    "op": "close"
+   }
+  ]
  }
 }

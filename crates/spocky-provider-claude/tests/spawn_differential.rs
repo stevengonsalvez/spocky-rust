@@ -3,13 +3,12 @@
 //! binary, and the argv, working directory, environment and first stdin lines
 //! the recorder sees must be the same text. Normalized: the scratch directory
 //! (`<tmp>`), UUIDs (`<uuid>`) and control request ids (`<id>`), each pinned by
-//! `normalization_covers_every_generated_value`. Node itself adds
-//! `NoDefaultCurrentDirectoryInExePath=1` to `process.env` at startup, which
-//! the pinned run inherits; that one line is dropped from the pinned record
-//! (a runtime artifact, not adapter behavior); macOS adds
-//! `__CF_USER_TEXT_ENCODING` the same way, and that line is dropped too. The
-//! Rust run drops the harness's
-//! own `SPOCKY_SPAWN_CHILD` switch line.
+//! `normalization_covers_every_generated_value`. Both sides see the same
+//! environment, `NoDefaultCurrentDirectoryInExePath=1` included: the pinned SDK
+//! sets it in `process.env` when imported and `process_env()` carries it. Only
+//! one line is dropped, from the pinned record: macOS adds
+//! `__CF_USER_TEXT_ENCODING` to a process started with a cleared environment
+//! (a CoreFoundation artifact, not adapter behavior).
 
 mod support;
 
@@ -17,16 +16,20 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use spocky_contracts::js_value::{JsValue, parse};
+use spocky_contracts::js_value::{JsObject, JsValue, parse, stringify};
 use spocky_provider_claude::client::{ClaudeClient, ClaudeClientOptions};
 use spocky_provider_claude::local::LocalBoxFuture;
 use spocky_provider_claude::session::ResolveBinary;
 use spocky_session::agent_sdk::{AgentClient, AgentPromptInput};
 
-const CHILD_ENV: &str = "SPOCKY_SPAWN_CHILD";
+/// The child run finds its scenario here, in its working directory, and
+/// writes what it observed to `CHILD_OUT`: files, not environment variables,
+/// so the child's environment is the pinned run's.
+const CHILD_SCENARIO: &str = "spawn-child.json";
+const CHILD_OUT: &str = "spawn-child.out";
 
 const PINNED_MODULES: &[(&str, &str)] = &[
     (
@@ -150,26 +153,42 @@ fn run_pinned(node: &OsString, dist: &Path, scenario_file: &Path, scratch: &Path
         "node failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.contains("ERROR"), "pinned run failed: {stdout}");
-    read_record(scratch)
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let observed = observation(scenario_file);
+    assert!(
+        observed || !stdout.contains("ERROR"),
+        "pinned run failed: {stdout}"
+    );
+    let observation = if observed {
+        normalize(&stdout, scratch)
+    } else {
+        String::new()
+    };
+    let record = read_record(scratch)
         .lines()
-        .filter(|line| {
-            *line != "NoDefaultCurrentDirectoryInExePath=1"
-                && !line.starts_with("__CF_USER_TEXT_ENCODING=")
-        })
+        .filter(|line| !line.starts_with("__CF_USER_TEXT_ENCODING="))
         .fold(String::new(), |mut text, line| {
             text.push_str(line);
             text.push('\n');
             text
-        })
+        });
+    format!("{record}{observation}")
+}
+
+/// Whether the scenario also compares what the session reported.
+fn observation(scenario_file: &Path) -> bool {
+    std::fs::read_to_string(scenario_file)
+        .ok()
+        .and_then(|text| parse(&text).ok())
+        .is_some_and(|scenario| scenario.get("observe") == Some(&JsValue::Bool(true)))
 }
 
 fn run_rust(scenario_file: &Path, scratch: &Path) -> String {
+    std::fs::copy(scenario_file, scratch.join(CHILD_SCENARIO)).expect("child scenario");
+    let _ = std::fs::remove_file(scratch.join(CHILD_OUT));
     let output = Command::new(timeout_binary())
         .env_clear()
         .envs(fixed_env(scratch))
-        .env(CHILD_ENV, scenario_file)
         .args(["--kill-after=5", "60"])
         .arg(std::env::current_exe().expect("test exe"))
         .args([
@@ -187,24 +206,18 @@ fn run_rust(scenario_file: &Path, scratch: &Path) -> String {
         String::from_utf8_lossy(&output.stderr),
         String::from_utf8_lossy(&output.stdout)
     );
-    read_record(scratch)
-        .lines()
-        .filter(|line| !line.starts_with(&format!("{CHILD_ENV}=")))
-        .fold(String::new(), |mut text, line| {
-            text.push_str(line);
-            text.push('\n');
-            text
-        })
+    let observed = std::fs::read_to_string(scratch.join(CHILD_OUT)).unwrap_or_default();
+    format!("{}{}", read_record(scratch), normalize(&observed, scratch))
 }
 
 /// The child half: runs one scenario against `ClaudeClient` with the recorder
 /// as the binary. Does nothing outside the differential.
 #[test]
 fn child_runs_the_scenario() {
-    let Some(file) = std::env::var_os(CHILD_ENV) else {
+    let Ok(text) = std::fs::read_to_string(CHILD_SCENARIO) else {
         return;
     };
-    let scenario = parse(&std::fs::read_to_string(file).expect("scenario")).expect("JSON");
+    let scenario = parse(&text).expect("JSON");
     let recorder = PathBuf::from(std::env::var_os("HOME").expect("HOME"))
         .parent()
         .expect("scratch")
@@ -250,17 +263,36 @@ fn child_runs_the_scenario() {
             }
         }
         .expect("a session");
-        let _unsubscribe = session.subscribe(Arc::new(|_| {}));
+        let observed: Arc<Mutex<Vec<String>>> = Arc::default();
+        let events = Arc::clone(&observed);
+        let _unsubscribe = session.subscribe(Arc::new(move |event| {
+            events
+                .lock()
+                .expect("observed")
+                .push(format!("EVENT {}", stringify(&event)));
+        }));
         let prompt = scenario
             .get("prompt")
             .and_then(JsValue::as_str)
             .unwrap_or("hello")
             .to_owned();
-        let _ = session
+        let started = session
             .start_turn(AgentPromptInput::Text(prompt), None)
             .await;
+        observed.lock().expect("observed").push(match started {
+            Ok(turn_id) => {
+                let mut result = JsObject::new();
+                result.insert("turnId", JsValue::String(turn_id));
+                format!("RESULT {}", stringify(&JsValue::Object(result)))
+            }
+            Err(error) => format!("RESULT ERROR {}", error.message),
+        });
         tokio::time::sleep(Duration::from_millis(1500)).await;
         let _ = session.close().await;
+        if scenario.get("observe") == Some(&JsValue::Bool(true)) {
+            let text = observed.lock().expect("observed").join("\n") + "\n";
+            std::fs::write(CHILD_OUT, text).expect("write");
+        }
     });
 }
 
@@ -328,6 +360,13 @@ fn scenarios() -> Vec<(&'static str, String)> {
             )),
         ),
         (
+            "missing_cwd",
+            format!(
+                r#"{{"observe":true,"config":{}}}"#,
+                base("").replace("<cwd>", "<cwd>/missing")
+            ),
+        ),
+        (
             "resume",
             format!(
                 r#"{{"resume":{{"provider":"claude","sessionId":"sess-abc","nativeHandle":"sess-abc","metadata":{}}}}}"#,
@@ -367,7 +406,7 @@ fn spawns_match_the_pinned_build() {
             std::fs::write(dump.join(format!("rust-{name}.txt")), &actual).expect("dump");
         }
         assert!(
-            expected.contains("ARGC") && expected.contains("ENV-END"),
+            observation(&file) || (expected.contains("ARGC") && expected.contains("ENV-END")),
             "{name}: the pinned run recorded nothing"
         );
         if actual != expected {

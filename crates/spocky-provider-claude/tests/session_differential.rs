@@ -5,10 +5,11 @@
 //! session on one `LocalSet` (`ClaudeClient::create_local_session`), as the
 //! baseline runs on one event loop. Both run in a cleared environment so the
 //! full query options (environment included) can be compared. Normalized: any
-//! UUID becomes `<uuid>` and the scratch directory `<tmp>`. The pinned run
-//! also carries two variables its own runtime adds to `process.env` (node's
-//! `NoDefaultCurrentDirectoryInExePath` and macOS's `__CF_USER_TEXT_ENCODING`);
-//! they are dropped from the pinned text.
+//! UUID becomes `<uuid>` and the scratch directory `<tmp>`. Both sides carry
+//! `NoDefaultCurrentDirectoryInExePath=1` (the pinned SDK sets it in
+//! `process.env` when imported and `process_env()` does the same). One member
+//! is dropped, from the pinned text only: macOS's `__CF_USER_TEXT_ENCODING`,
+//! which CoreFoundation adds to a process started with a cleared environment.
 
 mod support;
 
@@ -16,6 +17,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,8 +37,6 @@ const CHILD_SCENARIO: &str = "session-child.json";
 const CHILD_LOG: &str = "session-child.log";
 const SETTLE: Duration = Duration::from_millis(120);
 const REACTION_GAP: Duration = Duration::from_millis(25);
-/// See `CAN_USE_TOOL_LOG_DELAY_MS` in `session_harness.mjs`.
-const CAN_USE_TOOL_LOG_DELAY: Duration = Duration::from_millis(20);
 
 const PINNED_MODULES: &[(&str, &str)] = &[
     (
@@ -113,6 +113,10 @@ struct Shared {
     commands: JsValue,
     rewind_replies: JsValue,
     on_prompt: Vec<Vec<JsValue>>,
+    /// `holdSetPermissionMode`: `setPermissionMode` settles once the gate opens
+    /// (`releaseSetPermissionMode`).
+    hold_set_mode: bool,
+    mode_gate: Arc<AtomicBool>,
 }
 
 /// A scripted query as the test sees it.
@@ -228,8 +232,13 @@ impl ClaudeQuery for ScriptedQuery {
 
     fn set_permission_mode(&self, mode: &str) -> LocalBoxFuture<'static, Result<(), AgentError>> {
         self.call_with("setPermissionMode", mode);
-        Box::pin(async {
+        let hold = self.shared.hold_set_mode;
+        let gate = Arc::clone(&self.shared.mode_gate);
+        Box::pin(async move {
             tick().await;
+            while hold && !gate.load(Ordering::SeqCst) {
+                tick().await;
+            }
             Ok(())
         })
     }
@@ -570,7 +579,6 @@ async fn run_scenario_steps(scenario: &JsValue, shared: &Shared, client: &Claude
                 // The call starts now; its resolution is logged later.
                 run_inline(async move {
                     let result = call.await;
-                    tokio::time::sleep(CAN_USE_TOOL_LOG_DELAY).await;
                     result_shared.put(
                         "RESULT",
                         &match result {
@@ -611,6 +619,24 @@ async fn run_scenario_steps(scenario: &JsValue, shared: &Shared, client: &Claude
                 };
                 log_result(shared, &outcome(result, |()| JsValue::Undefined)).await;
             }
+            "respondPermissionHeld" => {
+                let session = active();
+                let pending = session.get_pending_permissions();
+                let id = pending[count(step, "index")]
+                    .get("id")
+                    .and_then(JsValue::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let response = step.get("response").cloned().unwrap_or(JsValue::Undefined);
+                let held = shared.clone();
+                // Not awaited: the held setPermissionMode keeps it pending across
+                // the next steps.
+                run_inline(async move {
+                    let result = session.respond_to_permission(&id, &response).await;
+                    log_result(&held, &outcome(result, |()| JsValue::Undefined)).await;
+                });
+            }
+            "releaseSetPermissionMode" => shared.mode_gate.store(true, Ordering::SeqCst),
             "pending" => {
                 let pending = active().get_pending_permissions();
                 shared.put("RESULT", &stringify(&JsValue::Array(pending)));
@@ -701,6 +727,8 @@ fn run_scenario(scenario: &JsValue) -> Vec<String> {
             .iter()
             .map(|frames| frames.as_array().unwrap_or_default().to_vec())
             .collect(),
+        hold_set_mode: scenario.get("holdSetPermissionMode") == Some(&JsValue::Bool(true)),
+        mode_gate: Arc::default(),
     };
     let query_shared = shared.clone();
     let factory: Arc<dyn Fn() -> QueryFactory + Send + Sync> = Arc::new(move || {
@@ -850,7 +878,6 @@ fn run_pinned(
         String::from_utf8_lossy(&output.stderr)
     );
     let text = String::from_utf8(output.stdout).expect("node stdout is UTF-8");
-    let text = without_member(&text, "NoDefaultCurrentDirectoryInExePath");
     without_member(&text, "__CF_USER_TEXT_ENCODING")
 }
 
