@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode};
 
+use spocky_contracts::text::js_trim;
 use spocky_crypto::{derive_shared_key, import_public_key};
 
 use crate::NodeId;
@@ -1372,7 +1373,7 @@ fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorRespon
     if server_id.len() > 256 {
         return handshake_error(400, "serverId is too long");
     }
-    let version = fields.get("v").copied().unwrap_or("1").trim();
+    let version = js_trim(fields.get("v").copied().unwrap_or("1"));
     if !matches!(version, "" | "1" | "2") {
         return handshake_error(400, "Invalid v parameter (expected 1 or 2)");
     }
@@ -1384,11 +1385,7 @@ fn parse_connection(request: &Request) -> Result<AcceptedConnection, ErrorRespon
             admitted: false,
         });
     }
-    let connection_id = fields
-        .get("connectionId")
-        .copied()
-        .unwrap_or_default()
-        .trim();
+    let connection_id = js_trim(fields.get("connectionId").copied().unwrap_or_default());
     if connection_id.len() > 256 {
         return handshake_error(400, "connectionId is too long");
     }
