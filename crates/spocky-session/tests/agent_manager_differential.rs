@@ -392,6 +392,8 @@ class FakeSession {
   describePersistence() { return JSON.parse(persistenceJson); }
   async interrupt() {
     this.calls.push(["interrupt"]);
+    if (this.spec.interruptFails) throw new Error("interrupt failed");
+    if (this.spec.interruptLateFailMs) { await sleep(this.spec.interruptLateFailMs); throw new Error("interrupt failed late"); }
     if (this.spec.interruptHang) await new Promise(() => {});
     if (this.spec.interrupt) this.emitLater(this.spec.interrupt, 10);
   }
@@ -991,6 +993,37 @@ const rewindScenario = async () => {
   };
 };
 
+const cancelLogsScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const logs = [];
+  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", bindings, message]); }, error(bindings, message) { logs.push(["error", bindings, message]); } };
+  const cases = {};
+  const runCase = async (name, turns, specExtra, managerExtra = {}, wait = 0) => {
+    const calls = [];
+    const registry = new AgentStorage(`${home}/cancel-${name}`, logger);
+    const manager = new AgentManager({ logger: recorder, registry, clients: { fake: fakeClient(calls, spec("fake", { turns, ...specExtra })) }, providerDefinitions: { fake: { enabled: true } }, ...managerExtra });
+    const feed = recordFeed(manager);
+    await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+    const held = manager.streamAgent(agentId, "hold");
+    const heldEvents = [(await held.next()).value];
+    await sleep(50);
+    const result = await outcome(async () => await manager.cancelAgentRun(agentId));
+    if (wait) await sleep(wait);
+    await collect(held, heldEvents);
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    cases[name] = { result, heldEvents, calls, feed, agent: toAgentPayload(manager.getAgent(agentId)) };
+  };
+  const rescue = { rescueTimeouts: { interruptSessionMs: 80 } };
+  await runCase("hang", [scripted.rpHeld], { interruptHang: true }, rescue);
+  await runCase("fails", [scripted.rpHeld], { interruptFails: true }, rescue);
+  await runCase("late", [scripted.rpHeld], { interruptLateFailMs: 150 }, rescue, 200);
+  await runCase("force", [scripted.long], {});
+  return { cases, logs };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1077,7 +1110,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1121,6 +1154,10 @@ struct Spec {
     import: Option<JsValue>,
     /// The `revert*` methods the session has: `conversation`, `files`, `both`.
     revert: Vec<&'static str>,
+    /// `interrupt` rejects at once.
+    interrupt_fails: bool,
+    /// `interrupt` rejects after this many milliseconds.
+    interrupt_late_fail_ms: Option<u64>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -1138,6 +1175,8 @@ fn spec(provider: &str) -> Spec {
         interrupt_hang: false,
         import: None,
         revert: Vec::new(),
+        interrupt_fails: false,
+        interrupt_late_fail_ms: None,
     }
 }
 
@@ -1403,7 +1442,16 @@ impl AgentSession for FakeSession {
             self.emit_later(events, 10);
         }
         let hang = self.spec.interrupt_hang;
+        let fails = self.spec.interrupt_fails;
+        let late = self.spec.interrupt_late_fail_ms;
         Box::pin(async move {
+            if fails {
+                return Err(AgentError::new("interrupt failed"));
+            }
+            if let Some(late) = late {
+                tokio::time::sleep(Duration::from_millis(late)).await;
+                return Err(AgentError::new("interrupt failed late"));
+            }
             if hang {
                 std::future::pending::<()>().await;
             }
@@ -2771,6 +2819,7 @@ async fn scenarios_match_pinned_manager() {
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
+        ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
         ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
@@ -3375,6 +3424,138 @@ async fn rewind_scenario(cwd: &str, home: &Path) -> JsValue {
                 ("agent", payload(&refused)),
             ]),
         ),
+    ])
+}
+
+/// One cancel case: a held turn on a fake provider, cancelled once.
+async fn cancel_logs_case(
+    name: &str,
+    turns: &[&str],
+    home: &Path,
+    cwd: &str,
+    logs: &Arc<Mutex<Vec<JsValue>>>,
+    wait_ms: u64,
+    configure: impl FnOnce(&mut Spec, &mut AgentManagerOptions),
+) -> JsValue {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join(format!("cancel-{name}")));
+    let mut fake = spec("fake");
+    scripted(&fake, turns);
+    let warn_sink = Arc::clone(logs);
+    let error_sink = Arc::clone(logs);
+    let mut options = AgentManagerOptions {
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink.lock().expect("logs").push(JsValue::Array(vec![
+                text("warn"),
+                bindings,
+                text(message),
+            ]));
+        })),
+        log_error: Some(Arc::new(move |bindings, message| {
+            error_sink.lock().expect("logs").push(JsValue::Array(vec![
+                text("error"),
+                bindings,
+                text(message),
+            ]));
+        })),
+        ..AgentManagerOptions::default()
+    };
+    configure(&mut fake, &mut options);
+    options.clients = vec![("fake".to_owned(), rewind_client(fake, &calls))];
+    options.provider_definitions = vec![("fake".to_owned(), enabled())];
+    options.registry = Some(registry.clone());
+    let manager = AgentManager::new(options);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let mut held = manager
+        .stream_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+        .expect("held stream");
+    let mut held_events = vec![held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let result = outcome(
+        manager
+            .cancel_agent_run(AGENT_ID)
+            .await
+            .map(|status| object(vec![("status", text(status.as_str()))])),
+    );
+    if wait_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+    }
+    collect_stream(held, &mut held_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let agent = to_agent_payload(
+        &manager.get_agent(AGENT_ID).expect("agent").payload_view(),
+        None,
+    )
+    .expect("payload");
+    object(vec![
+        ("result", result),
+        ("heldEvents", JsValue::Array(held_events)),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+        ("agent", agent),
+    ])
+}
+
+async fn cancel_logs_scenario(cwd: &str, home: &Path) -> JsValue {
+    let logs: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let quick = |options: &mut AgentManagerOptions| options.rescue_interrupt_session_ms = Some(80);
+    let hang = cancel_logs_case("hang", &["rpHeld"], home, cwd, &logs, 0, |fake, options| {
+        fake.interrupt_hang = true;
+        quick(options);
+    })
+    .await;
+    let fails = cancel_logs_case(
+        "fails",
+        &["rpHeld"],
+        home,
+        cwd,
+        &logs,
+        0,
+        |fake, options| {
+            fake.interrupt_fails = true;
+            quick(options);
+        },
+    )
+    .await;
+    let late = cancel_logs_case(
+        "late",
+        &["rpHeld"],
+        home,
+        cwd,
+        &logs,
+        200,
+        |fake, options| {
+            fake.interrupt_late_fail_ms = Some(150);
+            quick(options);
+        },
+    )
+    .await;
+    let force = cancel_logs_case("force", &["long"], home, cwd, &logs, 0, |_, _| {}).await;
+    let logs = JsValue::Array(logs.lock().expect("logs").clone());
+    object(vec![
+        (
+            "cases",
+            object(vec![
+                ("hang", hang),
+                ("fails", fails),
+                ("late", late),
+                ("force", force),
+            ]),
+        ),
+        ("logs", logs),
     ])
 }
 
