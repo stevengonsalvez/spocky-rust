@@ -107,16 +107,39 @@ byte from the real library instead of re-deriving them.
   three missing domain operations (`change_member_role` with last-owner protection, `remove_member`,
   CLI credential revoke) are added behind the same `HubPilot` seam so they can move unchanged.
 
-## Capture and differential plan
+## Capture and differential
 
-1. Capture: vitest in a disposable archive of the pinned Hub, `postgres:17-alpine` container
-   (same recipe as `hub-runtime.md`), real `createAuthServer`, requests built as raw `Request`
-   objects against a seeded organization, injected clock and ids as in `hub-api`.
-2. Case list: one JSON file drives capture and Rust. Per route: anonymous, password change
-   required, no active organization, each role, each validation failure, every error in table order,
-   success, replay.
-3. Rust: handlers on `HubHttpService` with the seam above; trace compared byte for byte, no key
-   sorting; counts pinned in the evidence test.
+Engine: embedded PGlite on both sides (coordinator decision: no container). The baseline runs the
+real production runtime (`startProductionRuntime`, no `DATABASE_URL`, fresh data directory per
+scenario) and sends raw `Request` objects through `runtime.auth`, the entry the `/api/auth/$` route
+calls. `runtime.browserAccount` (the entry server functions use) skips the origin guard and the
+dispatch allowlist and is not part of the HTTP surface. The Rust side runs the same SQL on
+`spocky-pglite-host` with the Hub's own migrations.
+
+Baseline trace (`hub-account-routes-original.json`, sha256 in `hub-account-routes-sha256.txt`):
+
+- Case list `scripts/phase2/hub-account-routes-cases.mjs` prints `hub-account-routes-cases.json`;
+  the capture script refuses a JSON that differs from the generator output.
+- Two scenarios, 281 traced requests: `open` (open registration and organization creation; five
+  actors plus a maker and a rival organization) and `bootstrap` (invite-only, bootstrap owner,
+  organization creation disabled, forced password change).
+- Per request the trace holds status, every response header and the raw body. Masking is limited
+  to generated identity (account, membership, organization, invitation, key ids, slugs and secrets,
+  each replaced by its capture name) and wall clock (an ISO timestamp becomes its whole-hour offset
+  from the request, so the 48 hour invitation lifetime stays checked).
+- Two captures are byte-identical.
+
+Not traced: sign-in, sign-up, sign-out and verify-email payloads (better-auth session cookies belong
+to the auth domain crate), `change-password`, the entitlement denial path (the capture stamps the
+unlimited self-hosted template, so no request is denied), and a successful `revoke-cli-credential`
+(a CLI credential needs the device authorization flow; the unknown, forbidden and validation paths
+are traced).
+
+Rust replay plan: handlers over `PgliteHost` issue the baseline SQL verbatim inside the same
+transaction boundaries; a session reader seam (cookie to account session, as
+`AccountSessionReader`) stands in for better-auth, with the test reader reading the `session` and
+`user` rows the seed wrote. Order of work: the origin guard and dispatch, request schemas, the read
+routes, then each mutation with its SQL, then the byte comparison with counts pinned in the test.
 
 ## Open decisions
 
