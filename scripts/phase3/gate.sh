@@ -42,8 +42,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$gate" in
-  g1 | g2 | g3 | g4-http500 | g4-nocodex | g4-disconnect | g4-socketdrop | g4-wire | g4-oldstate | g4-newstate) ;;
-  *) p3_fail "unsupported gate: $gate (defined gates: g1, g2, g3, g4-http500, g4-nocodex, g4-disconnect, g4-socketdrop, g4-wire, g4-oldstate, g4-newstate)" ;;
+  g1 | g2 | g3 | g4-http500 | g4-nocodex | g4-disconnect | g4-socketdrop | g4-wire | g4-retry | g4-oldstate | g4-newstate) ;;
+  *) p3_fail "unsupported gate: $gate (defined gates: g1, g2, g3, g4-http500, g4-nocodex, g4-disconnect, g4-socketdrop, g4-wire, g4-retry, g4-oldstate, g4-newstate)" ;;
 esac
 
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-/private/tmp/spocky-targets/p3_slice_harness}
