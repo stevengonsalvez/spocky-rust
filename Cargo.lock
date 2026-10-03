@@ -5573,6 +5573,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-daemon-relay"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spocky-crypto",
+ "url",
+]
+
+[[package]]
 name = "spocky-differential"
 version = "0.1.0"
 dependencies = [

@@ -8,6 +8,7 @@ members = [
   "crates/spocky-crypto",
   "crates/spocky-daemon",
   "crates/spocky-daemon-app",
+  "crates/spocky-daemon-relay",
   "crates/spocky-differential",
   "crates/spocky-domain",
   "crates/spocky-hub-pilot",
