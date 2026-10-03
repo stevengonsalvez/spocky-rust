@@ -15,12 +15,12 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use spocky_contracts::js::truthy;
+use spocky_contracts::js::{js_string, truthy};
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_provider_codex::launch::{CODEX_NOT_FOUND_MESSAGE, resolve_launch_prefix};
 use spocky_provider_codex::{
-    CodexProvider, CodexSession, Prompt, ProviderRuntimeSettings, ResumeHandle, RunOptions,
-    SessionConfig,
+    CodexProvider, CodexSession, NativeArchiveState, Prompt, ProviderRuntimeSettings, ResumeHandle,
+    RunOptions, SessionConfig,
 };
 use spocky_session::agent_sdk::{
     AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError, AgentEventStream,
@@ -104,6 +104,20 @@ fn prompt(input: AgentPromptInput) -> AgentResult<Prompt> {
             Prompt::Blocks(blocks.iter().map(to_json).collect::<AgentResult<_>>()?)
         }
     })
+}
+
+/// `handle.nativeHandle ?? handle.sessionId`, or `""` when neither is set. An
+/// empty `nativeHandle` is kept (`??` skips only `null` and `undefined`).
+fn native_thread_id(handle: &JsValue) -> String {
+    let defined = |key: &str| {
+        handle
+            .get(key)
+            .filter(|value| !matches!(value, JsValue::Null | JsValue::Undefined))
+    };
+    defined("nativeHandle")
+        .or_else(|| defined("sessionId"))
+        .map(|value| js_string(Some(value)))
+        .unwrap_or_default()
 }
 
 async fn blocking<T: Send + 'static>(
@@ -470,6 +484,19 @@ impl CodexAgentClient {
             base_env,
         }
     }
+
+    /// `updateNativeThreadArchiveState(handle, state)` off the async runtime.
+    fn update_native_thread(
+        &self,
+        handle: &JsValue,
+        state: NativeArchiveState,
+    ) -> BoxFuture<'_, AgentResult<()>> {
+        let provider = Arc::clone(&self.provider);
+        let thread_id = native_thread_id(handle);
+        Box::pin(async move {
+            blocking(move || provider.update_native_thread_archive_state(&thread_id, state)).await
+        })
+    }
 }
 
 impl AgentClient for CodexAgentClient {
@@ -528,6 +555,18 @@ impl AgentClient for CodexAgentClient {
         _options: &FetchCatalogOptions,
     ) -> Option<BoxFuture<'static, AgentResult<Option<String>>>> {
         Some(Box::pin(async { Ok(Some("host".to_owned())) }))
+    }
+
+    /// `archiveNativeSession(handle)`: `thread/archive` on a short-lived
+    /// app-server.
+    fn archive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        Some(self.update_native_thread(&handle, NativeArchiveState::Archive))
+    }
+
+    /// `unarchiveNativeSession(handle)`: `thread/unarchive` on a short-lived
+    /// app-server.
+    fn unarchive_native_session(&self, handle: JsValue) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        Some(self.update_native_thread(&handle, NativeArchiveState::Restore))
     }
 
     fn fetch_catalog(
@@ -590,7 +629,10 @@ mod tests {
         AgentClient, AgentLaunchContext, AgentPromptInput, AgentRunOptions, AgentSession,
     };
 
-    use super::{CodexAgentClient, CodexAgentSession, launch_env, overrides_object, resume_handle};
+    use super::{
+        CodexAgentClient, CodexAgentSession, launch_env, native_thread_id, overrides_object,
+        resume_handle,
+    };
 
     /// Session options whose spawn always fails, so no app-server starts.
     fn test_options(mode: &str) -> SessionOptions {
@@ -888,5 +930,16 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved["A"], "1");
         assert_eq!(launch_env(None), None);
+    }
+
+    #[test]
+    fn the_native_thread_is_the_native_handle_or_the_session() {
+        let id = |json: &str| native_thread_id(&js_value::parse(json).unwrap());
+        assert_eq!(id(r#"{"nativeHandle":"n","sessionId":"s"}"#), "n");
+        assert_eq!(id(r#"{"nativeHandle":null,"sessionId":"s"}"#), "s");
+        assert_eq!(id(r#"{"sessionId":"s"}"#), "s");
+        // `??` keeps an empty string, which pinned then treats as no thread.
+        assert_eq!(id(r#"{"nativeHandle":"","sessionId":"s"}"#), "");
+        assert_eq!(id(r#"{"provider":"codex"}"#), "");
     }
 }
