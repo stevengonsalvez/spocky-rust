@@ -696,10 +696,7 @@ impl AgentManager {
 
     /// Runs `call` on the dispatcher, after every event dispatched so far.
     pub(crate) fn call_in_order(&self, call: impl FnOnce() + Send + 'static) {
-        let _ = self
-            .inner
-            .dispatch_tx
-            .send(DispatchBatch::Call(Box::new(call)));
+        self.send_batch(DispatchBatch::Call(Box::new(call)));
     }
 
     /// `subscribe(callback, options)`: returns the unsubscribe function.
