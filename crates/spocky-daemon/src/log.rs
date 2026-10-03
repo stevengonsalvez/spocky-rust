@@ -87,6 +87,24 @@ fn redact_pairs(pairs: &mut Vec<(String, Value)>, paths: &[&[String]]) {
     }
 }
 
+/// The level `createRootLogger` gives pino: `config.file?.level ?? config.console.level`
+/// of `resolveLogConfig`. Each is the section's own level, else the global
+/// `log.level`, else `info`; a file section exists only when one is configured and
+/// the caller allows files (`options.file !== false`, which the worker passes as
+/// false).
+#[must_use]
+pub fn resolve_level(
+    global: Option<Level>,
+    console: Option<Level>,
+    file: Option<Option<Level>>,
+    files_allowed: bool,
+) -> Level {
+    if files_allowed && let Some(file) = file {
+        return file.or(global).unwrap_or(Level::Info);
+    }
+    console.or(global).unwrap_or(Level::Info)
+}
+
 /// A pino level name, for the threshold a destination writes at
 /// (`level` in the pino options; the daemon's default is `info`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +118,21 @@ pub enum Level {
 }
 
 impl Level {
+    /// The level a config file names: `trace`, `debug`, `info`, `warn`,
+    /// `error` or `fatal` (`LogLevel` in `logger.ts`).
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "trace" => Some(Self::Trace),
+            "debug" => Some(Self::Debug),
+            "info" => Some(Self::Info),
+            "warn" => Some(Self::Warn),
+            "error" => Some(Self::Error),
+            "fatal" => Some(Self::Fatal),
+            _ => None,
+        }
+    }
+
     const fn number(self) -> u8 {
         match self {
             Self::Trace => TRACE,
@@ -144,6 +177,8 @@ pub trait Logger: Send + Sync {
     /// `logger.trace(...)`. Dropped by a destination that does not write at
     /// trace, which is every one by default (the daemon's level is `info`).
     fn trace(&self, _fields: &[(&str, &str)], _message: &str) {}
+    /// `logger.debug(...)`: dropped below the `debug` level, like `trace`.
+    fn debug(&self, _fields: &[(&str, &str)], _message: &str) {}
     fn info(&self, fields: &[(&str, &str)], message: &str);
     fn warn(&self, fields: &[(&str, &str)], message: &str);
     fn error(&self, fields: &[(&str, &str)], message: &str);
@@ -282,6 +317,9 @@ impl<W: Write + Send> Logger for JsonLineLogger<W> {
     fn trace(&self, fields: &[(&str, &str)], message: &str) {
         self.write(TRACE, None, fields, message);
     }
+    fn debug(&self, fields: &[(&str, &str)], message: &str) {
+        self.write(Level::Debug.number(), None, fields, message);
+    }
     fn info(&self, fields: &[(&str, &str)], message: &str) {
         self.write(INFO, None, fields, message);
     }
@@ -340,6 +378,9 @@ pub mod testing {
     impl Logger for RecordingLogger {
         fn trace(&self, fields: &[(&str, &str)], message: &str) {
             self.push("trace", fields, message);
+        }
+        fn debug(&self, fields: &[(&str, &str)], message: &str) {
+            self.push("debug", fields, message);
         }
         fn info(&self, fields: &[(&str, &str)], message: &str) {
             self.push("info", fields, message);
@@ -598,6 +639,56 @@ mod tests {
         assert!(
             text.contains(r#""name":"x","headers":{"keep":1},"req":{"headers":{"k":2}},"headers":[{"authorization":"kept"}],"msg":"m""#),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn the_logger_level_is_the_file_level_else_the_console_level() {
+        use Level::{Debug, Error, Info, Trace, Warn};
+        assert_eq!(resolve_level(None, None, None, true), Info);
+        assert_eq!(resolve_level(Some(Warn), None, None, true), Warn);
+        assert_eq!(resolve_level(Some(Warn), Some(Debug), None, true), Debug);
+        assert_eq!(
+            resolve_level(Some(Warn), Some(Debug), Some(None), true),
+            Warn
+        );
+        assert_eq!(resolve_level(None, Some(Debug), Some(None), true), Info);
+        assert_eq!(
+            resolve_level(None, Some(Debug), Some(Some(Error)), true),
+            Error
+        );
+        // The worker passes file: false, so a configured file section is ignored.
+        assert_eq!(
+            resolve_level(Some(Trace), Some(Debug), Some(Some(Error)), false),
+            Debug
+        );
+        assert_eq!(Level::from_name("warn"), Some(Warn));
+        assert_eq!(Level::from_name("silent"), None);
+    }
+
+    #[test]
+    fn debug_sits_between_trace_and_info() {
+        let emit = |logger: &JsonLineLogger<Shared>| {
+            logger.trace(&[], "trace");
+            logger.debug(&[], "debug");
+            logger.info(&[], "info");
+        };
+        let at_debug = lines_of(Some(Level::Debug), emit);
+        assert_eq!(
+            at_debug
+                .iter()
+                .map(|r| r["msg"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["debug", "info"]
+        );
+        assert_eq!(at_debug[0]["level"], 20);
+        let at_info = lines_of(None, emit);
+        assert_eq!(
+            at_info
+                .iter()
+                .map(|r| r["msg"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["info"]
         );
     }
 
