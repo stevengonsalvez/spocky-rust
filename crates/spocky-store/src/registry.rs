@@ -467,14 +467,71 @@ pub fn render_registry_file<R: RegistryRecord>(records: &[R]) -> String {
     ))
 }
 
+/// `writeRecords`: writes the rendered registry file text to `path`.
+pub type RecordWriter = Box<dyn FnMut(&Path, &str) -> Result<(), StoreError> + Send>;
+
 /// `FileBackedRegistry`: lazy load, `Map`-keyed cache, write on change.
-#[derive(Debug)]
 pub struct FileRegistry<R: RegistryRecord> {
     path: PathBuf,
     /// `(key, record)` in `Map` insertion order. The key is the id the
     /// record was stored under, which an updater may later change.
     cache: Option<Vec<(String, R)>>,
     load_failure: Option<StoreError>,
+    /// `mutationsBlockedUntilRestart`.
+    blocked: bool,
+    /// The `writeRecords` option; `None` is `writeJsonFileAtomic`.
+    writer: Option<RecordWriter>,
+}
+
+impl<R: RegistryRecord + std::fmt::Debug> std::fmt::Debug for FileRegistry<R> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FileRegistry")
+            .field("path", &self.path)
+            .field("cache", &self.cache)
+            .field("load_failure", &self.load_failure)
+            .field("blocked", &self.blocked)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The records a [`FileRegistry::commit_staged`] planner reads: the cache as
+/// the `Map` the baseline passes it, in insertion order.
+#[derive(Debug)]
+pub struct RegistryView<'a, R>(&'a [(String, R)]);
+
+impl<R> Clone for RegistryView<'_, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<R> Copy for RegistryView<'_, R> {}
+
+impl<'a, R> RegistryView<'a, R> {
+    /// `Map.get(id)`.
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<&'a R> {
+        self.0
+            .iter()
+            .find(|(key, _)| key == id)
+            .map(|(_, record)| record)
+    }
+
+    /// `Map.values()`.
+    pub fn values(&self) -> impl Iterator<Item = &'a R> {
+        self.0.iter().map(|(_, record)| record)
+    }
+}
+
+/// What a [`FileRegistry::commit_staged`] planner stages: the records to set,
+/// the caller's result, and whether to run the write hooks even when no record
+/// changes.
+#[derive(Debug)]
+pub struct StagedCommit<R, T> {
+    pub updates: Vec<R>,
+    pub result: T,
+    pub force_persist: bool,
 }
 
 impl<R: RegistryRecord> FileRegistry<R> {
@@ -484,7 +541,28 @@ impl<R: RegistryRecord> FileRegistry<R> {
             path: path.into(),
             cache: None,
             load_failure: None,
+            blocked: false,
+            writer: None,
         }
+    }
+
+    /// The `writeRecords` constructor option.
+    #[must_use]
+    pub fn with_writer(mut self, writer: RecordWriter) -> Self {
+        self.writer = Some(writer);
+        self
+    }
+
+    /// `freezeMutationsUntilRestart`: every later mutation fails.
+    pub fn block_mutations_until_restart(&mut self) {
+        self.blocked = true;
+    }
+
+    fn ensure_unblocked(&self) -> Result<(), StoreError> {
+        if self.blocked {
+            return Err(StoreError::MutationsBlocked);
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -557,6 +635,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
     /// fails; the cache is then unchanged.
     pub fn upsert(&mut self, record: R) -> Result<(), StoreError> {
         let record = schema_parse(record)?;
+        self.ensure_unblocked()?;
         let mut staged = self.entries().clone();
         set_entry(&mut staged, record.id().to_owned(), record);
         self.commit(staged)
@@ -574,6 +653,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
         id: &str,
         updater: impl FnOnce(&R) -> R,
     ) -> Result<Option<R>, StoreError> {
+        self.ensure_unblocked()?;
         let mut staged = self.entries().clone();
         let Some(existing) = staged
             .iter()
@@ -612,6 +692,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
         id: &str,
         archived_at: &str,
     ) -> Result<Option<R>, StoreError> {
+        self.ensure_unblocked()?;
         let active = self
             .entries()
             .iter()
@@ -628,6 +709,7 @@ impl<R: RegistryRecord> FileRegistry<R> {
     ///
     /// Returns an error if the atomic write fails.
     pub fn remove_if_present(&mut self, id: &str) -> Result<Option<R>, StoreError> {
+        self.ensure_unblocked()?;
         let mut staged = self.entries().clone();
         let Some(index) = staged.iter().position(|(key, _)| key == id) else {
             return Ok(None);
@@ -638,10 +720,68 @@ impl<R: RegistryRecord> FileRegistry<R> {
     }
 
     fn commit(&mut self, staged: Vec<(String, R)>) -> Result<(), StoreError> {
-        let records: Vec<R> = staged.iter().map(|(_, record)| record.clone()).collect();
-        write_json_atomic(&self.path, &render_registry_file(&records))?;
+        self.write_entries(&staged)?;
         self.cache = Some(staged);
         Ok(())
+    }
+
+    fn write_entries(&mut self, entries: &[(String, R)]) -> Result<(), StoreError> {
+        let records: Vec<R> = entries.iter().map(|(_, record)| record.clone()).collect();
+        let text = render_registry_file(&records);
+        match &mut self.writer {
+            Some(writer) => writer(&self.path, &text),
+            None => write_json_atomic(&self.path, &text),
+        }
+    }
+
+    /// `mutateCache` with hooks, as `commitWorkspaceLabelMutation` calls it.
+    ///
+    /// `stage` plans against the cache; each update is validated and set under
+    /// its own id in a copy. Nothing is written, and no hook runs, when no
+    /// record changes and the plan does not force persistence. Otherwise
+    /// `before_write` runs, then the file is written if a record changed, then
+    /// `after_write`, then the cache is replaced and `after_commit` runs. A
+    /// failure in any step leaves the cache as it was.
+    ///
+    /// Returns the result and the records that changed, for the caller to
+    /// publish as mutations.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of the first step that fails, or
+    /// [`StoreError::MutationsBlocked`] before any of them.
+    pub fn commit_staged<T, E: From<StoreError>>(
+        &mut self,
+        stage: impl FnOnce(RegistryView<'_, R>) -> Result<StagedCommit<R, T>, E>,
+        before_write: impl FnOnce() -> Result<(), E>,
+        after_write: impl FnOnce() -> Result<(), E>,
+        after_commit: impl FnOnce(),
+    ) -> Result<(T, Vec<R>), E> {
+        self.ensure_unblocked()?;
+        let staged = stage(RegistryView(self.entries()))?;
+        let mut changed = Vec::with_capacity(staged.updates.len());
+        for record in staged.updates {
+            changed.push(schema_parse(record)?);
+        }
+        let mut entries = self.entries().clone();
+        for record in &changed {
+            set_entry(&mut entries, record.id().to_owned(), record.clone());
+        }
+        // Every parsed update is a new object, so any update changes the map.
+        let records_changed = !changed.is_empty();
+        if !records_changed && !staged.force_persist {
+            return Ok((staged.result, changed));
+        }
+        before_write()?;
+        if records_changed {
+            self.write_entries(&entries)?;
+        }
+        after_write()?;
+        if records_changed {
+            self.cache = Some(entries);
+        }
+        after_commit();
+        Ok((staged.result, changed))
     }
 }
 
