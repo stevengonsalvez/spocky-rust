@@ -570,8 +570,9 @@ impl Url {
         true
     }
 
-    /// `url::parse_port(view, true)`: the bytes consumed, `None` on failure.
-    fn parse_port(&mut self, view: &[u8]) -> Option<usize> {
+    /// `url::parse_port(view, check_trailing_content)`: the bytes consumed,
+    /// `None` where ada sets `is_valid = false`.
+    fn parse_port(&mut self, view: &[u8], check_trailing_content: bool) -> Option<usize> {
         if view.first() == Some(&b'-') {
             return None;
         }
@@ -586,9 +587,10 @@ impl Url {
             }
         }
         let consumed = digits;
-        if !(consumed == view.len()
-            || matches!(view[consumed], b'/' | b'?')
-            || (self.is_special() && view[consumed] == b'\\'))
+        if check_trailing_content
+            && !(consumed == view.len()
+                || matches!(view[consumed], b'/' | b'?')
+                || (self.is_special() && view[consumed] == b'\\'))
         {
             return None;
         }
@@ -1060,7 +1062,7 @@ fn parse_url(user_input: &[u8], base: Option<&Url>) -> Option<Url> {
                 url.path = percent_encode(view, &C0_CONTROL_SET);
             }
             State::Port => {
-                let consumed = url.parse_port(substring(url_data, position))?;
+                let consumed = url.parse_port(substring(url_data, position), true)?;
                 position += consumed;
                 state = State::PathStart;
             }
@@ -1189,6 +1191,268 @@ fn parse_url(user_input: &[u8], base: Option<&Url>) -> Option<Url> {
     Some(url)
 }
 
+fn remove_tabs_and_newlines(input: &[u8]) -> Vec<u8> {
+    input
+        .iter()
+        .copied()
+        .filter(|byte| !matches!(byte, b'\t' | b'\n' | b'\r'))
+        .collect()
+}
+
+/// The URL setters node's `URL` applies, ported from `ada::url`
+/// (`src/url-setters.cpp`): each returns `false` where ada refuses the change.
+impl Url {
+    fn cannot_have_credentials_or_port(&self) -> bool {
+        self.host.as_ref().is_none_or(Vec::is_empty) || self.scheme == Scheme::File
+    }
+
+    fn set_host_or_hostname(&mut self, input: &[u8], override_hostname: bool) -> bool {
+        if self.has_opaque_path {
+            return false;
+        }
+        let previous_host = self.host.clone();
+        let previous_port = self.port;
+        let host_end = input
+            .iter()
+            .position(|byte| *byte == b'#')
+            .unwrap_or(input.len());
+        let new_host = remove_tabs_and_newlines(&input[..host_end]);
+        if self.scheme != Scheme::File {
+            let (location, found_colon) = host_delimiter_location(self.is_special(), &new_host);
+            let host_view = &new_host[..location];
+            if found_colon {
+                if override_hostname {
+                    return false;
+                }
+                let buffer = &new_host[location + 1..];
+                if !buffer.is_empty() {
+                    self.set_port_bytes(buffer);
+                }
+            } else if host_view.is_empty()
+                && (self.is_special() || self.has_credentials() || self.port.is_some())
+            {
+                return false;
+            }
+            if host_view.is_empty() && !self.is_special() {
+                // url_aggregator clears an existing hostname, and gives a
+                // host-less URL whose path starts with `//` an empty one
+                // (dropping the `/.` prefix); otherwise nothing changes.
+                if self.host.is_some() || self.path.starts_with(b"//") {
+                    self.host = Some(Vec::new());
+                }
+                return true;
+            }
+            let succeeded = self.parse_host(host_view);
+            if !succeeded {
+                self.host = previous_host;
+                self.port = previous_port;
+            }
+            return succeeded;
+        }
+        let end = new_host
+            .iter()
+            .position(|byte| matches!(byte, b'/' | b'\\' | b'?'))
+            .unwrap_or(new_host.len());
+        let file_host = &new_host[..end];
+        if file_host.is_empty() {
+            self.host = Some(Vec::new());
+        } else {
+            if !self.parse_host(file_host) {
+                self.host = previous_host;
+                self.port = previous_port;
+                return false;
+            }
+            if self.host.as_deref() == Some(b"localhost") {
+                self.host = Some(Vec::new());
+            }
+        }
+        true
+    }
+
+    fn set_port_bytes(&mut self, input: &[u8]) -> bool {
+        if self.cannot_have_credentials_or_port() {
+            return false;
+        }
+        let trimmed = remove_tabs_and_newlines(input);
+        if trimmed.is_empty() {
+            self.port = None;
+            return true;
+        }
+        if trimmed[0] <= b' ' {
+            return false;
+        }
+        if !input.iter().any(u8::is_ascii_digit) {
+            return false;
+        }
+        let previous = self.port;
+        if self.parse_port(&trimmed, false).is_some() {
+            return true;
+        }
+        self.port = previous;
+        false
+    }
+
+    fn strip_trailing_spaces_from_opaque_path(&mut self) {
+        if !self.has_opaque_path || self.hash.is_some() || self.query.is_some() {
+            return;
+        }
+        while self.path.last() == Some(&b' ') {
+            self.path.pop();
+        }
+    }
+
+    /// `url::parse_path`: the pathname setter's path parsing.
+    fn parse_path(&mut self, input: &[u8]) {
+        let cleaned = remove_tabs_and_newlines(input);
+        if self.is_special() {
+            if cleaned.is_empty() {
+                self.path = b"/".to_vec();
+            } else if matches!(cleaned[0], b'/' | b'\\') {
+                self.parse_prepared_path(&cleaned[1..]);
+            } else {
+                self.parse_prepared_path(&cleaned);
+            }
+        } else if !cleaned.is_empty() {
+            if cleaned[0] == b'/' {
+                self.parse_prepared_path(&cleaned[1..]);
+            } else {
+                self.parse_prepared_path(&cleaned);
+            }
+        } else if self.host.is_none() {
+            self.path = b"/".to_vec();
+        }
+    }
+
+    /// `url::parse_scheme<true>`: the protocol setter's scheme step.
+    fn parse_scheme_override(&mut self, input: &[u8]) -> bool {
+        let parsed = Scheme::of(input);
+        let drop_default_port = |url: &mut Self| {
+            let default_port = url.scheme.default_port();
+            if default_port != 0 && url.port == Some(default_port) {
+                url.port = None;
+            }
+        };
+        if parsed.is_special() {
+            if !self.is_special() {
+                return false;
+            }
+            if (self.has_credentials() || self.port.is_some()) && parsed == Scheme::File {
+                return false;
+            }
+            if self.scheme == Scheme::File && self.host.as_deref() == Some(b"") {
+                return false;
+            }
+            self.scheme = parsed;
+            drop_default_port(self);
+        } else {
+            let lowered = input.to_ascii_lowercase();
+            if self.is_special() != Scheme::of(&lowered).is_special() {
+                return true;
+            }
+            if (self.has_credentials() || self.port.is_some()) && lowered == b"file" {
+                return true;
+            }
+            if self.scheme == Scheme::File && self.host.as_deref() == Some(b"") {
+                return true;
+            }
+            self.set_scheme(&lowered);
+            drop_default_port(self);
+        }
+        true
+    }
+
+    /// `url.protocol = value`.
+    pub fn set_protocol(&mut self, value: &str) -> bool {
+        let mut view = remove_tabs_and_newlines(value.as_bytes());
+        if view.is_empty() {
+            return true;
+        }
+        if !is_alpha(view[0]) {
+            return false;
+        }
+        view.push(b':');
+        let end = view
+            .iter()
+            .position(|byte| !is_alnum_plus(*byte))
+            .unwrap_or(view.len());
+        if end < view.len() && view[end] == b':' {
+            let scheme = view[..end].to_vec();
+            return self.parse_scheme_override(&scheme);
+        }
+        false
+    }
+
+    /// `url.username = value`.
+    pub fn set_username(&mut self, value: &str) -> bool {
+        if self.cannot_have_credentials_or_port() {
+            return false;
+        }
+        self.username = percent_encode(value.as_bytes(), &USERINFO_SET);
+        true
+    }
+
+    /// `url.password = value`.
+    pub fn set_password(&mut self, value: &str) -> bool {
+        if self.cannot_have_credentials_or_port() {
+            return false;
+        }
+        self.password = percent_encode(value.as_bytes(), &USERINFO_SET);
+        true
+    }
+
+    /// `url.host = value`.
+    pub fn set_host(&mut self, value: &str) -> bool {
+        self.set_host_or_hostname(value.as_bytes(), false)
+    }
+
+    /// `url.hostname = value`.
+    pub fn set_hostname(&mut self, value: &str) -> bool {
+        self.set_host_or_hostname(value.as_bytes(), true)
+    }
+
+    /// `url.pathname = value`.
+    pub fn set_pathname(&mut self, value: &str) -> bool {
+        if self.has_opaque_path {
+            return false;
+        }
+        self.path.clear();
+        self.parse_path(value.as_bytes());
+        true
+    }
+
+    /// `url.hash = value`.
+    pub fn set_hash(&mut self, value: &str) {
+        let input = value.as_bytes();
+        if input.is_empty() {
+            self.hash = None;
+            self.strip_trailing_spaces_from_opaque_path();
+            return;
+        }
+        let rest = if input[0] == b'#' { &input[1..] } else { input };
+        self.hash = Some(percent_encode(
+            &remove_tabs_and_newlines(rest),
+            &FRAGMENT_SET,
+        ));
+    }
+
+    /// `url.search = value`.
+    pub fn set_search(&mut self, value: &str) {
+        let input = value.as_bytes();
+        if input.is_empty() {
+            self.query = None;
+            self.strip_trailing_spaces_from_opaque_path();
+            return;
+        }
+        let rest = if input[0] == b'?' { &input[1..] } else { input };
+        let set = if self.is_special() {
+            &SPECIAL_QUERY_SET
+        } else {
+            &QUERY_SET
+        };
+        self.query = Some(percent_encode(&remove_tabs_and_newlines(rest), set));
+    }
+}
+
 impl Url {
     /// `new URL(input, base)`; `None` where it throws.
     #[must_use]
@@ -1239,6 +1503,8 @@ impl Url {
     pub fn host(&self) -> String {
         match (&self.host, self.port) {
             (None, _) => String::new(),
+            // url_aggregator reads an empty host as empty even with a port.
+            (Some(host), _) if host.is_empty() => String::new(),
             (Some(host), Some(port)) => format!("{}:{port}", text(host)),
             (Some(host), None) => text(host),
         }
