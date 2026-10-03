@@ -505,7 +505,8 @@ impl AgentManager {
         Some(closed)
     }
 
-    /// `emitState` for an agent no longer in the map (`emitClosedAgent`).
+    /// `emitState` for an agent no longer in the map (`emitClosedAgent`, always
+    /// with `persist: false`).
     pub(super) fn emit_detached_state_locked(
         &self,
         state: &mut State,
@@ -534,6 +535,27 @@ impl AgentManager {
                 };
             }
         }
+        self.emit_trace(
+            || {
+                trace::bindings([
+                    ("agentId", trace::text(&snapshot.id)),
+                    ("provider", trace::text(&snapshot.provider)),
+                    ("sessionId", trace::session_id(&snapshot)),
+                    ("turnId", trace::foreground_turn_id_or_undefined(&snapshot)),
+                    ("lifecycle", trace::lifecycle(&snapshot)),
+                    (
+                        "activeForegroundTurnId",
+                        trace::foreground_turn_id(&snapshot),
+                    ),
+                    (
+                        "pendingPermissions",
+                        trace::count(snapshot.pending_permissions.len()),
+                    ),
+                    ("persist", JsValue::Bool(false)),
+                ])
+            },
+            "agent.manager.emit_state",
+        );
         self.dispatch(state, AgentManagerEvent::AgentState(Box::new(snapshot)));
     }
 
