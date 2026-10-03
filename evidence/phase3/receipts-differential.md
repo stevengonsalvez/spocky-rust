@@ -26,11 +26,16 @@ cargo clippy --locked -p spocky-message-receipts --all-targets -- -D warnings
 cargo fmt --package spocky-message-receipts -- --check
 ```
 
-Test counts: 4 unit, 5 ported (`tests/receipts.rs`, including call-order
-queueing when futures are polled out of order), 6 differential
-(`tests/receipts_differential.rs`; the 2 old-home cross-read tests were added
-by lane `p3_contracts`), 0 doc tests. 15 passed, 0 failed, 0 ignored. Clippy and fmt are clean. The differential first fails unless node
-reports `v22.20.0` and both dist modules match the digests below.
+Test counts: 4 unit, 7 ported (`tests/receipts.rs`, including call-order
+queueing when futures are polled out of order, awaiting a later send first,
+and dropping a send), 7 differential (`tests/receipts_differential.rs`; the 2
+old-home cross-read tests were added by lane `p3_contracts`, and one checks
+that a hung Rust side fails instead of hanging), 0 doc tests. 18 passed, 0
+failed, 0 ignored. Clippy and fmt are clean. The Rust side of every
+differential is bounded to 120 s, like node's. The differential first fails
+unless node reports `v22.20.0` and both dist modules match the digests below.
+One earlier run of this suite failed once and passed on 20 reruns; the cause
+was not found.
 
 The runner's own failure handling is proven by:
 
@@ -50,14 +55,14 @@ runner each made one case fail.
 The two-instance race step passed 20 consecutive gated runs of
 `receipts_match_pinned_build` at `4128f37`.
 
-## Recorded run `receipts-20261003T011633Z`
+## Recorded run `receipts-20261003T122644Z`
 
-Raw evidence lives under `evidence/raw/phase3/receipts-20261003T011633Z/`
+Raw evidence lives under `evidence/raw/phase3/receipts-20261003T122644Z/`
 (untracked).
 
 | Input | Value |
 |---|---|
-| Commit | `0ed049f53cb8a326853f3c9235af18bd282f4118` |
+| Commit | `77842387c44d81ccdf5bbf78f5772f501bf17c7a` |
 | Node | `v22.20.0` |
 | Pinned dist | `paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server` |
 | `server/message-receipts/index.js` SHA-256 | `e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559` |
@@ -67,11 +72,11 @@ Raw evidence lives under `evidence/raw/phase3/receipts-20261003T011633Z/`
 |---|---|
 | `receipts-node-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
 | `receipts-rust-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
-| `receipts-node-raw.json` | `c7f3167d5c1e816740674c05ff3164873dc430014c60371b5dd04f85126b36d4` |
-| `receipts-rust-raw.json` | `b949c1c7a2bce048d39013e765d3910bdafb277eaee63ffeacd266f6b1ae1677` |
-| `inputs.txt` | `7a629ef550adbbbdac8435f7e0c32ee7f093a5e956c82e2fa562d72bd703f0b0` |
-| `test.log` | `13fe56990ce5af377744f934a2d5616ad8f32de04274c4f2e1058e1471a6d9c7` |
-| `clippy.log` | `6a81f119d29a3ac9f57fb3eafe4abb242e49574cb892c525ca92bee3dc842a9c` |
+| `receipts-node-raw.json` | `7c56f49bea4f0408b34eb0fc8e5023c57810b2ac22487f9d66d8469f64b8974b` |
+| `receipts-rust-raw.json` | `999d74415a91a1cef3a3222e4ab910482e9f99f4eb0dc862dfdec6b80adc775d` |
+| `inputs.txt` | `7d44ef6a4fd244e86ed640614a82e8dc5b0c332e285b71f740b9a659c2b5a075` |
+| `test.log` | `d2f0d273540f77d65ff5d3681a47973437c25346dfa8f111252ec7b1c7667bd3` |
+| `clippy.log` | `669ab4c5916b940ac9b061ed723d0dfb4f1b018899b9c864d9846d1460fb7628` |
 | `fmt.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 | `git-status.txt` (only `logs/` entries) | `e2a2110fea7d4e3178c32260751f4a1a1fd79c4df695769f5d2addbb096c7fe3` |
 
@@ -134,7 +139,9 @@ against a daemon: one agent, a send with a fixed `messageId`, the same send
 retried on the same and on a second connection (accepted, no new turn), the
 same `messageId` with other text (rejected as a key conflict), and two
 concurrent sends of a fresh `messageId` (one turn). It prints each step's
-outcome and the recording client's raw wire text. The stub script must hold
+outcome and the first client's raw wire text in arrival order, every frame
+except `pong`: its handshake's `server_info` frame comes first, as in the G2
+recorder. The stub script must hold
 exactly three turns: the initial prompt, the first send, and the concurrent
 pair. `gates.rs` and `gate.sh` belong to `p3_slice_harness`, which owns the
 `g4-retry` fixture. Run on the pinned original daemon through a scratch copy
@@ -153,9 +160,17 @@ equal the expected ones in order, and both sides hold two completed send
 receipts with equal fingerprints. It requires a clean tree, unsets
 `SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
 `scripts/phase3/receipts-retry-parity.test.sh` proves that with a fake gate
-over 24 cases (a clean match, and one injected defect each); removing any one
-of the runner's checks makes its own case fail. The runner itself has not run
-against the real gate, which does not support `g4-retry` on main yet.
+over 32 cases (a clean match, and one injected defect each). It also requires
+each side to print exactly one `server_info` frame, first, and the two to be
+byte-identical in key order after masking generated values (as
+`g2-differential.sh` does), except `features.workspaceLabels`: the original
+must advertise it, spocky may omit it (open gap DWLABEL-001) or advertise it
+too. Removing any one of the runner's checks makes its own case fail, except
+the first-frame check, which the `workspaceLabels` checks shadow; it is kept
+for its clearer message. The fake gate's layout was copied from a real
+`g3` parity run, not from `g4-retry`; check it against the real `gate.sh`
+when `g4-retry` lands. The runner itself has not run against the real gate,
+which does not support `g4-retry` on main yet.
 
 ## Gaps
 
@@ -170,6 +185,11 @@ against the real gate, which does not support `g4-retry` on main yet.
   ASCII. Recheck before another caller is ported.
 - Queues are per instance in both: two instances on one directory can
   deliver one message twice (pinned behavior, covered above).
+- A send starts when `send` is called, as a promise does: it joins the key's
+  queue and is spawned on the current Tokio runtime, so `send` needs one at
+  call time and its delivery must be `Send + 'static`. The returned future
+  can be awaited in any order and dropped without cancelling the send; a panic
+  in a send whose future was dropped is lost.
 - A request nested deep enough to overflow V8's stack makes node throw a
   `RangeError`; the port digests it.
 - Not exercised by the differential: `write` syscall failures (`ENOSPC`,
