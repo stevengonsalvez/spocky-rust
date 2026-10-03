@@ -508,7 +508,10 @@ fn start_after_lock(
         },
     );
 
-    let token = write_local_credential(paseo_home).map_err(|error| fail(error.to_string()))?;
+    let token = match write_local_credential(paseo_home) {
+        Ok(token) => token,
+        Err(error) => return Err(start_rejected(logger, fail(error.to_string()))),
+    };
     *local_credential
         .lock()
         .map_err(|_| fail("credential lock poisoned"))? = Some(token);
@@ -519,7 +522,7 @@ fn start_after_lock(
         Err(error) => {
             let _ = delete_local_credential(paseo_home);
             server.close();
-            return Err(error);
+            return Err(start_rejected(logger, error));
         }
     };
     let listen = format_listen_target(&bound_target);
@@ -541,11 +544,10 @@ fn start_after_lock(
         backend,
     };
     if let Err(message) = daemon.backend.listening(&bound_target) {
-        // `daemon-worker.ts` logs the failure, and the start is undone as for a
-        // lock that cannot be published.
-        logger.error(&[("err", &message)], "Daemon failed to start listening");
-        daemon.stop();
-        return Err(fail(message));
+        // The `start()` catch of `bootstrap.ts` undoes the start without a log
+        // line; the worker then logs the rejection.
+        daemon.abort_start();
+        return Err(start_rejected(logger, fail(message)));
     }
     logger.info(&[("listen", &daemon.listen)], "Server listening");
     if let Err(error) = publish(paseo_home, &patch) {
@@ -554,6 +556,13 @@ fn start_after_lock(
         return Err(fail(error.to_string()));
     }
     Ok(daemon)
+}
+
+/// `daemon-worker.ts`: a rejection of `daemon.start()` is logged at fatal, after
+/// the start was undone, whatever step failed.
+fn start_rejected(logger: &Arc<dyn Logger>, error: StartupError) -> StartupError {
+    logger.fatal(&[("err", &error.0)], "Daemon failed to start listening");
+    error
 }
 
 impl RunningDaemon {
@@ -583,15 +592,28 @@ impl RunningDaemon {
     /// `daemon.stop()` then the supervisor's exit steps: remove the credential,
     /// freeze ingress, stop the backend's agents, close the server, clear
     /// `listen` in the lock, release the lock.
-    pub fn stop(mut self) {
+    pub fn stop(self) {
+        self.shut_down(true);
+    }
+
+    /// The `catch` of `start()` in `bootstrap.ts`: the credential removed, the
+    /// server closed, nothing logged. The agent steps of a graceful stop are
+    /// not part of it.
+    fn abort_start(self) {
+        self.shut_down(false);
+    }
+
+    fn shut_down(mut self, graceful: bool) {
         if let Err(error) = delete_local_credential(&self.paseo_home) {
             self.logger.warn(
                 &[("err", &error.to_string())],
                 "Failed to delete local credential",
             );
         }
-        self.server.prepare_for_shutdown();
-        self.backend.stop_agents();
+        if graceful {
+            self.server.prepare_for_shutdown();
+            self.backend.stop_agents();
+        }
         self.server.close();
         if let Some(listener) = self.listener.take() {
             listener.stop();
@@ -599,7 +621,9 @@ impl RunningDaemon {
         if let Some(path) = &self.unix_socket {
             let _ = fs::remove_file(path);
         }
-        self.logger.info(&[], "Server closed");
+        if graceful {
+            self.logger.info(&[], "Server closed");
+        }
         if let Some(heartbeat) = self.heartbeat.take() {
             heartbeat.stop();
         }
