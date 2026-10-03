@@ -21,8 +21,9 @@
 // the rest is the raw wire text, one frame per line in arrival order, every
 // frame from connect on, the server_info status included, as three labelled
 // blocks, one per connection: "# recording client", "# retry-other connection"
-// and "# race second connection". Only the bare heartbeat pongs are left out
-// (see HEARTBEAT_PONG).
+// and "# race second connection". The client's timer-driven heartbeat pongs
+// are in them too; the harness removes the bare ones (class
+// client-heartbeat-pong) and counts them per side.
 // Per-run ids and instants in them are masked by the harness's existing
 // generated_id and wall_clock classes, never dropped here. Wire text is taken
 // by hooking DaemonClient.prototype.handleJsonPayload, so key order and
@@ -52,14 +53,6 @@ prototype.handleJsonPayload = function (payload, length) {
   return handleJsonPayload.call(this, payload, length);
 };
 const record = (connection) => recorded.get(connection);
-// Class client-heartbeat-pong: the client's 10 s liveness heartbeat is
-// answered by a bare pong. How many
-// arrive, and between which other frames, follows the wall clock (two runs of
-// the same daemon put one in different places), so these are left out of the
-// ordered wire. Only a frame exactly equal to this text is removed; a pong
-// with any other text stays in it. The g4-wire
-// fixture compares the daemon's answer to a ping.
-const HEARTBEAT_PONG = '{"type":"pong"}';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const outcomes = [];
 const attempt = async (step, run) => {
@@ -113,7 +106,7 @@ await sleep(1500);
 console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
 const print = (label, frames) => {
   console.log(label);
-  for (const text of frames) if (text !== HEARTBEAT_PONG) console.log(text);
+  for (const text of frames) console.log(text);
 };
 print("# recording client", clientFrames());
 print("# retry-other connection", otherFrames());
