@@ -847,6 +847,90 @@ fn helpers_match_the_pinned_runtime() {
     differential("helpers", &ops);
 }
 
+#[test]
+fn rethrown_plaintext_frame_errors_close_with_their_message() {
+    let shared = peer_shared();
+    let Some(transcript) = differential(
+        "daemon-rethrow-plaintext-frame",
+        &[
+            daemon(),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            // Transport errors raised by a re-hello.
+            mode("reject", "relay saw plaintext frame"),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            mode("pending", ""),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            settle(3, Some("late plaintext frame")),
+            mode("sync", ""),
+            // V8 parse errors that quote the frame itself.
+            deliver_text(r#"{"plaintext frame":}"#),
+            deliver_text(r#"{"plaintext frame":]"#),
+            deliver_text(r#"{"plaintext frame": }"#),
+            deliver_text(r#"{"a":["plaintext frame",]}"#),
+            deliver_text(r"{plaintext frame}"),
+            deliver_base64(&seal(&shared, 1, b"still open")),
+            // A throwing close during key rotation.
+            json!({ "op": "close-mode", "kind": "throw", "message": "close saw plaintext frame" }),
+            deliver_text(&hello(OTHER_PUBLIC, "")),
+            json!({ "op": "is-open" }),
+        ],
+    ) else {
+        return;
+    };
+    for reason in [
+        "relay saw plaintext frame",
+        "late plaintext frame",
+        r#"Unexpected token '}', "{"plaintext frame":}" is not valid JSON"#,
+        r#"Unexpected token ']', "{"plaintext frame":]" is not valid JSON"#,
+        "close saw plaintext frame",
+    ] {
+        assert!(
+            has(
+                &transcript,
+                &format!(
+                    r#"{{"t":"transport-close","code":1011,"reason":{}}}"#,
+                    quote(reason)
+                )
+            ),
+            "{reason}"
+        );
+    }
+    assert!(has(&transcript, r#"{"t":"message","text":"still open"}"#));
+}
+
+#[test]
+fn unexpected_token_messages_match_v8() {
+    let bases = [
+        r#"{"plaintext frame":[1,true,null]}"#,
+        r#"{"a":{"b":"plaintext frame"},"c":false}"#,
+    ];
+    let inserts = [
+        ":", ",", "}", "]", "x", "\"", "1", "-", " ", "é", "😀", "t", "n", "{", "[",
+    ];
+    let mut ops = Vec::new();
+    for base in bases {
+        let units: Vec<char> = base.chars().collect();
+        for index in 0..=units.len() {
+            for insert in inserts {
+                let mut text: String = units[..index].iter().collect();
+                text.push_str(insert);
+                text.extend(&units[index..]);
+                ops.push(json!({ "op": "probe-json-error", "text": text }));
+            }
+        }
+    }
+    let Some(transcript) = differential("json-unexpected-token", &ops) else {
+        return;
+    };
+    assert!(
+        count(
+            &transcript,
+            r#"{"t":"json-error","message":"Unexpected token"#
+        ) > 100
+    );
+    assert!(count(&transcript, r#"{"t":"json-error","message":null}"#) > 100);
+}
+
 fn pair_steps() -> Vec<(&'static str, Value)> {
     vec![
         ("daemon", daemon()),
