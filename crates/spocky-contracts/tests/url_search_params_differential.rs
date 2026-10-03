@@ -458,6 +458,7 @@ fn url_search_params_match_node() {
             ));
         }
     }
+    assert_eq!(lines.next(), None, "node printed more lines than cases");
     assert!(
         mismatches.is_empty(),
         "{} of {} cases differ:\n{}",
