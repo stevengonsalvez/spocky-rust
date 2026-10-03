@@ -146,11 +146,13 @@ concurrent sends of a fresh `messageId`, one per socket (one turn). The stub
 script must hold exactly three turns: the initial prompt, the first send, and
 the concurrent pair. Lane `p3_slice_harness` owns the probe and the `g4-retry`
 fixture in `gates.rs` and `gate.sh`; its probe prints the outcomes line, then
-two labelled blocks, `# recording client` and `# retry-other connection`,
-holding every frame in arrival order, pings, pongs and `server_info` included,
-each block starting with its handshake's `server_info` frame (recording keyed
-by client instance from the first payload, since `DaemonClient.connect()`
-resolves inside the `server_info` handler). Run on the pinned original daemon
+three labelled blocks, `# recording client`, `# retry-other connection` and
+`# race second connection` (the race's second socket), holding every frame in
+arrival order except the bare heartbeat pong `{"type":"pong"}`, whose count
+follows the client's 10 s timer. Each block starts with its handshake's
+`server_info` frame (recording keyed by client instance from the first
+payload, since `DaemonClient.connect()` resolves inside the `server_info`
+handler). Run on the pinned original daemon
 through a scratch copy of the first fixture, the probe's outcomes were all as
 expected and the stub held exactly three turns. No run has compared the
 original and `spocky-daemon` yet, so wire parity of the daemon's retry
@@ -168,10 +170,10 @@ order after masking generated values (as `g2-differential.sh` does), except
 `features.workspaceLabels`: the original must advertise it, spocky may omit it
 (open gap DWLABEL-001) or advertise it too. Every comparison is on raw bytes;
 `jq` only answers yes or no and never writes back a re-encoded value. The
-other frames, pongs included, are compared by the gate. The runner requires a
+other frames are compared by the gate. The runner requires a
 clean tree, unsets `SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
 `scripts/phase3/receipts-retry-parity.test.sh` proves that with a fake gate
-over 38 cases (a clean match, extra pongs, a closed `workspaceLabels` gap, and
+over 41 cases (a clean match, extra pongs, a closed `workspaceLabels` gap, and
 one injected defect each). Removing any one of the runner's checks makes its
 own case fail, except the first-frame check, which the `workspaceLabels`
 checks shadow; it is kept for its clearer message. The fake gate's layout was
