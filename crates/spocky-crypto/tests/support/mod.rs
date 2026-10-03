@@ -290,6 +290,10 @@ struct Shared {
     close_failure: Option<String>,
     next_id: u64,
     on_open_send: Option<String>,
+    /// While a batch is delivered, sends that would settle at once report
+    /// `Pending` and settle after the batch, as a send the original awaits
+    /// continues only after the rest of the task.
+    deferred: Option<Vec<u64>>,
 }
 
 type SharedRef = Rc<RefCell<Shared>>;
@@ -338,7 +342,13 @@ impl Transport for LogTransport {
             .pop_front()
             .unwrap_or_else(|| shared.mode.clone());
         match mode {
-            Mode::Sync => SendStatus::Sent,
+            Mode::Sync => match &mut shared.deferred {
+                Some(ids) => {
+                    ids.push(id);
+                    SendStatus::Pending(SendId(id))
+                }
+                None => SendStatus::Sent,
+            },
             Mode::Fail(message) => SendStatus::Failed(TransportError(message)),
             Mode::Pending => SendStatus::Pending(SendId(id)),
         }
@@ -415,6 +425,7 @@ impl Default for RustEndpoint {
                 close_failure: None,
                 next_id: 1,
                 on_open_send: None,
+                deferred: None,
             })),
             channel: None,
             handshake_logged: false,
@@ -549,6 +560,25 @@ impl RustEndpoint {
                     .unwrap_or(matches!(data, Data::Binary(_)));
                 self.channel()
                     .handle_message(TransportMessage { data, is_binary });
+            }
+            "batch" => {
+                self.shared.borrow_mut().deferred = Some(Vec::new());
+                for frame in op["frames"].as_array().unwrap() {
+                    let data = op_data(frame);
+                    let is_binary = frame["isBinary"]
+                        .as_bool()
+                        .unwrap_or(matches!(data, Data::Binary(_)));
+                    self.channel()
+                        .handle_message(TransportMessage { data, is_binary });
+                }
+                let ids = self.shared.borrow_mut().deferred.take().unwrap();
+                for id in ids {
+                    let id = SendId(id);
+                    if let Some(result) = self.channel().settle_send(id, Ok(())) {
+                        let handle = self.handles.remove(&id).expect("application send");
+                        self.log_send(handle, result);
+                    }
+                }
             }
             "send" => {
                 let handle = self.next_handle;
