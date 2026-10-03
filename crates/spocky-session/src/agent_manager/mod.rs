@@ -29,6 +29,7 @@ mod draft_listing;
 mod events;
 mod importable;
 mod lifecycle;
+mod log_error;
 mod metrics;
 mod provider_registry;
 mod run;

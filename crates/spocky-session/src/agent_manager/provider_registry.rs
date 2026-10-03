@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use spocky_store::js_value::{JsObject, JsValue};
 
+use super::log_error::err_binding;
 use super::{AgentManager, ProviderDefinition};
 use crate::agent_sdk::AgentClient;
 
@@ -66,10 +67,9 @@ impl AgentManager {
         for (agent_id, provider) in retired {
             let manager = self.clone();
             tokio::spawn(async move {
-                if manager.close_agent(&agent_id).await.is_err() {
-                    // pino prints the `err` binding, an `Error`, as `{}`.
+                if let Err(error) = manager.close_agent(&agent_id).await {
                     let mut bindings = JsObject::new();
-                    bindings.insert("err", JsValue::Object(JsObject::new()));
+                    bindings.insert("err", err_binding(&error));
                     bindings.insert("agentId", JsValue::String(agent_id));
                     bindings.insert("provider", JsValue::String(provider));
                     manager.emit_warn(

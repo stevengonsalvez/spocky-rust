@@ -396,6 +396,14 @@ const { AgentStorage } = await import(`${dist}/server/agent/agent-storage.js`);
 const { toAgentPayload } = await import(`${dist}/server/agent/agent-projections.js`);
 const fs = await import("node:fs");
 const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
+// pino's default `err` serializer, as the pinned logger applies it to an `err` binding.
+// The stack is dropped: its frames are node source locations no Rust error has.
+const { default: pinoStd } = await import(`${dist}/../../../../node_modules/pino-std-serializers/index.js`);
+const serializeLogErr = (bindings) => {
+  if (!bindings || typeof bindings !== "object" || !("err" in bindings)) return bindings;
+  const { stack: _stack, ...err } = { ...pinoStd.err(bindings.err) };
+  return { ...bindings, err };
+};
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
@@ -1565,7 +1573,7 @@ const registryScenario = async () => {
   const gammaId = "00000000-0000-4000-8000-0000000000f5";
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const client = (provider, extra = {}) => fakeClient(calls, spec(provider, extra));
   const definition = { enabled: true };
   const manager = new AgentManager({
