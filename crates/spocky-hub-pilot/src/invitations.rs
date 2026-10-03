@@ -115,7 +115,8 @@ impl<S: DurableHubStore> HubPilot<S> {
     ) -> Result<(), HubError> {
         let normalized_account =
             normalize_email(account.as_str()).ok_or(HubError::InvalidInvitationInput)?;
-        if display_name.trim().is_empty() || password.is_empty() {
+        // The sign-up `name` is `z.string()` in better-auth: no trim and no minimum length.
+        if password.is_empty() {
             return Err(HubError::InvalidInvitationInput);
         }
         let now = self.now_epoch_seconds();
