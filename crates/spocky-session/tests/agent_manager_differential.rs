@@ -92,8 +92,8 @@ use std::time::Duration;
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
-    HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition, ResumeAgentOptions,
-    SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition, ReloadAgentOptions,
+    ResumeAgentOptions, SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -329,6 +329,7 @@ const PERSISTENCE: &str =
     r#"{"provider":"fake","sessionId":"sess-1","nativeHandle":"thread-1","metadata":{"x":1}}"#;
 const CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true}"#;
 const REWIND_CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true,"supportsRewindConversation":true,"supportsRewindFiles":true,"supportsRewindBoth":true}"#;
+const NO_MCP_CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsDynamicModes":false,"supportsMcpServers":false,"supportsReasoningStream":true,"supportsToolInvocations":true}"#;
 const MODES: &str = r#"[{"id":"auto","label":"Auto"},{"id":"read-only","label":"Read only"}]"#;
 const CATALOG: &str = r#"{"models":[{"provider":"fake","id":"model-a","label":"A"},{"provider":"fake","id":"model-default","label":"D","isDefault":true}],"modes":[]}"#;
 
@@ -389,7 +390,7 @@ class FakeSession {
     this.calls.push(["respondToPermission", requestId, response]);
     if (this.spec.response) this.emitLater(this.spec.response, 200);
   }
-  describePersistence() { return JSON.parse(persistenceJson); }
+  describePersistence() { return this.spec.noPersistence ? null : JSON.parse(persistenceJson); }
   async interrupt() {
     this.calls.push(["interrupt"]);
     if (this.spec.interruptFails) throw new Error("interrupt failed");
@@ -397,7 +398,10 @@ class FakeSession {
     if (this.spec.interruptHang) await new Promise(() => {});
     if (this.spec.interrupt) this.emitLater(this.spec.interrupt, 10);
   }
-  async close() { this.calls.push(["close"]); }
+  async close() {
+    this.calls.push(["close"]);
+    if (this.spec.closeHangs) await new Promise(() => {});
+  }
 }
 const spec = (provider, overrides = {}) => ({ provider, capabilities: JSON.parse(capabilitiesJson), available: true, turns: [], ...overrides });
 const fakeClient = (calls, spec) => ({
@@ -410,6 +414,7 @@ const fakeClient = (calls, spec) => ({
   },
   async resumeSession(handle, overrides, launchContext, options) {
     calls.push(["resumeSession", handle, overrides ?? null, launchContext ?? null, options ?? null]);
+    if (spec.resumeFails) throw new Error("resume failed");
     return new FakeSession(spec, calls);
   },
   ...(spec.import ? {
@@ -1024,6 +1029,107 @@ const cancelLogsScenario = async () => {
   return { cases, logs };
 };
 
+const reloadScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const build = async (name, { provider = "fake", turns = [], specExtra = {}, managerExtra = {} } = {}) => {
+    const calls = [];
+    const registry = new AgentStorage(`${home}/reload-${name}`, logger);
+    const manager = new AgentManager({ logger: warnLogger, registry, clients: { [provider]: fakeClient(calls, spec(provider, { turns, interrupt: scripted.interrupt, ...specExtra })) }, providerDefinitions: { [provider]: { enabled: true } }, ...managerExtra });
+    const feed = recordFeed(manager);
+    await manager.createAgent({ provider, cwd }, agentId, { labels: { lane: "reload" }, workspaceId: "wks_1" });
+    return { calls, registry, manager, feed };
+  };
+  const finish = async ({ calls, registry, manager, feed }, extra) => {
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    const agent = manager.getAgent(agentId);
+    return { ...extra, calls, feed, agent: agent ? toAgentPayload(agent) : null, rows: agent ? await manager.getTimelineRows(agentId) : null, subagents: agent ? manager.listProviderSubagents(agentId) : null, stored: await registry.get(agentId) };
+  };
+  const reload = (c, overrides, options) => outcome(async () => toAgentPayload(await c.manager.reloadAgentSession(agentId, overrides, options)));
+  const run = (c, prompt) => collect(c.manager.streamAgent(agentId, prompt), []);
+
+  const idle = await build("idle", { turns: [scripted.rpIdle], specExtra: { history: scripted.history } });
+  const idleEvents = await run(idle, "before reload");
+  const idleResult = await reload(idle, { title: "Reloaded", modeId: "read-only" });
+  // The reloaded agent's history stays primed, so this is a no-op.
+  await idle.manager.hydrateTimelineFromProvider(agentId);
+  const a = await finish(idle, { idleEvents, result: idleResult });
+
+  const rehydrate = await build("rehydrate", { turns: [scripted.subagents] });
+  const rehydrateEvents = await run(rehydrate, "delegate");
+  const b = await finish(rehydrate, { rehydrateEvents, result: await reload(rehydrate, undefined, { rehydrateFromDisk: true }) });
+
+  const running = await build("running", { turns: [scripted.long] });
+  const held = running.manager.streamAgent(agentId, "long task");
+  const heldEvents = [(await held.next()).value];
+  await sleep(50);
+  const runningResult = await reload(running);
+  await collect(held, heldEvents);
+  const c = await finish(running, { heldEvents, result: runningResult });
+
+  const refused = await build("refused", { turns: [scripted.rpHeld], specExtra: { interruptHang: true, interrupt: undefined }, managerExtra: { rescueTimeouts: { interruptSessionMs: 80 } } });
+  const refusedHeld = refused.manager.streamAgent(agentId, "long task");
+  const refusedEvents = [(await refusedHeld.next()).value];
+  await sleep(50);
+  const refusedResult = await reload(refused);
+  await collect(refusedHeld, refusedEvents);
+  const d = await finish(refused, { refusedEvents, result: refusedResult });
+
+  const noMcp = await build("nomcp", { provider: "nomcp", specExtra: { capabilities: { ...JSON.parse(capabilitiesJson), supportsMcpServers: false }, noPersistence: true } });
+  const e = await finish(noMcp, { result: await reload(noMcp, { mcpServers: { a: { type: "stdio", command: "echo" } } }) });
+  // The persistence handle names a provider with no client.
+  const noClient = await build("noclient", { provider: "nomcp", specExtra: { capabilities: { ...JSON.parse(capabilitiesJson), supportsMcpServers: false } } });
+  const j = await finish(noClient, { result: await reload(noClient, { mcpServers: { a: { type: "stdio", command: "echo" } } }) });
+
+  // The last error and the last usage survive a reload.
+  const failedRun = await build("lasterror", { turns: [scripted.failed] });
+  const failedEvents = await run(failedRun, "fail me");
+  const k = await finish(failedRun, { failedEvents, result: await reload(failedRun) });
+  const usageRun = await build("lastusage");
+  const usageEvents = await run(usageRun, "use tokens");
+  const l = await finish(usageRun, { usageEvents, result: await reload(usageRun) });
+
+  const slow = await build("slowclose", { specExtra: { closeHangs: true }, managerExtra: { rescueTimeouts: { reloadSessionCloseMs: 80 } } });
+  const slowFirst = await reload(slow);
+  const slowSecond = await reload(slow);
+  const f = await finish(slow, { results: [slowFirst, slowSecond] });
+
+  const failing = await build("resumefails", { specExtra: { resumeFails: true } });
+  const g = await finish(failing, { result: await reload(failing) });
+
+  const bare = await build("nopersistence", { specExtra: { noPersistence: true } });
+  const h = await finish(bare, { result: await reload(bare, { title: "Fresh" }) });
+
+  // An agent restored with recorded timestamps keeps them through a reload.
+  const restoredCalls = [];
+  const restoredRegistry = new AgentStorage(`${home}/reload-restored`, logger);
+  const restoredManager = new AgentManager({ logger: warnLogger, registry: restoredRegistry, clients: { fake: fakeClient(restoredCalls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const restoredFeed = recordFeed(restoredManager);
+  await restoredManager.resumeAgentFromPersistence(
+    { provider: "fake", sessionId: "sess-r", nativeHandle: "thread-r", metadata: { cwd, model: "model-a", title: "Stored" } },
+    { modeId: "auto" },
+    agentId,
+    {
+      createdAt: new Date(1700000000000),
+      updatedAt: new Date(1700000005000),
+      lastUserMessageAt: new Date(1700000004000),
+      labels: { surface: "workspace" },
+      workspaceId: "wks_9",
+      attention: { requiresAttention: true, attentionReason: "finished", attentionTimestamp: new Date(1700000006000) },
+    },
+    { purpose: "interactive" },
+  );
+  const restored = { calls: restoredCalls, registry: restoredRegistry, manager: restoredManager, feed: restoredFeed };
+  const i = await finish(restored, { result: await reload(restored, { title: "Again" }) });
+
+  const unknown = await outcome(async () => { await bare.manager.reloadAgentSession("00000000-0000-4000-8000-0000000000f3"); return null; });
+  return { a, b, c, d, e, f, g, h, i, j, k, l, unknown, warns };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1110,7 +1216,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1131,6 +1237,10 @@ type Availability = Result<bool, String>;
 
 /// One fake provider: what it reports and the turns its sessions play.
 #[derive(Clone)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each flag switches one fake behavior"
+)]
 struct Spec {
     provider: String,
     capabilities: JsValue,
@@ -1158,6 +1268,12 @@ struct Spec {
     interrupt_fails: bool,
     /// `interrupt` rejects after this many milliseconds.
     interrupt_late_fail_ms: Option<u64>,
+    /// `close` never resolves.
+    close_hangs: bool,
+    /// `resumeSession` rejects.
+    resume_fails: bool,
+    /// `describePersistence` returns `null`.
+    no_persistence: bool,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -1177,6 +1293,9 @@ fn spec(provider: &str) -> Spec {
         revert: Vec::new(),
         interrupt_fails: false,
         interrupt_late_fail_ms: None,
+        close_hangs: false,
+        resume_fails: false,
+        no_persistence: false,
     }
 }
 
@@ -1434,7 +1553,7 @@ impl AgentSession for FakeSession {
         })
     }
     fn describe_persistence(&self) -> Option<JsValue> {
-        Some(json(PERSISTENCE))
+        (!self.spec.no_persistence).then(|| json(PERSISTENCE))
     }
     fn interrupt(&self) -> BoxFuture<'_, AgentResult<()>> {
         self.record(vec![text("interrupt")]);
@@ -1463,7 +1582,13 @@ impl AgentSession for FakeSession {
             .lock()
             .expect("calls")
             .push(JsValue::Array(vec![text("close")]));
-        Box::pin(async { Ok(()) })
+        let hang = self.spec.close_hangs;
+        Box::pin(async move {
+            if hang {
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        })
     }
     fn revert_conversation(&self, message_id: &str) -> Option<BoxFuture<'_, AgentResult<()>>> {
         self.revert("conversation", "revertConversation", message_id)
@@ -1566,7 +1691,13 @@ impl AgentClient for FakeClient {
             listeners: Arc::new(Mutex::new(Vec::new())),
             calls: Arc::clone(&self.calls),
         };
-        Box::pin(async move { Ok(Arc::new(session) as Arc<dyn AgentSession>) })
+        let fails = self.spec.resume_fails;
+        Box::pin(async move {
+            if fails {
+                return Err(AgentError::new("resume failed"));
+            }
+            Ok(Arc::new(session) as Arc<dyn AgentSession>)
+        })
     }
     fn fetch_catalog(
         &self,
@@ -2820,6 +2951,7 @@ async fn scenarios_match_pinned_manager() {
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
         ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
+        ("reload", reload_scenario(&cwd, &rust_home.0).await),
         ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
@@ -3556,6 +3688,424 @@ async fn cancel_logs_scenario(cwd: &str, home: &Path) -> JsValue {
             ]),
         ),
         ("logs", logs),
+    ])
+}
+
+/// A manager over one provider whose agent `AGENT_ID` exists, for the
+/// reload cases.
+async fn reload_manager(
+    name: &str,
+    provider: &str,
+    turns: &[&str],
+    home: &Path,
+    cwd: &str,
+    configure: impl FnOnce(&mut Spec, &mut AgentManagerOptions),
+) -> (
+    AgentManager,
+    AgentStorage,
+    Calls,
+    Feed,
+    Arc<Mutex<Vec<JsValue>>>,
+) {
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join(format!("reload-{name}")));
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let mut fake = spec(provider);
+    scripted(&fake, turns);
+    fake.interrupt = json(SCENARIO_TURNS).get("interrupt").cloned();
+    let mut options = AgentManagerOptions {
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    };
+    configure(&mut fake, &mut options);
+    options.clients = vec![(provider.to_owned(), rewind_client(fake, &calls))];
+    options.provider_definitions = vec![(provider.to_owned(), enabled())];
+    options.registry = Some(registry.clone());
+    let manager = AgentManager::new(options);
+    let feed = record_feed(&manager);
+    manager
+        .create_agent(
+            object(vec![("provider", text(provider)), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                labels: Some(object(vec![("lane", text("reload"))])),
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    (manager, registry, calls, feed, warns)
+}
+
+async fn reload_outcome(
+    manager: &AgentManager,
+    id: &str,
+    overrides: Option<JsValue>,
+    options: ReloadAgentOptions,
+) -> JsValue {
+    outcome(
+        manager
+            .reload_agent_session(id, overrides, options)
+            .await
+            .map(|agent| to_agent_payload(&agent.payload_view(), None).expect("payload")),
+    )
+}
+
+async fn reload_finish(
+    parts: &(
+        AgentManager,
+        AgentStorage,
+        Calls,
+        Feed,
+        Arc<Mutex<Vec<JsValue>>>,
+    ),
+    mut extra: Vec<(&'static str, JsValue)>,
+) -> JsValue {
+    let (manager, registry, calls, feed, _) = parts;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let agent = manager.get_agent(AGENT_ID);
+    extra.push((
+        "calls",
+        JsValue::Array(calls.lock().expect("calls").clone()),
+    ));
+    extra.push(("feed", JsValue::Array(feed.lock().expect("feed").clone())));
+    extra.push((
+        "agent",
+        agent.as_ref().map_or(JsValue::Null, |agent| {
+            to_agent_payload(&agent.payload_view(), None).expect("payload")
+        }),
+    ));
+    extra.push((
+        "rows",
+        agent.as_ref().map_or(JsValue::Null, |_| {
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows"))
+        }),
+    ));
+    extra.push((
+        "subagents",
+        agent.as_ref().map_or(JsValue::Null, |_| {
+            JsValue::Array(
+                manager
+                    .list_provider_subagents(AGENT_ID)
+                    .expect("subagents"),
+            )
+        }),
+    ));
+    extra.push((
+        "stored",
+        registry.get(AGENT_ID).await.unwrap_or(JsValue::Null),
+    ));
+    object(extra)
+}
+
+async fn reload_run(manager: &AgentManager, prompt: &str) -> Vec<JsValue> {
+    let mut events = Vec::new();
+    collect_stream(
+        manager
+            .stream_agent(AGENT_ID, AgentPromptInput::Text(prompt.to_owned()), None)
+            .expect("stream"),
+        &mut events,
+    )
+    .await;
+    events
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn reload_scenario(cwd: &str, home: &Path) -> JsValue {
+    let none = ReloadAgentOptions::default();
+    let to_array = JsValue::Array;
+
+    let idle = reload_manager("idle", "fake", &["rpIdle"], home, cwd, |fake, _| {
+        fake.history = json(SCENARIO_TURNS).get("history").cloned();
+    })
+    .await;
+    let idle_events = reload_run(&idle.0, "before reload").await;
+    let result = reload_outcome(
+        &idle.0,
+        AGENT_ID,
+        Some(object(vec![
+            ("title", text("Reloaded")),
+            ("modeId", text("read-only")),
+        ])),
+        none,
+    )
+    .await;
+    // The reloaded agent's history stays primed, so this is a no-op.
+    idle.0
+        .hydrate_timeline_from_provider(AGENT_ID, HydrateTimelineOptions::default())
+        .await
+        .expect("hydrate");
+    let idle_case = reload_finish(
+        &idle,
+        vec![("idleEvents", to_array(idle_events)), ("result", result)],
+    )
+    .await;
+
+    let rehydrate = reload_manager("rehydrate", "fake", &["subagents"], home, cwd, |_, _| {}).await;
+    let rehydrate_events = reload_run(&rehydrate.0, "delegate").await;
+    let result = reload_outcome(
+        &rehydrate.0,
+        AGENT_ID,
+        None,
+        ReloadAgentOptions {
+            rehydrate_from_disk: true,
+        },
+    )
+    .await;
+    let rehydrate_case = reload_finish(
+        &rehydrate,
+        vec![
+            ("rehydrateEvents", to_array(rehydrate_events)),
+            ("result", result),
+        ],
+    )
+    .await;
+
+    let running = reload_manager("running", "fake", &["long"], home, cwd, |_, _| {}).await;
+    let mut held = running
+        .0
+        .stream_agent(
+            AGENT_ID,
+            AgentPromptInput::Text("long task".to_owned()),
+            None,
+        )
+        .expect("held stream");
+    let mut held_events = vec![held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let running_result = reload_outcome(&running.0, AGENT_ID, None, none).await;
+    collect_stream(held, &mut held_events).await;
+    let running_case = reload_finish(
+        &running,
+        vec![
+            ("heldEvents", to_array(held_events)),
+            ("result", running_result),
+        ],
+    )
+    .await;
+
+    let refused = reload_manager(
+        "refused",
+        "fake",
+        &["rpHeld"],
+        home,
+        cwd,
+        |fake, options| {
+            fake.interrupt = None;
+            fake.interrupt_hang = true;
+            options.rescue_interrupt_session_ms = Some(80);
+        },
+    )
+    .await;
+    let mut refused_held = refused
+        .0
+        .stream_agent(
+            AGENT_ID,
+            AgentPromptInput::Text("long task".to_owned()),
+            None,
+        )
+        .expect("refused stream");
+    let mut refused_events = vec![refused_held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let refused_result = reload_outcome(&refused.0, AGENT_ID, None, none).await;
+    collect_stream(refused_held, &mut refused_events).await;
+    let refused_case = reload_finish(
+        &refused,
+        vec![
+            ("refusedEvents", to_array(refused_events)),
+            ("result", refused_result),
+        ],
+    )
+    .await;
+
+    let no_mcp = reload_manager("nomcp", "nomcp", &[], home, cwd, |fake, _| {
+        fake.capabilities = json(NO_MCP_CAPABILITIES);
+        fake.no_persistence = true;
+    })
+    .await;
+    let mcp_override = object(vec![(
+        "mcpServers",
+        object(vec![(
+            "a",
+            object(vec![("type", text("stdio")), ("command", text("echo"))]),
+        )]),
+    )]);
+    let result = reload_outcome(&no_mcp.0, AGENT_ID, Some(mcp_override.clone()), none).await;
+    let no_mcp_case = reload_finish(&no_mcp, vec![("result", result)]).await;
+
+    // The persistence handle names a provider with no client.
+    let no_client = reload_manager("noclient", "nomcp", &[], home, cwd, |fake, _| {
+        fake.capabilities = json(NO_MCP_CAPABILITIES);
+    })
+    .await;
+    let result = reload_outcome(&no_client.0, AGENT_ID, Some(mcp_override), none).await;
+    let no_client_case = reload_finish(&no_client, vec![("result", result)]).await;
+
+    // The last error and the last usage survive a reload.
+    let failed_run = reload_manager("lasterror", "fake", &["failed"], home, cwd, |_, _| {}).await;
+    let failed_events = reload_run(&failed_run.0, "fail me").await;
+    let result = reload_outcome(&failed_run.0, AGENT_ID, None, none).await;
+    let failed_case = reload_finish(
+        &failed_run,
+        vec![
+            ("failedEvents", to_array(failed_events)),
+            ("result", result),
+        ],
+    )
+    .await;
+    let usage_run = reload_manager("lastusage", "fake", &[], home, cwd, |_, _| {}).await;
+    let usage_events = reload_run(&usage_run.0, "use tokens").await;
+    let result = reload_outcome(&usage_run.0, AGENT_ID, None, none).await;
+    let usage_case = reload_finish(
+        &usage_run,
+        vec![("usageEvents", to_array(usage_events)), ("result", result)],
+    )
+    .await;
+
+    let slow = reload_manager("slowclose", "fake", &[], home, cwd, |fake, options| {
+        fake.close_hangs = true;
+        options.rescue_reload_session_close_ms = Some(80);
+    })
+    .await;
+    let slow_first = reload_outcome(&slow.0, AGENT_ID, None, none).await;
+    let slow_second = reload_outcome(&slow.0, AGENT_ID, None, none).await;
+    let slow_case = reload_finish(
+        &slow,
+        vec![("results", to_array(vec![slow_first, slow_second]))],
+    )
+    .await;
+
+    let failing = reload_manager("resumefails", "fake", &[], home, cwd, |fake, _| {
+        fake.resume_fails = true;
+    })
+    .await;
+    let result = reload_outcome(&failing.0, AGENT_ID, None, none).await;
+    let failing_case = reload_finish(&failing, vec![("result", result)]).await;
+
+    let bare = reload_manager("nopersistence", "fake", &[], home, cwd, |fake, _| {
+        fake.no_persistence = true;
+    })
+    .await;
+    let result = reload_outcome(
+        &bare.0,
+        AGENT_ID,
+        Some(object(vec![("title", text("Fresh"))])),
+        none,
+    )
+    .await;
+    let bare_case = reload_finish(&bare, vec![("result", result)]).await;
+
+    // An agent restored with recorded timestamps keeps them through a reload.
+    let restored_calls = Calls::default();
+    let restored_registry = AgentStorage::new(home.join("reload-restored"));
+    let restored_manager = manager_with(
+        &restored_calls,
+        &restored_registry,
+        vec![(spec("fake"), enabled())],
+    );
+    let restored_feed = record_feed(&restored_manager);
+    restored_manager
+        .resume_agent_from_persistence(
+            object(vec![
+                ("provider", text("fake")),
+                ("sessionId", text("sess-r")),
+                ("nativeHandle", text("thread-r")),
+                (
+                    "metadata",
+                    object(vec![
+                        ("cwd", text(cwd)),
+                        ("model", text("model-a")),
+                        ("title", text("Stored")),
+                    ]),
+                ),
+            ]),
+            Some(object(vec![("modeId", text("auto"))])),
+            Some(AGENT_ID.to_owned()),
+            ResumeAgentOptions {
+                created_at_millis: Some(1_700_000_000_000),
+                updated_at_millis: Some(1_700_000_005_000),
+                last_user_message_at_millis: Some(1_700_000_004_000),
+                labels: Some(object(vec![("surface", text("workspace"))])),
+                workspace_id: Some("wks_9".to_owned()),
+                owner: None,
+                attention: Some(AgentAttention::Required {
+                    reason: "finished".to_owned(),
+                    timestamp_millis: 1_700_000_006_000,
+                }),
+            },
+            Some(AgentResumeSessionOptions {
+                purpose: Some(AgentResumePurpose::Interactive),
+            }),
+        )
+        .await
+        .expect("resume");
+    let restored = (
+        restored_manager,
+        restored_registry,
+        restored_calls,
+        restored_feed,
+        Arc::default(),
+    );
+    let result = reload_outcome(
+        &restored.0,
+        AGENT_ID,
+        Some(object(vec![("title", text("Again"))])),
+        none,
+    )
+    .await;
+    let restored_case = reload_finish(&restored, vec![("result", result)]).await;
+
+    let unknown = outcome(
+        bare.0
+            .reload_agent_session("00000000-0000-4000-8000-0000000000f3", None, none)
+            .await
+            .map(|_| JsValue::Null),
+    );
+    // Node shares one logger across the cases; their warnings, in case order.
+    let warns = to_array(
+        [
+            &idle,
+            &rehydrate,
+            &running,
+            &refused,
+            &no_mcp,
+            &no_client,
+            &failed_run,
+            &usage_run,
+            &slow,
+            &failing,
+            &bare,
+        ]
+        .iter()
+        .flat_map(|case| case.4.lock().expect("warns").clone())
+        .collect(),
+    );
+    object(vec![
+        ("a", idle_case),
+        ("b", rehydrate_case),
+        ("c", running_case),
+        ("d", refused_case),
+        ("e", no_mcp_case),
+        ("f", slow_case),
+        ("g", failing_case),
+        ("h", bare_case),
+        ("i", restored_case),
+        ("j", no_client_case),
+        ("k", failed_case),
+        ("l", usage_case),
+        ("unknown", unknown),
+        ("warns", warns),
     ])
 }
 
