@@ -9,6 +9,7 @@ pub mod output_coalescer;
 pub mod process_title;
 pub mod pty;
 pub mod restore;
+pub mod session;
 pub mod size_ownership;
 pub mod snapshot;
 pub mod terminal_env;
