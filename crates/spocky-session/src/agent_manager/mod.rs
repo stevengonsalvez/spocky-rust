@@ -34,7 +34,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use spocky_store::js_value::JsValue;
 use tokio::sync::{Notify, mpsc};
 
-pub use archive::{AgentArchivedCallback, DetachedAgent, LogWarn, UnarchiveUpdates};
+pub use archive::{
+    AgentArchivedCallback, AgentMetadataUpdates, DetachedAgent, LogWarn, UnarchiveUpdates,
+};
 
 /// `logger.info(bindings, message)`.
 pub type LogInfo = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
