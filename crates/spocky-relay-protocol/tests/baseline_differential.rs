@@ -84,7 +84,26 @@ fn render_connection(query: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>) -> St
             };
             let (version, id) = match version {
                 Version::V1 => (1, "nil".to_owned()),
-                Version::V2 if generated.get() => (2, "generated".to_owned()),
+                Version::V2 if generated.get() => {
+                    // The relay draws 8 random bytes and writes conn_ plus lowercase hex; the
+                    // closure above returned [0xab; 8]. Only a well formed id is masked.
+                    let id = connection_id.unwrap();
+                    let well_formed = id.len() == 21
+                        && id.starts_with(b"conn_")
+                        && id[5..]
+                            .iter()
+                            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+                        && id == b"conn_abababababababab";
+                    (
+                        2,
+                        if well_formed {
+                            "generated"
+                        } else {
+                            "BAD_GENERATED"
+                        }
+                        .to_owned(),
+                    )
+                }
                 Version::V2 => (2, b64(&connection_id.unwrap())),
             };
             format!(
@@ -150,6 +169,17 @@ fn render(line: &str) -> String {
             let borrowed: Vec<&[u8]> = ids.iter().map(Vec::as_slice).collect();
             render_encoded(control::sync(&borrowed))
         }
+        ("syncdel", [ids, deleted]) => {
+            // The Owner removes a client from its map. Whatever the history, the keys the
+            // map holds now decide the order, so the remaining set is what the port gets.
+            let deleted = parse_ids(deleted);
+            let remaining: Vec<Vec<u8>> = parse_ids(ids)
+                .into_iter()
+                .filter(|id| !deleted.contains(id))
+                .collect();
+            let borrowed: Vec<&[u8]> = remaining.iter().map(Vec::as_slice).collect();
+            render_encoded(control::sync(&borrowed))
+        }
         ("connected", [id]) => render_encoded(control::connected(&unb64(id))),
         ("disconnected", [id]) => render_encoded(control::disconnected(&unb64(id))),
         ("pong", [ts]) => format!("ok {}", control::pong(ts.parse().unwrap())),
@@ -172,29 +202,39 @@ fn render_corpus(corpus: &str) -> String {
     output
 }
 
+const FIXTURE_PAIRS: [(&str, &str); 2] = [
+    ("relay-protocol-corpus.tsv", "relay-protocol-baseline.tsv"),
+    (
+        "relay-protocol-extra-corpus.tsv",
+        "relay-protocol-extra-baseline.tsv",
+    ),
+];
+
 #[test]
 fn rust_output_matches_the_pinned_relay_line_for_line() {
-    let corpus = fs::read_to_string(fixture("relay-protocol-corpus.tsv")).unwrap();
-    let expected = fs::read_to_string(fixture("relay-protocol-baseline.tsv")).unwrap();
-    let actual = render_corpus(&corpus);
-    let mismatches: Vec<String> = expected
-        .lines()
-        .zip(actual.lines())
-        .filter(|(expected, actual)| expected != actual)
-        .map(|(expected, actual)| format!("pinned: {expected}\nrust:   {actual}"))
-        .collect();
-    assert!(
-        mismatches.is_empty(),
-        "{} mismatches, first 5:\n{}",
-        mismatches.len(),
-        mismatches
-            .iter()
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-    assert_eq!(expected.lines().count(), actual.lines().count());
+    for (corpus, baseline) in FIXTURE_PAIRS {
+        let corpus = fs::read_to_string(fixture(corpus)).unwrap();
+        let expected = fs::read_to_string(fixture(baseline)).unwrap();
+        let actual = render_corpus(&corpus);
+        let mismatches: Vec<String> = expected
+            .lines()
+            .zip(actual.lines())
+            .filter(|(expected, actual)| expected != actual)
+            .map(|(expected, actual)| format!("pinned: {expected}\nrust:   {actual}"))
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "{baseline}: {} mismatches, first 5:\n{}",
+            mismatches.len(),
+            mismatches
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        assert_eq!(expected.lines().count(), actual.lines().count());
+    }
 }
 
 #[test]
@@ -789,6 +829,243 @@ fn write_corpus() {
     }
     for line in encoder_corpus(&mut rng) {
         writeln!(corpus, "{line}").unwrap();
+    }
+    fs::write(output, corpus).unwrap();
+}
+
+/// Distinct ids for a map: `count` ids of one shape.
+fn id_set(rng: &mut Rng, shape: &str, count: usize) -> Vec<Vec<u8>> {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789_-";
+    let wide = ["é", "€", "😀", "ß", "日本", "ж"];
+    let mut ids: Vec<Vec<u8>> = Vec::new();
+    let mut counter = 0_usize;
+    while ids.len() < count {
+        counter += 1;
+        let id = match shape {
+            "conn21" => {
+                let mut id = b"conn_".to_vec();
+                for _ in 0..16 {
+                    id.push(b"0123456789abcdef"[rng.below(16)]);
+                }
+                id
+            }
+            "nonascii" => {
+                let mut id = Vec::new();
+                for _ in 0..=rng.below(8) {
+                    id.extend_from_slice(rng.pick(&wide).as_bytes());
+                }
+                id.extend_from_slice(counter.to_string().as_bytes());
+                id
+            }
+            "mixed" => {
+                let length = 1 + rng.below(40);
+                let mut id = counter.to_string().into_bytes();
+                while id.len() < length {
+                    id.push(*rng.pick(ALPHABET));
+                }
+                id
+            }
+            length => {
+                let length: usize = length.parse().unwrap();
+                let mut id = format!("{counter}_").into_bytes();
+                while id.len() < length {
+                    id.push(*rng.pick(ALPHABET));
+                }
+                id.truncate(length);
+                id
+            }
+        };
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+fn ids_field(ids: &[Vec<u8>]) -> String {
+    if ids.is_empty() {
+        return "none".to_owned();
+    }
+    ids.iter()
+        .map(|id| {
+            if id.is_empty() {
+                "_".to_owned()
+            } else {
+                b64(id)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Two keys whose hashes share their low `bits` bits: they stay together in the trie for
+/// `bits / 4` levels. Searched deterministically.
+fn near_collision(prefix: &str, bits: u32) -> (Vec<u8>, Vec<u8>) {
+    let mask = (1_u64 << bits) - 1;
+    let mut seen = std::collections::HashMap::new();
+    for counter in 0_u64.. {
+        let key = format!("{prefix}{counter}").into_bytes();
+        let low = spocky_relay_protocol::erlang_map::hash(&key) & mask;
+        if let Some(other) = seen.insert(low, key.clone()) {
+            return (other, key);
+        }
+    }
+    unreachable!()
+}
+
+fn extra_json_cases() -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let key = b64(&[7; 32]);
+    let invalid = b64(&[0; 32]);
+    let mut hs: Vec<String> = Vec::new();
+    for field in [
+        r#""s":"\ud83d\ude00""#,
+        "\"s\":\"😀\"",
+        r#""s":"\ud83d\ude00\ud83d\ude00""#,
+        r#""s":"a\u0000b""#,
+        r#""\ud83d\ude00":1"#,
+        r#""n":1e-310"#,
+        r#""n":4.9e-324"#,
+        r#""n":2.2250738585072014e-308"#,
+        r#""n":1.7976931348623157e308"#,
+        r#""n":1.7976931348623158e308"#,
+        r#""n":1.7976931348623159e308"#,
+        r#""n":1.797693134862316e308"#,
+        r#""n":2e308"#,
+        r#""n":1e309"#,
+        r#""n":-1e-400"#,
+        r#""n":1E-324"#,
+        r#""n":1e-1000"#,
+    ] {
+        hs.push(format!(r#"{{"type":"hello","key":"{invalid}",{field}}}"#));
+        hs.push(format!(r#"{{"type":"hello","key":"{key}",{field}}}"#));
+    }
+    hs.push(format!(
+        r#"{{"type":"hello","key":"{invalid}","n":{}e-1100}}"#,
+        "9".repeat(1_100)
+    ));
+    hs.push(format!(
+        r#"{{"type":"hello","key":"{invalid}","n":0.{}1}}"#,
+        "0".repeat(1_100)
+    ));
+    hs.push(format!(
+        r#"{{"type":"hello","key":"{invalid}","n":{}.5e-3}}"#,
+        "1".repeat(1_100)
+    ));
+    // Escaped field names and values, and a first duplicate that is not a string.
+    for text in [
+        format!(r#"{{"t\u0079pe":"hello","key":"{key}"}}"#),
+        format!(r#"{{"t\u0079pe":"hello","k\u0065y":"{invalid}"}}"#),
+        format!(r#"{{"type":"hell\u006f","key":"{key}"}}"#),
+        format!(r#"{{"type":"hell\u006f","key":"{invalid}"}}"#),
+        format!(r#"{{"type":"e2ee\u005fhello","key":"{invalid}"}}"#),
+        format!(r#"{{"type":{{"a":1}},"type":"hello","key":"{invalid}"}}"#),
+        format!(r#"{{"type":"hello","type":{{"a":1}},"key":"{invalid}"}}"#),
+        format!(r#"{{"type":null,"type":"hello","key":"{invalid}"}}"#),
+        format!(r#"{{"type":[],"type":"hello","key":"{invalid}"}}"#),
+        format!(r#"{{"key":{{"a":1}},"key":"{key}","type":"hello"}}"#),
+        format!(r#"{{"key":"{invalid}","type":"hello","key":"{key}"}}"#),
+        format!(r#"{{"\ud83d\ude00":"x","type":"hello","key":"{invalid}"}}"#),
+        format!("{{\"😀\":1,\"type\":\"hello\",\"key\":\"{invalid}\"}}"),
+    ] {
+        hs.push(text);
+    }
+    let ping = [
+        r#"{"t\u0079pe":"ping"}"#,
+        r#"{"type":"pi\u006eg"}"#,
+        r#"{"type":{"x":1},"type":"ping"}"#,
+        r#"{"type":"ping","type":{"x":1}}"#,
+        r#"{"type":null,"type":"ping"}"#,
+        r#"{"s":"\ud83d\ude00","type":"ping"}"#,
+        "{\"s\":\"😀\",\"type\":\"ping\"}",
+        r#"{"type":"ping","s":"a\u0000b"}"#,
+        r#"{"type":"ping","n":1e-310}"#,
+        r#"{"type":"ping","n":1.7976931348623159e308}"#,
+        r#"{"type":"ping","n":1.797693134862316e308}"#,
+        r#"{"type":"ping","n":2e308}"#,
+        r#"{"type":"ping","n":-1e-400}"#,
+    ];
+    (
+        hs.into_iter().map(String::into_bytes).collect(),
+        ping.iter().map(|text| text.as_bytes().to_vec()).collect(),
+    )
+}
+
+#[test]
+#[ignore = "regenerates the committed extra corpus fixture"]
+fn write_extra_corpus() {
+    let output = std::env::var("SPOCKY_RELAY_CORPUS_OUT").unwrap();
+    let mut rng = Rng(0x00c0_ffee_0b57_ac1e);
+    let mut corpus = String::new();
+    let (hs, ping) = extra_json_cases();
+    for payload in &hs {
+        writeln!(corpus, "hs\t{}", b64(payload)).unwrap();
+    }
+    for payload in &ping {
+        writeln!(corpus, "ping\t{}", b64(payload)).unwrap();
+    }
+    // Maps past 32 keys: every id length class the hash loop treats differently.
+    for (shape, counts) in [
+        ("conn21", vec![33, 34, 40, 64, 100]),
+        ("16", vec![33, 40, 64]),
+        ("12", vec![33, 40]),
+        ("13", vec![33, 40]),
+        ("14", vec![33, 40]),
+        ("15", vec![33, 40]),
+        ("17", vec![33, 40]),
+        ("24", vec![33, 40]),
+        ("31", vec![33, 40]),
+        ("32", vec![33, 40, 64]),
+        ("33", vec![33, 40]),
+        ("48", vec![33, 40]),
+        ("255", vec![33, 40]),
+        ("nonascii", vec![33, 40, 64]),
+        ("mixed", vec![33, 34, 40, 64, 100]),
+    ] {
+        for count in counts {
+            for _ in 0..2 {
+                let ids = id_set(&mut rng, shape, count);
+                writeln!(corpus, "sync\t{}", ids_field(&ids)).unwrap();
+            }
+        }
+    }
+    // Trie depth: keys that share many low hash bits sit deep in the trie.
+    for (prefix, bits) in [("a", 32), ("b", 32), ("c", 36), ("d", 40)] {
+        let (first, second) = near_collision(prefix, bits);
+        let mut ids = id_set(&mut rng, "mixed", 40);
+        ids.push(first);
+        ids.push(second);
+        writeln!(corpus, "sync\t{}", ids_field(&ids)).unwrap();
+    }
+    // Disconnects: a map that grew past 32 keys and shrinks, as the relay's Owner removes
+    // clients. The remaining count crosses 33, 32 and 31.
+    for (shape, total) in [
+        ("conn21", 40),
+        ("mixed", 40),
+        ("16", 36),
+        ("nonascii", 34),
+        ("33", 40),
+    ] {
+        let ids = id_set(&mut rng, shape, total);
+        for remaining in [total - 1, 33, 32, 31, 20, 1, 0] {
+            if remaining >= total {
+                continue;
+            }
+            let mut order: Vec<usize> = (0..total).collect();
+            for index in (1..total).rev() {
+                order.swap(index, rng.below(index + 1));
+            }
+            let deleted: Vec<Vec<u8>> = order[..total - remaining]
+                .iter()
+                .map(|index| ids[*index].clone())
+                .collect();
+            writeln!(
+                corpus,
+                "syncdel\t{}\t{}",
+                ids_field(&ids),
+                ids_field(&deleted)
+            )
+            .unwrap();
+        }
     }
     fs::write(output, corpus).unwrap();
 }
