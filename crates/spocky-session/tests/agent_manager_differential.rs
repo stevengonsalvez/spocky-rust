@@ -89,6 +89,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
+use spocky_contracts::js::{js_string, spread, spread_into};
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
@@ -244,6 +245,14 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","turnId":"turn-22","item":{"type":"tool_call","callId":"x","name":"shell","status":"running","error":null}},
     {"type":"turn_completed","provider":"fake","turnId":"turn-22"}
   ],
+  "settingsCases": [
+    {"name":"full","spec":{"settable":true,"modeNotice":{"type":"notice","text":"mode changed"},"thinkingNotice":{"type":"notice","text":"thinking changed"}},
+     "ops":[["mode","read-only"],["model"," model-b "],["model","  "],["model","model-a"],["model",null],["thinking","high"],["thinking","   "],["feature","fast",true],["feature","effort","max"],["feature","fast",false]]},
+    {"name":"nullmode","spec":{"settable":true,"currentModeNull":true},"ops":[["mode","fallback"]]},
+    {"name":"runtimethinking","spec":{"settable":true,"runtimeInfoExtra":{"thinkingOptionId":"low"}},"ops":[["thinking","high"]]},
+    {"name":"runtimenull","spec":{"settable":true,"runtimeInfoExtra":{"thinkingOptionId":null}},"ops":[["thinking","high"]]},
+    {"name":"plain","spec":{},"ops":[["mode","auto"],["model","m"],["thinking","t"],["feature","f",1]]}
+  ],
   "rpIdle": [
     {"type":"turn_started","provider":"fake","turnId":"turn-13"},
     {"type":"timeline","provider":"fake","turnId":"turn-13","item":{"type":"assistant_message","text":"idle replace"}},
@@ -352,6 +361,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
   constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline;
+    if (spec.settable) {
+      this.setModel = async (modelId) => { this.calls.push(["setModel", modelId]); this.model = modelId; };
+      this.setThinkingOption = async (optionId) => { this.calls.push(["setThinkingOption", optionId]); return this.spec.thinkingNotice; };
+      this.setFeature = async (featureId, value) => { this.calls.push(["setFeature", featureId, value]); };
+    }
     for (const [kind, method] of [["conversation", "revertConversation"], ["files", "revertFiles"], ["both", "revertBoth"]]) {
       if ((spec.revert ?? []).includes(kind)) this[method] = async ({ messageId }) => { this.calls.push([method, messageId]); };
     } }
@@ -389,16 +403,20 @@ class FakeSession {
     for (const event of this.spec.history ?? []) yield event;
     if (this.spec.historyFails) throw new Error("history broke");
   }
-  async getRuntimeInfo() { return JSON.parse(runtimeInfoJson); }
+  async getRuntimeInfo() { return { ...JSON.parse(runtimeInfoJson), ...(this.spec.runtimeInfoExtra ?? {}) }; }
   async getAvailableModes() { return JSON.parse(modesJson); }
-  async getCurrentMode() { return "auto"; }
-  async setMode() {}
+  async getCurrentMode() { return this.spec.currentModeNull ? null : "auto"; }
+  async setMode(modeId) { this.calls.push(["setMode", modeId]); return this.spec.modeNotice; }
   getPendingPermissions() { return []; }
   async respondToPermission(requestId, response) {
     this.calls.push(["respondToPermission", requestId, response]);
     if (this.spec.response) this.emitLater(this.spec.response, 200);
   }
-  describePersistence() { return this.spec.noPersistence ? null : JSON.parse(persistenceJson); }
+  describePersistence() {
+    if (this.spec.noPersistence) return null;
+    const handle = JSON.parse(persistenceJson);
+    return this.model === undefined ? handle : { ...handle, nativeHandle: `model-${this.model}` };
+  }
   async interrupt() {
     this.calls.push(["interrupt"]);
     if (this.spec.interruptFails) throw new Error("interrupt failed");
@@ -1174,6 +1192,35 @@ const failureLogsScenario = async () => {
   return { closeCase, eventCase, historyCase, logs };
 };
 
+const settingsScenario = async () => {
+  const cases = JSON.parse(scenarioTurnsJson).settingsCases;
+  const out = {};
+  for (const item of cases) {
+    const calls = [];
+    const registry = new AgentStorage(`${home}/settings-${item.name}`, logger);
+    const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake", item.spec)) }, providerDefinitions: { fake: { enabled: true } } });
+    const feed = recordFeed(manager);
+    await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+    const steps = [];
+    for (const [kind, ...args] of item.ops) {
+      const result = await outcome(async () => {
+        if (kind === "mode") return (await manager.setAgentMode(agentId, args[0])) ?? null;
+        if (kind === "model") { await manager.setAgentModel(agentId, args[0]); return null; }
+        if (kind === "thinking") return (await manager.setAgentThinkingOption(agentId, args[0])) ?? null;
+        await manager.setAgentFeature(agentId, args[0], args[1]);
+        return null;
+      });
+      steps.push({ result, agent: toAgentPayload(manager.getAgent(agentId)) });
+    }
+    const unknown = await outcome(async () => (await manager.setAgentMode("00000000-0000-4000-8000-0000000000f3", "x")) ?? null);
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    out[item.name] = { steps, unknown, calls, feed, stored: await registry.get(agentId) };
+  }
+  return out;
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1260,7 +1307,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), settings: await settingsScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1308,6 +1355,16 @@ struct Spec {
     import: Option<JsValue>,
     /// The `revert*` methods the session has: `conversation`, `files`, `both`.
     revert: Vec<&'static str>,
+    /// The session has `setModel`, `setThinkingOption` and `setFeature`.
+    settable: bool,
+    /// What `setMode` resolves.
+    mode_notice: Option<JsValue>,
+    /// What `setThinkingOption` resolves.
+    thinking_notice: Option<JsValue>,
+    /// `getCurrentMode` resolves `null`.
+    current_mode_null: bool,
+    /// Merged over what `getRuntimeInfo` resolves.
+    runtime_info_extra: Option<JsValue>,
     /// `interrupt` rejects at once.
     interrupt_fails: bool,
     /// `interrupt` rejects after this many milliseconds.
@@ -1339,6 +1396,11 @@ fn spec(provider: &str) -> Spec {
         interrupt_hang: false,
         import: None,
         revert: Vec::new(),
+        settable: false,
+        mode_notice: None,
+        thinking_notice: None,
+        current_mode_null: false,
+        runtime_info_extra: None,
         interrupt_fails: false,
         interrupt_late_fail_ms: None,
         close_fails: false,
@@ -1353,6 +1415,8 @@ struct FakeSession {
     spec: Spec,
     listeners: Arc<Mutex<Vec<StreamCallback>>>,
     calls: Arc<Mutex<Vec<JsValue>>>,
+    /// What `setModel` last received, as `describePersistence` shows it.
+    model: Mutex<Option<String>>,
 }
 
 /// `async *streamHistory()` over the scripted history.
@@ -1565,16 +1629,57 @@ impl AgentSession for FakeSession {
         Box::new(History(events.into_iter(), self.spec.history_fails))
     }
     fn get_runtime_info(&self) -> BoxFuture<'_, AgentResult<JsValue>> {
-        Box::pin(async { Ok(json(RUNTIME_INFO)) })
+        let extra = self.spec.runtime_info_extra.clone();
+        Box::pin(async move {
+            let mut info = spread(Some(&json(RUNTIME_INFO)));
+            spread_into(&mut info, extra.as_ref());
+            Ok(JsValue::Object(info))
+        })
     }
     fn get_available_modes(&self) -> BoxFuture<'_, AgentResult<JsValue>> {
         Box::pin(async { Ok(json(MODES)) })
     }
     fn get_current_mode(&self) -> BoxFuture<'_, AgentResult<Option<String>>> {
-        Box::pin(async { Ok(Some("auto".to_owned())) })
+        let null = self.spec.current_mode_null;
+        Box::pin(async move { Ok((!null).then(|| "auto".to_owned())) })
     }
-    fn set_mode(&self, _mode_id: &str) -> BoxFuture<'_, AgentResult<Option<JsValue>>> {
-        Box::pin(async { Ok(None) })
+    fn set_mode(&self, mode_id: &str) -> BoxFuture<'_, AgentResult<Option<JsValue>>> {
+        self.record(vec![text("setMode"), text(mode_id)]);
+        let notice = self.spec.mode_notice.clone();
+        Box::pin(async move { Ok(notice) })
+    }
+    fn set_model(&self, model_id: Option<&str>) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        if !self.spec.settable {
+            return None;
+        }
+        self.record(vec![text("setModel"), model_id.map_or(JsValue::Null, text)]);
+        *self.model.lock().expect("model") = Some(model_id.unwrap_or("null").to_owned());
+        Some(Box::pin(async { Ok(()) }))
+    }
+    fn set_thinking_option(
+        &self,
+        thinking_option_id: Option<&str>,
+    ) -> Option<BoxFuture<'_, AgentResult<Option<JsValue>>>> {
+        if !self.spec.settable {
+            return None;
+        }
+        self.record(vec![
+            text("setThinkingOption"),
+            thinking_option_id.map_or(JsValue::Null, text),
+        ]);
+        let notice = self.spec.thinking_notice.clone();
+        Some(Box::pin(async move { Ok(notice) }))
+    }
+    fn set_feature(
+        &self,
+        feature_id: &str,
+        value: JsValue,
+    ) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        if !self.spec.settable {
+            return None;
+        }
+        self.record(vec![text("setFeature"), text(feature_id), value]);
+        Some(Box::pin(async { Ok(()) }))
     }
     fn get_pending_permissions(&self) -> AgentResult<Vec<JsValue>> {
         Ok(Vec::new())
@@ -1611,7 +1716,14 @@ impl AgentSession for FakeSession {
         })
     }
     fn describe_persistence(&self) -> Option<JsValue> {
-        (!self.spec.no_persistence).then(|| json(PERSISTENCE))
+        if self.spec.no_persistence {
+            return None;
+        }
+        let mut handle = spread(Some(&json(PERSISTENCE)));
+        if let Some(model) = self.model.lock().expect("model").as_deref() {
+            handle.insert("nativeHandle", text(&format!("model-{model}")));
+        }
+        Some(JsValue::Object(handle))
     }
     fn interrupt(&self) -> BoxFuture<'_, AgentResult<()>> {
         self.record(vec![text("interrupt")]);
@@ -1712,6 +1824,7 @@ impl AgentClient for FakeClient {
             spec: self.spec.clone(),
             listeners: Arc::new(Mutex::new(Vec::new())),
             calls: Arc::clone(&self.calls),
+            model: Mutex::new(None),
         };
         let delay = self.spec.create_delay;
         Box::pin(async move {
@@ -1752,6 +1865,7 @@ impl AgentClient for FakeClient {
             spec: self.spec.clone(),
             listeners: Arc::new(Mutex::new(Vec::new())),
             calls: Arc::clone(&self.calls),
+            model: Mutex::new(None),
         };
         let fails = self.spec.resume_fails;
         Box::pin(async move {
@@ -1817,6 +1931,7 @@ impl AgentClient for FakeClient {
             spec: self.spec.clone(),
             listeners: Arc::new(Mutex::new(Vec::new())),
             calls: Arc::clone(&self.calls),
+            model: Mutex::new(None),
         };
         let cwd = input.cwd;
         Some(Box::pin(async move {
@@ -3012,6 +3127,7 @@ async fn scenarios_match_pinned_manager() {
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
+        ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
         (
             "failureLogs",
@@ -4326,6 +4442,113 @@ async fn failure_logs_scenario(cwd: &str, home: &Path) -> JsValue {
         ("historyCase", history_case),
         ("logs", logs),
     ])
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn settings_scenario(cwd: &str, home: &Path) -> JsValue {
+    let table = json(SCENARIO_TURNS);
+    let mut out = JsObject::new();
+    for item in table
+        .get("settingsCases")
+        .and_then(JsValue::as_array)
+        .expect("cases")
+    {
+        let name = js_string(item.get("name"));
+        let knobs = item.get("spec").cloned().unwrap_or(JsValue::Undefined);
+        let calls = Calls::default();
+        let registry = AgentStorage::new(home.join(format!("settings-{name}")));
+        let mut fake = spec("fake");
+        fake.settable = knobs.get("settable").and_then(JsValue::as_bool) == Some(true);
+        fake.mode_notice = knobs.get("modeNotice").cloned();
+        fake.thinking_notice = knobs.get("thinkingNotice").cloned();
+        fake.current_mode_null =
+            knobs.get("currentModeNull").and_then(JsValue::as_bool) == Some(true);
+        fake.runtime_info_extra = knobs.get("runtimeInfoExtra").cloned();
+        let manager = manager_with(&calls, &registry, vec![(fake, enabled())]);
+        let feed = record_feed(&manager);
+        manager
+            .create_agent(
+                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+                Some(AGENT_ID.to_owned()),
+                CreateAgentOptions::default(),
+            )
+            .await
+            .expect("create");
+        let mut steps = Vec::new();
+        for op in item.get("ops").and_then(JsValue::as_array).expect("ops") {
+            let op = op.as_array().expect("op");
+            let kind = js_string(op.first());
+            let arg = op.get(1);
+            let result = match kind.as_str() {
+                "mode" => outcome(
+                    manager
+                        .set_agent_mode(AGENT_ID, &js_string(arg))
+                        .await
+                        .map(|notice| notice.unwrap_or(JsValue::Null)),
+                ),
+                "model" => outcome(
+                    manager
+                        .set_agent_model(AGENT_ID, arg.and_then(JsValue::as_str))
+                        .await
+                        .map(|()| JsValue::Null),
+                ),
+                "thinking" => outcome(
+                    manager
+                        .set_agent_thinking_option(AGENT_ID, arg.and_then(JsValue::as_str))
+                        .await
+                        .map(|notice| notice.unwrap_or(JsValue::Null)),
+                ),
+                _ => outcome(
+                    manager
+                        .set_agent_feature(
+                            AGENT_ID,
+                            &js_string(arg),
+                            op.get(2).cloned().unwrap_or(JsValue::Undefined),
+                        )
+                        .await
+                        .map(|()| JsValue::Null),
+                ),
+            };
+            steps.push(object(vec![
+                ("result", result),
+                (
+                    "agent",
+                    to_agent_payload(
+                        &manager.get_agent(AGENT_ID).expect("agent").payload_view(),
+                        None,
+                    )
+                    .expect("payload"),
+                ),
+            ]));
+        }
+        let unknown = outcome(
+            manager
+                .set_agent_mode("00000000-0000-4000-8000-0000000000f3", "x")
+                .await
+                .map(|notice| notice.unwrap_or(JsValue::Null)),
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        manager.flush().await;
+        registry.flush().await;
+        let stored = registry.get(AGENT_ID).await.unwrap_or(JsValue::Null);
+        out.insert(
+            name.as_str(),
+            object(vec![
+                ("steps", JsValue::Array(steps)),
+                ("unknown", unknown),
+                (
+                    "calls",
+                    JsValue::Array(calls.lock().expect("calls").clone()),
+                ),
+                ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+                ("stored", stored),
+            ]),
+        );
+    }
+    JsValue::Object(out)
 }
 
 #[allow(
