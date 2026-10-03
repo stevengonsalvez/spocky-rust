@@ -37,7 +37,7 @@ channel receives, every encrypted socket state.
 | Control messages | 116 frames: types, whitespace ids (U+00A0, U+2028, U+FEFF, U+0085, U+180E), lone surrogates, duplicate keys, non-objects, BOM, invalid UTF-8 (truncated and overlong sequences), nesting to 100,000 levels, `Buffer`, `ArrayBuffer`, fragment arrays |
 
 Result: endpoint 4,424 operations and 13,272 transcript lines; relay client 131 scenarios (15 named,
-116 control message), 1,231 operations, 3,857 transcript lines. No difference apart from the host
+116 control message), 1,247 operations, 3,909 transcript lines. No difference apart from the host
 list below. Tests assert these counts. Run:
 `SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node cargo test -p spocky-daemon-relay`
 (`SPOCKY_RELAY_DAEMON_EVIDENCE=<dir>` keeps the raw transcripts).
@@ -56,17 +56,32 @@ list below. Tests assert these counts. Run:
 ## Baseline outcome of the process-level gaps
 
 `daemon-worker.ts:344` (`uncaughtException`) and `:348` (`unhandledRejection`) log a `fatal`
-record and exit the process. The driver models both: a throw that reaches the top of an operation,
-and an unhandled rejection, print `{"t":"fatal","kind":"uncaughtException"|"unhandledRejection",
-"message":...}`. The Rust side returns a `Fatal` value and the harness prints the same entry.
+record and exit the process. The driver prints `{"t":"fatal","kind":"uncaughtException"|
+"unhandledRejection","message":...}` for the throws the scenarios ask the fakes for (and for
+EventEmitter's `ERR_UNHANDLED_ERROR`); any other driver exception prints as `driver-error`, which
+the Rust side never produces. The Rust crate returns a `Fatal` value.
 
 | Case | Baseline outcome | Covered by |
 |---|---|---|
 | plain attach rejects (`attachSocket`) | `unhandledRejection`, fatal and exit | `fatal` scenario |
-| channel listener throws on message, close or error (`listenerMode`) | `uncaughtException`, fatal and exit | `fatal` scenario |
+| channel listener throws on a message after attach | caught by `EncryptedChannel.handleMessage` (`encrypted-channel.ts:443-457`): `transport.close(1011, message)`, no fatal | `fatal` scenario |
+| channel listener throws on close or error | `transport.onclose` and `onerror` call the events directly: `uncaughtException`, fatal and exit | `fatal` scenario |
 | `emitter.emit("error")` with no listener | throws, `uncaughtException`, fatal and exit | `fatal` scenario (`none`) |
 | listener throws while the pending queue flushes | flush fails, `relay_e2ee_handshake_failed` warn, close 1011, socket stays attached | `fatal` scenario |
 | encrypted socket `close` or `terminate` throws | exception reaches the caller | `encrypted-socket-throws` scenario |
+| frames, errors and send callbacks after `close` | the `ws` listeners stay live: a late send callback error logs `relay_socket_send_failed`, a late `error` logs `relay_data_error` and reaches the channel, a late frame reaches the channel | `e2ee` and `adapter-send` scenarios |
+| send on a closed encrypted socket | rejects with `Encrypted relay socket is not open` | `e2ee` scenario |
+
+Runner obligation (not modeled in the sans-IO crate): on a `Fatal` the process logs at level
+`fatal` with `{err}` and the text `Uncaught exception ` or `Unhandled promise rejection `
+followed by U+2014 and ` daemon crashing`, then calls `process.exit(1)` 200 ms later
+(`exitAfterPinoFlush`). The runner range tests it. A flush failure in
+`EncryptedChannel.flushPendingSends` (`encrypted-channel.ts:373`) calls `events.onerror` from
+async code, where a throwing listener is an unhandled rejection; that is not modeled either.
+
+Closures: a data socket's closure stays live after its `close` event, as the original's `ws`
+listeners do. The runner calls `RelayTransport::socket_released` when it drops the socket and
+no callback of it can run again.
 
 ## Known gaps
 
@@ -75,7 +90,5 @@ and an unhandled rejection, print `{"t":"fatal","kind":"uncaughtException"|"unha
   `1.` U+05D0, U+1FAE9 `.test`, `xn--9hb.com`, `a` U+05D0 `.com`, U+0661 U+0627 `.com`, U+1E9E
   `.com`). The test fails on any other difference and on a listed host that stops diverging. The
   switch to `spocky_contracts::url` (ada 2.9.2 port) removes the list.
-- The network runner (real client sockets, TLS, timers, the end-to-end channel) is the next
-  commit range.
 - The network runner (real client sockets, TLS, timers, the end-to-end channel) is the next
   commit range.
