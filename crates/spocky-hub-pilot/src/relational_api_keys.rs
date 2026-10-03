@@ -6,6 +6,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use postgres::{Client, NoTls, Row};
 use sha2::{Digest, Sha256};
+use spocky_contracts::text::{js_length, js_trim};
 use subtle::ConstantTimeEq as _;
 use uuid::Uuid;
 
@@ -108,9 +109,9 @@ impl PostgresApiKeyStore {
         name: &str,
         scopes: &[ApiKeyScope],
     ) -> Result<CreatedApiKey, HubError> {
-        let name = name.trim();
+        let name = js_trim(name);
         let scopes = scopes.iter().copied().collect::<BTreeSet<_>>();
-        if name.is_empty() || name.len() > 100 || scopes.is_empty() || scopes.len() > 5 {
+        if name.is_empty() || js_length(name) > 100 || scopes.is_empty() || scopes.len() > 5 {
             return Err(HubError::InvalidApiKeyInput);
         }
         let mut prefix_bytes = [0_u8; PREFIX_RANDOM_BYTES];
