@@ -13,7 +13,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use spocky_contracts::js::{date_parse, js_string};
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_contracts::request::{AgentDirectoryFilter, AgentSort, AgentSortKey, SortDirection};
-use spocky_contracts::text::{JsText, js_trim};
+use spocky_contracts::text::{JsText, js_to_lowercase, js_trim};
 use spocky_store::collate::locale_compare;
 use spocky_store::registry::{PersistedWorkspaceRecord, WorkspaceKind};
 
@@ -137,11 +137,12 @@ pub fn sort_value(agent: &JsValue, key: &str) -> SortValue {
         "status_priority" => SortValue::Number(f64::from(status_priority(agent))),
         "created_at" => SortValue::Number(date_value(agent, "createdAt")),
         "updated_at" => SortValue::Number(date_value(agent, "updatedAt")),
-        // `agent.title?.toLocaleLowerCase() ?? ""`: the default locale's
-        // Unicode lowercasing, with SpecialCasing and the final sigma.
+        // `agent.title?.toLocaleLowerCase() ?? ""`. ponytail: node's
+        // `toLowerCase` tables, which the default locale shares unless it is
+        // tr, az or lt; the locale variant replaces this when contracts has it.
         _ => SortValue::Text(
             text_field(agent, "title")
-                .map(str::to_lowercase)
+                .map(js_to_lowercase)
                 .unwrap_or_default(),
         ),
     }
