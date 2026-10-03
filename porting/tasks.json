@@ -1366,7 +1366,7 @@
           "integrationHead": "fd306a3d",
           "leadVerification": "gated after cargo clean -p: spocky-session and spocky-contracts tests --test-threads=1 --include-ignored, 145 passed; clippy -D warnings, fmt check, cargo check --workspace --all-targets",
           "evidenceLimitation": "f5fd3fb8 adds js/date_parse.rs, compiled only after 8e987d44 registers it; that intermediate is green only vacuously",
-          "temporary": "Date.parse now exists twice (spocky-contracts and spocky-provider-claude) until the contracts removal half switches provider-claude to spocky_contracts::js"
+          "temporary": "Date.parse now exists twice (spocky-contracts and spocky-provider-claude) until the contracts removal half switches provider-claude to spocky_contracts::js (CLOSED by 2c985c5a..ae4b511f, landed 211e1b13)"
         },
         {
           "lane": "p3_g1_wiring",
@@ -1384,6 +1384,18 @@
           "integrationHead": "abc29187",
           "leadVerification": "gated after cargo clean -p: spocky-session 71 passed --test-threads=1 --include-ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
           "followUps": ["P3 provider_snapshot_differential.rs:697 is flaky", "P3 four copies of WallClock across the session crate"]
+        },
+        {
+          "lane": "p3_daemon_transport and p3_contracts",
+          "date": "2026-10-03",
+          "sourceRanges": [
+            "p3_daemon_transport c0df17b0..1bc1f86c (38; reviewer PASS, verdicts/p3_daemon_transport-1bc1f86c.txt); 0d2349b1 before it is on main in its conflict-resolved form",
+            "p3_contracts 2c985c5a..ae4b511f (12; reviewer PASS, verdicts/p3_contracts-ae4b511f.txt): Date.parse removal half; spocky-provider-claude, spocky-session and spocky-store switch to spocky_contracts::js, jiff dropped from provider-claude (manifest and lock atomic in ae4b511f)"
+          ],
+          "integrationHead": "211e1b13",
+          "leadVerification": "spocky-contracts and spocky-provider-claude trees identical to ae4b511f; spocky-daemon identical to 1bc1f86c except the stop and listening hook seams already on main; gated after cargo clean -p: spocky-daemon, daemon-app, contracts, provider-claude, session and store tests --test-threads=1 --include-ignored (skipping only the daemon-app real-codex test), 479 passed; clippy -D warnings, fmt check, bin build, cargo check --workspace --all-targets",
+          "closes": ["temporary second Date.parse copy (provider-claude now uses spocky_contracts::js)"],
+          "incidents": ["first gate attempt passed the package list as one zsh word, so tests and clippy did not run; rerun with an array", "merge hit a stale 0-byte .git/index.lock from 09:08 held by no process; removed (second occurrence; main checkout readers should avoid index-writing git commands)"]
         },
         {
           "lane": "p3_slice_harness",
