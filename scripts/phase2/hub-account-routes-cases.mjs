@@ -11,7 +11,15 @@
 // (name -> value, null removes), body (raw text or null), capture ({ name: "dotted.path" } read from
 // the JSON response body).
 // Templates `{{name}}` in path and body resolve to a captured value or a world value
-// (`<actor>.account`, `<actor>.member`, `org`, `orgSlug`).
+// (`<actor>.account`, `<actor>.member`, `org`).
+//
+// Masking (both sides, nothing else): a captured id is replaced by its capture name, and the first
+// 8 characters of a captured UUID by `<name:8>` (an organization slug is the name stem plus those 8
+// characters, so the stem stays compared exactly). A capture named `prefix*` or `secret*` holds an
+// API key part: only its random part is masked (`paseo_pk_<prefixX>` and `paseo_pk_<prefixX>_<secretX>`),
+// after asserting the exact prefix, the format and the length and charset of the random part. A
+// timestamp is replaced by `<wall-clock+Nms>` only when it falls inside the window of the request
+// that first returned it, shifted by the nominal lifetime N (0, or 48 hours for an invitation).
 //
 // A request with an `actor` carries that actor's session cookie and `origin: <app url>` unless the
 // step overrides a header. The anonymous actor carries no cookie.
@@ -176,25 +184,25 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
     } else {
       s.post("maker", "create-organization", body, {
         label: `create-organization-${name}`,
-        capture: { [`org${tag}`]: "organizationId", [`org${tag}Slug`]: "organizationSlug" },
+        capture: { [`org${tag}`]: "organizationId" },
       });
     }
   }
   s.post("outsider", "create-organization", text(json({ name: "n".repeat(100) })), {
     label: "create-organization-name-100",
-    capture: { outsiderOrg: "organizationId", outsiderOrgSlug: "organizationSlug" },
+    capture: { outsiderOrg: "organizationId" },
   });
   s.post("owner", "create-organization", json({ name: "  Acme Robotics  " }), {
     label: "create-organization-created",
-    capture: { org: "organizationId", orgSlug: "organizationSlug" },
+    capture: { org: "organizationId" },
   });
   s.post("rival", "create-organization", json({ name: "Zeta Labs" }), {
     label: "create-organization-rival",
-    capture: { rivalOrg: "organizationId", rivalOrgSlug: "organizationSlug" },
+    capture: { rivalOrg: "organizationId" },
   });
   s.post("maker", "create-organization", json({ name: "Otto &  Co!" }), {
     label: "create-organization-second",
-    capture: { orgSecond: "organizationId", orgSecondSlug: "organizationSlug" },
+    capture: { orgSecond: "organizationId" },
   });
 
   // Invitations: manager setup, validation, duplicates, replay.
