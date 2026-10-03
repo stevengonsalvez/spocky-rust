@@ -302,11 +302,39 @@ const STRAYS: &[char] = &[
     '\u{e9}', '\u{661}', '\u{200c}',
 ];
 
+/// Hosts that pin ada's `ContextJ` and Bidi order. ada's `is_label_valid`
+/// returns from inside the ZWNJ/ZWJ rules, so a label whose joiner follows a
+/// virama (or sits between joining characters) is accepted without the Bidi
+/// rule ever running, where UTS 46 would reject it: `a`, a virama, a joiner,
+/// and a Hebrew letter mix LTR and RTL; Arabic letters around a ZWNJ with both
+/// European and Arabic-Indic digits break rule 4. Joiners with no rule to
+/// satisfy (first, last, after a non-virama) are rejected.
+const CONTEXT_J_CASES: &[&str] = &[
+    "https://a\u{94d}\u{200c}\u{5d0}b.com/",
+    "https://a\u{94d}\u{200d}\u{5d0}b.com/",
+    "https://\u{628}\u{200c}\u{627}1\u{661}\u{627}.com/",
+    "https://\u{628}\u{200c}\u{628}1\u{661}\u{627}.com/",
+    "https://\u{915}\u{94d}\u{200c}1\u{5d0}b.com/",
+    "https://\u{915}\u{94d}\u{200d}1\u{661}b.com/",
+    "https://a\u{94d}\u{200c}\u{5d0}.com/",
+    "https://a\u{200c}\u{5d0}b.com/",
+    "https://a\u{200d}\u{5d0}b.com/",
+    "https://\u{200c}\u{5d0}.com/",
+    "https://\u{5d0}\u{200c}.com/",
+    "https://\u{628}\u{200c}\u{627}.com/",
+    "https://\u{628}\u{200c}\u{628}.com/",
+    "https://\u{627}\u{200c}\u{627}.com/",
+    "https://\u{a872}\u{200c}\u{628}.com/",
+];
+
 /// Generated `(input, base)` pairs: absolute URLs from the pools above,
 /// relative references against a base, and short strings of delimiters.
 fn generated_cases() -> Vec<(String, Option<String>)> {
     let mut random = Random(0x9E37_79B9_7F4A_7C15);
-    let mut cases = Vec::new();
+    let mut cases: Vec<(String, Option<String>)> = CONTEXT_J_CASES
+        .iter()
+        .map(|input| ((*input).to_owned(), None))
+        .collect();
     for _ in 0..12_000 {
         let mut input = String::new();
         input.push_str(random.pick(SCHEMES));
