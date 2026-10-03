@@ -581,6 +581,7 @@ impl ProcessQuery {
             if count == 0 {
                 break;
             }
+            let mut handled_in_chunk = false;
             for byte in &chunk[..count] {
                 if skip_newline && *byte == b'\n' {
                     skip_newline = false;
@@ -591,6 +592,15 @@ impl ProcessQuery {
                     skip_newline = *byte == b'\r';
                     let line = String::from_utf8_lossy(&buffer).into_owned();
                     buffer.clear();
+                    // Lines of one chunk reach `readMessages` three promise
+                    // ticks apart (readline's iterator and the transport's
+                    // generator), measured under node 22.20.0.
+                    if handled_in_chunk {
+                        for _ in 0..3 {
+                            tokio::task::yield_now().await;
+                        }
+                    }
+                    handled_in_chunk = true;
                     self.handle_line(&line);
                 } else {
                     buffer.push(*byte);
@@ -1004,7 +1014,15 @@ impl ClaudeQuery for Rc<ProcessQuery> {
         let query = Rc::clone(self);
         Box::pin(async move {
             let next = query.messages.next().await;
-            if !matches!(next, Some(Ok(_))) {
+            if matches!(next, Some(Ok(_))) {
+                // A message reaches the caller three promise ticks after the
+                // read loop queued it, or after the caller asked for it when
+                // it was already queued (`inputStream`, `readSdkMessages`'
+                // `for await` and `yield`); measured under node 22.20.0.
+                for _ in 0..3 {
+                    tokio::task::yield_now().await;
+                }
+            } else {
                 query.cleanup(None).await;
             }
             next
