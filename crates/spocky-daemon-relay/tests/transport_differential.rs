@@ -353,7 +353,15 @@ fn scenario_e2ee() -> Vec<Value> {
         json!({ "op": "app.send", "id": "e1", "text": "after" }),
         json!({ "op": "channelEvent", "n": 1, "event": "error", "message": "decrypt failed" }),
         json!({ "op": "channelEvent", "n": 1, "event": "close", "code": 4000, "reason": "bye" }),
+        // The channel is closed: sends reject as not open.
+        json!({ "op": "app.send", "id": "e1", "text": "after close" }),
+        json!({ "op": "app.read", "id": "e1" }),
         close(2, 1006, Some("wire")),
+        // The `ws` listeners outlive `close`: a late error still logs and reaches the channel,
+        // and a late frame still reaches the channel.
+        error(2, "wire error"),
+        message(2, "string", &json!({ "text": "late", "isBinary": false })),
+        json!({ "op": "app.send", "id": "e1", "text": "after wire close" }),
     ]);
     // Boundary: exact hard bound accepted, one byte over rejected.
     ops.extend(attach_ready("ok", "ok"));
@@ -458,6 +466,16 @@ fn scenario_adapter_send() -> Vec<Value> {
         json!({ "op": "sendCallback", "id": 2, "error": "write after close" }),
         json!({ "op": "sendCallback", "id": 2 }),
     ]);
+    // The `ws` listeners outlive `close`: a send callback that reports an error after the
+    // socket closed still logs `relay_socket_send_failed` and rejects, and a later socket
+    // error still logs `relay_data_error`.
+    ops.extend(channel_open("pending"));
+    ops.extend([
+        send(1, "late"),
+        close(2, 1006, Some("gone")),
+        json!({ "op": "sendCallback", "id": 1, "error": "write after close" }),
+        error(2, "late wire error"),
+    ]);
     // Switching modes between frames.
     ops.extend(channel_open("ok"));
     ops.extend([
@@ -524,7 +542,9 @@ fn scenario_fatal() -> Vec<Value> {
             json!({ "op": "channelEvent", "n": 1, "event": "message", "text": "after" }),
         ]);
     }
-    // A listener throwing after attach is an uncaught exception.
+    // After attach, a listener throwing on a message is caught by `handleMessage`, which closes
+    // the transport with 1011 and the message (`encrypted-channel.ts:443-457`); one throwing
+    // on close or error is uncaught (`transport.onclose` and `onerror` call the events directly).
     for (mode, event) in [
         (
             "throw-message",
@@ -964,8 +984,8 @@ fn relay_client_matches_the_pinned_typescript() {
             .join("\n\n")
     );
     // The evidence document quotes these counts: 15 named and 116 control message scenarios,
-    // 1,231 operations, 3,857 transcript lines including the scenario headings.
-    assert_eq!(evidence.iter().filter(|line| *line == ".").count(), 1231);
+    // 1,247 operations, 3,909 transcript lines including the scenario headings.
+    assert_eq!(evidence.iter().filter(|line| *line == ".").count(), 1247);
     assert_eq!(
         evidence
             .iter()
@@ -973,7 +993,7 @@ fn relay_client_matches_the_pinned_typescript() {
             .count(),
         131
     );
-    assert_eq!(evidence.len(), 3857);
+    assert_eq!(evidence.len(), 3909);
     if let Some(directory) = std::env::var_os("SPOCKY_RELAY_DAEMON_EVIDENCE") {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(

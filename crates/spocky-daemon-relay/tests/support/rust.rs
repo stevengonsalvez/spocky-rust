@@ -915,7 +915,6 @@ impl RustEndpoint {
                 };
                 let outcome = self
                     .with_transport(|transport, io| transport.encrypted_send(io, socket, &data))
-                    .flatten()
                     .unwrap();
                 let entry = Entry::new("app").str("a", "send.settled").str("id", id);
                 let settled = match outcome {
@@ -963,8 +962,9 @@ impl RustEndpoint {
                 let ready_state = self
                     .transport
                     .as_ref()
-                    .and_then(|transport| transport.encrypted_ready_state(socket))
-                    .unwrap_or(self.io.ready_state(socket));
+                    .map_or(self.io.ready_state(socket), |transport| {
+                        transport.encrypted_ready_state(socket)
+                    });
                 let buffered = self.io.socket(socket).buffered;
                 self.io.log(
                     &Entry::new("app")
@@ -1447,12 +1447,9 @@ impl Endpoint for RustEndpoint {
                             Some(text) => Data::Text(text.to_owned()),
                             None => Data::Binary(hex_decode(op["binary"].as_str().unwrap())),
                         };
-                        let fatal = self
-                            .with_transport(|transport, io| {
-                                transport.on_channel_message(io, socket, data)
-                            })
-                            .flatten();
-                        self.fatal(fatal);
+                        self.with_transport(|transport, io| {
+                            transport.on_channel_message(io, socket, data);
+                        });
                     }
                     "close" => {
                         let code = u16::try_from(op["code"].as_u64().unwrap()).unwrap();
