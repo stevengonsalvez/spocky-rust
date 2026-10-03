@@ -16,6 +16,7 @@ use std::process::Command;
 use std::rc::Rc;
 
 use spocky_contracts::js_value::{JsObject, JsValue, stringify};
+use spocky_contracts::text::js_trim;
 use spocky_xterm::{CellView, CursorStyle, Param, Terminal, Utf8Decoder};
 
 const DEFAULT_PASEO_ROOT: &str = "/private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204";
@@ -111,22 +112,6 @@ fn string(value: &str) -> JsValue {
 /// Whether JavaScript's `String.prototype.trim` leaves nothing.
 fn is_js_blank(text: &str) -> bool {
     js_trim(text).is_empty()
-}
-
-fn js_trim(text: &str) -> &str {
-    text.trim_matches(|character| {
-        matches!(
-            character,
-            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-                ..='\u{200a}'
-                    | '\u{2028}'
-                    | '\u{2029}'
-                    | '\u{202f}'
-                    | '\u{205f}'
-                    | '\u{3000}'
-                    | '\u{feff}'
-        )
-    })
 }
 
 fn cell_of(cell: &CellView) -> JsValue {
