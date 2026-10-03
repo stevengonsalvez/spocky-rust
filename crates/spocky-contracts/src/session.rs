@@ -27,6 +27,7 @@ use crate::response::{
     WorkspaceCreateResponse,
 };
 use crate::text::JsText;
+use crate::workspace_labels::{WorkspaceLabelInbound, WorkspaceLabelOutbound};
 use crate::ws::ServerInfo;
 
 /// Session-level `ping` (`PingMessageSchema`), answered with [`SessionPong`].
@@ -192,6 +193,9 @@ pub enum SessionInbound {
     ResumeAgent(Box<ResumeAgentRequest>),
     #[serde(rename = "refresh_agent_request")]
     RefreshAgent(RefreshAgentRequest),
+    /// The five `workspace.label.*.request` messages, tagged by their own `type`.
+    #[serde(untagged)]
+    WorkspaceLabel(WorkspaceLabelInbound),
 }
 
 deserialize_tagged!(SessionInbound, "type", {
@@ -249,6 +253,26 @@ deserialize_tagged!(SessionInbound, "type", {
     },
     "refresh_agent_request" => |input| {
         RefreshAgentRequest::deserialize(input).map(SessionInbound::RefreshAgent)
+    },
+    "workspace.label.list.request" => |input| {
+        WorkspaceLabelInbound::deserialize_as("workspace.label.list.request", input)
+            .map(SessionInbound::WorkspaceLabel)
+    },
+    "workspace.label.assignment.set.request" => |input| {
+        WorkspaceLabelInbound::deserialize_as("workspace.label.assignment.set.request", input)
+            .map(SessionInbound::WorkspaceLabel)
+    },
+    "workspace.label.update.request" => |input| {
+        WorkspaceLabelInbound::deserialize_as("workspace.label.update.request", input)
+            .map(SessionInbound::WorkspaceLabel)
+    },
+    "workspace.label.delete.request" => |input| {
+        WorkspaceLabelInbound::deserialize_as("workspace.label.delete.request", input)
+            .map(SessionInbound::WorkspaceLabel)
+    },
+    "workspace.label.delete.inspect.request" => |input| {
+        WorkspaceLabelInbound::deserialize_as("workspace.label.delete.inspect.request", input)
+            .map(SessionInbound::WorkspaceLabel)
     },
 });
 
@@ -312,6 +336,9 @@ pub enum SessionOutbound {
     AgentPermissionResolved {
         payload: Box<AgentPermissionResolved>,
     },
+    /// The six `workspace.label.*` messages, tagged by their own `type`.
+    #[serde(untagged)]
+    WorkspaceLabel(WorkspaceLabelOutbound),
 }
 
 #[cfg(test)]

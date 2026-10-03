@@ -43,6 +43,7 @@ pub fn request_type(message: &SessionInbound) -> &'static str {
         SessionInbound::CancelAgent(_) => "cancel_agent_request",
         SessionInbound::ResumeAgent(_) => "resume_agent_request",
         SessionInbound::RefreshAgent(_) => "refresh_agent_request",
+        SessionInbound::WorkspaceLabel(m) => m.request_type(),
     }
 }
 
@@ -69,6 +70,7 @@ pub fn request_id(message: &SessionInbound) -> Option<&JsText> {
         SessionInbound::AgentPermissionResponse(m) => &m.request_id,
         SessionInbound::ResumeAgent(m) => &m.request_id,
         SessionInbound::RefreshAgent(m) => &m.request_id,
+        SessionInbound::WorkspaceLabel(m) => m.request_id(),
         SessionInbound::CancelAgent(m) => return m.request_id.as_ref(),
     })
 }

@@ -4,6 +4,7 @@
 
 use serde_json::Value;
 use spocky_contracts::session::SessionInbound;
+use spocky_contracts::workspace_labels::WorkspaceLabelInbound;
 use spocky_contracts::ws::DaemonPermission::{
     self, DaemonRead, HubExecute, WorkspaceManage, WorkspaceRead, WorkspaceWrite,
 };
@@ -18,9 +19,13 @@ pub type Requirement = Option<&'static [DaemonPermission]>;
 pub fn inbound_requirement(message: &SessionInbound) -> Requirement {
     match message {
         SessionInbound::Ping(_) => Some(&[DaemonRead]),
-        SessionInbound::WorkspaceCreate(_) => Some(&[WorkspaceManage]),
-        SessionInbound::CreationSubscribe(_) | SessionInbound::WaitForFinish(_) => {
-            Some(&[WorkspaceRead])
+        SessionInbound::CreationSubscribe(_)
+        | SessionInbound::WaitForFinish(_)
+        | SessionInbound::WorkspaceLabel(
+            WorkspaceLabelInbound::List(_) | WorkspaceLabelInbound::DeleteInspect(_),
+        ) => Some(&[WorkspaceRead]),
+        SessionInbound::WorkspaceCreate(_) | SessionInbound::WorkspaceLabel(_) => {
+            Some(&[WorkspaceManage])
         }
         SessionInbound::CreateAgent(_)
         | SessionInbound::AgentCreate(_)
@@ -64,15 +69,22 @@ pub fn outbound_requirement(message: &Value) -> Option<Requirement> {
         }
         "pong" => Some(&[DaemonRead]),
         "rpc_error" | "subscription.release.response" => None,
-        "workspace.create.update" | "workspace.create.response" => Some(&[WorkspaceManage]),
+        "workspace.create.update"
+        | "workspace.create.response"
+        | "workspace.label.assignment.set.response"
+        | "workspace.label.update.response"
+        | "workspace.label.delete.response" => Some(&[WorkspaceManage]),
         "agent.create.update"
         | "agent.create.response"
         | "send_agent_message_response"
         | "agent_permission_resolved"
         | "cancel_agent_response" => Some(AGENT_WRITE),
-        "creation.subscribe.response" | "wait_for_finish_response" | "activity_log" => {
-            Some(&[WorkspaceRead])
-        }
+        "creation.subscribe.response"
+        | "wait_for_finish_response"
+        | "activity_log"
+        | "workspace.label.list.response"
+        | "workspace.label.update"
+        | "workspace.label.delete.inspect.response" => Some(&[WorkspaceRead]),
         "fetch_agent_response"
         | "agent_permission_request"
         | "agent_attention_required"
