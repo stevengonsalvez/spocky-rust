@@ -20,6 +20,7 @@ use super::credentials::{
     hash_secret,
 };
 use super::message::{ApiRequest, ApiResponse};
+use super::validation::ParseFailure;
 use super::value::{JsValueExt as _, Json, decode_request_json};
 
 const LIFETIME_SECONDS: u64 = 10 * 60;
@@ -510,11 +511,13 @@ impl CliAuthorizations {
     }
 
     /// `POST /api/v1/cli-authorizations/poll`.
-    #[must_use]
-    pub fn poll(&mut self, request: &ApiRequest) -> ApiResponse {
-        let Some(device_code) = parsed_json(request).and_then(|body| parse_device_code(&body))
-        else {
-            return invalid_request();
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] when body validation throws, which the baseline does not catch.
+    pub fn poll(&mut self, request: &ApiRequest) -> Result<ApiResponse, HandlerError> {
+        let Some(device_code) = safe_parse(request, parse_device_code)? else {
+            return Ok(invalid_request());
         };
         let credential = derive_credential(&device_code);
         let (prefix, verifier) = cli_credential_parts(&credential).unwrap_or_default();
@@ -548,7 +551,11 @@ impl CliAuthorizations {
             fields.push(("credential".to_owned(), Json::String(credential)));
             fields.push(("organizationId".to_owned(), Json::String(organization_id)));
         }
-        ApiResponse::json(200, &Json::from_pairs(fields).stringify(), &[])
+        Ok(ApiResponse::json(
+            200,
+            &Json::from_pairs(fields).stringify(),
+            &[],
+        ))
     }
 
     /// `POST /cli-authorizations/inspect`.
@@ -561,7 +568,7 @@ impl CliAuthorizations {
             Ok(access) => access,
             Err(response) => return Ok(response),
         };
-        let Some(user_code) = parsed_json(request).and_then(|body| parse_user_code(&body)) else {
+        let Some(user_code) = safe_parse(request, parse_user_code)? else {
             return Ok(invalid_request());
         };
         let Some(authorization) = self
@@ -600,7 +607,7 @@ impl CliAuthorizations {
         if !access.manage_resources {
             return Ok(error_response(403, "forbidden"));
         }
-        let Some(decision) = parsed_json(request).and_then(|body| parse_decision(&body)) else {
+        let Some(decision) = safe_parse(request, parse_decision)? else {
             return Ok(invalid_request());
         };
         if decision.organization_id != access.organization_id {
@@ -645,6 +652,25 @@ impl CliAuthorizations {
 
 fn parsed_json(request: &ApiRequest) -> Option<Json> {
     decode_request_json(&request.body)
+}
+
+/// What V8 throws when zod coerces a `length` array nested beyond the call stack.
+const STACK_OVERFLOW: &str = "Maximum call stack size exceeded";
+
+/// `schema.safeParse(await this.parsedJson(request, ...))`: `Ok(None)` for a body that is not JSON
+/// or fails the schema, and the handler failing when `safeParse` itself throws.
+fn safe_parse<T>(
+    request: &ApiRequest,
+    parse: impl FnOnce(&Json) -> Result<T, ParseFailure>,
+) -> Result<Option<T>, HandlerError> {
+    let Some(body) = parsed_json(request) else {
+        return Ok(None);
+    };
+    match parse(&body) {
+        Ok(parsed) => Ok(Some(parsed)),
+        Err(ParseFailure::Invalid(_)) => Ok(None),
+        Err(ParseFailure::Thrown) => Err(HandlerError(STACK_OVERFLOW.to_owned())),
+    }
 }
 
 fn error_response(status: u16, code: &str) -> ApiResponse {

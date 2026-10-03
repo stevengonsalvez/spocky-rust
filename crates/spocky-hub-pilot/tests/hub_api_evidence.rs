@@ -1097,8 +1097,9 @@ fn run_scenario(spec: &Json) -> Json {
                 let url = step.get("url").map_or(POLL_URL, text);
                 let headers = step.get("headers").unwrap_or(&json_headers);
                 let request = scenario.post(url, headers, &body);
-                let response = scenario.authorizations.poll(&request);
-                if response.status == 200
+                let outcome = scenario.authorizations.poll(&request);
+                if let Ok(response) = &outcome
+                    && response.status == 200
                     && let Some(name) = step.get("of")
                 {
                     let parsed = parse_json(&response.text()).expect("poll body");
@@ -1114,7 +1115,7 @@ fn run_scenario(spec: &Json) -> Json {
                         ("do", Json::string("poll")),
                         ("of", optional_text(member(step, "of"))),
                     ],
-                    response_trace(&response),
+                    thrown_or_response(outcome),
                 ));
             }
             "inspect" | "decide" => {

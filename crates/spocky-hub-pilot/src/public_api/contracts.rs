@@ -308,10 +308,16 @@ pub fn is_empty_object(root: &Json) -> bool {
 }
 
 /// `{ deviceCode: string(32..=200) }`, strict.
-#[must_use]
-pub fn parse_device_code(root: &Json) -> Option<String> {
+///
+/// # Errors
+///
+/// [`ParseFailure::Invalid`] for a schema failure, [`ParseFailure::Thrown`] where zod itself throws
+/// (a `length` array nested too deeply to coerce), which the handler does not catch.
+pub fn parse_device_code(root: &Json) -> Result<String, ParseFailure> {
     let mut issues = Issues::default();
-    let fields = object_fields(Some(root), &[], &mut issues)?;
+    let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
+        return Err(issues.into_failure());
+    };
     let code = string_field(
         field(fields, "deviceCode"),
         false,
@@ -325,7 +331,7 @@ pub fn parse_device_code(root: &Json) -> Option<String> {
         &mut issues,
     );
     unrecognized_keys(fields, &["deviceCode"], &[], &mut issues);
-    issues.is_empty().then_some(code).flatten()
+    checked(issues, code)
 }
 
 fn user_code_rule() -> StringRule {
@@ -338,10 +344,15 @@ fn user_code_rule() -> StringRule {
 }
 
 /// `{ userCode: string(1..=40) }`, strict.
-#[must_use]
-pub fn parse_user_code(root: &Json) -> Option<String> {
+///
+/// # Errors
+///
+/// As [`parse_device_code`].
+pub fn parse_user_code(root: &Json) -> Result<String, ParseFailure> {
     let mut issues = Issues::default();
-    let fields = object_fields(Some(root), &[], &mut issues)?;
+    let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
+        return Err(issues.into_failure());
+    };
     let code = string_field(
         field(fields, "userCode"),
         false,
@@ -350,7 +361,7 @@ pub fn parse_user_code(root: &Json) -> Option<String> {
         &mut issues,
     );
     unrecognized_keys(fields, &["userCode"], &[], &mut issues);
-    issues.is_empty().then_some(code).flatten()
+    checked(issues, code)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -361,10 +372,15 @@ pub struct DecisionBody {
 }
 
 /// `{ userCode, decision: "approve" | "deny", organizationId: string(1..) }`, strict.
-#[must_use]
-pub fn parse_decision(root: &Json) -> Option<DecisionBody> {
+///
+/// # Errors
+///
+/// As [`parse_device_code`].
+pub fn parse_decision(root: &Json) -> Result<DecisionBody, ParseFailure> {
     let mut issues = Issues::default();
-    let fields = object_fields(Some(root), &[], &mut issues)?;
+    let Some(fields) = object_fields(Some(root), &[], &mut issues) else {
+        return Err(issues.into_failure());
+    };
     let user_code = string_field(
         field(fields, "userCode"),
         false,
@@ -403,14 +419,23 @@ pub fn parse_decision(root: &Json) -> Option<DecisionBody> {
         &[],
         &mut issues,
     );
-    if !issues.is_empty() {
-        return None;
+    let body = match (user_code, decision, organization_id) {
+        (Some(user_code), Some(approve), Some(organization_id)) => Some(DecisionBody {
+            user_code,
+            approve,
+            organization_id,
+        }),
+        _ => None,
+    };
+    checked(issues, body)
+}
+
+/// The parsed value when no issue was recorded, the failure the issues amount to otherwise.
+fn checked<T>(issues: Issues, parsed: Option<T>) -> Result<T, ParseFailure> {
+    match parsed {
+        Some(parsed) if issues.is_empty() => Ok(parsed),
+        _ => Err(issues.into_failure()),
     }
-    Some(DecisionBody {
-        user_code: user_code?,
-        approve: decision?,
-        organization_id: organization_id?,
-    })
 }
 
 fn uuid(value: &str) -> Option<Json> {

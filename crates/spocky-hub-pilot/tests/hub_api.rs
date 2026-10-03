@@ -165,10 +165,12 @@ fn device_authorization_issues_one_credential_that_works_for_every_scope_until_r
     assert_eq!(user_code.len(), 15);
 
     let poll = |hub: &mut Harness| {
-        hub.cli.poll(&post(
-            "https://hub.test/api/v1/cli-authorizations/poll",
-            &Json::object([("deviceCode", Json::string(&device_code))]).stringify(),
-        ))
+        hub.cli
+            .poll(&post(
+                "https://hub.test/api/v1/cli-authorizations/poll",
+                &Json::object([("deviceCode", Json::string(&device_code))]).stringify(),
+            ))
+            .expect("poll does not throw")
     };
     assert_eq!(field(&body(&poll(&mut hub)), "status"), "pending");
     assert_eq!(field(&body(&poll(&mut hub)), "status"), "slow_down");
