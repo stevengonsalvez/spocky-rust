@@ -92,12 +92,12 @@ use std::time::Duration;
 use spocky_contracts::js::{date_parse, js_string, spread, spread_into};
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
-    AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, AgentSteerOptions,
-    AppendedTimelineItem, CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions,
-    ImportProviderSessionRequest, ImportablePersistedAgentQueryOptions,
-    ImportableSessionProviderError, ProviderDefinition, ProviderRegistryUpdate, ReloadAgentOptions,
-    ResumeAgentOptions, SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
-    WaitForAgentOptions,
+    AgentArchivedCallback, AgentManager, AgentManagerEvent, AgentManagerOptions,
+    AgentMetadataUpdates, AgentSteerOptions, AppendedTimelineItem, AttentionCallback,
+    CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest,
+    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError, ProviderDefinition,
+    ProviderRegistryUpdate, ReloadAgentOptions, ResumeAgentOptions, SteerDispatch,
+    SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -1607,6 +1607,55 @@ const registryScenario = async () => {
   return { steps, heldFirst, feed, warns, calls };
 };
 
+const callbacksScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const gammaId = "00000000-0000-4000-8000-0000000000f5";
+  const childId = "00000000-0000-4000-8000-0000000000f6";
+  const calls = [];
+  const log = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const client = (provider, turns) => fakeClient(calls, spec(provider, { turns: turns.map((name) => scripted[name]) }));
+  const clients = { p1: client("p1", ["coalesce"]), p2: client("p2", ["failed"]), p3: client("p3", ["permission"]), p4: client("p4", ["coalesce"]) };
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry: new AgentStorage(`${home}/callbacks`, logger),
+    clients,
+    providerDefinitions: Object.fromEntries(Object.keys(clients).map((provider) => [provider, { enabled: true }])),
+    onAgentAttention: (notice) => { log.push(["first attention", notice]); },
+  });
+  manager.setAgentArchivedCallback(async (id) => { log.push(["first archived", id]); });
+  const feed = recordFeed(manager);
+  const create = async (provider, id, labels) => await manager.createAgent({ provider, cwd }, id, labels ? { labels } : {});
+  await create("p1", agentId);
+  await create("p2", otherId);
+  await create("p3", gammaId);
+  await create("p4", childId, { "paseo.parent-agent-id": agentId });
+  const run = (id) => outcome(async () => { await manager.runAgent(id, "go"); return null; });
+  const archive = (id) => outcome(async () => { await manager.archiveAgent(id); return null; });
+  const results = [];
+  results.push(await run(agentId));
+  await sleep(50);
+  manager.setAgentAttentionCallback((notice) => { log.push(["second attention", notice]); });
+  results.push(await run(otherId));
+  await sleep(50);
+  manager.runAgent(gammaId, "ask").catch(() => {});
+  const started = (entry) => entry[0] === "agent_stream" && entry[2].type === "turn_started" && entry[2].turnId === "turn-6";
+  for (let tick = 0; !feed.some(started); tick += 1) {
+    if (tick === 2000) throw new Error("turn-6 never started");
+    await sleep(5);
+  }
+  await sleep(100);
+  results.push(await run(childId));
+  await sleep(50);
+  results.push(await archive(agentId));
+  manager.setAgentArchivedCallback(async (id) => { log.push(["second archived", id]); throw new Error("callback broke"); });
+  results.push(await archive(otherId));
+  await sleep(100);
+  await manager.flush();
+  return { results, log, warns, feed };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1715,7 +1764,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3695,6 +3744,7 @@ async fn scenarios_match_pinned_manager() {
         ("importable", importable_scenario(&rust_home.0).await),
         ("draft", draft_scenario(&cwd, &rust_home.0).await),
         ("registry", registry_scenario(&cwd, &rust_home.0).await),
+        ("callbacks", callbacks_scenario(&cwd, &rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -6335,6 +6385,152 @@ async fn registry_scenario(cwd: &str, home: &Path) -> JsValue {
             "calls",
             JsValue::Array(calls.lock().expect("calls").clone()),
         ),
+    ])
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn callbacks_scenario(cwd: &str, home: &Path) -> JsValue {
+    const GAMMA_ID: &str = "00000000-0000-4000-8000-0000000000f5";
+    const CHILD_ID: &str = "00000000-0000-4000-8000-0000000000f6";
+    let calls = Calls::default();
+    let log: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let client = |provider: &str, turns: &[&str]| {
+        let fake = spec(provider);
+        scripted(&fake, turns);
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let clients = vec![
+        client("p1", &["coalesce"]),
+        client("p2", &["failed"]),
+        client("p3", &["permission"]),
+        client("p4", &["coalesce"]),
+    ];
+    let provider_definitions = clients
+        .iter()
+        .map(|(provider, _)| (provider.clone(), enabled()))
+        .collect();
+    let attention = |label: &'static str| -> AttentionCallback {
+        let log = Arc::clone(&log);
+        Arc::new(move |notice| {
+            log.lock().expect("log").push(JsValue::Array(vec![
+                text(label),
+                object(vec![
+                    ("agentId", text(&notice.agent_id)),
+                    ("provider", text(&notice.provider)),
+                    ("reason", text(&notice.reason)),
+                ]),
+            ]));
+        })
+    };
+    let archived = |label: &'static str, fail: bool| -> AgentArchivedCallback {
+        let log = Arc::clone(&log);
+        Arc::new(move |id| {
+            log.lock()
+                .expect("log")
+                .push(JsValue::Array(vec![text(label), text(&id)]));
+            Box::pin(async move {
+                if fail {
+                    Err(AgentError::new("callback broke"))
+                } else {
+                    Ok(())
+                }
+            })
+        })
+    };
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients,
+        provider_definitions,
+        registry: Some(AgentStorage::new(home.join("callbacks"))),
+        on_agent_attention: Some(attention("first attention")),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    manager.set_agent_archived_callback(archived("first archived", false));
+    let feed = record_feed(&manager);
+    for (provider, id, parent) in [
+        ("p1", AGENT_ID, false),
+        ("p2", OTHER_ID, false),
+        ("p3", GAMMA_ID, false),
+        ("p4", CHILD_ID, true),
+    ] {
+        manager
+            .create_agent(
+                object(vec![("provider", text(provider)), ("cwd", text(cwd))]),
+                Some(id.to_owned()),
+                CreateAgentOptions {
+                    labels: parent.then(|| object(vec![("paseo.parent-agent-id", text(AGENT_ID))])),
+                    ..CreateAgentOptions::default()
+                },
+            )
+            .await
+            .expect("create");
+    }
+    let run = |id: &'static str| {
+        let manager = manager.clone();
+        async move {
+            outcome(
+                manager
+                    .run_agent(id, AgentPromptInput::Text("go".to_owned()), None)
+                    .await
+                    .map(|_| JsValue::Null),
+            )
+        }
+    };
+    let archive = |id: &'static str| {
+        let manager = manager.clone();
+        async move { outcome(manager.archive_agent(id).await.map(|_| JsValue::Null)) }
+    };
+    let mut results = Vec::new();
+    results.push(run(AGENT_ID).await);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.set_agent_attention_callback(attention("second attention"));
+    results.push(run(OTHER_ID).await);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let asking = tokio::spawn({
+        let manager = manager.clone();
+        async move {
+            manager
+                .run_agent(GAMMA_ID, AgentPromptInput::Text("ask".to_owned()), None)
+                .await
+        }
+    });
+    wait_for_turn_started(&feed, "turn-6").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    results.push(run(CHILD_ID).await);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    results.push(archive(AGENT_ID).await);
+    manager.set_agent_archived_callback(archived("second archived", true));
+    results.push(archive(OTHER_ID).await);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // A callback sent through the dispatcher must not leave `flush` waiting.
+    tokio::time::timeout(Duration::from_secs(10), manager.flush())
+        .await
+        .expect("flush settles once the callbacks have run");
+    asking.abort();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("log", JsValue::Array(log.lock().expect("log").clone())),
+        (
+            "warns",
+            JsValue::Array(warns.lock().expect("warns").clone()),
+        ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
     ])
 }
 
