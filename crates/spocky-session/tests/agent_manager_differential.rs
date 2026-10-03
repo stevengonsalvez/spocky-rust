@@ -478,6 +478,7 @@ const fakeClient = (calls, spec) => ({
   async unarchiveNativeSession(handle) { calls.push(["unarchiveNativeSession", handle]); },
   async fetchCatalog(options, context) { calls.push(["fetchCatalog", options, context === undefined ? "no context" : "context"]); return JSON.parse(catalogJson); },
   async isAvailable() {
+    if (spec.availableDelayMs) await sleep(spec.availableDelayMs);
     if (typeof spec.available === "boolean") return spec.available;
     throw new Error(spec.available);
   },
@@ -1392,6 +1393,28 @@ const timelineItemsScenario = async () => {
   return { results, rows: await manager.getTimelineRows(agentId), otherRows: await manager.getTimelineRows(otherId), feed };
 };
 
+const availabilityScenario = async () => {
+  const calls = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry: new AgentStorage(`${home}/availability`, logger),
+    clients: {
+      slowbad: fakeClient(calls, spec("slowbad", { available: "slow failure", availableDelayMs: 120 })),
+      fake: fakeClient(calls, spec("fake")),
+      gone: fakeClient(calls, spec("gone", { available: false })),
+      fastbad: fakeClient(calls, spec("fastbad", { available: "fast failure" })),
+    },
+    providerDefinitions: { slowbad: { enabled: true }, fake: { enabled: true }, gone: { enabled: true }, fastbad: { enabled: true } },
+  });
+  const results = [];
+  results.push(await outcome(async () => await manager.listProviderAvailability()));
+  const afterList = warns.splice(0);
+  for (const provider of ["fake", "gone", "fastbad", "nope"]) results.push(await outcome(async () => await manager.getProviderAvailability(provider)));
+  return { results, afterList, warns };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1500,7 +1523,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1540,6 +1563,8 @@ struct Spec {
     initial_timeline: Option<JsValue>,
     /// `createSession` resolves after this long.
     create_delay: Option<Duration>,
+    /// `isAvailable()` settles after this long.
+    available_delay: Option<Duration>,
     /// `archiveNativeSession` rejects.
     archive_fails: bool,
     /// `interrupt` never resolves.
@@ -1587,6 +1612,7 @@ fn spec(provider: &str) -> Spec {
         history: None,
         initial_timeline: None,
         create_delay: None,
+        available_delay: None,
         archive_fails: false,
         interrupt_hang: false,
         import: None,
@@ -2226,7 +2252,13 @@ impl AgentClient for FakeClient {
         _options: Option<FetchCatalogOptions>,
     ) -> BoxFuture<'_, AgentResult<bool>> {
         let available = self.spec.available.clone();
-        Box::pin(async move { available.map_err(AgentError::new) })
+        let delay = self.spec.available_delay;
+        Box::pin(async move {
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
+            }
+            available.map_err(AgentError::new)
+        })
     }
 }
 
@@ -3369,6 +3401,7 @@ async fn scenarios_match_pinned_manager() {
             "timelineItems",
             timeline_items_scenario(&cwd, &rust_home.0).await,
         ),
+        ("availability", availability_scenario(&rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -5354,6 +5387,71 @@ async fn timeline_items_scenario(cwd: &str, home: &Path) -> JsValue {
             JsValue::Array(manager.get_timeline_rows(OTHER).expect("rows")),
         ),
         ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+    ])
+}
+
+async fn availability_scenario(home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let client = |provider: &str, available: Availability, delay_ms: Option<u64>| {
+        let mut fake = spec(provider);
+        fake.available = available;
+        fake.available_delay = delay_ms.map(Duration::from_millis);
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![
+            client("slowbad", Err("slow failure".to_owned()), Some(120)),
+            client("fake", Ok(true), None),
+            client("gone", Ok(false), None),
+            client("fastbad", Err("fast failure".to_owned()), None),
+        ],
+        provider_definitions: ["slowbad", "fake", "gone", "fastbad"]
+            .into_iter()
+            .map(|provider| (provider.to_owned(), enabled()))
+            .collect(),
+        registry: Some(AgentStorage::new(home.join("availability"))),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let entry = |(provider, available, error): (String, bool, Option<String>)| {
+        object(vec![
+            ("provider", text(&provider)),
+            ("available", JsValue::Bool(available)),
+            ("error", error.map_or(JsValue::Null, |error| text(&error))),
+        ])
+    };
+    let mut results = vec![outcome(Ok(JsValue::Array(
+        manager
+            .list_provider_availability()
+            .await
+            .into_iter()
+            .map(entry)
+            .collect(),
+    )))];
+    let after_list = std::mem::take(&mut *warns.lock().expect("warns"));
+    for provider in ["fake", "gone", "fastbad", "nope"] {
+        results.push(outcome(Ok::<_, AgentError>(entry(
+            manager.get_provider_availability(provider).await,
+        ))));
+    }
+    let warns = warns.lock().expect("warns").clone();
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("afterList", JsValue::Array(after_list)),
+        ("warns", JsValue::Array(warns)),
     ])
 }
 
