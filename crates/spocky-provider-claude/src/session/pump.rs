@@ -9,6 +9,7 @@ use spocky_session::agent_sdk::AgentError;
 
 use super::timeline::BlockOptions;
 use super::{ClaudeSession, text};
+use crate::local::run_inline;
 use crate::process::terminate_with_tree_kill;
 use crate::sdk_query::ClaudeQuery;
 use crate::transcript::{read_event_message_id, read_parent_tool_use_id, read_transcript_uuid};
@@ -59,7 +60,9 @@ impl ClaudeSession {
             state.query_pump_generation
         };
         let session = Rc::clone(self);
-        tokio::task::spawn_local(async move {
+        // `runQueryPump()` runs its synchronous prefix (the `ensureQuery` fast
+        // path) before `startQueryPump()` returns.
+        run_inline(async move {
             session.run_query_pump().await;
             let mut state = session.state.borrow_mut();
             if state.query_pump_generation == generation {
@@ -133,8 +136,10 @@ impl ClaudeSession {
                     // A loop body that returns or throws closes the iterator.
                     match self.handle_pumped_message(&message, active_query).await {
                         Ok(false) => {
-                            // Each `for await` step costs a promise tick, so
-                            // frames already buffered are handled one per tick.
+                            // `await routeSdkMessageFromPump` and `await
+                            // handlePumpedMessage` cost a tick each before the
+                            // next `for await` step.
+                            tokio::task::yield_now().await;
                             tokio::task::yield_now().await;
                         }
                         Ok(true) => {
@@ -162,6 +167,11 @@ impl ClaudeSession {
         {
             return Ok(true);
         }
+        // `await handleMissingResumedConversation(...)` takes two ticks even
+        // when it answers at once, so the message is routed two ticks after it
+        // arrived (measured under node 22.20.0).
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         self.route_sdk_message_from_pump(message)?;
         Ok(false)
     }
