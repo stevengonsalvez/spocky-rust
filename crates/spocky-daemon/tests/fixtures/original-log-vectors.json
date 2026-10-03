@@ -1,0 +1,34 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b"
+  }
+ },
+ "cases": [
+  {
+   "name": "port_in_use",
+   "host": "127.0.0.1",
+   "port": 58141,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791040186779,\"pid\":45883,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRINUSE: address already in use 127.0.0.1:58141\",\"stack\":\"Error: listen EADDRINUSE: address already in use 127.0.0.1:58141\\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRINUSE\",\"errno\":-48,\"syscall\":\"listen\",\"address\":\"127.0.0.1\",\"port\":58141},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: listen EADDRINUSE: address already in use 127.0.0.1:58141\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
+  },
+  {
+   "name": "address_not_available",
+   "host": "192.0.2.1",
+   "port": 58193,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791040238898,\"pid\":60216,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\",\"stack\":\"Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRNOTAVAIL\",\"errno\":-49,\"syscall\":\"listen\",\"address\":\"192.0.2.1\",\"port\":58193},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
+  }
+ ]
+}
