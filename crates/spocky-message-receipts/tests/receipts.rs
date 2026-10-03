@@ -196,6 +196,56 @@ async fn sends_run_in_call_order_when_polled_out_of_order() {
     assert_eq!(sends.load(Ordering::SeqCst), 1);
 }
 
+/// A baseline promise runs when it is created, so awaiting the later of two
+/// sends first must not wait on the earlier one's poll. A lazy future
+/// deadlocks here; the timeout turns that into a failure.
+#[tokio::test]
+async fn awaiting_a_later_send_first_does_not_deadlock() {
+    let (_guard, directory) = fixture();
+    let requests = MessageReceipts::new(directory);
+    let sends = Arc::new(AtomicUsize::new(0));
+    let body = request(&[]);
+    let first = requests.send("agent", "message", &body, Scripted::new(&sends));
+    let second = requests.send("agent", "message", &body, Scripted::new(&sends));
+    let bound = std::time::Duration::from_secs(30);
+    tokio::time::timeout(bound, second)
+        .await
+        .expect("the later send settles without the earlier one being polled")
+        .expect("the later send finds the completed receipt");
+    tokio::time::timeout(bound, first)
+        .await
+        .expect("the earlier send settles")
+        .expect("the earlier send delivers");
+    assert_eq!(sends.load(Ordering::SeqCst), 1);
+}
+
+/// A promise cannot be cancelled by forgetting it: dropping the future of a
+/// send does not stop the send.
+#[tokio::test]
+async fn dropping_a_send_does_not_cancel_it() {
+    let (_guard, directory) = fixture();
+    let requests = MessageReceipts::new(directory.clone());
+    let sends = Arc::new(AtomicUsize::new(0));
+    let body = request(&[]);
+    drop(requests.send("agent", "message", &body, Scripted::new(&sends)));
+    for _ in 0..600 {
+        if sends.load(Ordering::SeqCst) == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(sends.load(Ordering::SeqCst), 1, "the dropped send ran");
+    // The completed write follows the send; a retry sees the receipt.
+    let retry = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        requests.send("agent", "message", &body, Scripted::new(&sends)),
+    )
+    .await
+    .expect("the retry settles");
+    retry.expect("the dropped send left a completed receipt");
+    assert_eq!(sends.load(Ordering::SeqCst), 1);
+}
+
 /// Known pinned defect, reproduced on purpose: a failed `completed` write
 /// after a successful send leaves the receipt `pending`, so the delivered
 /// message can never be confirmed and every retry is an unknown outcome.
