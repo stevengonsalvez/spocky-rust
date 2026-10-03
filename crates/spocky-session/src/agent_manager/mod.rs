@@ -27,6 +27,8 @@ mod draft_listing;
 mod events;
 mod importable;
 mod lifecycle;
+mod metrics;
+mod provider_registry;
 mod run;
 
 use std::collections::HashMap;
@@ -51,6 +53,8 @@ pub use importable::{
     ManagedImportableProviderSession, ManagedImportableSessionsResult,
 };
 pub use lifecycle::AgentRunCancellationResult;
+pub use metrics::AgentMetricsSnapshot;
+pub use provider_registry::ProviderRegistryUpdate;
 pub use run::{
     AgentRunResult, AgentSteerOptions, SteerDispatch, TurnEventStream, WaitForAgentOptions,
     WaitForAgentResult,
@@ -594,6 +598,23 @@ impl AgentManager {
     /// `setAppendSystemPrompt(prompt)`.
     pub fn set_append_system_prompt(&self, prompt: Option<String>) {
         self.lock().append_system_prompt = prompt.unwrap_or_default();
+    }
+
+    /// `getPaseoToolPolicy(agentId)`.
+    #[must_use]
+    pub fn paseo_tool_policy(&self, agent_id: &str) -> Option<JsValue> {
+        self.lock()
+            .paseo_tool_policies
+            .get(agent_id)
+            .cloned()
+            .flatten()
+    }
+
+    /// `getMcpAuthToken()`: the capability token the daemon's own MCP
+    /// clients present, kept in the daemon.
+    #[must_use]
+    pub fn mcp_auth_token(&self) -> Option<&str> {
+        self.inner.mcp_auth_token.as_deref()
     }
 
     /// `getRegisteredProviderIds()`.
