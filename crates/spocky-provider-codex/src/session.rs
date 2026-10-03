@@ -1178,6 +1178,129 @@ impl CodexSession {
         outcome
     }
 
+    /// `steerActiveTurn(prompt, options)`: adds input to the running
+    /// foreground turn (`turn/steer`). `Unavailable` when no turn matching
+    /// `options.expected_turn_id` is running, or when Codex definitively
+    /// rejects the steer ([`is_definitive_steer_rejection`]); any other
+    /// failure is an error.
+    ///
+    /// # Errors
+    /// Returns an unported prompt, an invalid acknowledgement, a failure to
+    /// answer a pending approval, or an ambiguous `turn/steer` failure
+    /// (timeout, disconnect, other Codex error).
+    pub fn steer_active_turn(
+        &self,
+        prompt: &Prompt,
+        options: &SteerOptions,
+    ) -> Result<SteerResult, String> {
+        let Some(admission) = self.steer_admission(options) else {
+            return Ok(SteerResult::Unavailable);
+        };
+        reject_slash_command(prompt)?;
+        if !self.matches_steer_admission(&admission) {
+            return Ok(SteerResult::Unavailable);
+        }
+        let input = build_user_input(prompt)?;
+        if !self.matches_steer_admission(&admission) {
+            return Ok(SteerResult::Unavailable);
+        }
+        let mut params = Map::new();
+        params.insert("threadId".to_owned(), json!(admission.thread_id));
+        params.insert("expectedTurnId".to_owned(), json!(admission.native_turn_id));
+        params.insert("input".to_owned(), input);
+        if let Some(id) = options
+            .client_message_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+        {
+            params.insert("clientUserMessageId".to_owned(), json!(id));
+        }
+        let response = match admission.client.request(
+            "turn/steer",
+            Some(Value::Object(params)),
+            TURN_START_TIMEOUT,
+        ) {
+            Ok(response) => response,
+            Err(error) if is_definitive_steer_rejection(&error) => {
+                return Ok(SteerResult::Unavailable);
+            }
+            Err(error) => return Err(error.message),
+        };
+        let record = object(&response);
+        let turn = record
+            .and_then(|record| record.get("turn"))
+            .and_then(object);
+        let acknowledged = non_empty_string(record.and_then(|record| record.get("turnId")))
+            .or_else(|| non_empty_string(turn.and_then(|turn| turn.get("id"))));
+        if acknowledged != Some(admission.native_turn_id.as_str()) {
+            return Err("Codex returned an invalid steer acknowledgement".to_owned());
+        }
+        if options.clear_pending_permissions {
+            self.clear_pending_permissions_for_steer()?;
+        }
+        Ok(SteerResult::Accepted)
+    }
+
+    /// The client, thread, native turn, and foreground turn a steer is
+    /// admitted against, or `None` when no turn matching `expected_turn_id`
+    /// is running.
+    fn steer_admission(&self, options: &SteerOptions) -> Option<SteerAdmission> {
+        let state = lock(&self.inner.state);
+        let client = state.client.clone()?;
+        let thread_id = state
+            .current_thread_id
+            .clone()
+            .filter(|id| !id.is_empty())?;
+        let native_turn_id = state.current_turn_id.clone().filter(|id| !id.is_empty())?;
+        let foreground = state.active_foreground_turn_id.clone()?;
+        (foreground == options.expected_turn_id).then_some(SteerAdmission {
+            client,
+            thread_id,
+            native_turn_id,
+            foreground,
+        })
+    }
+
+    /// `matchesSteerAdmission`: the same client (by its child's pid), thread,
+    /// native turn, and foreground turn.
+    fn matches_steer_admission(&self, admission: &SteerAdmission) -> bool {
+        let state = lock(&self.inner.state);
+        state
+            .client
+            .as_ref()
+            .is_some_and(|client| client.pid() == admission.client.pid())
+            && state.current_thread_id.as_deref() == Some(admission.thread_id.as_str())
+            && state.current_turn_id.as_deref() == Some(admission.native_turn_id.as_str())
+            && state.active_foreground_turn_id.as_deref() == Some(admission.foreground.as_str())
+    }
+
+    /// `clearPendingPermissionsForSteer()`: denies every pending approval
+    /// with the message of a user who answered with a message instead.
+    fn clear_pending_permissions_for_steer(&self) -> Result<(), String> {
+        let ids: Vec<String> = lock(&self.inner.state)
+            .pending_permissions
+            .iter()
+            .map(|pending| pending.id.clone())
+            .collect();
+        for id in ids {
+            let still_pending = lock(&self.inner.state)
+                .pending_permissions
+                .iter()
+                .any(|pending| pending.id == id);
+            if !still_pending {
+                continue;
+            }
+            self.respond_to_permission(
+                &id,
+                &json!({
+                    "behavior": "deny",
+                    "message": "The user answered with a message instead of approving. Their message follows.",
+                }),
+            )?;
+        }
+        Ok(())
+    }
+
     fn start_turn_inner(&self, prompt: &Prompt, options: &RunOptions) -> Result<String, String> {
         self.connect()?;
         let client = self.client()?;
@@ -3570,6 +3693,75 @@ impl std::fmt::Display for Aborted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("The operation was aborted")
     }
+}
+
+/// What `steerActiveTurn` admits a steer against.
+struct SteerAdmission {
+    client: AppServerClient,
+    thread_id: String,
+    native_turn_id: String,
+    foreground: String,
+}
+
+/// `SteerActiveTurnOptions` as `steerActiveTurn` reads it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SteerOptions {
+    pub expected_turn_id: String,
+    pub client_message_id: Option<String>,
+    pub clear_pending_permissions: bool,
+}
+
+/// `SteerResult`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SteerResult {
+    Accepted,
+    Unavailable,
+}
+
+/// `isDefinitiveCodexSteerRejection(error)`: a JSON-RPC error that shows the
+/// steer could not have submitted input. A generic invalid request, timeout,
+/// disconnect, or unknown error is ambiguous, so it is not definitive.
+#[must_use]
+pub fn is_definitive_steer_rejection(error: &ClientError) -> bool {
+    let Some(rpc) = error.rpc.as_deref() else {
+        return false;
+    };
+    let is_code = |expected: f64| matches!(&rpc.code, Some(Value::Number(code)) if code.as_f64() == Some(expected));
+    if is_code(-32601.0) {
+        return true;
+    }
+    if !is_code(-32600.0) {
+        return false;
+    }
+    let not_steerable = rpc
+        .data
+        .as_ref()
+        .and_then(object)
+        .and_then(|data| data.get("codexErrorInfo"))
+        .and_then(object)
+        .and_then(|info| info.get("activeTurnNotSteerable"))
+        .is_some_and(Value::is_object);
+    not_steerable
+        || error.message == "no active turn to steer"
+        || is_expected_turn_mismatch(&error.message)
+        || error.message == "active turn uses a different output schema"
+}
+
+/// ``/^expected active turn id `[^`]+` but found `[^`]+`$/``.
+fn is_expected_turn_mismatch(message: &str) -> bool {
+    let Some(rest) = message.strip_prefix("expected active turn id `") else {
+        return false;
+    };
+    let Some((expected, rest)) = rest.split_once('`') else {
+        return false;
+    };
+    let Some(found) = rest
+        .strip_prefix(" but found `")
+        .and_then(|found| found.strip_suffix('`'))
+    else {
+        return false;
+    };
+    !expected.is_empty() && !found.is_empty() && !found.contains('`')
 }
 
 /// The native archive state `updateNativeThreadArchiveState` applies.
