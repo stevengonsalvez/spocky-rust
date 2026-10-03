@@ -19,10 +19,33 @@ use crate::agent_projection::SnapshotOverrides;
 use crate::agent_prompt::submitted_prompt_text;
 use crate::agent_sdk::{
     AbortReason, AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
-    StreamCallback,
+    SteerActiveTurnOptions, SteerResult, StreamCallback,
 };
 use crate::rewind::{RewindMode, invoke_rewind_capability};
 use spocky_contracts::js::{js_string, truthy};
+
+/// `AgentSteerOptions`: run options plus whether to clear pending
+/// permissions.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentSteerOptions {
+    pub run: AgentRunOptions,
+    pub clear_pending_permissions: Option<bool>,
+}
+
+/// `ActiveTurnSteerDispatchResult`.
+pub enum SteerDispatch {
+    Inactive,
+    Steered,
+    /// The turn was replaced; this is the new turn's stream.
+    Replaced(Box<TurnEventStream>),
+}
+
+/// What a steer targets: the agent, its session and the turn it expects.
+struct SteerTarget {
+    id: String,
+    session: Arc<dyn AgentSession>,
+    expected: Option<String>,
+}
 
 /// `finalizedForegroundTurnIds` keeps at most this many ids.
 const FINALIZED_TURN_LIMIT: usize = 50;
@@ -323,13 +346,31 @@ impl AgentManager {
                     "Agent '{id}' has no managed session"
                 )));
             }
-            if let Some(agent) = state.agent_mut(&id) {
-                agent.snapshot.pending_replacement = true;
-                agent.snapshot.lifecycle = AgentLifecycle::Running;
-                touch_updated_at(&mut agent.snapshot);
-            }
-            self.emit_state_locked(&mut state, &id, true);
+            self.mark_replacing_locked(&mut state, &id);
         }
+        self.cancel_and_stream_replacement(agent_id, prompt, options)
+            .await
+    }
+
+    /// The agent is busy for a replacement: pending, running, touched and
+    /// published.
+    fn mark_replacing_locked(&self, state: &mut State, id: &str) {
+        if let Some(agent) = state.agent_mut(id) {
+            agent.snapshot.pending_replacement = true;
+            agent.snapshot.lifecycle = AgentLifecycle::Running;
+            touch_updated_at(&mut agent.snapshot);
+        }
+        self.emit_state_locked(state, id, true);
+    }
+
+    /// Cancels the active run, then streams the replacement; the pending
+    /// mark is cleared when either fails.
+    async fn cancel_and_stream_replacement(
+        &self,
+        agent_id: &str,
+        prompt: AgentPromptInput,
+        options: Option<AgentRunOptions>,
+    ) -> Result<TurnEventStream, AgentError> {
         let attempt = async {
             self.cancel_agent_run_before(agent_id, "replace").await?;
             self.stream_agent(agent_id, prompt, options)
@@ -397,6 +438,218 @@ impl AgentManager {
             token,
             waiter_id: None,
         })
+    }
+
+    /// The agent, its session and the turn a steer would target
+    /// (`activeForegroundTurnId ?? activeTurnId`, none when empty).
+    fn steer_target(&self, agent_id: &str) -> Result<SteerTarget, AgentError> {
+        let state = self.lock();
+        let agent = Self::require_agent(&state, agent_id)?;
+        let id = agent.snapshot.id.clone();
+        let Some(session) = agent.session.clone() else {
+            return Err(AgentError::new(format!(
+                "Agent '{id}' has no managed session"
+            )));
+        };
+        let expected = agent
+            .snapshot
+            .active_foreground_turn_id
+            .clone()
+            .or_else(|| agent.snapshot.active_turn_id.clone())
+            .filter(|turn| !turn.is_empty());
+        Ok(SteerTarget {
+            id,
+            session,
+            expected,
+        })
+    }
+
+    /// `assertSteerAdmissionOwnsTurn(agent, expectedTurnId)`.
+    fn assert_steer_admission_owns_turn(&self, id: &str, expected: &str) -> Result<(), AgentError> {
+        let owns = self
+            .lock()
+            .agent(id)
+            .is_some_and(|agent| agent.snapshot.active_turn_id.as_deref() == Some(expected));
+        if owns {
+            Ok(())
+        } else {
+            Err(AgentError::new(
+                "Active turn changed before steering could be delivered",
+            ))
+        }
+    }
+
+    /// `recordAcceptedSteer(agent, prompt, clientMessageId, expectedTurnId)`.
+    fn record_accepted_steer(
+        &self,
+        id: &str,
+        prompt: &AgentPromptInput,
+        client_message_id: Option<&str>,
+        expected: &str,
+    ) -> Result<(), AgentError> {
+        let Some(client_message_id) = client_message_id.filter(|id| !id.is_empty()) else {
+            return Ok(());
+        };
+        let mut state = self.lock();
+        self.record_submitted_prompt_locked(
+            &mut state,
+            id,
+            SubmittedPrompt {
+                text: submitted_prompt_text(prompt),
+                client_message_id: client_message_id.to_owned(),
+                message_id: Some(client_message_id.to_owned()),
+                provider_message_id: None,
+                turn_id: Some(JsValue::String(expected.to_owned())),
+            },
+        )?;
+        self.emit_state_locked(&mut state, id, true);
+        Ok(())
+    }
+
+    /// `runSteerAdmission`: in the agent's foreground lane, the session's
+    /// queued events are drained and its stream buffer flushed, the turn is
+    /// confirmed, and the provider's events during the steer are held until
+    /// it has answered.
+    async fn run_steer_admission(
+        &self,
+        id: &str,
+        session: &Arc<dyn AgentSession>,
+        expected: &str,
+        prompt: &AgentPromptInput,
+        options: &AgentSteerOptions,
+    ) -> Result<SteerResult, AgentError> {
+        let lane = Self::lane(&mut self.lock().foreground_lanes, id);
+        let _turn = lane.lock().await;
+        self.drain_session_events_async(id).await;
+        {
+            let mut state = self.lock();
+            #[allow(clippy::cast_precision_loss, reason = "Date.now() is a double")]
+            let now = crate::clock::now_millis() as f64;
+            let flushes = state.coalescer.flush_for(id, now);
+            self.apply_coalescer_flushes(&mut state, flushes)?;
+        }
+        self.assert_steer_admission_owns_turn(id, expected)?;
+        self.lock()
+            .steer_event_barriers
+            .insert(id.to_owned(), Vec::new());
+        let admission = async {
+            let steer_options = SteerActiveTurnOptions {
+                run: options.run.clone(),
+                clear_pending_permissions: options.clear_pending_permissions,
+                expected_turn_id: expected.to_owned(),
+            };
+            let Some(steer) = session.steer_active_turn(prompt, &steer_options) else {
+                return Ok(SteerResult::Unavailable);
+            };
+            let admission = steer.await?;
+            if admission == SteerResult::Accepted {
+                self.record_accepted_steer(
+                    id,
+                    prompt,
+                    options.run.client_message_id.as_deref(),
+                    expected,
+                )?;
+            }
+            Ok(admission)
+        }
+        .await;
+        let held = self
+            .lock()
+            .steer_event_barriers
+            .remove(id)
+            .unwrap_or_default();
+        for event in held {
+            self.enqueue_session_event(id, event);
+        }
+        self.drain_session_events_async(id).await;
+        admission
+    }
+
+    /// `steerAgentRun(agentId, prompt, options)`.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, `Active turn changed before
+    /// steering could be delivered`, or the provider's error.
+    pub async fn steer_agent_run(
+        &self,
+        agent_id: &str,
+        prompt: AgentPromptInput,
+        options: Option<AgentSteerOptions>,
+    ) -> Result<SteerResult, AgentError> {
+        let SteerTarget {
+            id,
+            session,
+            expected,
+        } = self.steer_target(agent_id)?;
+        let Some(expected) = expected.filter(|_| session.supports_steer_active_turn()) else {
+            return Ok(SteerResult::Unavailable);
+        };
+        let options = options.unwrap_or_default();
+        let result = self
+            .run_steer_admission(&id, &session, &expected, &prompt, &options)
+            .await?;
+        // An unavailable answer is only safe to fall back from while this
+        // admission still owns the active turn.
+        if result == SteerResult::Unavailable {
+            self.assert_steer_admission_owns_turn(&id, &expected)?;
+        }
+        Ok(result)
+    }
+
+    /// `steerOrReplaceActiveTurn(agentId, prompt, options)`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::steer_agent_run`], plus a replacement's own errors.
+    pub async fn steer_or_replace_active_turn(
+        &self,
+        agent_id: &str,
+        prompt: AgentPromptInput,
+        options: Option<AgentSteerOptions>,
+    ) -> Result<SteerDispatch, AgentError> {
+        let SteerTarget {
+            id,
+            session,
+            expected,
+        } = self.steer_target(agent_id)?;
+        let Some(expected) = expected else {
+            return Ok(SteerDispatch::Inactive);
+        };
+        let steer_options = options.clone().unwrap_or_default();
+        let result = if session.supports_steer_active_turn() {
+            self.run_steer_admission(&id, &session, &expected, &prompt, &steer_options)
+                .await?
+        } else {
+            SteerResult::Unavailable
+        };
+        if result == SteerResult::Accepted {
+            return Ok(SteerDispatch::Steered);
+        }
+        // Providers without autonomous steering keep their existing dispatch
+        // behavior: only an accepted steer can own the turn without a
+        // replacement.
+        let untracked = self.lock().agent(&id).is_some_and(|agent| {
+            agent.snapshot.active_foreground_turn_id.is_none()
+                && agent.snapshot.active_turn_id.as_deref() == Some(expected.as_str())
+        });
+        if untracked {
+            return Ok(SteerDispatch::Inactive);
+        }
+        if let Some(hook) = &self.inner.before_steer_unavailable_fallback {
+            hook(id.clone(), expected.clone()).await;
+        }
+        self.assert_steer_admission_owns_turn(&id, &expected)?;
+        // `replaceAdmittedForegroundTurn`
+        self.assert_steer_admission_owns_turn(&id, &expected)?;
+        {
+            let mut state = self.lock();
+            self.mark_replacing_locked(&mut state, &id);
+        }
+        let stream = self
+            .cancel_and_stream_replacement(&id, prompt, options.map(|options| options.run))
+            .await?;
+        Ok(SteerDispatch::Replaced(Box::new(stream)))
     }
 
     /// `rewind(agentId, messageId, mode)`: reverts the provider session to

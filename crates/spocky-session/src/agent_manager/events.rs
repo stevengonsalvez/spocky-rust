@@ -567,6 +567,10 @@ impl AgentManager {
     /// turn is starting, otherwise queued for the agent's drain task.
     pub(crate) fn enqueue_session_event(&self, agent_id: &str, event: JsValue) {
         let mut state = self.lock();
+        if let Some(barrier) = state.steer_event_barriers.get_mut(agent_id) {
+            barrier.push(event);
+            return;
+        }
         if let Some(TrackedRun::Foreground {
             start: super::run::RunStart::Pending,
             staged,

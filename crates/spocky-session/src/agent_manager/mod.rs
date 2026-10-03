@@ -45,7 +45,10 @@ pub use create::{
 };
 pub use events::{HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
-pub use run::{AgentRunResult, TurnEventStream, WaitForAgentOptions, WaitForAgentResult};
+pub use run::{
+    AgentRunResult, AgentSteerOptions, SteerDispatch, TurnEventStream, WaitForAgentOptions,
+    WaitForAgentResult,
+};
 
 use crate::agent_projection::{AgentAttention, AgentPayloadView, ManagedAgentRecordView};
 use crate::agent_sdk::{AgentClient, AgentError, AgentSession, Unsubscribe};
@@ -198,6 +201,10 @@ fn subagent_parent(event: &JsValue) -> Option<&str> {
         .and_then(JsValue::as_str)
 }
 
+/// `beforeSteerUnavailableFallback`.
+pub type SteerFallbackHook =
+    Arc<dyn Fn(String, String) -> crate::agent_sdk::BoxFuture<'static, ()> + Send + Sync>;
+
 /// `AgentSubscriber`.
 pub type AgentSubscriber = Arc<dyn Fn(&AgentManagerEvent) + Send + Sync>;
 
@@ -278,6 +285,10 @@ pub struct AgentManagerOptions {
     pub rescue_interrupt_session_ms: Option<u64>,
     /// `rescueTimeouts.reloadSessionCloseMs` (default 3000).
     pub rescue_reload_session_close_ms: Option<u64>,
+    /// `beforeSteerUnavailableFallback`: awaited before an unavailable steer
+    /// falls back to replacing the turn, with the agent id and the turn the
+    /// steer was admitted for.
+    pub before_steer_unavailable_fallback: Option<SteerFallbackHook>,
 }
 
 /// A live agent: the snapshot fields plus what never leaves the manager.
@@ -330,6 +341,8 @@ pub(crate) struct State {
     pub(crate) foreground_lanes: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
     /// `inFlightAgentCloses`.
     pub(crate) inflight_closes: HashMap<String, lifecycle::SharedClose>,
+    /// `steerEventBarriers`: provider events held while a steer is admitted.
+    pub(crate) steer_event_barriers: HashMap<String, Vec<JsValue>>,
     /// `reloadedSessionCloses`: the close of each session a reload replaced.
     pub(crate) reloaded_session_closes: Vec<create::ReloadedClose>,
     pub(crate) mcp_base_url: Option<String>,
@@ -396,6 +409,7 @@ pub(crate) struct Inner {
     pub(crate) drain_idle: Notify,
     pub(crate) interrupt_session_ms: u64,
     pub(crate) reload_session_close_ms: u64,
+    pub(crate) before_steer_unavailable_fallback: Option<SteerFallbackHook>,
     /// `waitForAgentRunStart` subscribers, settled as each `agent_state`
     /// is dispatched.
     pub(crate) run_start_waiters: Mutex<Vec<run::RunStartWaiter>>,
@@ -498,6 +512,7 @@ impl AgentManager {
             foreground_lanes: HashMap::new(),
             inflight_closes: HashMap::new(),
             reloaded_session_closes: Vec::new(),
+            steer_event_barriers: HashMap::new(),
             mcp_base_url: options.mcp_base_url,
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
@@ -528,6 +543,7 @@ impl AgentManager {
                 interrupt_session_ms: options
                     .rescue_interrupt_session_ms
                     .unwrap_or(lifecycle::INTERRUPT_SESSION_TIMEOUT_MS),
+                before_steer_unavailable_fallback: options.before_steer_unavailable_fallback,
                 reload_session_close_ms: options
                     .rescue_reload_session_close_ms
                     .unwrap_or(create::RELOAD_SESSION_CLOSE_TIMEOUT_MS),
