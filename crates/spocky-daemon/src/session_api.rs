@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use spocky_contracts::ws::DaemonPermission;
 
+use crate::binary_frames::BinaryFrame;
 use crate::listen::ListenTarget;
 
 /// One physical WebSocket. A reconnecting client gets a new id.
@@ -75,6 +76,19 @@ pub trait SessionHandle: Send + Sync {
     /// work in the background: the transport calls it on the thread that reads
     /// the socket, and must keep answering `ping` and later requests.
     fn handle_message(&self, message: Value, source: SocketId);
+    /// `handleBinaryFrame(frame, ws)`: a frame `decodeBinaryFrame` accepted,
+    /// from a socket that has said hello. Same threading rule as
+    /// [`Self::handle_message`]. `Err` carries the message of the error the
+    /// baseline's promise rejects with; the transport logs it and sends a
+    /// protocol failure, as for any message the session could not handle. A
+    /// session without terminals or file transfers has nothing to do.
+    ///
+    /// # Errors
+    ///
+    /// The message of the failure.
+    fn binary_frame(&self, _frame: BinaryFrame, _source: SocketId) -> Result<(), String> {
+        Ok(())
+    }
     /// `delivery.protocolFailure(socket, { requestId, requestType, error, code })`:
     /// tell one socket its frame was rejected. The transport builds the text
     /// and code from the pinned rules (`invalid_message`, `unknown_schema`).
