@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
+use spocky_contracts::text::js_length;
 use spocky_hub_pilot::public_api::{
     AccessFailure, ApiKeyAuthorizer, ApiRequest, ApiResponse, AuthorizationOutcome, BrowserAccess,
     CLIENT_ADDRESS_HEADER, CliAuthorizations, Composition, ConfigurationResources, CredentialKind,
@@ -75,10 +76,6 @@ fn number(value: &Json) -> f64 {
 #[allow(clippy::cast_possible_truncation)]
 fn integer(value: &Json) -> i64 {
     number(value) as i64
-}
-
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -278,12 +275,12 @@ fn input_digest(input: Option<&Json>) -> Json {
         return Json::Null;
     };
     let rendered = input.stringify();
-    if utf16_len(&rendered) <= 2048 {
+    if js_length(&rendered) <= 2048 {
         return Json::String(rendered);
     }
     Json::String(format!(
         "sha256:{}:{}",
-        utf16_len(&rendered),
+        js_length(&rendered),
         hex(&Sha256::digest(rendered.as_bytes()))
     ))
 }
@@ -1194,7 +1191,7 @@ fn run_scenario(spec: &Json) -> Json {
                     .authorize(&headers, scope_of(scope))
                     .expect("credential storage");
                 let header = text(member(step, "header"));
-                let shown = if utf16_len(header) > 80 {
+                let shown = if js_length(header) > 80 {
                     format!("{}...", header.chars().take(80).collect::<String>())
                 } else {
                     header.to_owned()
