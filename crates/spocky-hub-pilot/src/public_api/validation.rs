@@ -159,8 +159,10 @@ pub(super) fn invalid_type(
 }
 
 /// Nesting depth at which V8's recursive `Array.prototype.join` overflows its stack in the pinned
-/// Hub: a `length` array nested 4,400 deep is joined, 4,600 deep throws a `RangeError`.
-const MAX_JOIN_DEPTH: usize = 4_500;
+/// Hub (node 22.20.0): a `length` array nested 3,000 deep is joined, 3,200 deep throws a
+/// `RangeError`. The boundary depends on the stack, so this is the midpoint of that band; depths
+/// inside it may differ from the baseline (DIV-003).
+const MAX_JOIN_DEPTH: usize = 3_100;
 
 /// The `ToNumber` conversion the baseline applies to a `length` property of any JSON type.
 /// `None` is the `RangeError` the baseline throws when an array is nested too deeply to join.
@@ -511,8 +513,10 @@ mod tests {
         let path = [PathPart::Key("projectSlug".to_owned())];
         for (depth, thrown) in [
             (1_000, false),
-            (4_500, false),
-            (4_501, true),
+            (3_000, false),
+            (3_100, false),
+            (3_101, true),
+            (3_200, true),
             (500_000, true),
         ] {
             let mut issues = Issues::default();

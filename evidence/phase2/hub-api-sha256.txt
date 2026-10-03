@@ -1,4 +1,4 @@
-0b741abe2c77333b3de4bf8dcaa6574f3a41e2ae5944ccc632058a4ce60e4cdb  hub-api-original.json
-0b741abe2c77333b3de4bf8dcaa6574f3a41e2ae5944ccc632058a4ce60e4cdb  hub-api-rust.json
+78a18e074a8cee6d81387a8e2d6cbd4b95de500aad0956c9535c893679815ba9  hub-api-original.json
+78a18e074a8cee6d81387a8e2d6cbd4b95de500aad0956c9535c893679815ba9  hub-api-rust.json
 7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69  hub-api-openapi-original.json
 7e5bd6cc236947da1c0428a9ef2d3594f1fc063602da0bd58d47c6391d672b69  hub-api-openapi-rust.json

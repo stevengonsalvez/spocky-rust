@@ -1273,8 +1273,8 @@ fn manifest_trace() -> Json {
 }
 
 /// Fixture counts are part of the evidence: a shrunken case list or an empty baseline fails.
-const CASE_COUNT: usize = 470;
-const SCENARIO_COUNT: usize = 62;
+const CASE_COUNT: usize = 471;
+const SCENARIO_COUNT: usize = 68;
 
 fn build_trace(openapi: &str) -> String {
     let spec = parse_json(CASES).expect("case list is JSON");

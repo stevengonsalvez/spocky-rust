@@ -9345,6 +9345,42 @@
       }
     },
     {
+      "name": "body/validateTrigger/deep-length-3200",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "repeat": {
+            "prefix": "{\"yaml\":{\"length\":",
+            "fill": "[",
+            "count": 3200,
+            "suffix": "",
+            "closeFill": "]",
+            "tail": "}}"
+          }
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
       "name": "body/validateTrigger/deep-length-4000",
       "via": "handle",
       "request": {
@@ -16737,6 +16773,180 @@
           "url": "https://hub.test/api/v1/cli-authorizations/poll",
           "body": {
             "base64": "77u/eyJkZXZpY2VDb2RlIjoiZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCJ9"
+          }
+        }
+      ]
+    },
+    {
+      "name": "poll-body/deep-length-1000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "poll",
+          "url": "https://hub.test/api/v1/cli-authorizations/poll",
+          "body": {
+            "repeat": {
+              "prefix": "{\"deviceCode\":{\"length\":",
+              "fill": "[",
+              "count": 1000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "inspect-body/deep-length-1000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations"
+        },
+        {
+          "do": "inspect",
+          "of": "a",
+          "body": {
+            "repeat": {
+              "prefix": "{\"userCode\":{\"length\":",
+              "fill": "[",
+              "count": 1000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "decide-body/deep-length-1000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations"
+        },
+        {
+          "do": "decide",
+          "of": "a",
+          "decision": "approve",
+          "organizationId": "org-acme",
+          "body": {
+            "repeat": {
+              "prefix": "{\"userCode\":{\"length\":",
+              "fill": "[",
+              "count": 1000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "poll-body/deep-length-6000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "poll",
+          "url": "https://hub.test/api/v1/cli-authorizations/poll",
+          "body": {
+            "repeat": {
+              "prefix": "{\"deviceCode\":{\"length\":",
+              "fill": "[",
+              "count": 6000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "inspect-body/deep-length-6000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations"
+        },
+        {
+          "do": "inspect",
+          "of": "a",
+          "body": {
+            "repeat": {
+              "prefix": "{\"userCode\":{\"length\":",
+              "fill": "[",
+              "count": 6000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "decide-body/deep-length-6000",
+      "config": {
+        "publicBaseUrl": "https://hub.test",
+        "access": "owner",
+        "startAt": "2026-08-06T12:00:00.000Z",
+        "apiKeys": []
+      },
+      "steps": [
+        {
+          "do": "start",
+          "as": "a",
+          "url": "https://hub.test/api/v1/cli-authorizations"
+        },
+        {
+          "do": "decide",
+          "of": "a",
+          "decision": "approve",
+          "organizationId": "org-acme",
+          "body": {
+            "repeat": {
+              "prefix": "{\"userCode\":{\"length\":",
+              "fill": "[",
+              "count": 6000,
+              "suffix": "",
+              "closeFill": "]",
+              "tail": "}}"
+            }
           }
         }
       ]
