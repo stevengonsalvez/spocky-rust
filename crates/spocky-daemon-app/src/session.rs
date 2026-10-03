@@ -23,8 +23,10 @@ use spocky_contracts::request::{
 use spocky_contracts::session::SessionInbound;
 use spocky_contracts::text::JsText;
 use spocky_contracts::ws::DaemonPermission;
+use spocky_daemon::binary_frames::BinaryFrame;
 use spocky_daemon::session_api::{
-    ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SessionSink, SocketId,
+    ProtocolFailure, SessionBackend, SessionError, SessionHandle, SessionOpen, SessionSink,
+    SocketId,
 };
 use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_identity::{StoredAgentRef, resolve_agent_identifier};
@@ -267,6 +269,27 @@ impl SessionHandle for DaemonSession {
                 move |message, emit| route(context, message, emit),
             ),
         );
+    }
+
+    /// `handleBinaryFrame(binaryFrame, source)` (`session.ts:3095`): nothing
+    /// without `workspace.write`, else the frame goes to the file-transfer
+    /// controller or the terminal controller. Neither has anything to route
+    /// to here: `fileUploads.receiveFrame` returns `null` for a frame whose
+    /// upload no `file_upload_request` registered, and the terminal
+    /// controller ignores a slot with no terminal. Neither request type is
+    /// routed yet, so every frame is for nothing that exists and no reply is
+    /// sent.
+    // TODO(terminals, file uploads): route a frame to its terminal or pending
+    // upload once p4_terminal's controller and the upload service are wired.
+    fn binary_frame(&self, frame: BinaryFrame, _source: SocketId) -> Result<(), SessionError> {
+        if !self
+            .authorization
+            .allows(Some(&[DaemonPermission::WorkspaceWrite]))
+        {
+            return Ok(());
+        }
+        drop(frame);
+        Ok(())
     }
 
     fn protocol_failure(&self, source: SocketId, failure: ProtocolFailure) {
