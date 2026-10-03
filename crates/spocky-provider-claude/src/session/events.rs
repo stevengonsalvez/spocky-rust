@@ -75,9 +75,14 @@ fn is_abort_error(message: &JsValue) -> bool {
 }
 
 fn contains_aborted_word(error: &str) -> bool {
-    let lower = error.to_lowercase();
-    let word = |character: char| character.is_alphanumeric() || character == '_';
-    lower.match_indices("aborted").any(|(start, matched)| {
+    contains_word_phrase(&error.to_lowercase(), "aborted")
+}
+
+/// `/\bphrase\b/i.test(text)` for a lowercase ASCII phrase and lowercased
+/// text; `\w` is `[A-Za-z0-9_]` without the `u` flag.
+pub(crate) fn contains_word_phrase(lower: &str, phrase: &str) -> bool {
+    let word = |character: char| character.is_ascii_alphanumeric() || character == '_';
+    lower.match_indices(phrase).any(|(start, matched)| {
         let before = lower[..start].chars().next_back();
         let after = lower[start + matched.len()..].chars().next();
         !before.is_some_and(word) && !after.is_some_and(word)
@@ -585,12 +590,15 @@ impl ClaudeSession {
             events.push(JsValue::Object(completed));
             return;
         }
-        let errors: Vec<&str> = message
+        let errors: Vec<String> = message
             .get("errors")
             .and_then(JsValue::as_array)
             .unwrap_or_default()
             .iter()
-            .map(|error| error.as_str().unwrap_or_default())
+            .map(|error| match error {
+                JsValue::Undefined | JsValue::Null => String::new(),
+                other => spocky_contracts::js::js_string(Some(other)),
+            })
             .collect();
         let error_message = if errors.is_empty() {
             "Claude run failed".to_owned()
@@ -685,11 +693,9 @@ impl ClaudeSession {
         state.available_modes = super::default_modes();
         // `message.permissionMode`; an absent one is `undefined` in the baseline.
         let mode = str_of(message, "permissionMode").map(str::to_owned);
-        if let Some(mode) = mode {
-            if mode != "plan" {
-                state.plan_resume_mode = Some(mode.clone());
-            }
-            state.current_mode = mode;
+        state.current_mode.clone_from(&mode);
+        if mode.as_deref() != Some("plan") {
+            state.plan_resume_mode = mode;
         }
         state.persistence = None;
         if let Some(model) = str_of(message, "model").filter(|model| !model.is_empty()) {

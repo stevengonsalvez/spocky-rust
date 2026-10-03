@@ -165,7 +165,7 @@ impl ClaudeSession {
         let settings = self.build_settings(&provider_options, ultracode);
         let sdk_env = self.build_sdk_env();
         let current_mode = self.state.borrow().current_mode.clone();
-        assert_mode_can_run(&current_mode, &sdk_env)?;
+        assert_mode_can_run(current_mode.as_deref().unwrap_or_default(), &sdk_env)?;
         let binary = (self.options.resolve_binary)().await?;
         let (cwd, pending_fresh, session_id) = {
             let state = self.state.borrow();
@@ -182,7 +182,10 @@ impl ClaudeSession {
         let mut data = JsObject::new();
         data.insert("cwd", cwd);
         data.insert("includePartialMessages", JsValue::Bool(true));
-        data.insert("permissionMode", text(&current_mode));
+        data.insert(
+            "permissionMode",
+            current_mode.map_or(JsValue::Undefined, JsValue::String),
+        );
         data.insert("allowDangerouslySkipPermissions", JsValue::Bool(true));
         data.insert(
             "agents",

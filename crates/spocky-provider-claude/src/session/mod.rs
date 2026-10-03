@@ -195,7 +195,8 @@ pub(crate) struct State {
     pub permission_clearing_steer_uuids: HashSet<String>,
     pub claude_session_id: Option<String>,
     pub persistence: Option<JsValue>,
-    pub current_mode: String,
+    /// `undefined` once an init message arrives without a `permissionMode`.
+    pub current_mode: Option<String>,
     pub plan_resume_mode: Option<String>,
     pub available_modes: Vec<JsValue>,
     pub tool_use_index_to_id: HashMap<String, String>,
@@ -374,7 +375,7 @@ impl ClaudeSession {
             permission_clearing_steer_uuids: HashSet::new(),
             claude_session_id: None,
             persistence: None,
-            current_mode: "default".to_owned(),
+            current_mode: Some("default".to_owned()),
             plan_resume_mode: None,
             available_modes: default_modes(),
             tool_use_index_to_id: HashMap::new(),
@@ -448,13 +449,14 @@ impl ClaudeSession {
         }
         {
             let mut state = session.state.borrow_mut();
-            state.current_mode = if is_permission_mode(mode_id.as_deref()) {
+            state.current_mode = Some(if is_permission_mode(mode_id.as_deref()) {
                 mode_id.clone().unwrap_or_default()
             } else {
                 "default".to_owned()
-            };
-            if state.current_mode != "plan" {
-                state.plan_resume_mode = Some(state.current_mode.clone());
+            });
+            if state.current_mode.as_deref() != Some("plan") {
+                let current = state.current_mode.clone();
+                state.plan_resume_mode = current;
             }
         }
         Ok(session)
@@ -558,7 +560,13 @@ impl ClaudeSession {
                 .clone()
                 .map_or(JsValue::Null, JsValue::String),
         );
-        info.insert("modeId", text(&state.current_mode));
+        info.insert(
+            "modeId",
+            state
+                .current_mode
+                .clone()
+                .map_or(JsValue::Null, JsValue::String),
+        );
         if let Some(runtime_model) = state
             .last_runtime_model
             .clone()
@@ -582,7 +590,7 @@ impl ClaudeSession {
     /// `getCurrentMode()`.
     #[must_use]
     pub fn get_current_mode(&self) -> Option<String> {
-        Some(self.state.borrow().current_mode.clone())
+        self.state.borrow().current_mode.clone()
     }
 
     /// `subscribe(callback)`: the subscription id for [`Self::unsubscribe`].
@@ -627,28 +635,37 @@ impl ClaudeSession {
     /// `notifySubscribers(event)`: tags the event with the active turn and
     /// delivers it to every subscriber, catching panics.
     pub(crate) fn notify_subscribers(&self, event: JsValue) {
-        let (tagged, subscribers) = {
+        let tagged = {
             let state = self.state.borrow();
             let turn_id = state
                 .active_foreground_turn_id
                 .clone()
                 .or_else(|| state.autonomous_turn.clone());
-            let tagged = match turn_id {
+            match turn_id {
                 Some(turn_id) => {
                     let mut object = spocky_contracts::js::spread(Some(&event));
                     object.insert("turnId", JsValue::String(turn_id));
                     JsValue::Object(object)
                 }
                 None => event,
-            };
-            let subscribers: Vec<StreamCallback> = state
-                .subscribers
-                .iter()
-                .map(|(_, callback)| std::sync::Arc::clone(callback))
-                .collect();
-            (tagged, subscribers)
+            }
         };
-        for callback in subscribers {
+        // A `Set` visits a subscriber added during the loop and skips one
+        // removed before its turn.
+        let mut visited: Vec<u64> = Vec::new();
+        loop {
+            let next = {
+                let state = self.state.borrow();
+                state
+                    .subscribers
+                    .iter()
+                    .find(|(id, _)| !visited.contains(id))
+                    .map(|(id, callback)| (*id, std::sync::Arc::clone(callback)))
+            };
+            let Some((id, callback)) = next else {
+                break;
+            };
+            visited.push(id);
             let event = tagged.clone();
             let _ = std::panic::catch_unwind(AssertUnwindSafe(|| callback(event)));
         }
@@ -702,13 +719,13 @@ impl ClaudeSession {
         query.set_permission_mode(mode_id).await?;
         let mut state = self.state.borrow_mut();
         if mode_id == "plan" {
-            if previous != "plan" {
-                state.plan_resume_mode = Some(previous);
+            if previous.as_deref() != Some("plan") {
+                state.plan_resume_mode = previous;
             }
         } else {
             state.plan_resume_mode = Some(mode_id.to_owned());
         }
-        mode_id.clone_into(&mut state.current_mode);
+        state.current_mode = Some(mode_id.to_owned());
         Ok(())
     }
 
@@ -882,10 +899,11 @@ impl ClaudeSession {
     pub(crate) async fn await_with_timeout<T>(future: Option<LocalBoxFuture<'static, T>>) {
         if let Some(future) = future {
             let _ = tokio::time::timeout(Duration::from_millis(3000), future).await;
-            // `await` yields to queued jobs even for a settled promise: the
-            // pump's reaction to a closed stream runs before the caller resumes.
-            tokio::task::yield_now().await;
         }
+        // `await` yields to queued jobs even for a settled promise, and for
+        // `undefined`: the pump's reaction to a closed stream runs before the
+        // caller resumes.
+        tokio::task::yield_now().await;
     }
 
     /// `close()`.

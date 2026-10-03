@@ -7,6 +7,7 @@ use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::text::{is_js_whitespace, js_trim};
 use spocky_session::agent_sdk::{AgentError, AgentPromptInput, SteerResult};
 
+use super::events::contains_word_phrase;
 use super::options::provider_subagent;
 use super::{ClaudeSession, TurnState, text};
 use crate::local::{LocalBoxFuture, run_inline};
@@ -179,7 +180,9 @@ impl ClaudeSession {
             return;
         }
         let lower = message.to_lowercase();
-        if !lower.contains("process exited with code") && !lower.contains("terminated by signal") {
+        if !contains_word_phrase(&lower, "process exited with code")
+            && !contains_word_phrase(&lower, "terminated by signal")
+        {
             return;
         }
         let started = tokio::time::Instant::now();
@@ -229,13 +232,19 @@ impl ClaudeSession {
                 for chunk in blocks {
                     match chunk.get("type").and_then(JsValue::as_str) {
                         Some("text") => {
-                            let value = spocky_contracts::js::js_string(chunk.get("text"));
-                            if chunk.get("mimeType").is_none()
-                                && parse_slash_command_input(&value).is_some()
-                            {
-                                typed_slash_index = Some(content.len());
+                            let value = chunk.get("text");
+                            if chunk.get("mimeType").is_none() {
+                                let Some(JsValue::String(typed)) = value else {
+                                    return Err(AgentError::new(trim_type_error(value)));
+                                };
+                                if parse_slash_command_input(typed).is_some() {
+                                    typed_slash_index = Some(content.len());
+                                }
                             }
-                            content.push(text_block(&value));
+                            let mut block = JsObject::new();
+                            block.insert("type", text("text"));
+                            block.insert("text", value.cloned().unwrap_or(JsValue::Undefined));
+                            content.push(JsValue::Object(block));
                         }
                         Some("image") => {
                             let mime = spocky_contracts::js::js_string(chunk.get("mimeType"));
@@ -312,7 +321,7 @@ impl ClaudeSession {
             self.state.borrow_mut().active_foreground_turn_id = Some(turn_id.clone());
             self.transition_turn_state(TurnState::Foreground);
             let session = Rc::clone(self);
-            tokio::task::spawn_local(async move { session.execute_rewind_turn(&slash).await });
+            run_inline(async move { session.execute_rewind_turn(&slash).await });
             return Ok(turn_id);
         }
         if self.state.borrow().autonomous_turn.is_some() {
@@ -910,7 +919,13 @@ impl ClaudeSession {
                     .clone()
                     .map_or(JsValue::Null, JsValue::String),
             );
-            info.insert("modeId", text(&state.current_mode));
+            info.insert(
+                "modeId",
+                state
+                    .current_mode
+                    .clone()
+                    .map_or(JsValue::Null, JsValue::String),
+            );
             state.cached_runtime_info = Some(JsValue::Object(info));
         }
         if self.state.borrow().claude_session_id.is_none() {
@@ -966,5 +981,16 @@ impl ClaudeSession {
         Ok(JsValue::Array(
             map.into_iter().map(|(_, entry)| entry).collect(),
         ))
+    }
+}
+
+/// The `TypeError` of `text.trim()` on a value that is not a string.
+fn trim_type_error(value: Option<&JsValue>) -> String {
+    match value {
+        None | Some(JsValue::Undefined) => {
+            "Cannot read properties of undefined (reading 'trim')".to_owned()
+        }
+        Some(JsValue::Null) => "Cannot read properties of null (reading 'trim')".to_owned(),
+        Some(_) => "text.trim is not a function".to_owned(),
     }
 }
