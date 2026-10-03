@@ -231,10 +231,7 @@ fn date_millis(value: Option<&JsValue>) -> Result<i64, AgentError> {
     value
         .and_then(JsValue::as_str)
         .and_then(date_parse)
-        .ok_or_else(|| AgentError {
-            name: "RangeError".to_owned(),
-            message: "Invalid time value".to_owned(),
-        })
+        .ok_or_else(|| AgentError::named("RangeError".to_owned(), "Invalid time value".to_owned()))
 }
 
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T, AgentError>> + Send + 'a>>;
