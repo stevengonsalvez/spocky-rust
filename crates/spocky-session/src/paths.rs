@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use spocky_store::js_value::js_text_to_utf8;
 use spocky_store::path_compare::posix_normalize;
 
 /// node `path.posix.resolve(base, path)` for an absolute `base`.
@@ -88,10 +89,12 @@ pub fn expand_tilde(path: &str, home: &str) -> String {
 }
 
 /// `realpathSync.native` (libc `realpath`); `None` where it throws. On macOS
-/// this also returns the on-disk case of each component.
+/// this also returns the on-disk case of each component. `path` is
+/// JavaScript text; node encodes it to UTF-8 for the call, so a lone
+/// surrogate reaches the file system as U+FFFD.
 #[must_use]
 pub fn realpath_native(path: &str) -> Option<String> {
-    std::fs::canonicalize(Path::new(path))
+    std::fs::canonicalize(Path::new(&js_text_to_utf8(path)))
         .ok()
         .map(|resolved| resolved.to_string_lossy().into_owned())
 }
@@ -113,17 +116,18 @@ pub fn realpath_js(path: &str) -> Option<String> {
         let mut prefix = String::new();
         for (index, part) in parts.iter().enumerate() {
             let base = format!("{prefix}/{part}");
-            let metadata = std::fs::symlink_metadata(&base).ok()?;
+            let os_path = js_text_to_utf8(&base);
+            let metadata = std::fs::symlink_metadata(&os_path).ok()?;
             if !metadata.file_type().is_symlink() {
                 prefix = base;
                 continue;
             }
-            std::fs::metadata(&base).ok()?;
+            std::fs::metadata(&os_path).ok()?;
             hops += 1;
             if hops > 40 {
                 return None;
             }
-            let target = std::fs::read_link(&base).ok()?;
+            let target = std::fs::read_link(&os_path).ok()?;
             let previous = if prefix.is_empty() {
                 "/"
             } else {
@@ -281,6 +285,27 @@ mod realpath_tests {
             assert_eq!(native, format!("{root_real}/Target/Inner"));
             assert_eq!(realpath_js(&lower), Some(lower.clone()));
         }
+        std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    /// A path that is JavaScript text reaches the file system as UTF-8: a
+    /// lone surrogate is U+FFFD, as it is for node's `fs` calls.
+    #[test]
+    fn realpath_encodes_a_lone_surrogate_as_node_does() {
+        let root = std::env::temp_dir().join(format!("spocky-realpath-js-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("\u{FFFD}x/Inner")).expect("create dirs");
+        let lone = spocky_store::js_value::js_text_from_utf16(&[0xD800]);
+        let given = format!("{}/{lone}x/Inner", root.to_string_lossy());
+        let root_real = realpath_native(&root.to_string_lossy()).expect("root exists");
+        assert_eq!(
+            realpath_native(&given),
+            Some(format!("{root_real}/\u{FFFD}x/Inner"))
+        );
+        // The JavaScript walk keeps the text it was given.
+        assert_eq!(
+            realpath_js(&given),
+            Some(format!("{root_real}/{lone}x/Inner"))
+        );
         std::fs::remove_dir_all(&root).expect("cleanup");
     }
 }
