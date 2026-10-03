@@ -609,6 +609,13 @@ impl RustEndpoint {
                 );
                 self.log(entry);
             }
+            "probe-json-error" => {
+                let message = js_json::parse_detailed(op["text"].as_str().unwrap())
+                    .err()
+                    .and_then(|error| error.unexpected_token_message().map(json_quote))
+                    .unwrap_or_else(|| "null".to_owned());
+                self.log(format!(r#"{{"t":"json-error","message":{message}}}"#));
+            }
             "probe-decode" => {
                 let input = unhex(op["binary"].as_str().unwrap());
                 let fatal = decode_utf8_fatal(&input)
