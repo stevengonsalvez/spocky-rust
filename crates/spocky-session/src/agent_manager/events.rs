@@ -522,9 +522,18 @@ impl AgentManager {
         let manager = self.clone();
         let agent_id = agent_id.to_owned();
         self.track_background_task(async move {
-            let _ = manager
-                .persist_snapshot(&agent_id, SnapshotOverrides::default())
-                .await;
+            if let Err(error) = manager
+                .persist_snapshot_raw(&agent_id, None, SnapshotOverrides::default())
+                .await
+            {
+                let mut bindings = JsObject::new();
+                bindings.insert("err", super::lifecycle::storage_error_binding(&error));
+                bindings.insert("agentId", JsValue::String(agent_id));
+                manager.emit_error(
+                    JsValue::Object(bindings),
+                    "Failed to persist agent snapshot",
+                );
+            }
         });
     }
 

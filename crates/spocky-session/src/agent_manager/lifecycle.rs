@@ -837,6 +837,27 @@ impl AgentManager {
         detached: Option<ManagedAgentSnapshot>,
         overrides: SnapshotOverrides,
     ) -> Result<(), AgentError> {
+        self.persist_snapshot_raw(agent_id, detached, overrides)
+            .await
+            .map_err(|error| match error {
+                crate::agent_storage::StorageError::Projection(error) => AgentError {
+                    name: "TypeError".to_owned(),
+                    message: error.0.clone(),
+                },
+                crate::agent_storage::StorageError::Store(error) => {
+                    AgentError::new(error.to_string())
+                }
+            })
+    }
+
+    /// [`Self::persist_snapshot_of`] with the storage error as it came, for
+    /// callers that log the error's own properties.
+    pub(crate) async fn persist_snapshot_raw(
+        &self,
+        agent_id: &str,
+        detached: Option<ManagedAgentSnapshot>,
+        overrides: SnapshotOverrides,
+    ) -> Result<(), crate::agent_storage::StorageError> {
         let Some(registry) = self.inner.registry.clone() else {
             return Ok(());
         };
@@ -860,16 +881,30 @@ impl AgentManager {
                 overrides,
             )
             .await
-            .map_err(|error| match error {
-                crate::agent_storage::StorageError::Projection(error) => AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.0.clone(),
-                },
-                crate::agent_storage::StorageError::Store(error) => {
-                    AgentError::new(error.to_string())
-                }
-            })
     }
+}
+
+/// The `err` binding pino prints for a storage failure: a file system error
+/// carries its `errno`, `code`, `syscall`, `path` and `dest`, any other
+/// `Error` prints as `{}`.
+pub(crate) fn storage_error_binding(error: &crate::agent_storage::StorageError) -> JsValue {
+    let mut binding = JsObject::new();
+    if let crate::agent_storage::StorageError::Store(store) = error
+        && let spocky_store::StoreError::Fs(fs) = &**store
+    {
+        if let Some(errno) = fs.source.raw_os_error() {
+            binding.insert("errno", JsValue::Number(-f64::from(errno)));
+        }
+        binding.insert("code", JsValue::String(fs.code()));
+        binding.insert("syscall", JsValue::String(fs.syscall.to_owned()));
+        if let Some(path) = &fs.path {
+            binding.insert("path", JsValue::String(path.clone()));
+        }
+        if let Some(dest) = &fs.dest {
+            binding.insert("dest", JsValue::String(dest.clone()));
+        }
+    }
+    JsValue::Object(binding)
 }
 
 /// A shared close result.
