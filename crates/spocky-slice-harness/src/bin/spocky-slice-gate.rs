@@ -22,7 +22,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 use serde_json::Value;
 use spocky_slice_harness::compare::{Verdict, compare_sides, differing_artifacts, stable_pairs};
@@ -134,12 +134,41 @@ fn recorded_order(path: &Path) -> Result<Vec<String>, String> {
 /// Earlier runs whose self-check sides join the codex order references.
 const ORDER_HISTORY: usize = 2;
 
-/// Lowercase hex SHA-256 of a file's bytes.
-fn file_sha256(path: &Path) -> Option<String> {
+/// Lowercase hex SHA-256 of a file's bytes, streamed.
+fn stream_sha256(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
-    fs::read(path)
+    use std::io::Read;
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0_u8; 1 << 20];
+    loop {
+        let read = file.read(&mut chunk).ok()?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&chunk[..read]);
+    }
+    Some(lower_hex(&hasher.finalize()))
+}
+
+/// Lowercase hex SHA-256 of a file's bytes. The codex and node binaries are
+/// hundreds of megabytes and this is a debug build, whose in-process digest
+/// took longer than the whole gate budget on a loaded machine (the g4-retry
+/// parity "hang"), so the system `shasum` computes it first.
+fn file_sha256(path: &Path) -> Option<String> {
+    let system = Command::new("/usr/bin/shasum")
+        .args(["-a", "256"])
+        .arg(path)
+        .output()
         .ok()
-        .map(|bytes| lower_hex(&Sha256::digest(bytes)))
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            let text = String::from_utf8(output.stdout).ok()?;
+            let digest = text.split_whitespace().next()?.to_ascii_lowercase();
+            (digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                .then_some(digest)
+        });
+    system.or_else(|| stream_sha256(path))
 }
 
 /// The commit the Paseo build root records in its `.spocky-build` marker.
@@ -550,5 +579,21 @@ mod tests {
         let run = std::env::temp_dir().join("spocky-p3-elsewhere/g2-20261002T030000Z");
         assert!(order_history(&history, &run, &ours).is_empty());
         fs::remove_dir_all(&history).unwrap();
+    }
+
+    #[test]
+    fn the_system_digest_equals_the_streamed_one() {
+        let dir = std::env::temp_dir().join(format!("spocky-sha-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("blob");
+        fs::write(&file, vec![7_u8; (3 << 20) + 5]).unwrap();
+        let streamed = stream_sha256(&file).unwrap();
+        assert_eq!(file_sha256(&file), Some(streamed));
+        assert_eq!(
+            stream_sha256(&dir.join("absent")),
+            None,
+            "an unreadable file has no digest"
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
