@@ -26,7 +26,8 @@ use spocky_store::js_value::js_text_to_utf8;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
-use crate::text::{bytes_text, js_trim};
+use crate::text::bytes_text;
+use spocky_contracts::number::js_to_number;
 
 /// `DEFAULT_GIT_PROCESS_POLICY`.
 const DEFAULT_MAX_PROCESSES_PER_SECOND: usize = 64;
@@ -49,29 +50,9 @@ fn process_policy() -> (usize, usize) {
 }
 
 /// `parsePositiveInteger`: `Number(value)` must be an integer above zero.
-/// `Number` trims white space, reads `0x`/`0o`/`0b` prefixed integers and
-/// decimal literals, and gives `NaN` (rejected) for anything else.
+/// A count past 2^53 - 1 is refused too, as no `usize` here holds it.
 fn positive_integer(value: &str) -> Option<usize> {
-    let trimmed = js_trim(value);
-    let radix = [
-        ("0x", 16),
-        ("0X", 16),
-        ("0o", 8),
-        ("0O", 8),
-        ("0b", 2),
-        ("0B", 2),
-    ]
-    .into_iter()
-    .find_map(|(prefix, radix)| trimmed.strip_prefix(prefix).map(|digits| (digits, radix)));
-    let number = match radix {
-        Some((digits, radix)) => u32::from_str_radix(digits, radix).ok().map(f64::from),
-        None if trimmed.is_empty() => None,
-        None if trimmed.contains(['_', 'i', 'I', 'n', 'N']) => None,
-        None => trimmed
-            .parse::<f64>()
-            .ok()
-            .filter(|parsed| parsed.is_finite()),
-    }?;
+    let number = js_to_number(value);
     if number.fract() != 0.0 || number <= 0.0 || number > 9_007_199_254_740_991.0 {
         return None;
     }
