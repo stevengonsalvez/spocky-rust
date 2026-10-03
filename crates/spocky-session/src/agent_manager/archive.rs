@@ -11,9 +11,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use spocky_contracts::js::{js_string, spread, truthy};
+use spocky_contracts::js::{date_parse, js_string, spread, truthy};
 use spocky_store::js_value::{JsObject, JsValue};
-use spocky_store::time::parse_iso_millis;
 
 use super::create::touch_updated_at;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot};
@@ -215,12 +214,12 @@ fn storage_error(error: impl std::fmt::Display) -> AgentError {
     AgentError::new(error.to_string())
 }
 
-/// `new Date(text)` in epoch milliseconds, or the `RangeError` its
-/// `toISOString` throws.
+/// `new Date(text)` in epoch milliseconds (`agent-manager.ts:1874`; it
+/// parses like `Date.parse`), or the `RangeError` its `toISOString` throws.
 fn date_millis(value: Option<&JsValue>) -> Result<i64, AgentError> {
     value
         .and_then(JsValue::as_str)
-        .and_then(parse_iso_millis)
+        .and_then(date_parse)
         .ok_or_else(|| AgentError {
             name: "RangeError".to_owned(),
             message: "Invalid time value".to_owned(),
