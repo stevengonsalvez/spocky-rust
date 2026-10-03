@@ -34,6 +34,7 @@ pub mod session;
 pub mod snapshot;
 pub mod text;
 pub mod timeline;
+pub mod tool_detail;
 pub mod workspace;
 pub mod ws;
 pub mod zod;
