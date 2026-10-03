@@ -5674,6 +5674,7 @@ dependencies = [
 name = "spocky-relay-pilot"
 version = "0.1.0"
 dependencies = [
+ "spocky-contracts",
  "spocky-crypto",
  "tungstenite 0.27.0",
 ]
