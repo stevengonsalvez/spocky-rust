@@ -34,8 +34,12 @@ that a hung Rust side fails instead of hanging), 0 doc tests. 18 passed, 0
 failed, 0 ignored. Clippy and fmt are clean. The Rust side of every
 differential is bounded to 120 s, like node's. The differential first fails
 unless node reports `v22.20.0` and both dist modules match the digests below.
-One earlier run of this suite failed once and passed on 20 reruns; the cause
-was not found.
+One earlier run of this suite exited nonzero while the check helper was
+sending its output to `/dev/null`, so the failing test was not recorded; the
+helper now keeps the output of any failing run. Since then the suite passed
+12 runs with output kept, and all three test binaries passed 50 runs in a row
+under 12 busy loops (one per CPU), 150 executions with no failure. The cause
+of that one run is not known.
 
 The runner's own failure handling is proven by:
 
@@ -55,14 +59,14 @@ runner each made one case fail.
 The two-instance race step passed 20 consecutive gated runs of
 `receipts_match_pinned_build` at `4128f37`.
 
-## Recorded run `receipts-20261003T122644Z`
+## Recorded run `receipts-20261003T191742Z`
 
-Raw evidence lives under `evidence/raw/phase3/receipts-20261003T122644Z/`
+Raw evidence lives under `evidence/raw/phase3/receipts-20261003T191742Z/`
 (untracked).
 
 | Input | Value |
 |---|---|
-| Commit | `77842387c44d81ccdf5bbf78f5772f501bf17c7a` |
+| Commit | `63e1fd678dd2d4e2f6f6fa98bf6ad1502b6a032a` |
 | Node | `v22.20.0` |
 | Pinned dist | `paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server` |
 | `server/message-receipts/index.js` SHA-256 | `e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559` |
@@ -72,11 +76,11 @@ Raw evidence lives under `evidence/raw/phase3/receipts-20261003T122644Z/`
 |---|---|
 | `receipts-node-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
 | `receipts-rust-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
-| `receipts-node-raw.json` | `7c56f49bea4f0408b34eb0fc8e5023c57810b2ac22487f9d66d8469f64b8974b` |
-| `receipts-rust-raw.json` | `999d74415a91a1cef3a3222e4ab910482e9f99f4eb0dc862dfdec6b80adc775d` |
-| `inputs.txt` | `7d44ef6a4fd244e86ed640614a82e8dc5b0c332e285b71f740b9a659c2b5a075` |
-| `test.log` | `d2f0d273540f77d65ff5d3681a47973437c25346dfa8f111252ec7b1c7667bd3` |
-| `clippy.log` | `669ab4c5916b940ac9b061ed723d0dfb4f1b018899b9c864d9846d1460fb7628` |
+| `receipts-node-raw.json` | `381c9bcb67437095b654190f5104ea04cd5a401cd6629ebec6f74313e8b88742` |
+| `receipts-rust-raw.json` | `b5e40db1e58e6160d424800e0fbbeb26bc9bbff6730004aa637da97416c312df` |
+| `inputs.txt` | `2eb2d7669136a67156c88ec4c71e27d584bd1a2f51bbd27f753b4ed4907cbcb4` |
+| `test.log` | `902c29d58c1778edeb93cf700b2c1f1f782afb3a71ed90be58f5f02882b99a02` |
+| `clippy.log` | `89016f5632de499021c3528c1d970aeb58c5b48909a4762631c71ec7b50d2e56` |
 | `fmt.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 | `git-status.txt` (only `logs/` entries) | `e2a2110fea7d4e3178c32260751f4a1a1fd79c4df695769f5d2addbb096c7fe3` |
 
@@ -138,18 +142,19 @@ Covered by the differential and by
 against a daemon: one agent, a send with a fixed `messageId`, the same send
 retried on the same and on a second connection (accepted, no new turn), the
 same `messageId` with other text (rejected as a key conflict), and two
-concurrent sends of a fresh `messageId` (one turn). It prints each step's
-outcome and the first client's raw wire text in arrival order, every frame
-except `pong`: its handshake's `server_info` frame comes first, as in the G2
-recorder. The stub script must hold
-exactly three turns: the initial prompt, the first send, and the concurrent
-pair. `gates.rs` and `gate.sh` belong to `p3_slice_harness`, which owns the
-`g4-retry` fixture. Run on the pinned original daemon through a scratch copy
-of that fixture, the probe's outcomes were all as expected and the stub held
-exactly three turns; that gate's compare then stopped on a 5 ms
-`updatedAt` and `attentionTimestamp` gap that the harness now masks under
-`wall_clock`. No run has compared the original and `spocky-daemon` yet, so
-wire parity of the daemon's retry handling is not claimed here.
+concurrent sends of a fresh `messageId`, one per socket (one turn). The stub
+script must hold exactly three turns: the initial prompt, the first send, and
+the concurrent pair. Lane `p3_slice_harness` owns the probe and the `g4-retry`
+fixture in `gates.rs` and `gate.sh`; its probe prints the outcomes line, then
+two labelled blocks, `# recording client` and `# retry-other connection`,
+holding every frame in arrival order, pings, pongs and `server_info` included,
+each block starting with its handshake's `server_info` frame (recording keyed
+by client instance from the first payload, since `DaemonClient.connect()`
+resolves inside the `server_info` handler). Run on the pinned original daemon
+through a scratch copy of the first fixture, the probe's outcomes were all as
+expected and the stub held exactly three turns. No run has compared the
+original and `spocky-daemon` yet, so wire parity of the daemon's retry
+handling is not claimed here.
 
 `scripts/phase3/receipts-retry-parity.sh` is the runner for that parity run.
 It runs `scripts/phase3/gate.sh g4-retry` and then re-checks the gate's
@@ -157,20 +162,22 @@ evidence on its own: both verdicts clean, the sides are the original and
 spocky daemons, each probe step exited 0, the stub recorded exactly three
 turns (a retry that started a turn makes four), both sides' probe outcomes
 equal the expected ones in order, and both sides hold two completed send
-receipts with equal fingerprints. It requires a clean tree, unsets
-`SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
+receipts with the same masked content. Each block must start with exactly one
+`server_info` frame, and the two sides' frames must be byte-identical in key
+order after masking generated values (as `g2-differential.sh` does), except
+`features.workspaceLabels`: the original must advertise it, spocky may omit it
+(open gap DWLABEL-001) or advertise it too. Every comparison is on raw bytes;
+`jq` only answers yes or no and never writes back a re-encoded value. The
+other frames, pongs included, are compared by the gate. The runner requires a
+clean tree, unsets `SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
 `scripts/phase3/receipts-retry-parity.test.sh` proves that with a fake gate
-over 32 cases (a clean match, and one injected defect each). It also requires
-each side to print exactly one `server_info` frame, first, and the two to be
-byte-identical in key order after masking generated values (as
-`g2-differential.sh` does), except `features.workspaceLabels`: the original
-must advertise it, spocky may omit it (open gap DWLABEL-001) or advertise it
-too. Removing any one of the runner's checks makes its own case fail, except
-the first-frame check, which the `workspaceLabels` checks shadow; it is kept
-for its clearer message. The fake gate's layout was copied from a real
-`g3` parity run, not from `g4-retry`; check it against the real `gate.sh`
-when `g4-retry` lands. The runner itself has not run against the real gate,
-which does not support `g4-retry` on main yet.
+over 38 cases (a clean match, extra pongs, a closed `workspaceLabels` gap, and
+one injected defect each). Removing any one of the runner's checks makes its
+own case fail, except the first-frame check, which the `workspaceLabels`
+checks shadow; it is kept for its clearer message. The fake gate's layout was
+copied from a real `g3` parity run and the harness probe's output, not from a
+`g4-retry` run; check it against the real evidence when `g4-retry` lands. The
+runner itself has not run against the real gate.
 
 ## Gaps
 
