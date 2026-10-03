@@ -115,6 +115,9 @@ struct ActiveStream {
     pending: Pending,
     /// `completeStream` is awaiting the snapshot task.
     complete_waiting: bool,
+    /// `completeStream` awaits a settled value: its tail runs on the next
+    /// microtask.
+    complete_tick: bool,
     retry_snapshot_errors: bool,
     ready_revision: Option<u64>,
     restore: Option<RestoreOptions>,
@@ -202,6 +205,7 @@ impl TerminalStreams {
                 snapshot_in_flight: false,
                 pending: Pending::Idle,
                 complete_waiting: false,
+                complete_tick: false,
                 retry_snapshot_errors,
                 ready_revision: None,
                 restore,
@@ -400,11 +404,14 @@ impl TerminalStreams {
 
     /// A live restore's microtask: the task continues without a read.
     pub fn resume(&mut self, host: &mut dyn StreamHost, slot: u8) {
-        if self
-            .streams
-            .get(&slot)
-            .is_none_or(|stream| stream.pending != Pending::Live)
-        {
+        let Some(stream) = self.streams.get_mut(&slot) else {
+            return;
+        };
+        if std::mem::take(&mut stream.complete_tick) {
+            self.complete_stream_tail(host, slot);
+            return;
+        }
+        if stream.pending != Pending::Live {
             return;
         }
         self.finish_snapshot(host, slot, Ok(None), true);
@@ -571,7 +578,8 @@ impl TerminalStreams {
         };
         stream.snapshot_in_flight = false;
         if std::mem::take(&mut stream.complete_waiting) {
-            self.complete_stream_tail(host, slot);
+            stream.complete_tick = true;
+            host.defer(slot);
         }
     }
 
@@ -618,7 +626,9 @@ impl TerminalStreams {
             stream.complete_waiting = true;
             return;
         }
-        self.complete_stream_tail(host, slot);
+        // `await stream.snapshotTask` yields even when there is no task.
+        stream.complete_tick = true;
+        host.defer(slot);
     }
 
     fn complete_stream_tail(&mut self, host: &mut dyn StreamHost, slot: u8) {
