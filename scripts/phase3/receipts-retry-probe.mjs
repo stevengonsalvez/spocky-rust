@@ -19,8 +19,9 @@
 //
 // stdout line 1 is {"outcomes": [{"step", "ok", "error"}...], "workspaceId"};
 // the rest is the raw wire text, one frame per line in arrival order, every
-// frame from connect on, pings, pongs and the server_info status included, as
-// two labelled blocks: "# recording client" and "# retry-other connection".
+// frame from connect on, the server_info status included, as two labelled
+// blocks, "# recording client" and "# retry-other connection". Only the bare
+// heartbeat pongs are left out (see HEARTBEAT_PONG).
 // Per-run ids and instants in them are masked by the harness's existing
 // generated_id and wall_clock classes, never dropped here. Wire text is taken
 // by hooking DaemonClient.prototype.handleJsonPayload, so key order and
@@ -50,6 +51,12 @@ prototype.handleJsonPayload = function (payload, length) {
   return handleJsonPayload.call(this, payload, length);
 };
 const record = (connection) => recorded.get(connection);
+// The client's 10 s liveness heartbeat is answered by a bare pong. How many
+// arrive, and between which other frames, follows the wall clock (two runs of
+// the same daemon put one in different places), so these are left out of the
+// ordered wire. A pong that is not exactly this text stays in it. The g4-wire
+// fixture compares the daemon's answer to a ping.
+const HEARTBEAT_PONG = '{"type":"pong"}';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const outcomes = [];
 const attempt = async (step, run) => {
@@ -98,9 +105,11 @@ await attempt("race", async () => {
 });
 await sleep(1500);
 console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
-console.log("# recording client");
-for (const text of clientFrames()) console.log(text);
-console.log("# retry-other connection");
-for (const text of otherFrames()) console.log(text);
+const print = (label, frames) => {
+  console.log(label);
+  for (const text of frames) if (text !== HEARTBEAT_PONG) console.log(text);
+};
+print("# recording client", clientFrames());
+print("# retry-other connection", otherFrames());
 await client.close();
 process.exit(0);
