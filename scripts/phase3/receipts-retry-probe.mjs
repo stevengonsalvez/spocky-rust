@@ -14,14 +14,19 @@
 //   retry          the same call again: accepted, no new turn
 //   retry-other    a second connection repeats it: accepted, no new turn
 //   conflict       same messageId, otherPrompt: rejected (request key conflict)
-//   race           two concurrent sends of racePrompt with messageId "retry-2":
-//                  both accepted, one turn
+//   race           two concurrent sends of racePrompt with messageId "retry-2",
+//                  one per socket: both accepted, one turn
 //
 // stdout line 1 is {"outcomes": [{"step", "ok", "error"}...], "workspaceId"};
-// the remaining lines are the recording client's raw wire text, unmodified
-// except that pings, pongs and the server_info status are left out. Wire text
-// is taken by hooking DaemonClient.prototype.handleJsonPayload, so key order
-// and unknown keys are preserved.
+// the rest is the raw wire text, one frame per line in arrival order, every
+// frame from connect on, pings, pongs and the server_info status included, as
+// two labelled blocks: "# recording client" and "# retry-other connection".
+// Per-run ids and instants in them are masked by the harness's existing
+// generated_id and wall_clock classes, never dropped here. Wire text is taken
+// by hooking DaemonClient.prototype.handleJsonPayload, so key order and
+// unknown keys are preserved. The race sends go over two sockets (the
+// recording client and a second connection) so the per-key lock across
+// connections is tested; the second socket's own wire is not recorded.
 const [, , paseoRoot, hostFlag, host, project, initialPrompt, sendPrompt, otherPrompt, racePrompt] =
   process.argv;
 if (hostFlag !== "--host" || !host || !project || !initialPrompt || !sendPrompt || !otherPrompt || !racePrompt) {
@@ -35,13 +40,18 @@ const target = { kind: "endpoint", host };
 const probe = await connectToDaemon({ target });
 const prototype = Object.getPrototypeOf(probe);
 await probe.close();
-const raw = [];
-let recorder = null;
+const recorded = new Map();
 const handleJsonPayload = prototype.handleJsonPayload;
 prototype.handleJsonPayload = function (payload, length) {
-  if (this === recorder) raw.push(payload);
+  if (recorded.has(this)) recorded.get(this).push(payload);
   return handleJsonPayload.call(this, payload, length);
 };
+const record = (connection) => {
+  const frames = [];
+  recorded.set(connection, frames);
+  return frames;
+};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const outcomes = [];
 const attempt = async (step, run) => {
   try {
@@ -52,7 +62,7 @@ const attempt = async (step, run) => {
   }
 };
 const client = await connectToDaemon({ target });
-recorder = client;
+const clientFrames = record(client);
 const created = await client.createWorkspace({ source: { kind: "directory", path: project } });
 const agent = await client.createAgent({
   provider: "codex",
@@ -61,33 +71,37 @@ const agent = await client.createAgent({
   modeId: "full-access",
   initialPrompt,
 });
-await attempt("created", () => client.waitForFinish(agent.id, 120000));
+await attempt("created", () => client.waitForFinish(agent.id, 60000));
 await attempt("first", async () => {
   await client.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" });
-  await client.waitForFinish(agent.id, 120000);
+  await client.waitForFinish(agent.id, 60000);
 });
 await attempt("retry", () => client.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
 const other = await connectToDaemon({ target });
+const otherFrames = record(other);
 await attempt("retry-other", () => other.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
+await sleep(1000);
 await other.close();
 await attempt("conflict", () => client.sendAgentMessage(agent.id, otherPrompt, { messageId: "retry-1" }));
 await attempt("race", async () => {
-  const sends = await Promise.allSettled([
-    client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
-    client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
-  ]);
-  const failed = sends.find((send) => send.status === "rejected");
-  if (failed) throw failed.reason;
-  await client.waitForFinish(agent.id, 120000);
-});
-await new Promise((resolve) => setTimeout(resolve, 1500));
-console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
-for (const text of raw) {
-  const frame = JSON.parse(text);
-  const message = frame.type === "session" ? frame.message : frame;
-  if (message.type !== "pong" && !(message.type === "status" && message.payload?.status === "server_info")) {
-    console.log(text);
+  const second = await connectToDaemon({ target });
+  try {
+    const sends = await Promise.allSettled([
+      client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
+      second.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
+    ]);
+    const failed = sends.find((send) => send.status === "rejected");
+    if (failed) throw failed.reason;
+    await client.waitForFinish(agent.id, 60000);
+  } finally {
+    await second.close();
   }
-}
+});
+await sleep(1500);
+console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
+console.log("# recording client");
+for (const text of clientFrames) console.log(text);
+console.log("# retry-other connection");
+for (const text of otherFrames) console.log(text);
 await client.close();
 process.exit(0);
