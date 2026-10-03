@@ -15,7 +15,7 @@ use spocky_session::agent_sdk::{
 };
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 
-use crate::local::LocalBoxFuture;
+use crate::local::{LocalBoxFuture, run_inline};
 use crate::session::{ClaudeSession, SessionOptions, claude_capabilities};
 
 static NEXT_ACTOR_ID: AtomicU64 = AtomicU64::new(1);
@@ -81,10 +81,18 @@ impl ClaudeActor {
                     while let Some(message) = receiver.recv().await {
                         match message {
                             Message::Job(job) => {
-                                tokio::task::spawn_local(job(Rc::clone(&session)));
+                                // A call runs its synchronous prefix at once, as
+                                // an async method does, before tasks queued
+                                // behind it.
+                                run_inline(job(Rc::clone(&session)));
                             }
                             Message::Stop => break,
                         }
+                    }
+                    // The jobs a stopped session still has queued run on, as the
+                    // promise jobs of a closed baseline session do.
+                    for _ in 0..64 {
+                        tokio::task::yield_now().await;
                     }
                     CURRENT.with(|current| *current.borrow_mut() = None);
                 });
