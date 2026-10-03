@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use spocky_contracts::js::date_parse;
+use spocky_contracts::js::{date_parse, js_string};
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_contracts::request::{AgentDirectoryFilter, AgentSort, AgentSortKey, SortDirection};
 use spocky_contracts::text::{JsText, js_trim};
@@ -137,12 +137,11 @@ pub fn sort_value(agent: &JsValue, key: &str) -> SortValue {
         "status_priority" => SortValue::Number(f64::from(status_priority(agent))),
         "created_at" => SortValue::Number(date_value(agent, "createdAt")),
         "updated_at" => SortValue::Number(date_value(agent, "updatedAt")),
-        // `agent.title?.toLocaleLowerCase() ?? ""`.
-        // ponytail: ASCII-lowercase stands in for toLocaleLowerCase; port
-        // full Unicode case mapping before titles outside ASCII matter.
+        // `agent.title?.toLocaleLowerCase() ?? ""`: the default locale's
+        // Unicode lowercasing, with SpecialCasing and the final sigma.
         _ => SortValue::Text(
             text_field(agent, "title")
-                .map(str::to_ascii_lowercase)
+                .map(str::to_lowercase)
                 .unwrap_or_default(),
         ),
     }
@@ -175,17 +174,17 @@ pub fn compare_values(left: &SortValue, right: &SortValue) -> i32 {
                 1
             }
         }
-        (l, r) => ordering_number(locale_compare(&js_string(l), &js_string(r))),
+        (l, r) => ordering_number(locale_compare(&sort_value_string(l), &sort_value_string(r))),
     }
 }
 
 /// `String(value)` for a sort value.
-fn js_string(value: &SortValue) -> String {
-    match value {
-        SortValue::Text(text) => text.clone(),
-        SortValue::Number(number) => js_value::js_number(*number),
-        SortValue::Null => "null".to_owned(),
-    }
+fn sort_value_string(value: &SortValue) -> String {
+    js_string(Some(&match value {
+        SortValue::Text(text) => JsValue::String(text.clone()),
+        SortValue::Number(number) => JsValue::Number(*number),
+        SortValue::Null => JsValue::Null,
+    }))
 }
 
 fn agent_id(agent: &JsValue) -> &str {
@@ -616,5 +615,25 @@ mod tests {
             1_790_938_800_000.0_f64.to_bits()
         );
         assert!(value("not a date").is_nan());
+    }
+
+    #[test]
+    fn titles_lowercase_as_to_locale_lower_case_does() {
+        // Printed by node 22: "\u{c9}COLE", "\u{130}stanbul" and "\u{391}\u{3a3}" through
+        // toLocaleLowerCase (identical to toLowerCase in the default locale).
+        let title = |text: &str| sort_value(&agent(&format!(r#"{{"title":"{text}"}}"#)), "title");
+        assert_eq!(
+            title("\u{c9}COLE"),
+            SortValue::Text("\u{e9}cole".to_owned())
+        );
+        assert_eq!(
+            title("\u{130}stanbul"),
+            SortValue::Text("i\u{307}stanbul".to_owned())
+        );
+        // The final sigma of a word is the final form.
+        assert_eq!(
+            title("\u{391}\u{3a3}"),
+            SortValue::Text("\u{3b1}\u{3c2}".to_owned())
+        );
     }
 }
