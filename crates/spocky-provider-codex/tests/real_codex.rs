@@ -733,6 +733,59 @@ fn an_upstream_500_fails_the_turn_with_codexs_message() {
 
 #[test]
 #[ignore = "drives the pinned codex binary; run with --ignored"]
+fn a_dropped_stream_is_retried_with_will_retry_then_the_turn_completes() {
+    // Codex's own retries stay on (the default config, `stub_provider`): the
+    // endpoint drops the response stream twice, then streams a message. Codex
+    // reports each dropped stream as an `error` notification with
+    // `willRetry: true` and the turn completes. (An HTTP 500 is retried too,
+    // but silently, with no notification.) This session is the recorded input
+    // of `tests/fixtures/g4_stream_retry.json`. The turn is bounded by `WAIT`
+    // (and the root's watchdog), as Codex's backoff can take a while.
+    let codex = support::real_codex();
+    let stub = ResponsesStub::start(vec![
+        Reply::DropStream,
+        Reply::DropStream,
+        Reply::Message {
+            id: "msg_after_retry".to_owned(),
+            deltas: vec!["Hello after retries.".to_owned()],
+        },
+    ]);
+    let root = DisposableRoot::new("stream-retry");
+    let provider = stub_provider(&root, &stub, &codex);
+    let session = provider
+        .create_session(manager_full_access_config(&root, &provider), None, false)
+        .expect("create session");
+    let events = Events::attach(&session);
+    session.runtime_info().expect("runtime info");
+    session
+        .start_turn(
+            &Prompt::Text("Say hello".to_owned()),
+            &RunOptions::default(),
+        )
+        .expect("start turn");
+    events.wait_for("turn_completed", WAIT);
+    let snapshot = events.snapshot();
+    assert!(
+        snapshot.iter().all(|event| event["type"] != "turn_failed"),
+        "{snapshot:?}"
+    );
+    assert_eq!(
+        stub.requests().len(),
+        3,
+        "two dropped streams, then the retry that works"
+    );
+    let assistant: Vec<&Value> = snapshot
+        .iter()
+        .filter(|event| event["item"]["type"] == "assistant_message")
+        .collect();
+    assert_eq!(assistant.len(), 1, "{snapshot:?}");
+    assert_eq!(assistant[0]["item"]["text"], json!("Hello after retries."));
+    assert_eq!(session.unported(), Vec::<String>::new());
+    session.close().expect("close");
+}
+
+#[test]
+#[ignore = "drives the pinned codex binary; run with --ignored"]
 fn an_auto_review_session_starts_its_thread_and_reports_the_mode() {
     // The `thread/start` answer to an auto-review session carries
     // `approvalsReviewer: "auto_review"`; it is the recorded input of the
