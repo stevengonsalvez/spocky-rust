@@ -488,11 +488,9 @@ fn bad_listen_strings_fail_with_the_pinned_messages() {
         "Invalid listen string: nonsense"
     );
     write_config(&home, &json!({"listen": "127.0.0.1:70000"}));
-    assert!(
-        start_daemon(&env(&home, &[]))
-            .err()
-            .unwrap()
-            .starts_with("options.port should be >= 0 and < 65536")
+    assert_eq!(
+        start_daemon(&env(&home, &[])).err().unwrap(),
+        "options.port should be >= 0 and < 65536. Received type number (70000)."
     );
     assert!(!home.join("paseo.pid").exists());
     assert!(!home.join("local-credential").exists());

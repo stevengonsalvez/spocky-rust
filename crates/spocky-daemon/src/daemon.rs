@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
-use std::net::{IpAddr, TcpListener, ToSocketAddrs};
+use std::net::{TcpListener, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -41,6 +41,7 @@ use spocky_contracts::text::JsText;
 use spocky_contracts::ws::{
     DaemonPermission, ServerCapabilities, ServerCapabilityState, ServerId, ServerVoiceCapabilities,
 };
+use spocky_store::atomic::FsError;
 
 /// `@getpaseo/server` version at the pinned commit; reported in `server_info`.
 pub const DAEMON_VERSION: &str = "0.10.0";
@@ -194,50 +195,126 @@ fn fail(message: impl Into<String>) -> StartupError {
     StartupError(message.into(), None)
 }
 
-/// The error of a failed `listen`, as Node's `listenInCluster` builds it from
-/// a libuv status: `listen <CODE>: <description> <address>:<port>`, with `code`,
-/// `errno`, `syscall`, `address` and `port` as own properties. The stack lines are
-/// those of Node 22.20.0 on macOS (the pinned runtime), which differ by code.
-fn listen_error(error: &io::Error, address: IpAddr, port: i64) -> StartupError {
-    let (code, description, frame) = match error.kind() {
-        io::ErrorKind::AddrInUse => (
-            "EADDRINUSE",
-            "address already in use",
-            "Server.setupListenHandle [as _listen2] (node:net:1940:16)",
-        ),
-        io::ErrorKind::AddrNotAvailable => (
-            "EADDRNOTAVAIL",
-            "address not available",
-            "Server.setupListenHandle [as _listen2] (node:net:1918:21)",
-        ),
-        _ => {
-            return fail(format!(
-                "listen {} {address}:{port}: {error}",
-                errno_name(error)
-            ));
-        }
-    };
-    let message = format!("listen {code}: {description} {address}:{port}");
-    let stack = format!(
-        "Error: {message}\n    at {frame}\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)"
-    );
-    let errno = error.raw_os_error().map_or(0, |errno| -i64::from(errno));
-    let props = vec![
-        ("code".to_owned(), Value::from(code)),
-        ("errno".to_owned(), Value::from(errno)),
-        ("syscall".to_owned(), Value::from("listen")),
-        ("address".to_owned(), Value::from(address.to_string())),
-        ("port".to_owned(), Value::from(port)),
-    ];
+/// A `StartupError` that carries the Error Node would throw.
+fn thrown(name: &str, message: String, stack: String, props: Vec<(String, Value)>) -> StartupError {
     StartupError(
         message.clone(),
         Some(LogError {
-            name: "Error".to_owned(),
+            name: name.to_owned(),
             message,
             stack,
             props,
         }),
     )
+}
+
+/// The error of a failed `listen`, as Node's `UVExceptionWithHostPort` builds it
+/// from a libuv status: `listen <CODE>: <description> <address>[:<port>]`, with
+/// `code`, `errno`, `syscall`, `address` and, when it is not 0, `port` as own
+/// properties. `socket` is a unix socket path, for which libuv reports a missing
+/// directory as EACCES and Node sets the port to -1.
+///
+/// The stack lines are those of Node 22.20.0 on macOS (the pinned runtime). libuv
+/// delays EADDRINUSE to `listen()` (`net:1940`); every other bind failure is
+/// reported where the handle is created (`net:1918`). A TCP listen runs from the
+/// DNS lookup callback; a socket listen from `Server.listen`, below which the
+/// original's own files appear, and Spocky has none to name.
+fn listen_error(error: &io::Error, address: &str, port: i64, socket: bool) -> StartupError {
+    let Some(raw) = error.raw_os_error() else {
+        return fail(error.to_string());
+    };
+    let raw = if socket && raw == 2 { 13 } else { raw };
+    let probe = FsError {
+        syscall: "listen",
+        path: None,
+        dest: None,
+        source: io::Error::from_raw_os_error(raw),
+    };
+    let (code, description) = (probe.code(), probe.description());
+    let target = if port > 0 {
+        format!("{address}:{port}")
+    } else {
+        address.to_owned()
+    };
+    let message = format!("listen {code}: {description} {target}");
+    let setup = if code == "EADDRINUSE" {
+        "Server.setupListenHandle [as _listen2] (node:net:1940:16)"
+    } else {
+        "Server.setupListenHandle [as _listen2] (node:net:1918:21)"
+    };
+    let mut frames = vec![setup, "listenInCluster (node:net:1997:12)"];
+    if socket {
+        frames.push("Server.listen (node:net:2119:5)");
+    } else {
+        frames.push("node:net:2206:7");
+        frames.push("process.processTicksAndRejections (node:internal/process/task_queues:90:21)");
+    }
+    let stack = format!(
+        "Error: {message}\n{}",
+        frames
+            .iter()
+            .map(|frame| format!("    at {frame}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let mut props = vec![
+        ("code".to_owned(), Value::from(code)),
+        ("errno".to_owned(), Value::from(-i64::from(raw))),
+        ("syscall".to_owned(), Value::from("listen")),
+        ("address".to_owned(), Value::from(address)),
+    ];
+    if port != 0 {
+        props.push(("port".to_owned(), Value::from(port)));
+    }
+    thrown("Error", message, stack, props)
+}
+
+/// `dns.lookup` failing for the listen host: Node's `getaddrinfo` error.
+fn lookup_error(host: &str) -> StartupError {
+    let message = format!("getaddrinfo ENOTFOUND {host}");
+    let stack = format!(
+        "Error: {message}\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)"
+    );
+    let props = vec![
+        ("errno".to_owned(), Value::from(-3008)),
+        ("code".to_owned(), Value::from("ENOTFOUND")),
+        ("syscall".to_owned(), Value::from("getaddrinfo")),
+        ("hostname".to_owned(), Value::from(host)),
+    ];
+    thrown("Error", message, stack, props)
+}
+
+/// `Server.listen` refusing a port outside 0..65536 (`ERR_SOCKET_BAD_PORT`).
+fn bad_port_error(port: i64) -> StartupError {
+    let message =
+        format!("options.port should be >= 0 and < 65536. Received type number ({port}).");
+    let stack = format!(
+        "RangeError [ERR_SOCKET_BAD_PORT]: {message}\n    at Server.listen (node:net:2091:5)"
+    );
+    let props = vec![("code".to_owned(), Value::from("ERR_SOCKET_BAD_PORT"))];
+    thrown("RangeError", message, stack, props)
+}
+
+/// A file system call that failed under `fs.promises` or `fs.*Sync`: the message
+/// is the `UVException` text, the own properties `errno`, `code`, `syscall`,
+/// `path` (and `dest` for a rename). Node's stack for an asynchronous call is
+/// the message alone.
+fn fs_error(error: &FsError) -> StartupError {
+    let message = error.to_string();
+    let errno = error.source.raw_os_error().map_or(0, |raw| -i64::from(raw));
+    let mut props = vec![
+        ("errno".to_owned(), Value::from(errno)),
+        ("code".to_owned(), Value::from(error.code())),
+        ("syscall".to_owned(), Value::from(error.syscall)),
+    ];
+    if let Some(path) = &error.path {
+        props.push(("path".to_owned(), Value::from(path.as_str())));
+    }
+    if let Some(dest) = &error.dest {
+        props.push(("dest".to_owned(), Value::from(dest.as_str())));
+    }
+    let stack = format!("Error: {message}");
+    thrown("Error", message, stack, props)
 }
 
 /// Binds the configured target. A TCP port is checked here, as Node checks it
@@ -248,18 +325,14 @@ fn bind(
 ) -> Result<(ListenHandle, ListenTarget, Option<PathBuf>), StartupError> {
     match target {
         ListenTarget::Tcp { host, port } => {
-            let port_number = u16::try_from(*port).map_err(|_| {
-                fail(format!(
-                    "options.port should be >= 0 and < 65536. Received type number ({port})"
-                ))
-            })?;
+            let port_number = u16::try_from(*port).map_err(|_| bad_port_error(*port))?;
             let address = (host.as_str(), port_number)
                 .to_socket_addrs()
-                .map_err(|error| fail(format!("listen ENOTFOUND {host}: {error}")))?
+                .map_err(|_| lookup_error(host))?
                 .next()
-                .ok_or_else(|| fail(format!("listen ENOTFOUND {host}")))?;
+                .ok_or_else(|| lookup_error(host))?;
             let listener = TcpListener::bind(address)
-                .map_err(|error| listen_error(&error, address.ip(), *port))?;
+                .map_err(|error| listen_error(&error, &address.ip().to_string(), *port, false))?;
             let handle = server
                 .serve_tcp(listener)
                 .map_err(|error| fail(error.to_string()))?;
@@ -278,10 +351,17 @@ fn bind(
         #[cfg(unix)]
         ListenTarget::Socket { path } => {
             if Path::new(path).exists() {
-                fs::remove_file(path).map_err(|error| fail(error.to_string()))?;
+                fs::remove_file(path).map_err(|source| {
+                    fs_error(&FsError {
+                        syscall: "unlink",
+                        path: Some(path.clone()),
+                        dest: None,
+                        source,
+                    })
+                })?;
             }
             let listener = std::os::unix::net::UnixListener::bind(path)
-                .map_err(|error| fail(format!("listen {} {path}: {error}", errno_name(&error))))?;
+                .map_err(|error| listen_error(&error, path, -1, true))?;
             let handle = server
                 .serve_unix(listener)
                 .map_err(|error| fail(error.to_string()))?;
@@ -290,15 +370,6 @@ fn bind(
         #[cfg(not(unix))]
         ListenTarget::Socket { .. } => Err(fail("Unix sockets are not supported on this platform")),
         ListenTarget::Pipe { .. } => Err(fail("Named pipes are not supported on this platform")),
-    }
-}
-
-fn errno_name(error: &io::Error) -> &'static str {
-    match error.kind() {
-        io::ErrorKind::AddrInUse => "EADDRINUSE",
-        io::ErrorKind::AddrNotAvailable => "EADDRNOTAVAIL",
-        io::ErrorKind::PermissionDenied => "EACCES",
-        _ => "EUNKNOWN",
     }
 }
 
