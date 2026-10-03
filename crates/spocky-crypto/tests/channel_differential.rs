@@ -97,6 +97,10 @@ fn deliver_text(text: &str) -> Value {
     json!({ "op": "deliver", "text": text })
 }
 
+fn frame_base64(bytes: &[u8]) -> Value {
+    frame_text(&array_buffer_to_base64(bytes))
+}
+
 fn deliver_binary(bytes: &[u8]) -> Value {
     json!({ "op": "deliver", "binary": hex(bytes) })
 }
@@ -929,6 +933,92 @@ fn unexpected_token_messages_match_v8() {
         ) > 100
     );
     assert!(count(&transcript, r#"{"t":"json-error","message":null}"#) > 100);
+}
+
+fn frame_text(text: &str) -> Value {
+    json!({ "text": text })
+}
+
+fn frame_binary(bytes: &[u8]) -> Value {
+    json!({ "binary": hex(bytes) })
+}
+
+#[test]
+fn frames_delivered_in_one_task_interleave_with_awaited_sends() {
+    let shared = peer_shared();
+    // The daemon buffers everything that arrives while its ready frame is
+    // in flight, drops buffered hello and ready frames, and replays the rest
+    // after opening.
+    let Some(transcript) = differential(
+        "batch-daemon-same-task",
+        &[
+            daemon(),
+            json!({ "op": "batch", "frames": [
+                frame_text(&hello(PEER_PUBLIC, binary_capability())),
+                frame_binary(&seal(&shared, 1, b"first")),
+                frame_text(&hello(PEER_PUBLIC, binary_capability())),
+                frame_text(READY_LEGACY),
+                frame_text(r#"{"type":"app"}"#),
+                frame_binary(&seal(&shared, 2, b"second")),
+                frame_binary(&seal(&shared, 1, b"first")),
+            ]}),
+            deliver_binary(&seal(&shared, 3, b"after")),
+        ],
+    ) else {
+        return;
+    };
+    assert_eq!(
+        count(&transcript, r#"{"t":"message","binary":"666972737"#),
+        2
+    );
+    assert!(has(&transcript, r#"{"t":"handshake","ok":true}"#));
+    differential(
+        "batch-daemon-ciphertext-first",
+        &[
+            daemon(),
+            json!({ "op": "batch", "frames": [
+                frame_text(&hello(PEER_PUBLIC, "")),
+                frame_base64(&seal(&shared, 4, b"pipelined")),
+            ]}),
+        ],
+    );
+    let client_key = client_shared();
+    // A client that opens on ready flushes its backlog while later frames of
+    // the same task are already being handled.
+    let Some(transcript) = differential(
+        "batch-client-same-task",
+        &[
+            client(),
+            send_text("queued one"),
+            send_binary(&[7, 7]),
+            send_text("queued two"),
+            json!({ "op": "batch", "frames": [
+                frame_text(READY_BINARY),
+                frame_binary(&seal(&client_key, 1, b"early reply")),
+                frame_text(READY_LEGACY),
+                frame_text(&hello(PEER_PUBLIC, "")),
+                frame_base64(&seal(&client_key, 2, b"text reply")),
+            ]}),
+            deliver_text(READY_LEGACY),
+        ],
+    ) else {
+        return;
+    };
+    assert!(has(&transcript, r#"{"t":"open"}"#));
+    // The same batch with a failing backlog send.
+    differential(
+        "batch-client-flush-failure",
+        &[
+            client(),
+            send_text("queued one"),
+            send_text("queued two"),
+            json!({ "op": "queue", "modes": [{ "kind": "sync" }, { "kind": "reject", "message": "flush failed" }] }),
+            json!({ "op": "batch", "frames": [
+                frame_text(READY_BINARY),
+                frame_binary(&seal(&client_key, 3, b"during flush")),
+            ]}),
+        ],
+    );
 }
 
 fn pair_steps() -> Vec<(&'static str, Value)> {
