@@ -1,0 +1,219 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b",
+   "packages/server/dist/server/server/logger.js": "132649f4769d47a0d6208f8f72b1ad00a8f3bb30d7681d8bd8ae97ea67dd805d"
+  }
+ },
+ "cases": [
+  {
+   "name": "no_log_section",
+   "log": null,
+   "workerLevel": "info",
+   "fileAllowedLevel": "info",
+   "written": [
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "empty_log_section",
+   "log": {},
+   "workerLevel": "info",
+   "fileAllowedLevel": "info",
+   "written": [
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "global_level_warn",
+   "log": {
+    "level": "warn"
+   },
+   "workerLevel": "warn",
+   "fileAllowedLevel": "warn",
+   "written": [
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "global_level_trace",
+   "log": {
+    "level": "trace"
+   },
+   "workerLevel": "trace",
+   "fileAllowedLevel": "trace",
+   "written": [
+    "trace",
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "global_level_fatal",
+   "log": {
+    "level": "fatal"
+   },
+   "workerLevel": "fatal",
+   "fileAllowedLevel": "fatal",
+   "written": [
+    "fatal"
+   ]
+  },
+  {
+   "name": "console_level_debug",
+   "log": {
+    "console": {
+     "level": "debug"
+    }
+   },
+   "workerLevel": "debug",
+   "fileAllowedLevel": "debug",
+   "written": [
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "console_overrides_global",
+   "log": {
+    "level": "warn",
+    "console": {
+     "level": "debug"
+    }
+   },
+   "workerLevel": "debug",
+   "fileAllowedLevel": "debug",
+   "written": [
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "console_format_only",
+   "log": {
+    "console": {
+     "format": "json"
+    }
+   },
+   "workerLevel": "info",
+   "fileAllowedLevel": "info",
+   "written": [
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "file_section_without_level",
+   "log": {
+    "file": {}
+   },
+   "workerLevel": "info",
+   "fileAllowedLevel": "info",
+   "written": [
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "file_inherits_global_level",
+   "log": {
+    "level": "error",
+    "file": {
+     "path": "a.log"
+    }
+   },
+   "workerLevel": "error",
+   "fileAllowedLevel": "error",
+   "written": [
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "file_level_beats_console_level",
+   "log": {
+    "console": {
+     "level": "trace"
+    },
+    "file": {
+     "level": "error"
+    }
+   },
+   "workerLevel": "trace",
+   "fileAllowedLevel": "error",
+   "written": [
+    "trace",
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "file_without_level_and_console_level",
+   "log": {
+    "console": {
+     "level": "debug"
+    },
+    "file": {}
+   },
+   "workerLevel": "debug",
+   "fileAllowedLevel": "info",
+   "written": [
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  },
+  {
+   "name": "global_trace_with_file_error",
+   "log": {
+    "level": "trace",
+    "file": {
+     "level": "error"
+    }
+   },
+   "workerLevel": "trace",
+   "fileAllowedLevel": "error",
+   "written": [
+    "trace",
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "fatal"
+   ]
+  }
+ ]
+}
