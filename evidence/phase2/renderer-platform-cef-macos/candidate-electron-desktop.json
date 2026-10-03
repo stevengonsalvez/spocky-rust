@@ -1,0 +1,1374 @@
+{
+  "name": "candidate-electron-desktop",
+  "mode": "candidate",
+  "url": "http://127.0.0.1:64342/",
+  "browser": {
+    "product": "Chrome/152.0.7977.76",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "storageSeeding": "none",
+  "gateConditions": {
+    "colorScheme": "light",
+    "reducedMotion": "reduce",
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "deviceScaleFactor": 1
+  },
+  "environment": {
+    "innerWidth": 1280,
+    "innerHeight": 800,
+    "devicePixelRatio": 1,
+    "lang": "en-US",
+    "platform": "MacIntel",
+    "colorSchemeLight": true,
+    "reducedMotion": true
+  },
+  "readiness": {
+    "fontsStatus": "loaded",
+    "fontCount": 0
+  },
+  "screenshot": {
+    "file": "candidate-electron-desktop.png",
+    "sha256": "72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe",
+    "bytes": 50385,
+    "width": 1280,
+    "height": 800
+  },
+  "keyboardFocus": {
+    "entries": [
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "New workspace",
+        "text": "New workspace",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "History",
+        "text": "History",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Search",
+        "text": "Search",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Schedules",
+        "text": "Schedules",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Add project",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Import session",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Add project",
+        "text": "Add project",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Hosts",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Import session",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Usage",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Help and support",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Settings",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Close menu",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Add a project Open a folder on your machine",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Import session Open a Claude Code, Codex or other session you started in a terminal",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Setup providers Configure Claude Code, Codex, and more",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Star",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Sponsor",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Community",
+        "disabled": false
+      }
+    ],
+    "completed": true
+  },
+  "plusActivation": {
+    "control": "[aria-label='New workspace']",
+    "changed": false,
+    "urlBefore": "http://127.0.0.1:64342/",
+    "urlAfter": "http://127.0.0.1:64342/",
+    "before": {
+      "dialogs": [],
+      "status": []
+    },
+    "after": {
+      "dialogs": [],
+      "status": []
+    }
+  },
+  "addProjectActivation": {
+    "control": ".action:nth-child(1)",
+    "changed": true,
+    "urlBefore": "http://127.0.0.1:64342/",
+    "urlAfter": "http://127.0.0.1:64342/",
+    "before": {
+      "dialogs": [],
+      "status": []
+    },
+    "after": {
+      "dialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline ↑↓ Navigate ⏎ Select Esc Close",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory Find a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory Create an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "status": []
+    }
+  },
+  "axTree": {
+    "role": "RootWebArea",
+    "name": "dioxus | ⛺",
+    "ignored": false,
+    "properties": [
+      [
+        "focusable",
+        true
+      ],
+      [
+        "focused",
+        true
+      ],
+      [
+        "url",
+        "http://127.0.0.1:64342/"
+      ]
+    ],
+    "children": [
+      {
+        "role": "none",
+        "name": null,
+        "ignored": true,
+        "properties": [],
+        "children": [
+          {
+            "role": "none",
+            "name": null,
+            "ignored": true,
+            "properties": [],
+            "children": [
+              {
+                "role": "generic",
+                "name": "",
+                "ignored": false,
+                "properties": [],
+                "children": [
+                  {
+                    "role": "main",
+                    "name": "",
+                    "ignored": false,
+                    "properties": [],
+                    "children": [
+                      {
+                        "role": "navigation",
+                        "name": "Primary navigation",
+                        "ignored": false,
+                        "properties": [],
+                        "children": [
+                          {
+                            "role": "none",
+                            "name": null,
+                            "ignored": true,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "button",
+                                "name": "New workspace",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "StaticText",
+                                    "name": "New workspace",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "New workspace",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "History",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "StaticText",
+                                    "name": "History",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "History",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Search",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Search",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Search",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Schedules",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Schedules",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Schedules",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "role": "none",
+                            "name": null,
+                            "ignored": true,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "none",
+                                "name": null,
+                                "ignored": true,
+                                "properties": [],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "No projects yet",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "No projects yet",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Add a project to get started",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Add a project to get started",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "button",
+                                            "name": "Add project",
+                                            "ignored": false,
+                                            "properties": [
+                                              [
+                                                "invalid",
+                                                "false"
+                                              ],
+                                              [
+                                                "focusable",
+                                                true
+                                              ]
+                                            ],
+                                            "children": [
+                                              {
+                                                "role": "none",
+                                                "name": null,
+                                                "ignored": true,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "image",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "role": "generic",
+                                                "name": "",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "StaticText",
+                                                    "name": "Add project",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "InlineTextBox",
+                                                        "name": "Add project",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": []
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "button",
+                                            "name": "Import session",
+                                            "ignored": false,
+                                            "properties": [
+                                              [
+                                                "invalid",
+                                                "false"
+                                              ],
+                                              [
+                                                "focusable",
+                                                true
+                                              ]
+                                            ],
+                                            "children": [
+                                              {
+                                                "role": "none",
+                                                "name": null,
+                                                "ignored": true,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "image",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "role": "generic",
+                                                "name": "",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "StaticText",
+                                                    "name": "Import session",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "InlineTextBox",
+                                                        "name": "Import session",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": []
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "role": "none",
+                            "name": null,
+                            "ignored": true,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "button",
+                                "name": "Add project",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Add project",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Add project",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Hosts",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Import session",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Usage",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Help and support",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Settings",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "none",
+                                    "name": null,
+                                    "ignored": true,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "image",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "role": "generic",
+                        "name": "",
+                        "ignored": false,
+                        "properties": [
+                          [
+                            "focusable",
+                            true
+                          ]
+                        ],
+                        "children": []
+                      },
+                      {
+                        "role": "button",
+                        "name": "Close menu",
+                        "ignored": false,
+                        "properties": [
+                          [
+                            "invalid",
+                            "false"
+                          ],
+                          [
+                            "focusable",
+                            true
+                          ]
+                        ],
+                        "children": [
+                          {
+                            "role": "image",
+                            "name": "",
+                            "ignored": false,
+                            "properties": [],
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "role": "region",
+                        "name": "Open project",
+                        "ignored": false,
+                        "properties": [],
+                        "children": [
+                          {
+                            "role": "none",
+                            "name": null,
+                            "ignored": true,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "none",
+                                "name": null,
+                                "ignored": true,
+                                "properties": [],
+                                "children": [
+                                  {
+                                    "role": "generic",
+                                    "name": "",
+                                    "ignored": false,
+                                    "properties": [
+                                      [
+                                        "focusable",
+                                        true
+                                      ]
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "image",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Add a project",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Add a project",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Open a folder on your machine",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Open a folder on your ",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  },
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "machine",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "generic",
+                                    "name": "",
+                                    "ignored": false,
+                                    "properties": [
+                                      [
+                                        "focusable",
+                                        true
+                                      ]
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "image",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Import session",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Import session",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Open a Claude Code, Codex or other session you started in a terminal",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Open a Claude Code, Codex ",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  },
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "or other session you started ",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  },
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "in a terminal",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "role": "generic",
+                                    "name": "",
+                                    "ignored": false,
+                                    "properties": [
+                                      [
+                                        "focusable",
+                                        true
+                                      ]
+                                    ],
+                                    "children": [
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "image",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "role": "none",
+                                        "name": null,
+                                        "ignored": true,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Setup providers",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Setup providers",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "StaticText",
+                                                "name": "Configure Claude Code, Codex, and more",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Configure Claude Code, ",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  },
+                                                  {
+                                                    "role": "InlineTextBox",
+                                                    "name": "Codex, and more",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "role": "sectionfooter",
+                            "name": "",
+                            "ignored": false,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "button",
+                                "name": "Star",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Star",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Star",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Sponsor",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Sponsor",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Sponsor",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "role": "button",
+                                "name": "Community",
+                                "ignored": false,
+                                "properties": [
+                                  [
+                                    "invalid",
+                                    "false"
+                                  ],
+                                  [
+                                    "focusable",
+                                    true
+                                  ]
+                                ],
+                                "children": [
+                                  {
+                                    "role": "StaticText",
+                                    "name": "Community",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "InlineTextBox",
+                                        "name": "Community",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "role": "none",
+                            "name": null,
+                            "ignored": true,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "StaticText",
+                                "name": "Spocky",
+                                "ignored": false,
+                                "properties": [],
+                                "children": [
+                                  {
+                                    "role": "InlineTextBox",
+                                    "name": "Spocky",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
