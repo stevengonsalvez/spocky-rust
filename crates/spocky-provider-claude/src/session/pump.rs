@@ -132,7 +132,11 @@ impl ClaudeSession {
                     *recoveries = 0;
                     // A loop body that returns or throws closes the iterator.
                     match self.handle_pumped_message(&message, active_query).await {
-                        Ok(false) => {}
+                        Ok(false) => {
+                            // Each `for await` step costs a promise tick, so
+                            // frames already buffered are handled one per tick.
+                            tokio::task::yield_now().await;
+                        }
                         Ok(true) => {
                             active_query.return_().await;
                             return Ok(true);
