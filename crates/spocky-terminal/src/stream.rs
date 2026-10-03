@@ -162,6 +162,12 @@ impl TerminalStreams {
         self.streams.contains_key(&slot)
     }
 
+    /// The active slots, in order.
+    #[must_use]
+    pub fn slots(&self) -> Vec<u8> {
+        self.streams.keys().copied().collect()
+    }
+
     /// The terminal a slot streams.
     #[must_use]
     pub fn terminal_of(&self, slot: u8) -> Option<&str> {
