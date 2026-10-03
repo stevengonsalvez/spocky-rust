@@ -18,6 +18,7 @@ use std::os::unix::process::CommandExt;
 
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use spocky_contracts::text::js_trim;
 
 mod client_runtime;
 mod daemon_rpc;
@@ -151,16 +152,16 @@ pub fn load_manifest(directory: &Path) -> Result<LoadedManifest, PluginError> {
     if manifest
         .description
         .as_ref()
-        .is_some_and(|value| value.trim().is_empty())
+        .is_some_and(|value| js_trim(value).is_empty())
         || manifest
             .build
             .iter()
-            .any(|command| command.is_empty() || command.iter().any(|arg| arg.trim().is_empty()))
+            .any(|command| command.is_empty() || command.iter().any(|arg| js_trim(arg).is_empty()))
     {
         return Err(PluginError::InvalidCandidate);
     }
     let mut manifest = manifest;
-    manifest.description = manifest.description.map(|value| value.trim().to_owned());
+    manifest.description = manifest.description.map(|value| js_trim(&value).to_owned());
     let client_entry = find_entry(directory, &["index.client.ts", "index.client.tsx"]);
     let server_entry = find_entry(directory, &["index.server.ts", "index.server.tsx"]);
     if client_entry.is_none() && server_entry.is_none() {
