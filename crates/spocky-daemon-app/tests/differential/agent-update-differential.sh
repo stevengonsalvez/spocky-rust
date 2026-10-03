@@ -188,6 +188,9 @@ mask() {
 [ "$(printf 'x srv_aB-_cD0123xy y\n' | mask /dev/stdin)" = 'x <SRV> y' ] ||
   { echo "FAIL: mask misses a base64url server id"; exit 1; }
 
+# Provenance: the commit under test and the daemon binary it was built into.
+echo "commit: $(git -C "$here" rev-parse HEAD)"
+echo "binary: sha256 $(shasum -a 256 "$target/debug/spocky-daemon" | cut -d' ' -f1)  $target/debug/spocky-daemon"
 [ -n "${SPOCKY_AU_SEED_SUBSCRIBER:-}" ] && { run_side original "$top/seed" seed || exit 1; }
 run_side original "$top/original"
 run_side spocky "$top/spocky"
