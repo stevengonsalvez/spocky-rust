@@ -58,9 +58,12 @@ pub fn js_trim_end(value: &str) -> &str {
 /// [`crate::js_case_tables`]), with `Final_Sigma` for `U+03A3`. The Rust
 /// toolchain's own `str::to_lowercase` follows a newer Unicode. A lone
 /// surrogate in the [`crate::js_value`] encoding is not cased, so it passes
-/// through.
+/// through; a high and a low surrogate that concatenation put side by side
+/// are one supplementary character in JavaScript, so the text is made
+/// canonical first.
 #[must_use]
 pub fn js_to_lowercase(value: &str) -> String {
+    let value = js_text_canonical_cow(value);
     let mut lowered = String::with_capacity(value.len());
     for (index, character) in value.char_indices() {
         if character == '\u{3a3}' {
