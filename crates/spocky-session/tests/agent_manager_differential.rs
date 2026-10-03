@@ -105,6 +105,7 @@ use spocky_session::agent_sdk::{
     StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
+use spocky_session::rewind::RewindMode;
 use spocky_session::timeline::FetchDirection;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify};
 
@@ -227,6 +228,17 @@ const SCENARIO_TURNS: &str = r#"{
     {"type":"timeline","provider":"fake","turnId":"turn-18","item":{"type":"assistant_message","text":"after import"}},
     {"type":"turn_completed","provider":"fake","turnId":"turn-18"}
   ],
+  "rwEcho": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-19"},
+    {"type":"timeline","provider":"fake","turnId":"turn-19","item":{"type":"user_message","text":"rewind me","clientMessageId":"client-rw","messageId":"provider-rw"}},
+    {"type":"timeline","provider":"fake","turnId":"turn-19","item":{"type":"assistant_message","text":"ok"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-19"}
+  ],
+  "rwNoEcho": [
+    {"type":"turn_started","provider":"fake","turnId":"turn-20"},
+    {"type":"timeline","provider":"fake","turnId":"turn-20","item":{"type":"assistant_message","text":"noted"}},
+    {"type":"turn_completed","provider":"fake","turnId":"turn-20"}
+  ],
   "rpIdle": [
     {"type":"turn_started","provider":"fake","turnId":"turn-13"},
     {"type":"timeline","provider":"fake","turnId":"turn-13","item":{"type":"assistant_message","text":"idle replace"}},
@@ -316,6 +328,7 @@ const RUNTIME_INFO: &str =
 const PERSISTENCE: &str =
     r#"{"provider":"fake","sessionId":"sess-1","nativeHandle":"thread-1","metadata":{"x":1}}"#;
 const CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true}"#;
+const REWIND_CAPABILITIES: &str = r#"{"supportsStreaming":true,"supportsSessionPersistence":true,"supportsDynamicModes":false,"supportsMcpServers":true,"supportsReasoningStream":true,"supportsToolInvocations":true,"supportsRewindConversation":true,"supportsRewindFiles":true,"supportsRewindBoth":true}"#;
 const MODES: &str = r#"[{"id":"auto","label":"Auto"},{"id":"read-only","label":"Read only"}]"#;
 const CATALOG: &str = r#"{"models":[{"provider":"fake","id":"model-a","label":"A"},{"provider":"fake","id":"model-default","label":"D","isDefault":true}],"modes":[]}"#;
 
@@ -332,7 +345,10 @@ const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, wa
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
-  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline; }
+  constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline;
+    for (const [kind, method] of [["conversation", "revertConversation"], ["files", "revertFiles"], ["both", "revertBoth"]]) {
+      if ((spec.revert ?? []).includes(kind)) this[method] = async ({ messageId }) => { this.calls.push([method, messageId]); };
+    } }
   subscribe(callback) { this.listeners.push(callback); return () => {}; }
   emitLater(events, ms) {
     setTimeout(async () => {
@@ -912,6 +928,69 @@ const replaceScenario = async () => {
   return { a, b, c, d };
 };
 
+const rewindScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const noFlagId = "00000000-0000-4000-8000-0000000000f2";
+  const flags = { ...JSON.parse(capabilitiesJson), supportsRewindConversation: true, supportsRewindFiles: true, supportsRewindBoth: true };
+  const warns = [];
+  const infos = [];
+  // Only the rewind messages: the manager logs other info lines this port does not.
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); }, info(bindings, message) { if (message.startsWith("agent.rewind.")) infos.push([bindings, message]); } };
+  const calls = [];
+  const registry = new AgentStorage(`${home}/rewind`, logger);
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry,
+    clients: {
+      fake: fakeClient(calls, spec("fake", { turns: [scripted.rwEcho, scripted.rwNoEcho, scripted.long], history: scripted.history, interrupt: scripted.interrupt, capabilities: flags, revert: ["conversation", "files"] })),
+      noflag: fakeClient(calls, spec("noflag", { history: scripted.history, revert: ["conversation", "files", "both"] })),
+    },
+    providerDefinitions: { fake: { enabled: true }, noflag: { enabled: true } },
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+  await manager.createAgent({ provider: "noflag", cwd }, noFlagId, {});
+  const rewind = (id, messageId, mode) => outcome(async () => { await manager.rewind(id, messageId, mode); return null; });
+  const echoEvents = await collect(manager.streamAgent(agentId, "rewind me", { clientMessageId: "client-rw" }), []);
+  const noEchoEvents = await collect(manager.streamAgent(agentId, "no ack", { clientMessageId: "client-noack" }), []);
+  const results = {};
+  results.unknownAgent = await rewind("00000000-0000-4000-8000-0000000000f3", "x", "files");
+  results.unacknowledged = await rewind(agentId, "client-noack", "conversation");
+  results.files = await rewind(agentId, "unknown-message", "files");
+  results.both = await rewind(agentId, "client-rw", "both");
+  results.noFlag = await rewind(noFlagId, "x", "conversation");
+  const held = manager.streamAgent(agentId, "hold");
+  const heldEvents = [(await held.next()).value];
+  await sleep(50);
+  results.running = await rewind(agentId, "client-rw", "files");
+  // A rewind that did not cancel the run would leave this stream open.
+  await Promise.race([collect(held, heldEvents), sleep(3000).then(() => { throw new Error("the running turn was not cancelled by rewind"); })]);
+  results.conversation = await rewind(agentId, "client-rw", "conversation");
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  const refusedCalls = [];
+  const refusedRegistry = new AgentStorage(`${home}/rewind-refused`, logger);
+  const refused = new AgentManager({ logger, registry: refusedRegistry, clients: { fake: fakeClient(refusedCalls, spec("fake", { turns: [scripted.rpHeld], interruptHang: true, capabilities: flags, revert: ["files"] })) }, providerDefinitions: { fake: { enabled: true } }, rescueTimeouts: { interruptSessionMs: 80 } });
+  await refused.createAgent({ provider: "fake", cwd }, agentId, {});
+  const refusedHeld = refused.streamAgent(agentId, "long task");
+  const refusedEvents = [(await refusedHeld.next()).value];
+  await sleep(50);
+  const refusedResult = await outcome(async () => { await refused.rewind(agentId, "x", "files"); return null; });
+  await collect(refusedHeld, refusedEvents);
+  await sleep(100);
+  await refused.flush();
+  await refusedRegistry.flush();
+  return {
+    results, echoEvents, noEchoEvents, heldEvents, calls, feed, warns, infos,
+    agent: toAgentPayload(manager.getAgent(agentId)),
+    rows: await manager.getTimelineRows(agentId),
+    stored: await registry.get(agentId),
+    refused: { result: refusedResult, events: refusedEvents, calls: refusedCalls, agent: toAgentPayload(refused.getAgent(agentId)) },
+  };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -998,7 +1077,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1040,6 +1119,8 @@ struct Spec {
     interrupt_hang: bool,
     /// What `importSession` resolves, with `$CWD` for the working directory.
     import: Option<JsValue>,
+    /// The `revert*` methods the session has: `conversation`, `files`, `both`.
+    revert: Vec<&'static str>,
 }
 
 fn spec(provider: &str) -> Spec {
@@ -1056,6 +1137,7 @@ fn spec(provider: &str) -> Spec {
         archive_fails: false,
         interrupt_hang: false,
         import: None,
+        revert: Vec::new(),
     }
 }
 
@@ -1130,6 +1212,21 @@ impl FakeSession {
 
     fn record(&self, call: Vec<JsValue>) {
         self.calls.lock().expect("calls").push(JsValue::Array(call));
+    }
+
+    /// `revertConversation`, `revertFiles` or `revertBoth`, when the spec
+    /// gives the session that method.
+    fn revert(
+        &self,
+        kind: &str,
+        method: &str,
+        message_id: &str,
+    ) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        if !self.spec.revert.contains(&kind) {
+            return None;
+        }
+        self.record(vec![text(method), text(message_id)]);
+        Some(Box::pin(async { Ok(()) }))
     }
 }
 
@@ -1319,6 +1416,15 @@ impl AgentSession for FakeSession {
             .expect("calls")
             .push(JsValue::Array(vec![text("close")]));
         Box::pin(async { Ok(()) })
+    }
+    fn revert_conversation(&self, message_id: &str) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        self.revert("conversation", "revertConversation", message_id)
+    }
+    fn revert_files(&self, message_id: &str) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        self.revert("files", "revertFiles", message_id)
+    }
+    fn revert_both(&self, message_id: &str) -> Option<BoxFuture<'_, AgentResult<()>>> {
+        self.revert("both", "revertBoth", message_id)
     }
 }
 
@@ -2664,6 +2770,7 @@ async fn scenarios_match_pinned_manager() {
         ("shutdown", shutdown_scenario(&cwd, &rust_home.0).await),
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
+        ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
         ("import", import_scenario(&cwd, &rust_home.0).await),
         ("archive", archive_scenario(&cwd, &rust_home.0).await),
     ]);
@@ -3026,6 +3133,248 @@ async fn import_scenario(cwd: &str, home: &Path) -> JsValue {
         ("rows", JsValue::Object(rows)),
         ("subagents", JsValue::Array(subagents)),
         ("stored", JsValue::Object(stored)),
+    ])
+}
+
+async fn rewind_outcome(
+    manager: &AgentManager,
+    id: &str,
+    message_id: &str,
+    mode: RewindMode,
+) -> JsValue {
+    outcome(
+        manager
+            .rewind(id, message_id, mode)
+            .await
+            .map(|()| JsValue::Null),
+    )
+}
+
+fn rewind_client(spec: Spec, calls: &Calls) -> Arc<dyn AgentClient> {
+    Arc::new(FakeClient {
+        spec,
+        calls: Arc::clone(calls),
+    })
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn rewind_scenario(cwd: &str, home: &Path) -> JsValue {
+    const NO_FLAG_ID: &str = "00000000-0000-4000-8000-0000000000f2";
+    let fixture = json(SCENARIO_TURNS);
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("rewind"));
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let infos: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let info_sink = Arc::clone(&infos);
+    let mut fake = spec("fake");
+    scripted(&fake, &["rwEcho", "rwNoEcho", "long"]);
+    fake.history = fixture.get("history").cloned();
+    fake.interrupt = fixture.get("interrupt").cloned();
+    fake.capabilities = json(REWIND_CAPABILITIES);
+    fake.revert = vec!["conversation", "files"];
+    let mut no_flag = spec("noflag");
+    no_flag.history = fixture.get("history").cloned();
+    no_flag.revert = vec!["conversation", "files", "both"];
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![
+            ("fake".to_owned(), rewind_client(fake, &calls)),
+            ("noflag".to_owned(), rewind_client(no_flag, &calls)),
+        ],
+        provider_definitions: vec![
+            ("fake".to_owned(), enabled()),
+            ("noflag".to_owned(), enabled()),
+        ],
+        registry: Some(registry.clone()),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        log_info: Some(Arc::new(move |bindings, message| {
+            info_sink
+                .lock()
+                .expect("infos")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let feed = record_feed(&manager);
+    for (provider, id) in [("fake", AGENT_ID), ("noflag", NO_FLAG_ID)] {
+        manager
+            .create_agent(
+                object(vec![("provider", text(provider)), ("cwd", text(cwd))]),
+                Some(id.to_owned()),
+                CreateAgentOptions::default(),
+            )
+            .await
+            .expect("create");
+    }
+    let acknowledged = |id: &str| AgentRunOptions {
+        client_message_id: Some(id.to_owned()),
+        ..AgentRunOptions::default()
+    };
+    let mut echo_events = Vec::new();
+    collect_stream(
+        manager
+            .stream_agent(
+                AGENT_ID,
+                AgentPromptInput::Text("rewind me".to_owned()),
+                Some(acknowledged("client-rw")),
+            )
+            .expect("echo stream"),
+        &mut echo_events,
+    )
+    .await;
+    let mut no_echo_events = Vec::new();
+    collect_stream(
+        manager
+            .stream_agent(
+                AGENT_ID,
+                AgentPromptInput::Text("no ack".to_owned()),
+                Some(acknowledged("client-noack")),
+            )
+            .expect("no echo stream"),
+        &mut no_echo_events,
+    )
+    .await;
+    let rewind = |id: &'static str, message_id: &'static str, mode: RewindMode| {
+        rewind_outcome(&manager, id, message_id, mode)
+    };
+    let mut results = JsObject::new();
+    results.insert(
+        "unknownAgent",
+        rewind(
+            "00000000-0000-4000-8000-0000000000f3",
+            "x",
+            RewindMode::Files,
+        )
+        .await,
+    );
+    results.insert(
+        "unacknowledged",
+        rewind(AGENT_ID, "client-noack", RewindMode::Conversation).await,
+    );
+    results.insert(
+        "files",
+        rewind(AGENT_ID, "unknown-message", RewindMode::Files).await,
+    );
+    results.insert(
+        "both",
+        rewind(AGENT_ID, "client-rw", RewindMode::Both).await,
+    );
+    results.insert(
+        "noFlag",
+        rewind(NO_FLAG_ID, "x", RewindMode::Conversation).await,
+    );
+    let mut held = manager
+        .stream_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+        .expect("held stream");
+    let mut held_events = vec![held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    results.insert(
+        "running",
+        rewind(AGENT_ID, "client-rw", RewindMode::Files).await,
+    );
+    // A rewind that did not cancel the run would leave this stream open.
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        collect_stream(held, &mut held_events),
+    )
+    .await
+    .expect("the running turn was not cancelled by rewind");
+    results.insert(
+        "conversation",
+        rewind(AGENT_ID, "client-rw", RewindMode::Conversation).await,
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+
+    let refused_calls = Calls::default();
+    let refused_registry = AgentStorage::new(home.join("rewind-refused"));
+    let mut hanging = spec("fake");
+    scripted(&hanging, &["rpHeld"]);
+    hanging.interrupt_hang = true;
+    hanging.capabilities = json(REWIND_CAPABILITIES);
+    hanging.revert = vec!["files"];
+    let refused = AgentManager::new(AgentManagerOptions {
+        clients: vec![("fake".to_owned(), rewind_client(hanging, &refused_calls))],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        registry: Some(refused_registry.clone()),
+        rescue_interrupt_session_ms: Some(80),
+        ..AgentManagerOptions::default()
+    });
+    refused
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    let mut refused_held = refused
+        .stream_agent(
+            AGENT_ID,
+            AgentPromptInput::Text("long task".to_owned()),
+            None,
+        )
+        .expect("refused stream");
+    let mut refused_events = vec![refused_held.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let refused_result = rewind_outcome(&refused, AGENT_ID, "x", RewindMode::Files).await;
+    collect_stream(refused_held, &mut refused_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    refused.flush().await;
+    refused_registry.flush().await;
+    let payload = |manager: &AgentManager| {
+        to_agent_payload(
+            &manager.get_agent(AGENT_ID).expect("agent").payload_view(),
+            None,
+        )
+        .expect("payload")
+    };
+    let stored = registry.get(AGENT_ID).await.unwrap_or(JsValue::Null);
+    object(vec![
+        ("results", JsValue::Object(results)),
+        ("echoEvents", JsValue::Array(echo_events)),
+        ("noEchoEvents", JsValue::Array(no_echo_events)),
+        ("heldEvents", JsValue::Array(held_events)),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+        (
+            "warns",
+            JsValue::Array(warns.lock().expect("warns").clone()),
+        ),
+        (
+            "infos",
+            JsValue::Array(infos.lock().expect("infos").clone()),
+        ),
+        ("agent", payload(&manager)),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+        ("stored", stored),
+        (
+            "refused",
+            object(vec![
+                ("result", refused_result),
+                ("events", JsValue::Array(refused_events)),
+                (
+                    "calls",
+                    JsValue::Array(refused_calls.lock().expect("calls").clone()),
+                ),
+                ("agent", payload(&refused)),
+            ]),
+        ),
     ])
 }
 
