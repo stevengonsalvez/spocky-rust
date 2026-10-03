@@ -9,6 +9,8 @@
 //! including where it reads a line that may be `undefined`: such a read
 //! throws at the same point (`Throw`), after the same partial updates.
 
+use spocky_contracts::text::js_trim;
+
 use crate::attributes::{
     AttributeData, BG_DIM, BG_ITALIC, BG_OVERLINE, BG_PROTECTED, CM_MASK, CM_P16, CM_P256, CM_RGB,
     CellData, FG_BLINK, FG_BOLD, FG_INVERSE, FG_INVISIBLE, FG_STRIKETHROUGH, FG_UNDERLINE,
@@ -32,19 +34,7 @@ fn param_or_one(params: &Params, index: usize) -> i64 {
 
 /// Whether JavaScript's `String.prototype.trim` leaves nothing.
 fn is_js_blank(text: &str) -> bool {
-    text.chars().all(|character| {
-        matches!(
-            character,
-            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-                ..='\u{200a}'
-                    | '\u{2028}'
-                    | '\u{2029}'
-                    | '\u{202f}'
-                    | '\u{205f}'
-                    | '\u{3000}'
-                    | '\u{feff}'
-        )
-    })
+    js_trim(text).is_empty()
 }
 
 impl Terminal {
