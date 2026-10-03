@@ -6,6 +6,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use spocky_contracts::text::{js_length, js_trim};
 use subtle::ConstantTimeEq as _;
 use uuid::Uuid;
 
@@ -96,7 +97,7 @@ impl<S: DurableHubStore> HubPilot<S> {
         if !self.authorize(actor, organization)?.can_manage_resources() {
             return Err(crate::AuthorityError::ManageResourcesRequired.into());
         }
-        let name = name.trim();
+        let name = js_trim(name);
         let mut scope_order = Vec::new();
         for scope in scopes {
             if !scope_order.contains(&scope) {
@@ -104,7 +105,7 @@ impl<S: DurableHubStore> HubPilot<S> {
             }
         }
         let scopes = scope_order.iter().copied().collect::<BTreeSet<_>>();
-        if name.is_empty() || name.len() > 100 || scopes.is_empty() || scopes.len() > 5 {
+        if name.is_empty() || js_length(name) > 100 || scopes.is_empty() || scopes.len() > 5 {
             return Err(HubError::InvalidApiKeyInput);
         }
 
