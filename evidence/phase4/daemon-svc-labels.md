@@ -105,13 +105,42 @@ manifest commit's stubs hold a one-line doc comment.
   changed workspaces through `WorkspacePublisher`; the daemon wiring maps that
   to `workspace_update` messages. The scenario "workspace listener fails" is
   therefore only a no-op check on the Rust side (a Rust publisher cannot throw).
-- No wire messages yet. Needed from the lead: contracts variants and
-  daemon-app arms for `workspace.label.list.request`, `.assignment.set.request`,
-  `.update.request`, `.delete.request`, `.delete.inspect.request` and the
-  responses and `workspace.label.update` event, and `features.workspaceLabels`
-  true once the service is created. `WorkspaceProvisioning.workspaces` is a
-  bare `Mutex<WorkspaceRegistry>`; the service takes a `RegistryAccess`
-  (implemented for `Arc<Mutex<WorkspaceRegistry>>`), so the wiring needs the
-  registry behind an `Arc` or an adapter.
+- Wire gaps left: label commits do not publish `workspace_update` (the daemon
+  has no workspace subscription path yet); `subscription.release.request` is
+  still unrouted, so the wire run does not release a subscription from the
+  client; legacy-socket subscription rules are covered by unit tests only.
 - `tests/labels_differential.rs` injects failures from the script, not from
   real disk faults, as the baseline test does.
+
+## Wire differential (server_info and every label RPC)
+
+`crates/spocky-daemon-app/tests/differential/labels-differential.sh`, run at
+`4494c148` (debug `spocky-daemon`). A pinned client creates a workspace and
+drives list (empty, caught-up cursor, expired cursor), an owned subscription,
+assignments (new, existing with another colour, second, unassign of an unknown
+label, empty name, missing workspace), updates (rename and recolour, collision,
+unknown, no-op, empty name), delete inspect and delete (known and unknown).
+Raw frame text comes from the client's `handleJsonPayload` hook, no key
+reordering.
+
+- 25 frames per side, byte-identical after masking (root path, uuids numbered
+  by first appearance, timestamps). The first frame is `server_info` with
+  `features.workspaceLabels:true`.
+- Outcomes per step (ok or error code and text) match for all 20 steps.
+- Persisted `workspace-labels.json` and `workspaces.json` are byte-identical
+  after masking; no transaction journal is left behind.
+- Masked frames sha256 `e51af580...` on both sides.
+
+Per-commit check: the ten commits `3b19a5a6..4494c148` each pass
+`cargo clippy --all-targets -D warnings` and `cargo fmt --check` on
+`spocky-contracts`, `spocky-daemon` and `spocky-daemon-app`.
+Tip tests pass for the same three crates (`--lib --tests`), which includes the
+hello differential and the G2 differential exemption removal.
+
+Shared lines touched: contracts `lib.rs` (mod line), `session.rs` (two untagged
+variants, five deserialize arms); daemon-app `request.rs`, `authorization.rs`,
+`session.rs` (Services.labels, validate hook, detach hook, route arm), `lib.rs`,
+`Cargo.toml`, bin `spocky-daemon.rs`; daemon `daemon.rs`
+(`workspace_labels: true`). The five label requests stay `Unmodeled` in the
+generated `zod_schemas.rs`; `workspace_labels::check_session_message` judges
+them.
