@@ -30,6 +30,7 @@ pub mod js_locale_tables;
 pub mod js_value;
 pub mod json;
 pub mod literal;
+pub mod locale;
 pub mod number;
 pub mod permission;
 pub mod request;
