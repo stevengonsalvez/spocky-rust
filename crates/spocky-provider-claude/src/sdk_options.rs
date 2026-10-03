@@ -350,12 +350,6 @@ fn build_args(
     if let Some(resume) = get(options, "resume").filter(|value| truthy(Some(value))) {
         args.push(format!("--resume={}", js_string(Some(resume))));
     }
-    for channel in get(options, "channels")
-        .and_then(JsValue::as_array)
-        .unwrap_or_default()
-    {
-        push_flag(&mut args, "channels", channel);
-    }
     let allowed = allowed_tools(options);
     if !allowed.is_empty() {
         args.extend(["--allowedTools".to_owned(), join(&allowed)]);
