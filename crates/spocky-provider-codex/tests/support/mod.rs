@@ -173,6 +173,10 @@ pub enum Reply {
     /// `HTTP/1.1 500 Internal Server Error` with this JSON body, as the G4
     /// slice stub answers an upstream failure.
     ServerError { body: Value },
+    /// `response.created`, then the connection closes before the response
+    /// completes: a dropped stream, which Codex retries (`stream_max_retries`)
+    /// and reports as an `error` notification with `willRetry: true`.
+    DropStream,
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +350,7 @@ fn serve(
             let _ = stream.write_all(tool_call_events(&item, "input", response_id).as_bytes());
         }
         Some(Reply::ServerError { .. }) => unreachable!("answered before the SSE head"),
+        Some(Reply::DropStream) => {}
         Some(Reply::Hold) | None => {
             while !stop.load(Ordering::SeqCst) {
                 if stream.write_all(b": keepalive\n\n").is_err() {
