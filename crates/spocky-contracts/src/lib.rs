@@ -36,6 +36,8 @@ pub mod session;
 pub mod snapshot;
 pub mod text;
 pub mod timeline;
+#[rustfmt::skip]
+pub mod url_tables;
 pub mod workspace;
 pub mod ws;
 pub mod zod;
