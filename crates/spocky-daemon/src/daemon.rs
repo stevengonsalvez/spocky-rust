@@ -533,7 +533,7 @@ fn start_after_lock(
             ),
             password_hash: None,
             desktop_managed,
-            workspace_labels: false,
+            workspace_labels: true,
             advertise_daemon_status_rpc: true,
             advertise_relay_config: true,
             start_paused: false,

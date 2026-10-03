@@ -3,8 +3,7 @@
 //! `gen-original-hello-vectors.cjs`). The daemon under test starts from a home
 //! with the original's server id and speech features switched off, as the
 //! original's was; the only difference allowed is the machine's host name,
-//! which the fixture records from the machine it ran on, and `features.workspaceLabels`
-//! (tracked gap DWLABEL-001, the label service is not ported).
+//! which the fixture records from the machine it ran on.
 
 mod common;
 
@@ -28,12 +27,7 @@ fn server_info_matches_the_original_byte_for_byte() {
     assert_eq!(fixture["node"], "v22.20.0");
     common::assert_fixture_provenance(&fixture);
     let case = &fixture["results"][0];
-    // The one tracked difference, DWLABEL-001: the workspace label service is not
-    // ported, so the feature is not advertised. Any other difference fails.
-    let expected = case["frames"][0]
-        .as_str()
-        .unwrap()
-        .replace("\"workspaceLabels\":true,", "");
+    let expected = case["frames"][0].as_str().unwrap().to_owned();
 
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
@@ -98,7 +92,7 @@ fn server_info_matches_the_original_byte_for_byte() {
     assert_eq!(
         frame.as_str().replacen(&local_field, &original_field, 1),
         expected,
-        "server_info frame (DWLABEL-001 aside)"
+        "server_info frame"
     );
     drop(ws);
     daemon.stop();
