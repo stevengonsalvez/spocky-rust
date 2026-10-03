@@ -590,11 +590,12 @@ fn or_null(value: Option<&JsValue>) -> JsValue {
     }
 }
 
-/// `new Date(text).toISOString()`, or its `RangeError`.
+/// `new Date(text).toISOString()` (`agent-projections.ts:214-216`), or its
+/// `RangeError`; `new Date(text)` parses like `Date.parse`.
 fn iso_date(value: &JsValue) -> Result<String, crate::agent_sdk::AgentError> {
     value
         .as_str()
-        .and_then(spocky_store::time::parse_iso_millis)
+        .and_then(spocky_contracts::js::date_parse)
         .map(iso_from_millis)
         .ok_or_else(|| crate::agent_sdk::AgentError {
             name: "RangeError".to_owned(),
