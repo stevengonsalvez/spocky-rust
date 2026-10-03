@@ -12,6 +12,7 @@ pub mod restore;
 pub mod session;
 pub mod size_ownership;
 pub mod snapshot;
+pub mod stream;
 pub mod terminal_env;
 pub mod utf8_decoder;
 pub mod v8_serialize;
