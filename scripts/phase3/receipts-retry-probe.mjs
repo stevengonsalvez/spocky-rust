@@ -19,15 +19,16 @@
 //
 // stdout line 1 is {"outcomes": [{"step", "ok", "error"}...], "workspaceId"};
 // the rest is the raw wire text, one frame per line in arrival order, every
-// frame from connect on, the server_info status included, as two labelled
-// blocks, "# recording client" and "# retry-other connection". Only the bare
-// heartbeat pongs are left out (see HEARTBEAT_PONG).
+// frame from connect on, the server_info status included, as three labelled
+// blocks, one per connection: "# recording client", "# retry-other connection"
+// and "# race second connection". Only the bare heartbeat pongs are left out
+// (see HEARTBEAT_PONG).
 // Per-run ids and instants in them are masked by the harness's existing
 // generated_id and wall_clock classes, never dropped here. Wire text is taken
 // by hooking DaemonClient.prototype.handleJsonPayload, so key order and
 // unknown keys are preserved. The race sends go over two sockets (the
 // recording client and a second connection) so the per-key lock across
-// connections is tested; the second socket's own wire is not recorded.
+// connections is tested.
 const [, , paseoRoot, hostFlag, host, project, initialPrompt, sendPrompt, otherPrompt, racePrompt] =
   process.argv;
 if (hostFlag !== "--host" || !host || !project || !initialPrompt || !sendPrompt || !otherPrompt || !racePrompt) {
@@ -89,8 +90,10 @@ await attempt("retry-other", () => other.sendAgentMessage(agent.id, sendPrompt, 
 await sleep(1000);
 await other.close();
 await attempt("conflict", () => client.sendAgentMessage(agent.id, otherPrompt, { messageId: "retry-1" }));
+let secondFrames = () => [];
 await attempt("race", async () => {
   const second = await connectToDaemon({ target });
+  secondFrames = () => record(second);
   try {
     const sends = await Promise.allSettled([
       client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
@@ -99,6 +102,7 @@ await attempt("race", async () => {
     const failed = sends.find((send) => send.status === "rejected");
     if (failed) throw failed.reason;
     await client.waitForFinish(agent.id, 60000);
+    await sleep(1000);
   } finally {
     await second.close();
   }
@@ -111,5 +115,6 @@ const print = (label, frames) => {
 };
 print("# recording client", clientFrames());
 print("# retry-other connection", otherFrames());
+print("# race second connection", secondFrames());
 await client.close();
 process.exit(0);
