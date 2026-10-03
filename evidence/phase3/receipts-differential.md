@@ -144,42 +144,64 @@ retried on the same and on a second connection (accepted, no new turn), the
 same `messageId` with other text (rejected as a key conflict), and two
 concurrent sends of a fresh `messageId`, one per socket (one turn). The stub
 script must hold exactly three turns: the initial prompt, the first send, and
-the concurrent pair. Lane `p3_slice_harness` owns the probe and the `g4-retry`
-fixture in `gates.rs` and `gate.sh`; its probe prints the outcomes line, then
-three labelled blocks, `# recording client`, `# retry-other connection` and
-`# race second connection` (the race's second socket), holding every frame in
-arrival order except the bare heartbeat pong `{"type":"pong"}`, whose count
-follows the client's 10 s timer. Each block starts with its handshake's
-`server_info` frame (recording keyed by client instance from the first
-payload, since `DaemonClient.connect()` resolves inside the `server_info`
-handler). Run on the pinned original daemon
-through a scratch copy of the first fixture, the probe's outcomes were all as
-expected and the stub held exactly three turns. No run has compared the
-original and `spocky-daemon` yet, so wire parity of the daemon's retry
-handling is not claimed here.
+the concurrent pair.
 
-`scripts/phase3/receipts-retry-parity.sh` is the runner for that parity run.
+Lane `p3_slice_harness` owns the probe and the `g4-retry` fixture in
+`gates.rs` and `gate.sh`. At its commit `a741982d` (probe commits `32d31810`,
+`8d0ca287`, `39d346bc`, `b447d3e9`) the probe prints the outcomes line, then
+three labelled blocks, `# recording client`, `# retry-other connection` and
+`# race second connection` (the race's second socket), one per connection,
+holding every frame in arrival order from connect. Each block starts with its
+handshake's `server_info` frame (recording is keyed by client instance from
+the first payload, since `DaemonClient.connect()` resolves inside the
+`server_info` handler). At that commit only frames exactly equal to the bare
+heartbeat pong `{"type":"pong"}` are left out, under the class
+`client-heartbeat-pong` (their count follows the client's 10 s timer); any
+other pong text stays. The coordinator has since ruled that exclusion into a
+harness transform, so the probe's next commit prints every frame again, bare
+pongs included, and the gate strips exactly-equal lines before comparing,
+recording the removed count per side in its verdict. The runner below accepts
+either output.
+
+`scripts/phase3/receipts-retry-parity.sh` is the runner for the parity run.
 It runs `scripts/phase3/gate.sh g4-retry` and then re-checks the gate's
 evidence on its own: both verdicts clean, the sides are the original and
 spocky daemons, each probe step exited 0, the stub recorded exactly three
 turns (a retry that started a turn makes four), both sides' probe outcomes
 equal the expected ones in order, and both sides hold two completed send
-receipts with the same masked content. Each block must start with exactly one
-`server_info` frame, and the two sides' frames must be byte-identical in key
-order after masking generated values (as `g2-differential.sh` does), except
-`features.workspaceLabels`: the original must advertise it, spocky may omit it
-(open gap DWLABEL-001) or advertise it too. Every comparison is on raw bytes;
-`jq` only answers yes or no and never writes back a re-encoded value. The
-other frames are compared by the gate. The runner requires a
-clean tree, unsets `SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
+receipts with the same masked content. The probe's stdout must be the outcomes
+line and then the three blocks in that order, each starting with exactly one
+`server_info` frame; the two sides' frames must be byte-identical in key order
+after masking generated values (as `g2-differential.sh` does), with no
+exemption. Every comparison is on raw bytes; `jq` only answers yes or no and
+never writes back a re-encoded value. Bare pong lines are ignored wherever they
+sit; the gate compares every other frame. The runner requires a clean tree,
+unsets `SPOCKY_ALLOW_SKIP`, and exits nonzero on any failure.
 `scripts/phase3/receipts-retry-parity.test.sh` proves that with a fake gate
-over 41 cases (a clean match, extra pongs, a closed `workspaceLabels` gap, and
-one injected defect each). Removing any one of the runner's checks makes its
-own case fail, except the first-frame check, which the `workspaceLabels`
-checks shadow; it is kept for its clearer message. The fake gate's layout was
-copied from a real `g3` parity run and the harness probe's output, not from a
-`g4-retry` run; check it against the real evidence when `g4-retry` lands. The
-runner itself has not run against the real gate.
+over 42 cases (a clean match with bare pongs in every block, extra pongs, and
+one injected defect each, including a missing, reordered or extra block and a
+`workspaceLabels` difference). Removing any one of the runner's checks makes
+its own case fail, except the first-frame check, which the frame comparison
+shadows; it is kept for its clearer message.
+
+An earlier version of this runner removed `features.workspaceLabels` from the
+compared `server_info` frames. That mask was not approved and it hid a real
+gap, so it was removed (open gap DWLABEL-001; the Rust fix belongs to
+`p4_daemon_services`).
+
+## The runner against the harness's real evidence
+
+The harness ran `g4-retry` on 2026-10-03 and produced
+`g4-retry-20261003T200235Z`: self-check PASS (133 rules), parity FAIL with one
+difference. The runner was run against that real directory (a stub gate printed
+its path and exited 1; nothing else was faked). It read the real layout end to
+end, so the fake gate's layout matches the real one in every path the runner
+reads, and its only failures were the gate's exit status, the parity verdict,
+and the `server_info` comparison in all three blocks. In each block the
+difference is exactly `features.workspaceLabels:true`, present in the original
+daemon's frame and absent from `spocky-daemon`'s (`crates/spocky-daemon/src/
+server_info.rs`). The Rust daemon therefore does not yet match the pinned
+daemon's retry wire, and no parity is claimed.
 
 ## Gaps
 
