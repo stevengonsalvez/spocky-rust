@@ -19,8 +19,9 @@ use super::operations::{
     OperationError, PublicAuthorization, PublicOperations, ValidateConfigurationResult,
     ValidateTriggerResult, scope_name,
 };
-use super::validation::{Issue, ParseFailure, js_trim};
+use super::validation::{Issue, ParseFailure};
 use super::value::{JsValueExt as _, Json, decode_request_json};
+use spocky_contracts::text::js_trim;
 
 /// `PublicApiComposition`.
 pub enum Composition {
