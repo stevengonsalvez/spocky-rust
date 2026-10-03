@@ -25,7 +25,8 @@ use crate::project_dir::claude_config_dir;
 use crate::provider_options::parse_claude_provider_options;
 use crate::sdk_query::QueryFactory;
 use crate::session::{
-    ResolveBinary, RewindSdk, SessionOptions, claude_capabilities, claude_mode_catalog,
+    ClaudeSession, ResolveBinary, RewindSdk, SessionOptions, claude_capabilities,
+    claude_mode_catalog,
 };
 use crate::transcript::is_mcp_servers_record;
 
@@ -165,6 +166,48 @@ impl ClaudeClient {
         Ok(result)
     }
 
+    /// The options of one session, built on the thread that runs it.
+    fn session_options(
+        options: &ClaudeClientOptions,
+        handle: Option<JsValue>,
+        agent_id: Option<String>,
+        launch_env: Option<JsObject>,
+        persist_session: Option<bool>,
+    ) -> SessionOptions {
+        let runtime_settings = options.runtime_settings.clone();
+        let process_env_source = options.process_env.clone();
+        let env_for_binary = process_env_source.clone();
+        let settings_for_binary = runtime_settings.clone();
+        let default_resolve: ResolveBinary = Rc::new(move || {
+            let settings = settings_for_binary.clone();
+            let env = env_for_binary
+                .as_ref()
+                .map_or_else(process_env, |source| source());
+            let future: LocalBoxFuture<'static, Result<String, AgentError>> =
+                Box::pin(async move { resolve_claude_binary(settings.as_ref(), &env) });
+            future
+        });
+        SessionOptions {
+            defaults_agents: options.defaults_agents.clone(),
+            runtime_settings,
+            handle,
+            agent_id,
+            launch_env,
+            persist_session,
+            query_factory: options.query_factory.as_ref().map(|factory| factory()),
+            resolve_binary: options
+                .resolve_binary
+                .as_ref()
+                .map_or(default_resolve, |resolve| resolve()),
+            rewind_sdk: options.rewind_sdk.as_ref().map(|sdk| sdk()),
+            process_env: Rc::new(move || {
+                process_env_source
+                    .as_ref()
+                    .map_or_else(process_env, |source| source())
+            }),
+        }
+    }
+
     fn spawn_session(
         &self,
         config: JsObject,
@@ -176,41 +219,63 @@ impl ClaudeClient {
         let agent_id = launch_context.and_then(|context| context.agent_id.clone());
         let launch_env = launch_context.and_then(|context| context.env.clone());
         let factory = Box::new(move || {
-            let runtime_settings = options.runtime_settings.clone();
-            let process_env_source = options.process_env.clone();
-            let env_for_binary = process_env_source.clone();
-            let settings_for_binary = runtime_settings.clone();
-            let default_resolve: ResolveBinary = Rc::new(move || {
-                let settings = settings_for_binary.clone();
-                let env = env_for_binary
-                    .as_ref()
-                    .map_or_else(process_env, |source| source());
-                let future: LocalBoxFuture<'static, Result<String, AgentError>> =
-                    Box::pin(async move { resolve_claude_binary(settings.as_ref(), &env) });
-                future
-            });
-            SessionOptions {
-                defaults_agents: options.defaults_agents.clone(),
-                runtime_settings,
-                handle,
-                agent_id,
-                launch_env,
-                persist_session,
-                query_factory: options.query_factory.as_ref().map(|factory| factory()),
-                resolve_binary: options
-                    .resolve_binary
-                    .as_ref()
-                    .map_or(default_resolve, |resolve| resolve()),
-                rewind_sdk: options.rewind_sdk.as_ref().map(|sdk| sdk()),
-                process_env: Rc::new(move || {
-                    process_env_source
-                        .as_ref()
-                        .map_or_else(process_env, |source| source())
-                }),
-            }
+            Self::session_options(&options, handle, agent_id, launch_env, persist_session)
         });
         let actor = ClaudeActor::spawn(config, factory)?;
         Ok(Arc::new(ClaudeSessionHandle::new(actor)))
+    }
+
+    /// The merged config `resumeSession(handle, overrides)` opens.
+    fn resume_config(
+        handle: &JsValue,
+        overrides: Option<&JsValue>,
+    ) -> Result<JsObject, AgentError> {
+        let mut merged = coerce_session_metadata(handle.get("metadata"));
+        spocky_contracts::js::spread_into(&mut merged, overrides);
+        let cwd = merged.get("cwd").cloned();
+        if !spocky_contracts::js::truthy(cwd.as_ref()) {
+            return Err(AgentError::new(
+                "Claude resume requires the original working directory in metadata",
+            ));
+        }
+        merged.insert("provider", JsValue::String("claude".to_owned()));
+        merged.insert("cwd", cwd.unwrap_or(JsValue::Undefined));
+        Self::assert_config(&JsValue::Object(merged))
+    }
+
+    /// `createSession(config)` on the calling thread: the session runs on the
+    /// caller's `LocalSet` instead of its own thread, so a host that already
+    /// has one (and a test that wants the baseline's single-loop ordering)
+    /// drives it directly.
+    ///
+    /// # Errors
+    ///
+    /// A config the baseline rejects.
+    pub fn create_local_session(&self, config: &JsValue) -> Result<Rc<ClaudeSession>, AgentError> {
+        let claude_config = Self::assert_config(config)?;
+        ClaudeSession::new(
+            claude_config,
+            Self::session_options(&self.options, None, None, None, None),
+        )
+    }
+
+    /// `resumeSession(handle, overrides)` on the calling thread; see
+    /// [`Self::create_local_session`].
+    ///
+    /// # Errors
+    ///
+    /// A handle without its working directory, or a config the baseline
+    /// rejects.
+    pub fn resume_local_session(
+        &self,
+        handle: JsValue,
+        overrides: Option<&JsValue>,
+    ) -> Result<Rc<ClaudeSession>, AgentError> {
+        let claude_config = Self::resume_config(&handle, overrides)?;
+        ClaudeSession::new(
+            claude_config,
+            Self::session_options(&self.options, Some(handle), None, None, None),
+        )
     }
 }
 
@@ -248,17 +313,7 @@ impl AgentClient for ClaudeClient {
         _options: Option<AgentResumeSessionOptions>,
     ) -> BoxFuture<'_, AgentResult<Arc<dyn AgentSession>>> {
         Box::pin(async move {
-            let mut merged = coerce_session_metadata(handle.get("metadata"));
-            spocky_contracts::js::spread_into(&mut merged, overrides.as_ref());
-            let cwd = merged.get("cwd").cloned();
-            if !spocky_contracts::js::truthy(cwd.as_ref()) {
-                return Err(AgentError::new(
-                    "Claude resume requires the original working directory in metadata",
-                ));
-            }
-            merged.insert("provider", JsValue::String("claude".to_owned()));
-            merged.insert("cwd", cwd.unwrap_or(JsValue::Undefined));
-            let claude_config = Self::assert_config(&JsValue::Object(merged))?;
+            let claude_config = Self::resume_config(&handle, overrides.as_ref())?;
             self.spawn_session(claude_config, Some(handle), launch_context.as_ref(), None)
         })
     }
