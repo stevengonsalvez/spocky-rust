@@ -19,7 +19,7 @@ use spocky_session::agent_sdk::{AbortController, AbortReason, AbortSignal, Agent
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
-use crate::local::{AsyncQueue, Deferred, LocalBoxFuture};
+use crate::local::{AsyncQueue, Deferred, LocalBoxFuture, run_inline};
 use crate::process::{ChildExit, ChildProcess, SpawnFailure, SpawnRequest, kill_after};
 use crate::sdk_options::{SdkCallbacks, prepare_launch};
 
@@ -296,13 +296,23 @@ impl ProcessQuery {
             Ok(child) => child,
             Err(failure) => {
                 let error = self.spawn_error(&failure);
+                // Node reports a failed spawn as the child's `error` event, a
+                // tick later: writes made right after construction (initialize,
+                // applyFlagSettings) are accepted and then rejected with the
+                // spawn error when the stream fails.
+                let (sender, _receiver) = mpsc::unbounded_channel::<Option<String>>();
                 {
                     let mut inner = self.inner.borrow_mut();
-                    inner.exit_error = Some(error.clone());
-                    inner.ready = false;
+                    inner.writer = Some(sender);
+                    inner.ready = true;
                 }
                 let query = Rc::clone(self);
                 tokio::task::spawn_local(async move {
+                    {
+                        let mut inner = query.inner.borrow_mut();
+                        inner.exit_error = Some(error.clone());
+                        inner.ready = false;
+                    }
                     query.fail_stream(error).await;
                 });
                 return;
@@ -447,11 +457,6 @@ impl ProcessQuery {
         envelope.insert("type", text("control_request"));
         envelope.insert("request", JsValue::Object(body));
         let result = Deferred::<ControlResult>::new();
-        if self.inner.borrow().cleanup_started {
-            return Box::pin(async {
-                Err(AgentError::new("Query closed before response received"))
-            });
-        }
         let settle = Rc::clone(&result);
         let resolver: Box<dyn FnOnce(ControlResult)> =
             Box::new(move |response| settle.settle(response));
@@ -669,7 +674,7 @@ impl ProcessQuery {
                             {
                                 let query = Rc::clone(self);
                                 let pending = pending.clone();
-                                tokio::task::spawn_local(async move {
+                                run_inline(async move {
                                     query.handle_control_request(pending).await;
                                 });
                             }
@@ -687,7 +692,7 @@ impl ProcessQuery {
             }
             Some("control_request") => {
                 let query = Rc::clone(self);
-                tokio::task::spawn_local(async move {
+                run_inline(async move {
                     query.handle_control_request(message).await;
                 });
                 return;
@@ -937,12 +942,16 @@ impl ProcessQuery {
         self.cleaned_up.settle(());
     }
 
-    async fn command(&self, body: JsObject) -> ControlResult {
-        let response = self.request(body).await?;
-        Ok(response
-            .get("response")
-            .cloned()
-            .unwrap_or(JsValue::Undefined))
+    /// `Query.command(body)`: the request is written before this returns.
+    fn command(&self, body: JsObject) -> LocalBoxFuture<'static, ControlResult> {
+        let pending = self.request(body);
+        Box::pin(async move {
+            let response = pending.await?;
+            Ok(response
+                .get("response")
+                .cloned()
+                .unwrap_or(JsValue::Undefined))
+        })
     }
 }
 
@@ -1010,14 +1019,9 @@ impl ClaudeQuery for Rc<ProcessQuery> {
     fn close(&self) {
         // `close()` calls the async `cleanup()`, whose body runs synchronously up
         // to its first await: a control request made right after sees the query
-        // closed. Poll once here, then hand the rest to the local set.
+        // closed.
         let query = Rc::clone(self);
-        let mut cleanup: LocalBoxFuture<'static, ()> =
-            Box::pin(async move { query.cleanup(None).await });
-        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-        if cleanup.as_mut().poll(&mut context).is_pending() {
-            tokio::task::spawn_local(cleanup);
-        }
+        run_inline(async move { query.cleanup(None).await });
     }
 
     fn return_(&self) -> LocalBoxFuture<'static, ()> {
@@ -1075,8 +1079,7 @@ impl ClaudeQuery for Rc<ProcessQuery> {
         let mut body = subtype_body("rewind_files");
         body.insert("user_message_id", text(user_message_id));
         body.insert("dry_run", JsValue::Bool(dry_run));
-        let query = Rc::clone(self);
-        Box::pin(async move { query.command(body).await })
+        self.command(body)
     }
 
     fn cancel_async_message(
@@ -1085,9 +1088,9 @@ impl ClaudeQuery for Rc<ProcessQuery> {
     ) -> Option<LocalBoxFuture<'static, Result<JsValue, AgentError>>> {
         let mut body = subtype_body("cancel_async_message");
         body.insert("message_uuid", text(uuid));
-        let query = Rc::clone(self);
+        let pending = self.command(body);
         Some(Box::pin(async move {
-            let response = query.command(body).await?;
+            let response = pending.await?;
             Ok(response
                 .get("cancelled")
                 .cloned()
