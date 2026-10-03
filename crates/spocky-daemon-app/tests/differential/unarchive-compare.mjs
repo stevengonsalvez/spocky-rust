@@ -3,10 +3,11 @@
 // varies is the send_agent_message_response, and only relative to the turn's
 // last two agent_update frames (running, idle).
 //
-// Pinned evidence (separate full runs of this differential): the reply came
-// after 6 of the 8 updates (before the last two) in 5 runs, and after all 8 in
-// 1 run; after exactly 7 was never seen. So the allowed places are N-2 and N
-// updates, where N is the number of agent_update frames.
+// Pinned evidence (nine separate full runs of this differential, each with
+// frames recorded in arrival order): the reply came after 6 of the 8 updates
+// (before the last two) in 7 runs, and after all 8 in 2 runs; after exactly 7
+// was never seen. So the allowed places are N-2 and N updates, where N is the
+// number of agent_update frames.
 //
 // Every frame is compared in exact arrival order, byte for byte: with the reply
 // removed the two sequences must be identical, the reply frame must be
