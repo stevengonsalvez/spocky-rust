@@ -701,6 +701,59 @@ pub fn g4_socketdrop() -> GateSpec {
     }
 }
 
+/// The socket-level probe: raw WebSocket traffic after the hello.
+const G4_WIRE: &str = include_str!("../../../scripts/phase3/g4-wire.mjs");
+
+/// G4 socket level: after an accepted hello the probe sends a valid request,
+/// an invalid message, an unknown request, non-JSON text, and binary frames,
+/// then a ping. The reply to each must keep the pinned code and the
+/// `requestId` echo, and its raw frame is compared across daemons. This
+/// covers the real session backend, not a stand-in.
+#[must_use]
+pub fn g4_wire() -> GateSpec {
+    use Arg::Host;
+    let flags: [&'static str; 8] = [
+        "/validEchoed",
+        "/invalidEchoed",
+        "/unknownEchoed",
+        "/textRejected",
+        "/binaryJunkRejected",
+        "/binaryShortRejected",
+        "/binaryFrameSilent",
+        "/pong",
+    ];
+    let mut checks = vec![Check::AllExitZero];
+    checks.extend(flags.map(|pointer| Check::FirstLineField {
+        step: "probe",
+        pointer,
+        expected: "true",
+    }));
+    checks.extend([
+        // The daemon keeps the socket open through all of it.
+        Check::FirstLineField {
+            step: "probe",
+            pointer: "/closed",
+            expected: "false",
+        },
+        Check::StubExactlyConsumed,
+        Check::DaemonExit(0),
+    ]);
+    GateSpec {
+        id: "g4-wire",
+        script: Script {
+            responses: Vec::new(),
+        },
+        steps: vec![StepSpec {
+            node_script: Some(G4_WIRE),
+            ..step("probe", vec![Host], None, None)
+        }],
+        checks,
+        preimages: |_| Vec::new(),
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
 /// G4 old state: the original daemon makes the home, the side's daemon opens it.
 #[must_use]
 pub fn g4_oldstate() -> GateSpec {
@@ -833,6 +886,7 @@ pub fn by_id(id: &str) -> Option<GateSpec> {
         "g4-nocodex" => Some(g4_nocodex()),
         "g4-disconnect" => Some(g4_disconnect()),
         "g4-socketdrop" => Some(g4_socketdrop()),
+        "g4-wire" => Some(g4_wire()),
         "g4-oldstate" => Some(g4_oldstate()),
         "g4-newstate" => Some(g4_newstate()),
         _ => None,
@@ -907,6 +961,7 @@ mod tests {
             "g4-nocodex",
             "g4-disconnect",
             "g4-socketdrop",
+            "g4-wire",
             "g4-oldstate",
             "g4-newstate",
         ] {
@@ -927,6 +982,20 @@ mod tests {
         // The dropped turn is the second request and is still in flight then.
         assert_eq!(dropping[0].disconnect_at_stub_requests, Some(2));
         assert!(disconnect.script.responses[1].delay_ms.is_some());
+        // The socket-level probe needs no agent: no scripted reply and no
+        // creation step, only the one script step with its checks.
+        let wire = g4_wire();
+        assert!(wire.script.responses.is_empty());
+        assert_eq!(wire.steps.len(), 1);
+        assert!(wire.steps[0].node_script.is_some());
+        assert!(wire.steps[0].capture.is_none());
+        assert!(wire.checks.iter().any(|check| matches!(
+            check,
+            Check::FirstLineField {
+                pointer: "/validEchoed",
+                ..
+            }
+        )));
         assert_eq!(g4_oldstate().home_origin, HomeOrigin::OriginalThenSide);
         assert_eq!(g4_newstate().home_origin, HomeOrigin::SideThenOriginal);
         assert_eq!(g4_oldstate().steps.len(), g3().steps.len());
