@@ -223,6 +223,14 @@ function run(op) {
       transport.onmessage?.({ data, isBinary });
       break;
     }
+    case "batch":
+      // Frames a transport delivers in one task, before any awaited send
+      // settles.
+      for (const frame of op.frames) {
+        const data = frame.binary !== undefined ? bytes(frame.binary) : frame.text;
+        transport.onmessage?.({ data, isBinary: frame.isBinary ?? frame.binary !== undefined });
+      }
+      break;
     case "send": {
       const handle = nextHandle;
       nextHandle += 1;
