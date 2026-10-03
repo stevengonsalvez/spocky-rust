@@ -4,6 +4,12 @@
 //! raw wire. A map of up to 32 keys is a sorted flat map. A larger map is a hash array
 //! mapped trie (`erl_map.c`) whose nodes consume the key hash four bits at a time from
 //! the low end and list their children by slot, so keys come out in hash order.
+//!
+//! Known gap, reachable by an attacker: a v2 `connectionId` is chosen by the client (up to
+//! 256 bytes), so a client can pick keys whose 64-bit hashes are equal. The BEAM stores
+//! those in a collision node whose internal order this port does not reproduce (it sorts
+//! them by key). Finding such a pair costs about 2^32 hash evaluations. Trie depth is
+//! verified against the BEAM to level 10 with keys that share their low 40 hash bits.
 
 use std::collections::BTreeSet;
 
@@ -52,8 +58,10 @@ fn descend(items: Vec<(u64, &[u8])>, level: u32, ordered: &mut Vec<Vec<u8>>) {
 }
 
 /// `erts_internal_hash/1` of a binary: the 128-bit MurmurHash3-style fold of
-/// `make_internal_hash` with salt zero.
-fn hash(bytes: &[u8]) -> u64 {
+/// `make_internal_hash` with salt zero. Public so tests can search for keys whose hashes
+/// share many low bits and therefore sit deep in the trie.
+#[must_use]
+pub fn hash(bytes: &[u8]) -> u64 {
     let mut state = State::default();
     state.alpha(TYPE_BINARY);
     state.beta(u64::try_from(bytes.len()).unwrap_or(u64::MAX) * 8);
