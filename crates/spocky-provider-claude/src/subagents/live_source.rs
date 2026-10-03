@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use spocky_contracts::js::truthy;
 use spocky_contracts::js_value::{JsObject, JsValue, stringify};
 use spocky_contracts::text::js_trim;
 
@@ -41,10 +42,6 @@ fn task_key(value: Option<&JsValue>) -> String {
 fn read_string(value: Option<&JsValue>) -> Option<String> {
     let trimmed = js_trim(value?.as_str()?);
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
-}
-
-fn truthy(value: Option<&JsValue>) -> bool {
-    spocky_contracts::js::truthy(value)
 }
 
 /// `mapTaskStatus(status)`.
