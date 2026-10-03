@@ -5723,6 +5723,7 @@ dependencies = [
  "sha2 0.10.9",
  "spocky-contracts",
  "spocky-wire",
+ "spocky-xterm",
  "uuid",
 ]
 
