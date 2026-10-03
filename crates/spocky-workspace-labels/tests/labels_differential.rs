@@ -5,10 +5,13 @@
 //! its result or error; the raw lines must match after normalization.
 //!
 //! Normalization (each covered by a test below) replaces only the disposable
-//! root path with `<root>`, the `randomUUID()` generation with `<uuid>` and a
-//! `new Date().toISOString()` stamp the services generate with `<now>`. The
-//! script's own fixed timestamps, results, error text, ordering and file bytes
-//! are never normalized.
+//! root path with `<root>`, each `randomUUID()` with `<uuid:N>` (N counts
+//! distinct values in order of first appearance, so reuse and rotation stay
+//! visible), the pid and `Date.now()` parts of a `writeFileAtomic` temp name
+//! with `<pid>` and `<ms>`, and a `new Date().toISOString()` stamp the
+//! services generate with `<now>`. The script's own fixed timestamps, results,
+//! error text, ordering and file bytes are never normalized. The home dump
+//! lists every file, dot-files included, so a leftover temp file shows.
 //!
 //! Needs `SPOCKY_PINNED_NODE` (node 22.20.0) and `SPOCKY_PASEO_DIST` (the
 //! pinned build's `packages/server/dist/server`). Without them the tests FAIL;
@@ -607,9 +610,6 @@ impl Scenario {
         entries.sort_by_key(fs::DirEntry::file_name);
         for entry in entries {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
-                continue;
-            }
             let entry_relative = if relative.is_empty() {
                 name
             } else {
@@ -944,14 +944,62 @@ fn is_timestamp(candidate: &[u8]) -> bool {
             })
 }
 
+/// `.{pid}.{ms}.{uuid}.tmp`, the tail of a `writeFileAtomic` temp name that
+/// starts at `index`, as the length of the whole tail and its uuid.
+fn temporary_tail(bytes: &[u8], index: usize) -> Option<(usize, &[u8])> {
+    let digits = |from: usize| {
+        let length = bytes[from..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        (length > 0).then_some(from + length)
+    };
+    if bytes.get(index) != Some(&b'.') {
+        return None;
+    }
+    let after_pid = digits(index + 1)?;
+    if bytes.get(after_pid) != Some(&b'.') {
+        return None;
+    }
+    let after_ms = digits(after_pid + 1)?;
+    if bytes.get(after_ms) != Some(&b'.') {
+        return None;
+    }
+    let uuid = bytes.get(after_ms + 1..after_ms + 37)?;
+    (is_uuid(uuid) && bytes[after_ms + 37..].starts_with(b".tmp"))
+        .then_some((after_ms + 41 - index, uuid))
+}
+
+/// The 1-based number of `uuid` among the distinct values seen so far.
+fn uuid_number<'a>(seen: &mut Vec<&'a [u8]>, uuid: &'a [u8]) -> usize {
+    if let Some(position) = seen.iter().position(|known| *known == uuid) {
+        position + 1
+    } else {
+        seen.push(uuid);
+        seen.len()
+    }
+}
+
+/// Replaces the masked classes only: `<root>`, `<uuid:N>` (N counts distinct
+/// values in order of first appearance, so reuse and rotation stay visible),
+/// `<pid>` and `<ms>` in a temp name, and `<now>` for generated stamps.
 fn normalize(output: &str, root: &str) -> String {
     let rooted = output.replace(root, "<root>");
     let bytes = rooted.as_bytes();
+    let mut uuids: Vec<&[u8]> = Vec::new();
     let mut normalized = String::with_capacity(rooted.len());
     let mut index = 0;
     while index < bytes.len() {
-        if index + 36 <= bytes.len() && is_uuid(&bytes[index..index + 36]) {
-            normalized.push_str("<uuid>");
+        let uuid_at = |from: usize| bytes.get(from..from + 36).filter(|window| is_uuid(window));
+        if let Some((length, uuid)) = temporary_tail(bytes, index) {
+            let _ = write!(
+                normalized,
+                ".<pid>.<ms>.<uuid:{}>.tmp",
+                uuid_number(&mut uuids, uuid)
+            );
+            index += length;
+        } else if let Some(uuid) = uuid_at(index) {
+            let _ = write!(normalized, "<uuid:{}>", uuid_number(&mut uuids, uuid));
             index += 36;
         } else if index + 24 <= bytes.len()
             && is_timestamp(&bytes[index..index + 24])
@@ -970,12 +1018,18 @@ fn normalize(output: &str, root: &str) -> String {
 
 #[test]
 fn normalization_masks_only_root_generation_and_generated_stamps() {
-    let output = "<x> /r/a 58d74552-3c84-4365-b410-4c9306027867 2026-10-03T13:46:14.570Z \
-                  2026-08-14T00:00:00.000Z 2099-01-01T00:00:00.000Z 58D74552-3c84-4365-b410-4c9306027867";
+    let first = "58d74552-3c84-4365-b410-4c9306027867";
+    let second = "cc35986f-0903-4f66-98fe-4b0af489485c";
+    let output = format!(
+        "<x> /r/a {first} {second} {first} 2026-10-03T13:46:14.570Z \
+         2026-08-14T00:00:00.000Z 2099-01-01T00:00:00.000Z 58D74552-3c84-4365-b410-4c9306027867 \
+         .workspace-labels.json.4242.1790000000000.{second}.tmp .a.b.{first}.tmp"
+    );
     assert_eq!(
-        normalize(output, "/r/a"),
-        "<x> <root> <uuid> <now> 2026-08-14T00:00:00.000Z 2099-01-01T00:00:00.000Z \
-         58D74552-3c84-4365-b410-4c9306027867"
+        normalize(&output, "/r/a"),
+        "<x> <root> <uuid:1> <uuid:2> <uuid:1> <now> \
+         2026-08-14T00:00:00.000Z 2099-01-01T00:00:00.000Z 58D74552-3c84-4365-b410-4c9306027867 \
+         .workspace-labels.json.<pid>.<ms>.<uuid:2>.tmp .a.b.<uuid:1>.tmp"
     );
 }
 
