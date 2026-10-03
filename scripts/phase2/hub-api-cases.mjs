@@ -358,10 +358,11 @@ for (const [name, body] of [
 }
 // A deeply nested array as an object's `length` is joined recursively by the baseline
 // (ToPrimitive on the array) and overflows V8's stack at some depth.
-// The overflow depth depends on V8's stack: in the capture it lies between 4,400 (joined) and 4,600
-// (RangeError). Both sides of that band are compared; Rust approximates the stack boundary with
-// MAX_JOIN_DEPTH and the exact depth is a listed divergence, so no depth inside the band is compared.
-for (const depth of [1000, 3000, 4000, 4400, 4600, 6000, 10000, 100000]) {
+// The overflow depth depends on V8's stack: on the pinned node 22.20.0 it lies between 3,000
+// (joined) and 3,200 (RangeError); node 26 joined 4,400. Both sides of the band are compared and
+// the depths above it stay deterministic; Rust approximates the boundary with MAX_JOIN_DEPTH, so
+// no depth inside the band is compared (listed as DIV-003).
+for (const depth of [1000, 3000, 3200, 4000, 4400, 4600, 6000, 10000, 100000]) {
   add(`body/validateTrigger/deep-length-${depth}`, "handle", request("validateTrigger", {
     body: repeat('{"yaml":{"length":', "[", depth, "", "]", "}}"),
   }), { operation: { result: RESULTS.validateTrigger.valid } });
@@ -829,6 +830,22 @@ for (const [name, body] of [
   ["bom", base64([0xef, 0xbb, 0xbf, ...Buffer.from(JSON.stringify({ deviceCode: "d".repeat(40) }))])],
 ]) {
   scenario(`poll-body/${name}`, cfg(), [{ do: "poll", url: POLL_URL, body }]);
+}
+// zod coerces a `length` array with Array.prototype.join, which throws a RangeError in V8 where the
+// array is nested deeper than the call stack. `safeParse` does not catch it, so the handler throws.
+// Depths clear of the stack boundary are compared: 1,000 joins (invalid_request), 6,000 throws.
+for (const depth of [1000, 6000]) {
+  scenario(`poll-body/deep-length-${depth}`, cfg(), [
+    { do: "poll", url: POLL_URL, body: repeat('{"deviceCode":{"length":', "[", depth, "", "]", "}}") },
+  ]);
+  scenario(`inspect-body/deep-length-${depth}`, cfg(), [
+    start("a"),
+    inspect("a", { body: repeat('{"userCode":{"length":', "[", depth, "", "]", "}}") }),
+  ]);
+  scenario(`decide-body/deep-length-${depth}`, cfg(), [
+    start("a"),
+    decide("a", "approve", { body: repeat('{"userCode":{"length":', "[", depth, "", "]", "}}") }),
+  ]);
 }
 scenario("poll-headers", cfg(), [
   start("a"),
