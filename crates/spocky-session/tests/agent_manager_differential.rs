@@ -406,6 +406,8 @@ class FakeSession {
         return { status: spec.steer.result };
       };
     }
+    if (spec.sessionCommands) this.listCommands = async () => { this.calls.push(["session.listCommands"]); return spec.sessionCommands; };
+    if (spec.sessionFeatures !== undefined) this.features = spec.sessionFeatures;
     if (spec.settable) {
       this.setModel = async (modelId) => { this.calls.push(["setModel", modelId]); this.model = modelId; };
       this.setThinkingOption = async (optionId) => { this.calls.push(["setThinkingOption", optionId]); return this.spec.thinkingNotice; };
@@ -496,6 +498,8 @@ const fakeClient = (calls, spec) => ({
       return { session: new FakeSession(spec, calls), config: imported.config, persistence: imported.persistence, timeline: imported.timeline, providerSubagentEvents: imported.providerSubagentEvents };
     },
   } : {}),
+  ...(spec.clientCommands ? { async listCommands(config) { calls.push(["listCommands", config]); return spec.clientCommands; } } : {}),
+  ...(spec.clientFeatures ? { async listFeatures(config) { calls.push(["listFeatures", config]); return spec.clientFeatures; } } : {}),
   ...(spec.importable ? {
     async listImportableSessions(options) {
       calls.push(["listImportableSessions", spec.provider, options ?? null]);
@@ -1499,6 +1503,57 @@ const importableScenario = async () => {
   return results;
 };
 
+const draftScenario = async () => {
+  const calls = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const commands = [{ name: "review", description: "Review code", argumentHint: "" }];
+  const features = [{ type: "toggle", id: "fast", label: "Fast", value: false }];
+  const sessionCommands = [{ name: "session-review", description: "From a session", argumentHint: "" }];
+  const sessionFeatures = [{ type: "toggle", id: "plan", label: "Plan", value: true }];
+  const clients = {
+    viaClient: fakeClient(calls, spec("viaClient", { clientCommands: commands, clientFeatures: features })),
+    viaSession: fakeClient(calls, spec("viaSession", { sessionCommands, sessionFeatures })),
+    bare: fakeClient(calls, spec("bare")),
+    nullFeatures: fakeClient(calls, spec("nullFeatures", { sessionFeatures: null })),
+    closeFails: fakeClient(calls, spec("closeFails", { sessionCommands, sessionFeatures, closeFails: true })),
+    featuresOnly: fakeClient(calls, spec("featuresOnly", { clientFeatures: features })),
+    gone: fakeClient(calls, spec("gone", { available: false, clientFeatures: features })),
+    broken: fakeClient(calls, spec("broken", { available: "missing binary", clientCommands: commands })),
+  };
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry: new AgentStorage(`${home}/draft`, logger),
+    clients,
+    providerDefinitions: Object.fromEntries(Object.keys(clients).map((provider) => [provider, { enabled: true }])),
+  });
+  const cases = [
+    ["viaClient", { provider: "viaClient", cwd, model: "m1" }],
+    ["viaClientTrimmed", { provider: "viaClient", cwd, model: "  m2  " }],
+    ["viaSession", { provider: "viaSession", cwd, model: "m1" }],
+    ["bare", { provider: "bare", cwd, model: "m1" }],
+    ["nullFeatures", { provider: "nullFeatures", cwd, model: "m1" }],
+    ["closeFails", { provider: "closeFails", cwd, model: "m1" }],
+    ["noModel", { provider: "viaSession", cwd }],
+    ["defaultModel", { provider: "viaClient", cwd, model: " default " }],
+    ["blankModel", { provider: "featuresOnly", cwd, model: "" }],
+    ["noModelNoClientFeatures", { provider: "bare", cwd, model: "default" }],
+    ["gone", { provider: "gone", cwd, model: "m1" }],
+    ["broken", { provider: "broken", cwd, model: "m1" }],
+    ["unknown", { provider: "nope", cwd, model: "m1" }],
+    ["missingCwd", { provider: "viaClient", cwd: "/nonexistent/spocky-draft", model: "m1" }],
+    ["noCwd", { provider: "viaSession", model: "m1" }],
+    ["providerOptions", { provider: "viaClient", cwd, model: "m1", providerOptions: {} }],
+  ];
+  const results = [];
+  for (const [name, config] of cases) {
+    const commandsResult = await outcome(async () => await manager.listDraftCommands(config));
+    const featuresResult = await outcome(async () => await manager.listDraftFeatures(config));
+    results.push({ name, commands: commandsResult, features: featuresResult, calls: calls.splice(0), warns: warns.splice(0) });
+  }
+  return results;
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1607,7 +1662,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1657,6 +1712,12 @@ struct Spec {
     import: Option<JsValue>,
     /// What `listImportableSessions` does: `sessions`, `delayMs` and `fail`.
     importable: Option<JsValue>,
+    /// What the client's `listCommands` and `listFeatures` resolve, when it has them.
+    client_commands: Option<JsValue>,
+    client_features: Option<JsValue>,
+    /// What the session's `listCommands` resolves, when it has it, and its `features`.
+    session_commands: Option<JsValue>,
+    session_features: Option<JsValue>,
     /// The `revert*` methods the session has: `conversation`, `files`, `both`.
     revert: Vec<&'static str>,
     /// The session has `steerActiveTurn`: `{ result, emit }`.
@@ -1703,6 +1764,10 @@ fn spec(provider: &str) -> Spec {
         interrupt_hang: false,
         import: None,
         importable: None,
+        client_commands: None,
+        client_features: None,
+        session_commands: None,
+        session_features: None,
         revert: Vec::new(),
         steer: None,
         settable: false,
@@ -1858,6 +1923,14 @@ impl AgentSession for FakeSession {
     }
     fn provider(&self) -> String {
         self.spec.provider.clone()
+    }
+    fn features(&self) -> Option<JsValue> {
+        self.spec.session_features.clone()
+    }
+    fn list_commands(&self) -> Option<BoxFuture<'_, AgentResult<JsValue>>> {
+        let commands = self.spec.session_commands.clone()?;
+        self.record(vec![text("session.listCommands")]);
+        Some(Box::pin(async move { Ok(commands) }))
     }
     fn id(&self) -> Option<String> {
         Some("sess-1".to_owned())
@@ -2256,6 +2329,26 @@ impl AgentClient for FakeClient {
     }
     fn supports_import_session(&self) -> bool {
         self.spec.import.is_some()
+    }
+    fn list_commands(&self, config: JsValue) -> Option<BoxFuture<'_, AgentResult<JsValue>>> {
+        let commands = self.spec.client_commands.clone()?;
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(JsValue::Array(vec![text("listCommands"), config]));
+        Some(Box::pin(async move { Ok(commands) }))
+    }
+    fn list_features(&self, config: JsValue) -> Option<BoxFuture<'_, AgentResult<JsValue>>> {
+        let features = self.spec.client_features.clone()?;
+        let calls = Arc::clone(&self.calls);
+        // Recorded when polled, as the node client records when it is called.
+        Some(Box::pin(async move {
+            calls
+                .lock()
+                .expect("calls")
+                .push(JsValue::Array(vec![text("listFeatures"), config]));
+            Ok(features)
+        }))
     }
     fn list_importable_sessions(
         &self,
@@ -3547,6 +3640,7 @@ async fn scenarios_match_pinned_manager() {
         ),
         ("availability", availability_scenario(&rust_home.0).await),
         ("importable", importable_scenario(&rust_home.0).await),
+        ("draft", draft_scenario(&cwd, &rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -5788,6 +5882,163 @@ async fn importable_scenario(home: &Path) -> JsValue {
                 JsValue::Array(std::mem::take(&mut *warns.lock().expect("warns"))),
             ),
             ("calls", object(per_provider.into_iter().collect())),
+        ]));
+    }
+    JsValue::Array(results)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn draft_scenario(cwd: &str, home: &Path) -> JsValue {
+    let calls = Calls::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let commands = json(r#"[{"name":"review","description":"Review code","argumentHint":""}]"#);
+    let features = json(r#"[{"type":"toggle","id":"fast","label":"Fast","value":false}]"#);
+    let session_commands =
+        json(r#"[{"name":"session-review","description":"From a session","argumentHint":""}]"#);
+    let session_features = json(r#"[{"type":"toggle","id":"plan","label":"Plan","value":true}]"#);
+    let client = |provider: &str, configure: &dyn Fn(&mut Spec)| {
+        let mut fake = spec(provider);
+        configure(&mut fake);
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let clients = vec![
+        client("viaClient", &|fake| {
+            fake.client_commands = Some(commands.clone());
+            fake.client_features = Some(features.clone());
+        }),
+        client("viaSession", &|fake| {
+            fake.session_commands = Some(session_commands.clone());
+            fake.session_features = Some(session_features.clone());
+        }),
+        client("bare", &|_| {}),
+        client("nullFeatures", &|fake| {
+            fake.session_features = Some(JsValue::Null);
+        }),
+        client("closeFails", &|fake| {
+            fake.session_commands = Some(session_commands.clone());
+            fake.session_features = Some(session_features.clone());
+            fake.close_fails = true;
+        }),
+        client("featuresOnly", &|fake| {
+            fake.client_features = Some(features.clone());
+        }),
+        client("gone", &|fake| {
+            fake.available = Ok(false);
+            fake.client_features = Some(features.clone());
+        }),
+        client("broken", &|fake| {
+            fake.available = Err("missing binary".to_owned());
+            fake.client_commands = Some(commands.clone());
+        }),
+    ];
+    let provider_definitions = clients
+        .iter()
+        .map(|(provider, _)| (provider.clone(), enabled()))
+        .collect();
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients,
+        provider_definitions,
+        registry: Some(AgentStorage::new(home.join("draft"))),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let config = |provider: &str, cwd: Option<&str>, model: Option<&str>, options: bool| {
+        let mut entries = vec![("provider", text(provider))];
+        if let Some(cwd) = cwd {
+            entries.push(("cwd", text(cwd)));
+        }
+        if let Some(model) = model {
+            entries.push(("model", text(model)));
+        }
+        if options {
+            entries.push(("providerOptions", object(vec![])));
+        }
+        object(entries)
+    };
+    let cases = [
+        (
+            "viaClient",
+            config("viaClient", Some(cwd), Some("m1"), false),
+        ),
+        (
+            "viaClientTrimmed",
+            config("viaClient", Some(cwd), Some("  m2  "), false),
+        ),
+        (
+            "viaSession",
+            config("viaSession", Some(cwd), Some("m1"), false),
+        ),
+        ("bare", config("bare", Some(cwd), Some("m1"), false)),
+        (
+            "nullFeatures",
+            config("nullFeatures", Some(cwd), Some("m1"), false),
+        ),
+        (
+            "closeFails",
+            config("closeFails", Some(cwd), Some("m1"), false),
+        ),
+        ("noModel", config("viaSession", Some(cwd), None, false)),
+        (
+            "defaultModel",
+            config("viaClient", Some(cwd), Some(" default "), false),
+        ),
+        (
+            "blankModel",
+            config("featuresOnly", Some(cwd), Some(""), false),
+        ),
+        (
+            "noModelNoClientFeatures",
+            config("bare", Some(cwd), Some("default"), false),
+        ),
+        ("gone", config("gone", Some(cwd), Some("m1"), false)),
+        ("broken", config("broken", Some(cwd), Some("m1"), false)),
+        ("unknown", config("nope", Some(cwd), Some("m1"), false)),
+        (
+            "missingCwd",
+            config(
+                "viaClient",
+                Some("/nonexistent/spocky-draft"),
+                Some("m1"),
+                false,
+            ),
+        ),
+        ("noCwd", config("viaSession", None, Some("m1"), false)),
+        (
+            "providerOptions",
+            config("viaClient", Some(cwd), Some("m1"), true),
+        ),
+    ];
+    let mut results = Vec::new();
+    for (name, config) in cases {
+        let commands_result = outcome(manager.list_draft_commands(&config).await);
+        let features_result = outcome(manager.list_draft_features(&config).await);
+        results.push(object(vec![
+            ("name", text(name)),
+            ("commands", commands_result),
+            ("features", features_result),
+            (
+                "calls",
+                JsValue::Array(std::mem::take(&mut *calls.lock().expect("calls"))),
+            ),
+            (
+                "warns",
+                JsValue::Array(std::mem::take(&mut *warns.lock().expect("warns"))),
+            ),
         ]));
     }
     JsValue::Array(results)
