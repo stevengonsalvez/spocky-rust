@@ -339,7 +339,11 @@ impl AgentManager {
                     persist_session: Some(persist_session),
                 });
         let session = client
-            .create_session(prepared.launch_config, Some(launch_context), create_options)
+            .create_session(
+                resolve_provider_launch_config(&prepared.launch_config, &launch_context),
+                Some(launch_context),
+                create_options,
+            )
             .await?;
         self.require_external_mcp_support(&session, &prepared.stored_config)
             .await?;
@@ -416,7 +420,7 @@ impl AgentManager {
                 cwd: input.cwd.clone(),
             },
             ImportProviderSessionContext {
-                config: prepared.launch_config.clone(),
+                config: resolve_provider_launch_config(&prepared.launch_config, &launch_context),
                 stored_config: prepared.stored_config.clone(),
                 launch_context: Some(launch_context),
             },
@@ -598,7 +602,10 @@ impl AgentManager {
         let session = client
             .resume_session(
                 handle.clone(),
-                Some(prepared.launch_config),
+                Some(resolve_provider_launch_config(
+                    &prepared.launch_config,
+                    &launch_context,
+                )),
                 Some(launch_context),
                 current_resume_options,
             )
@@ -816,7 +823,10 @@ impl AgentManager {
                 plan.client
                     .resume_session(
                         handle.clone(),
-                        Some(plan.prepared.launch_config.clone()),
+                        Some(resolve_provider_launch_config(
+                            &plan.prepared.launch_config,
+                            &plan.launch_context,
+                        )),
                         Some(plan.launch_context.clone()),
                         None,
                     )
@@ -825,7 +835,10 @@ impl AgentManager {
             None => {
                 plan.client
                     .create_session(
-                        plan.prepared.launch_config.clone(),
+                        resolve_provider_launch_config(
+                            &plan.prepared.launch_config,
+                            &plan.launch_context,
+                        ),
                         Some(plan.launch_context.clone()),
                         None,
                     )
@@ -1559,6 +1572,19 @@ impl AgentManager {
             self.refresh_session_persistence(agent_id);
         }
         Ok(())
+    }
+}
+
+/// `resolveProviderLaunchConfig(launchConfig, launchContext)`: a provider that
+/// gets the Paseo tools natively launches without the internal Paseo MCP server.
+fn resolve_provider_launch_config(
+    launch_config: &JsValue,
+    launch_context: &AgentLaunchContext,
+) -> JsValue {
+    if launch_context.paseo_tools.is_some() {
+        strip_internal_paseo_mcp_server(launch_config)
+    } else {
+        launch_config.clone()
     }
 }
 
