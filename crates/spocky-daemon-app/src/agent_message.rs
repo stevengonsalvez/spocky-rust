@@ -10,6 +10,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use spocky_contracts::js::truthy;
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_contracts::json::js_wire_text;
 use spocky_contracts::request::{ActiveTurnBehavior, SendAgentMessageRequest};
@@ -76,6 +77,12 @@ async fn prepare_agent_message(
     Ok(())
 }
 
+/// `if (record?.archivedAt)`: JavaScript truthiness, so an empty string, `0`
+/// and `false` are not archived.
+fn is_archived(record: &JsValue) -> bool {
+    truthy(record.get("archivedAt"))
+}
+
 /// `sendPromptToAgent` with `clearPendingPermissions` and the request's
 /// active-turn behavior, then `waitForAgentRunStartWithTimeout` for a
 /// started turn.
@@ -87,12 +94,7 @@ async fn send_prompt(delivery: &SendDelivery) -> Result<(), String> {
         .storage
         .get(agent_id)
         .await
-        .is_some_and(|record| {
-            !matches!(
-                record.get("archivedAt"),
-                None | Some(JsValue::Null | JsValue::Undefined)
-            )
-        });
+        .is_some_and(|record| is_archived(&record));
     let manager = &context.services.manager;
     if archived {
         // `unarchiveAgentState`.
@@ -216,6 +218,34 @@ pub(crate) async fn send_agent_message(
             // `handleAgentRunError(agentId, error, "Failed to send agent message")`.
             activity_error(context, format!("Failed to send agent message: {error}"));
             respond(emit, request_id, &agent_id, Some(error));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use spocky_contracts::js_value::parse;
+
+    use super::is_archived;
+
+    #[test]
+    fn archived_follows_javascript_truthiness() {
+        // Printed by node 22: Boolean(x) for each archivedAt below.
+        let cases = [
+            (r"{}", false),
+            (r#"{"archivedAt":null}"#, false),
+            (r#"{"archivedAt":""}"#, false),
+            (r#"{"archivedAt":0}"#, false),
+            (r#"{"archivedAt":false}"#, false),
+            (r#"{"archivedAt":"2026-10-02T00:00:00.000Z"}"#, true),
+            (r#"{"archivedAt":1}"#, true),
+            (r#"{"archivedAt":true}"#, true),
+            (r#"{"archivedAt":" "}"#, true),
+            (r#"{"archivedAt":"0"}"#, true),
+            (r#"{"archivedAt":{}}"#, true),
+        ];
+        for (json, expected) in cases {
+            assert_eq!(is_archived(&parse(json).unwrap()), expected, "{json}");
         }
     }
 }
