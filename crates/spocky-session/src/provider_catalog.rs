@@ -214,36 +214,36 @@ fn decorate_catalog_modes(
 ) -> Result<JsValue, AgentError> {
     match catalog.get("modes") {
         Some(JsValue::Array(modes)) => Ok(JsValue::Array(decorate_modes(modes, definition_modes))),
-        Some(JsValue::Null) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "Cannot read properties of null (reading 'map')".to_owned(),
-        }),
-        None | Some(JsValue::Undefined) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "Cannot read properties of undefined (reading 'map')".to_owned(),
-        }),
-        Some(_) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "modes.map is not a function".to_owned(),
-        }),
+        Some(JsValue::Null) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "Cannot read properties of null (reading 'map')".to_owned(),
+        )),
+        None | Some(JsValue::Undefined) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "Cannot read properties of undefined (reading 'map')".to_owned(),
+        )),
+        Some(_) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "modes.map is not a function".to_owned(),
+        )),
     }
 }
 
 fn runtime_models(catalog: &JsValue) -> Result<&[JsValue], AgentError> {
     match catalog.get("models") {
         Some(JsValue::Array(models)) => Ok(models),
-        Some(JsValue::Null) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "Cannot read properties of null (reading 'map')".to_owned(),
-        }),
-        None | Some(JsValue::Undefined) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "Cannot read properties of undefined (reading 'map')".to_owned(),
-        }),
-        Some(_) => Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "runtimeModels.map is not a function".to_owned(),
-        }),
+        Some(JsValue::Null) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "Cannot read properties of null (reading 'map')".to_owned(),
+        )),
+        None | Some(JsValue::Undefined) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "Cannot read properties of undefined (reading 'map')".to_owned(),
+        )),
+        Some(_) => Err(AgentError::named(
+            "TypeError".to_owned(),
+            "runtimeModels.map is not a function".to_owned(),
+        )),
     }
 }
 
