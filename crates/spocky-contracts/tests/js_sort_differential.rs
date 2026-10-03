@@ -16,7 +16,7 @@ const [dist, file] = process.argv.slice(1);
 const { readFileSync } = await import("node:fs");
 const out = [];
 for (const [kind, rows] of JSON.parse(readFileSync(file, "utf8"))) {
-  const items = rows.map(([t, k]) => ({ t: t === null ? NaN : t, k }));
+  const items = rows.map(([t, k]) => ({ t: t === null ? NaN : typeof t === "string" ? Number(t) : t, k }));
   const compare = kind === "tiebreak" ? (a, b) => a.t - b.t || a.k - b.k : (a, b) => a.t - b.t;
   items.sort(compare);
   out.push(items.map((item) => item.k).join(","));
@@ -83,6 +83,21 @@ fn pattern(random: &mut Random, shape: usize) -> Vec<Row> {
             }
         }
         5 => times = vec![Some(7.0); usize::try_from(length).expect("length")],
+        6 => {
+            // Signed zeros and infinities: `-0 - 0` is 0, `Infinity - Infinity` is NaN.
+            const PALETTE: [Option<f64>; 7] = [
+                Some(-0.0),
+                Some(0.0),
+                Some(1.0),
+                Some(-1.0),
+                Some(f64::INFINITY),
+                Some(f64::NEG_INFINITY),
+                None,
+            ];
+            for _ in 0..length {
+                times.push(PALETTE[usize::try_from(random.below(7)).expect("index")]);
+            }
+        }
         _ => {
             for _ in 0..length {
                 times.push(Some(below(random, 1000)));
@@ -101,7 +116,7 @@ fn pattern(random: &mut Random, shape: usize) -> Vec<Row> {
 fn cases() -> Vec<(&'static str, Vec<Row>)> {
     let mut random = Random(0x9E37_79B9_7F4A_7C15);
     let mut cases = Vec::new();
-    for shape in 0..6 {
+    for shape in 0..7 {
         for _ in 0..40 {
             let rows = pattern(&mut random, shape);
             cases.push(("tiebreak", rows.clone()));
@@ -116,7 +131,11 @@ fn to_json(cases: &[(&str, Vec<Row>)]) -> String {
         let rows = rows
             .iter()
             .map(|(time, key)| match time {
-                Some(time) => format!("[{time},{key}]"),
+                Some(time) if time.is_infinite() => {
+                    let name = if *time > 0.0 { "Infinity" } else { "-Infinity" };
+                    format!("[\"{name}\",{key}]")
+                }
+                Some(time) => format!("[{time:?},{key}]"),
                 None => format!("[null,{key}]"),
             })
             .collect::<Vec<_>>()
