@@ -1724,8 +1724,12 @@ const catalogScenario = async () => {
     clients,
     providerDefinitions: Object.fromEntries(Object.keys(clients).map((provider) => [provider, { enabled: true }])),
     paseoToolCatalogFactory: factory,
+    mcpAuthToken: "secret-token",
     resolvePaseoToolPolicy: (provider) => (provider === "quiet" ? { enabled: false } : { enabled: true, name: provider }),
   });
+  // With an MCP base URL the launch config carries the internal Paseo server, which a provider
+  // that gets the tools natively launches without.
+  manager.setMcpBaseUrl("http://127.0.0.1:1/mcp");
   const steps = [];
   const step = async (name, run) => {
     const result = await outcome(run);
@@ -6881,6 +6885,7 @@ async fn catalog_scenario(cwd: &str, home: &Path) -> JsValue {
         provider_definitions,
         registry: Some(AgentStorage::new(home.join("catalog"))),
         paseo_tool_catalog_factory: Some(Arc::clone(&working)),
+        mcp_auth_token: Some("secret-token".to_owned()),
         resolve_paseo_tool_policy: Some(Arc::new(|provider| {
             Some(if provider == "quiet" {
                 object(vec![("enabled", JsValue::Bool(false))])
@@ -6893,6 +6898,9 @@ async fn catalog_scenario(cwd: &str, home: &Path) -> JsValue {
         })),
         ..AgentManagerOptions::default()
     });
+    // With an MCP base URL the launch config carries the internal Paseo
+    // server, which a provider that gets the tools natively launches without.
+    manager.set_mcp_base_url(Some("http://127.0.0.1:1/mcp".to_owned()));
     let mut steps = Vec::new();
     let mut step = |name: &'static str, result: JsValue| {
         steps.push(object(vec![
