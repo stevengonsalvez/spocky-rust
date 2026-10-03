@@ -399,7 +399,8 @@ impl AgentManager {
 
     /// `fireAgentArchived(agentId)`.
     async fn fire_agent_archived(&self, agent_id: &str) {
-        if let Some(callback) = &self.inner.on_agent_archived {
+        let callback = self.lock().on_agent_archived.clone();
+        if let Some(callback) = callback {
             let _ = callback(agent_id.to_owned()).await;
         }
     }

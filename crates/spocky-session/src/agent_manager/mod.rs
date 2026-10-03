@@ -328,6 +328,10 @@ pub(crate) struct SessionEventQueue {
 }
 
 pub(crate) struct State {
+    /// `onAgentAttention`, replaceable through `setAgentAttentionCallback`.
+    pub(crate) on_agent_attention: Option<AttentionCallback>,
+    /// `onAgentArchived`, replaceable through `setAgentArchivedCallback`.
+    pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
     pub(crate) clients: Vec<(String, Arc<dyn AgentClient>)>,
     pub(crate) provider_enabled: Vec<(String, bool)>,
     pub(crate) provider_definitions: Vec<(String, ProviderDefinition)>,
@@ -401,8 +405,6 @@ pub(crate) struct Inner {
     dispatch_idle: Arc<Notify>,
     pub(crate) id_factory: IdFactory,
     pub(crate) registry: Option<AgentStorage>,
-    pub(crate) on_agent_attention: Option<AttentionCallback>,
-    pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
     pub(crate) log_warn: Option<LogWarn>,
     pub(crate) log_error: Option<LogInfo>,
     pub(crate) log_info: Option<LogInfo>,
@@ -499,6 +501,8 @@ impl AgentManager {
             provider_enabled.push((provider.clone(), definition.enabled));
         }
         let state = State {
+            on_agent_attention: options.on_agent_attention,
+            on_agent_archived: options.on_agent_archived,
             clients: options.clients,
             provider_enabled,
             provider_definitions: options.provider_definitions,
@@ -538,8 +542,6 @@ impl AgentManager {
                     .id_factory
                     .unwrap_or_else(|| Arc::new(crate::clock::random_uuid)),
                 registry: options.registry,
-                on_agent_attention: options.on_agent_attention,
-                on_agent_archived: options.on_agent_archived,
                 log_warn: options.log_warn,
                 log_error: options.log_error,
                 log_info: options.log_info,
@@ -578,6 +580,16 @@ impl AgentManager {
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, State> {
         lock(&self.inner.state)
+    }
+
+    /// `setAgentAttentionCallback(callback)`.
+    pub fn set_agent_attention_callback(&self, callback: AttentionCallback) {
+        self.lock().on_agent_attention = Some(callback);
+    }
+
+    /// `setAgentArchivedCallback(callback)`.
+    pub fn set_agent_archived_callback(&self, callback: AgentArchivedCallback) {
+        self.lock().on_agent_archived = Some(callback);
     }
 
     /// `prepareForShutdown()`.

@@ -451,11 +451,11 @@ impl AgentManager {
     }
 
     /// `broadcastAgentAttention(agent, reason)`.
-    fn broadcast_agent_attention(&self, agent: &super::ManagedAgent, reason: &str) {
+    fn broadcast_agent_attention(&self, state: &State, agent: &super::ManagedAgent, reason: &str) {
         if is_delegated_agent(Some(&agent.snapshot.labels)) {
             return;
         }
-        if let Some(callback) = self.inner.on_agent_attention.clone() {
+        if let Some(callback) = state.on_agent_attention.clone() {
             let notice = AgentAttentionNotice {
                 agent_id: agent.snapshot.id.clone(),
                 provider: agent.snapshot.provider.clone(),
@@ -492,7 +492,7 @@ impl AgentManager {
             timestamp_millis: crate::clock::now_millis(),
         };
         let agent = state.agent(agent_id).expect("agent present");
-        self.broadcast_agent_attention(agent, reason);
+        self.broadcast_agent_attention(state, agent, reason);
     }
 
     /// `emitState(agent, { persist })`.
@@ -1129,7 +1129,7 @@ impl AgentManager {
             && !had_pending
             && !agent.snapshot.internal
         {
-            self.broadcast_agent_attention(agent, "permission");
+            self.broadcast_agent_attention(state, agent, "permission");
         }
         self.emit_state_locked(state, agent_id, true);
     }
