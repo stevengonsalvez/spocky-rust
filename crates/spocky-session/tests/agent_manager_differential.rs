@@ -94,7 +94,8 @@ use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, AgentSteerOptions,
     AppendedTimelineItem, CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions,
-    ImportProviderSessionRequest, ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions,
+    ImportProviderSessionRequest, ImportablePersistedAgentQueryOptions,
+    ImportableSessionProviderError, ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions,
     SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
@@ -103,8 +104,9 @@ use spocky_session::agent_sdk::{
     AgentEventStream, AgentLaunchContext, AgentPromptInput, AgentResult, AgentResumePurpose,
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
     FetchCatalogOptions, ImportProviderSessionContext, ImportProviderSessionInput,
-    ImportedProviderSession, ImportedTimelineEntry, OutOfBandHandler, ProviderRefreshContext,
-    SteerResult, StreamCallback, Unsubscribe,
+    ImportableProviderSession, ImportedProviderSession, ImportedTimelineEntry,
+    ListImportableSessionsOptions, OutOfBandHandler, ProviderRefreshContext, SteerResult,
+    StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::rewind::RewindMode;
@@ -317,6 +319,29 @@ const SCENARIO_TURNS: &str = r#"{
       {"provider":"badsubagent","event":{"type":"timeline","id":"child-b","item":{"type":"tool_call","callId":"x","name":"shell","status":"running","error":null},"timestamp":"2026-07-12T08:00:03.000Z"}}
     ]
   },
+  "importable": {
+    "alpha": {"sessions": [
+      {"providerHandleId":"a-1","cwd":"/work/Alpha-App","title":"Fix login","firstPromptPreview":"fix the login bug","lastPromptPreview":null,"lastActivityAt":1700000300000},
+      {"providerHandleId":"a-2","cwd":"C:\\work\\Beta","title":null,"firstPromptPreview":null,"lastPromptPreview":"Ship it","lastActivityAt":1700000500000},
+      {"providerHandleId":"a-3","cwd":"/work/gamma/","title":"","firstPromptPreview":"Gamma notes","lastPromptPreview":"","lastActivityAt":1700000100000},
+      {"providerHandleId":"a-4","cwd":"/work/twin","title":"Tie twin","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000300000}
+    ]},
+    "slow": {"delayMs": 120, "sessions": [
+      {"providerHandleId":"s-1","cwd":"/work/slow","title":"Slow one","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000300000}
+    ]},
+    "beta": {"sessions": [
+      {"providerHandleId":"b-1","cwd":"/work/beta","title":"Beta tie","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000300000},
+      {"providerHandleId":"b-2","cwd":"/work/other","title":"Login again","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000400000}
+    ]},
+    "failing": {"fail": "listing broke"},
+    "slowfail": {"delayMs": 80, "fail": "slow listing broke"},
+    "nocap": {"sessions": [
+      {"providerHandleId":"n-1","cwd":"/work/nocap","title":"Hidden","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000900000}
+    ]},
+    "off": {"sessions": [
+      {"providerHandleId":"o-1","cwd":"/work/off","title":"Disabled","firstPromptPreview":null,"lastPromptPreview":null,"lastActivityAt":1700000900000}
+    ]}
+  },
   "badImport": {
     "config": {"provider":"badimport","cwd":"/nonexistent/spocky-import"},
     "persistence": {"provider":"badimport","sessionId":"imp-2"},
@@ -469,6 +494,14 @@ const fakeClient = (calls, spec) => ({
       calls.push(["importSession", input, { config: context.config, storedConfig: context.storedConfig, launchContext: context.launchContext ?? null }]);
       const imported = JSON.parse(JSON.stringify(spec.import).replaceAll("$CWD", cwd));
       return { session: new FakeSession(spec, calls), config: imported.config, persistence: imported.persistence, timeline: imported.timeline, providerSubagentEvents: imported.providerSubagentEvents };
+    },
+  } : {}),
+  ...(spec.importable ? {
+    async listImportableSessions(options) {
+      calls.push(["listImportableSessions", spec.provider, options ?? null]);
+      if (spec.importable.delayMs) await sleep(spec.importable.delayMs);
+      if (spec.importable.fail) throw new Error(spec.importable.fail);
+      return (spec.importable.sessions ?? []).map((session) => ({ ...session, lastActivityAt: new Date(session.lastActivityAt) }));
     },
   } : {}),
   async archiveNativeSession(handle) {
@@ -1415,6 +1448,57 @@ const availabilityScenario = async () => {
   return { results, afterList, warns };
 };
 
+const importableScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson).importable;
+  const bulk = { sessions: Array.from({ length: 22 }, (_, index) => ({ providerHandleId: `bulk-${index}`, cwd: "/bulk", title: `Bulk ${index}`, firstPromptPreview: null, lastPromptPreview: null, lastActivityAt: 1600000000000 + index * 1000 })) };
+  const calls = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const listing = { ...JSON.parse(capabilitiesJson), supportsSessionListing: true };
+  const make = (provider, importable) => fakeClient(calls, spec(provider, { capabilities: listing, ...(importable ? { importable } : {}) }));
+  const clients = {
+    alpha: make("alpha", scripted.alpha),
+    slow: make("slow", scripted.slow),
+    beta: make("beta", scripted.beta),
+    nolist: make("nolist"),
+    slowfail: make("slowfail", scripted.slowfail),
+    failing: make("failing", scripted.failing),
+    bulk: make("bulk", bulk),
+    nocap: fakeClient(calls, spec("nocap", { importable: scripted.nocap })),
+    off: make("off", scripted.off),
+  };
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry: new AgentStorage(`${home}/importable`, logger),
+    clients,
+    providerDefinitions: Object.fromEntries(Object.keys(clients).map((provider) => [provider, { enabled: provider !== "off" }])),
+  });
+  const cases = [
+    ["all", undefined],
+    ["limit2", { limit: 2 }],
+    ["limitNegative", { limit: -1 }],
+    ["limitFraction", { limit: 1.5 }],
+    ["limitZero", { limit: 0 }],
+    ["query", { query: "  LOGIN  " }],
+    ["queryCwd", { query: "beta" }],
+    ["queryBackslashCwd", { query: "C:" }],
+    ["queryNone", { query: "zzz" }],
+    ["queryBlank", { query: "   " }],
+    ["filter", { providerFilter: ["alpha", "off", "nocap"] }],
+    ["passthrough", { cwd: "/work", scanLimit: 7, limit: 3, providerFilter: ["beta"] }],
+  ];
+  const results = [];
+  for (const [name, options] of cases) {
+    const result = await outcome(async () => {
+      const listed = await manager.listImportableSessions(options && { ...options, providerFilter: options.providerFilter && new Set(options.providerFilter) });
+      return { ...listed, sessions: listed.sessions.map((session) => ({ ...session, lastActivityAt: session.lastActivityAt.getTime() })) };
+    });
+    const taken = calls.splice(0);
+    results.push({ name, result, warns: warns.splice(0), calls: Object.fromEntries(Object.keys(clients).map((provider) => [provider, taken.filter((call) => call[1] === provider)])) });
+  }
+  return results;
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1523,7 +1607,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1571,6 +1655,8 @@ struct Spec {
     interrupt_hang: bool,
     /// What `importSession` resolves, with `$CWD` for the working directory.
     import: Option<JsValue>,
+    /// What `listImportableSessions` does: `sessions`, `delayMs` and `fail`.
+    importable: Option<JsValue>,
     /// The `revert*` methods the session has: `conversation`, `files`, `both`.
     revert: Vec<&'static str>,
     /// The session has `steerActiveTurn`: `{ result, emit }`.
@@ -1616,6 +1702,7 @@ fn spec(provider: &str) -> Spec {
         archive_fails: false,
         interrupt_hang: false,
         import: None,
+        importable: None,
         revert: Vec::new(),
         steer: None,
         settable: false,
@@ -2169,6 +2256,63 @@ impl AgentClient for FakeClient {
     }
     fn supports_import_session(&self) -> bool {
         self.spec.import.is_some()
+    }
+    fn list_importable_sessions(
+        &self,
+        options: Option<ListImportableSessionsOptions>,
+    ) -> Option<BoxFuture<'_, AgentResult<Vec<ImportableProviderSession>>>> {
+        let importable = self.spec.importable.clone()?;
+        let mut seen = JsObject::new();
+        if let Some(options) = options {
+            if let Some(limit) = options.limit {
+                seen.insert("limit", JsValue::Number(limit));
+            }
+            if let Some(query) = &options.query {
+                seen.insert("query", text(query));
+            }
+            if let Some(scan_limit) = options.scan_limit {
+                seen.insert("scanLimit", JsValue::Number(scan_limit));
+            }
+            if let Some(cwd) = &options.cwd {
+                seen.insert("cwd", text(cwd));
+            }
+        }
+        self.calls.lock().expect("calls").push(JsValue::Array(vec![
+            text("listImportableSessions"),
+            text(&self.spec.provider),
+            JsValue::Object(seen),
+        ]));
+        Some(Box::pin(async move {
+            if let Some(delay) = importable.get("delayMs").and_then(JsValue::as_f64) {
+                tokio::time::sleep(Duration::from_secs_f64(delay / 1000.0)).await;
+            }
+            if let Some(message) = importable.get("fail").and_then(JsValue::as_str) {
+                return Err(AgentError::new(message));
+            }
+            let field = |session: &JsValue, key: &str| {
+                session
+                    .get(key)
+                    .and_then(JsValue::as_str)
+                    .map(str::to_owned)
+            };
+            Ok(importable
+                .get("sessions")
+                .and_then(JsValue::as_array)
+                .unwrap_or_default()
+                .iter()
+                .map(|session| ImportableProviderSession {
+                    provider_handle_id: field(session, "providerHandleId").expect("handle"),
+                    cwd: field(session, "cwd").expect("cwd"),
+                    title: field(session, "title"),
+                    first_prompt_preview: field(session, "firstPromptPreview"),
+                    last_prompt_preview: field(session, "lastPromptPreview"),
+                    last_activity_at_millis: session
+                        .get("lastActivityAt")
+                        .and_then(JsValue::as_f64)
+                        .expect("lastActivityAt"),
+                })
+                .collect())
+        }))
     }
     fn import_session(
         &self,
@@ -3402,6 +3546,7 @@ async fn scenarios_match_pinned_manager() {
             timeline_items_scenario(&cwd, &rust_home.0).await,
         ),
         ("availability", availability_scenario(&rust_home.0).await),
+        ("importable", importable_scenario(&rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -5459,6 +5604,199 @@ async fn availability_scenario(home: &Path) -> JsValue {
     clippy::too_many_lines,
     reason = "one scripted scenario mirrors its node twin"
 )]
+async fn importable_scenario(home: &Path) -> JsValue {
+    const PROVIDERS: [&str; 9] = [
+        "alpha", "slow", "beta", "nolist", "slowfail", "failing", "bulk", "nocap", "off",
+    ];
+    let scripted = json(SCENARIO_TURNS)
+        .get("importable")
+        .cloned()
+        .expect("importable");
+    let bulk = object(vec![(
+        "sessions",
+        JsValue::Array(
+            (0..22_i64)
+                .map(|index| {
+                    object(vec![
+                        ("providerHandleId", text(&format!("bulk-{index}"))),
+                        ("cwd", text("/bulk")),
+                        ("title", text(&format!("Bulk {index}"))),
+                        ("firstPromptPreview", JsValue::Null),
+                        ("lastPromptPreview", JsValue::Null),
+                        ("lastActivityAt", number(1_600_000_000_000 + index * 1000)),
+                    ])
+                })
+                .collect(),
+        ),
+    )]);
+    let calls = Calls::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let mut listing = json(CAPABILITIES);
+    if let JsValue::Object(object) = &mut listing {
+        object.insert("supportsSessionListing", JsValue::Bool(true));
+    }
+    let make = |provider: &str, importable: Option<JsValue>, capabilities: Option<JsValue>| {
+        let mut fake = spec(provider);
+        fake.capabilities = capabilities.unwrap_or_else(|| listing.clone());
+        fake.importable = importable;
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let scripted_for = |provider: &str| scripted.get(provider).cloned();
+    let clients = vec![
+        make("alpha", scripted_for("alpha"), None),
+        make("slow", scripted_for("slow"), None),
+        make("beta", scripted_for("beta"), None),
+        make("nolist", None, None),
+        make("slowfail", scripted_for("slowfail"), None),
+        make("failing", scripted_for("failing"), None),
+        make("bulk", Some(bulk), None),
+        make("nocap", scripted_for("nocap"), Some(json(CAPABILITIES))),
+        make("off", scripted_for("off"), None),
+    ];
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients,
+        provider_definitions: PROVIDERS
+            .into_iter()
+            .map(|provider| {
+                (
+                    provider.to_owned(),
+                    ProviderDefinition {
+                        enabled: provider != "off",
+                        ..ProviderDefinition::default()
+                    },
+                )
+            })
+            .collect(),
+        registry: Some(AgentStorage::new(home.join("importable"))),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let query = |limit: Option<f64>,
+                 query: Option<&str>,
+                 scan_limit: Option<f64>,
+                 cwd: Option<&str>,
+                 filter: Option<&[&str]>| {
+        Some(ImportablePersistedAgentQueryOptions {
+            list: ListImportableSessionsOptions {
+                limit,
+                query: query.map(str::to_owned),
+                scan_limit,
+                cwd: cwd.map(str::to_owned),
+            },
+            provider_filter: filter
+                .map(|filter| filter.iter().map(|id| (*id).to_owned()).collect()),
+        })
+    };
+    let cases = vec![
+        ("all", None),
+        ("limit2", query(Some(2.0), None, None, None, None)),
+        ("limitNegative", query(Some(-1.0), None, None, None, None)),
+        ("limitFraction", query(Some(1.5), None, None, None, None)),
+        ("limitZero", query(Some(0.0), None, None, None, None)),
+        ("query", query(None, Some("  LOGIN  "), None, None, None)),
+        ("queryCwd", query(None, Some("beta"), None, None, None)),
+        (
+            "queryBackslashCwd",
+            query(None, Some("C:"), None, None, None),
+        ),
+        ("queryNone", query(None, Some("zzz"), None, None, None)),
+        ("queryBlank", query(None, Some("   "), None, None, None)),
+        (
+            "filter",
+            query(None, None, None, None, Some(&["alpha", "off", "nocap"])),
+        ),
+        (
+            "passthrough",
+            query(Some(3.0), None, Some(7.0), Some("/work"), Some(&["beta"])),
+        ),
+    ];
+    let mut results = Vec::new();
+    for (name, options) in cases {
+        let listed = manager.list_importable_sessions(options).await;
+        let sessions = listed.sessions.into_iter().map(|managed| {
+            let session = managed.session;
+            object(vec![
+                ("providerHandleId", text(&session.provider_handle_id)),
+                ("cwd", text(&session.cwd)),
+                (
+                    "title",
+                    session.title.as_deref().map_or(JsValue::Null, text),
+                ),
+                (
+                    "firstPromptPreview",
+                    session
+                        .first_prompt_preview
+                        .as_deref()
+                        .map_or(JsValue::Null, text),
+                ),
+                (
+                    "lastPromptPreview",
+                    session
+                        .last_prompt_preview
+                        .as_deref()
+                        .map_or(JsValue::Null, text),
+                ),
+                (
+                    "lastActivityAt",
+                    JsValue::Number(session.last_activity_at_millis),
+                ),
+                ("provider", text(&managed.provider)),
+            ])
+        });
+        let provider_errors = listed.provider_errors.into_iter().map(|error| {
+            object(vec![
+                ("provider", text(&error.provider)),
+                ("message", text(&error.message)),
+            ])
+        });
+        let result = outcome(Ok::<_, AgentError>(object(vec![
+            ("sessions", JsValue::Array(sessions.collect())),
+            ("providerErrors", JsValue::Array(provider_errors.collect())),
+        ])));
+        let taken = std::mem::take(&mut *calls.lock().expect("calls"));
+        let per_provider = PROVIDERS.map(|provider| {
+            (
+                provider,
+                JsValue::Array(
+                    taken
+                        .iter()
+                        .filter(|call| {
+                            call.as_array().and_then(|call| call.get(1)) == Some(&text(provider))
+                        })
+                        .cloned()
+                        .collect(),
+                ),
+            )
+        });
+        results.push(object(vec![
+            ("name", text(name)),
+            ("result", result),
+            (
+                "warns",
+                JsValue::Array(std::mem::take(&mut *warns.lock().expect("warns"))),
+            ),
+            ("calls", object(per_provider.into_iter().collect())),
+        ]));
+    }
+    JsValue::Array(results)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
 async fn archive_scenario(cwd: &str, home: &Path) -> JsValue {
     const PARENT_LABEL: &str = "paseo.parent-agent-id";
     let calls = Calls::default();
@@ -6093,4 +6431,81 @@ async fn wait_releases_its_subscription() {
     );
     assert_eq!(manager.subscription_count(), idle);
     held.abort();
+}
+
+/// The node build waits 90 000 ms for a provider's listing (a real-time wait
+/// the pinned differential cannot afford), so this runs on a paused clock.
+#[tokio::test(start_paused = true)]
+async fn importable_listing_gives_up_after_ninety_seconds() {
+    let records = home("importable-timeout");
+    let calls = Calls::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let mut listing = json(CAPABILITIES);
+    if let JsValue::Object(capabilities) = &mut listing {
+        capabilities.insert("supportsSessionListing", JsValue::Bool(true));
+    }
+    let session = |handle: &str| {
+        object(vec![
+            ("providerHandleId", text(handle)),
+            ("cwd", text("/work")),
+            ("title", JsValue::Null),
+            ("firstPromptPreview", JsValue::Null),
+            ("lastPromptPreview", JsValue::Null),
+            ("lastActivityAt", number(1_700_000_000_000)),
+        ])
+    };
+    let client = |provider: &str, delay_ms: f64| {
+        let mut fake = spec(provider);
+        fake.capabilities = listing.clone();
+        fake.importable = Some(object(vec![
+            ("delayMs", JsValue::Number(delay_ms)),
+            ("sessions", JsValue::Array(vec![session(provider)])),
+        ]));
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![client("last-moment", 89_999.0), client("hung", 90_001.0)],
+        provider_definitions: ["last-moment", "hung"]
+            .into_iter()
+            .map(|provider| (provider.to_owned(), enabled()))
+            .collect(),
+        registry: Some(AgentStorage::new(&records.0)),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let started = tokio::time::Instant::now();
+    let listed = manager.list_importable_sessions(None).await;
+    assert_eq!(started.elapsed(), Duration::from_secs(90));
+    assert_eq!(
+        listed
+            .sessions
+            .iter()
+            .map(|managed| managed.session.provider_handle_id.as_str())
+            .collect::<Vec<_>>(),
+        ["last-moment"]
+    );
+    assert_eq!(
+        listed.provider_errors,
+        [ImportableSessionProviderError {
+            provider: "hung".to_owned(),
+            message: "Timed out listing importable sessions for provider 'hung' after 90000ms"
+                .to_owned(),
+        }]
+    );
+    assert_eq!(
+        stringify(&JsValue::Array(warns.lock().expect("warns").clone())),
+        r#"[[{"err":{},"provider":"hung"},"Failed to list importable sessions for provider"]]"#
+    );
 }
