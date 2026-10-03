@@ -10,6 +10,7 @@
 //! reported as unported instead of being replayed differently.
 
 use serde_json::{Map, Value};
+use spocky_contracts::js::date_parse;
 use spocky_contracts::text::js_trim;
 
 use crate::items::{ThreadItemMapping, item_type, thread_item_to_timeline};
@@ -61,17 +62,6 @@ fn parse_turns(response: &Value) -> Result<Vec<Turn<'_>>, String> {
     Ok(parsed)
 }
 
-/// Days from 1970-01-01 to a civil date (proleptic Gregorian).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let month_index = (month + 9) % 12;
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);
@@ -118,152 +108,36 @@ pub fn iso_string_from_millis(millis: f64) -> Option<String> {
     ))
 }
 
-/// Parses `digits` exactly `count` ASCII digits long.
-fn fixed_digits(text: &str, count: usize) -> Option<i64> {
-    (text.len() == count && text.bytes().all(|byte| byte.is_ascii_digit()))
-        .then(|| text.parse().ok())
-        .flatten()
-}
-
-/// ECMAScript Date Time String Format validity, the form `Date.parse` is
-/// specified to accept. `None` means not this format.
-fn iso_date_time_is_valid(text: &str) -> Option<bool> {
-    let (date, time) = match text.split_once('T') {
-        Some((date, time)) => (date, Some(time)),
-        None => (text, None),
-    };
-    let (year, rest) = if let Some(rest) = date.strip_prefix(['+', '-']) {
-        let year = fixed_digits(rest.get(..6)?, 6)?;
-        if date.starts_with('-') && year == 0 {
-            return Some(false);
-        }
-        (if date.starts_with('-') { -year } else { year }, &rest[6..])
-    } else {
-        (fixed_digits(date.get(..4)?, 4)?, &date[4..])
-    };
-    let mut parts = rest.split('-').skip(1);
-    if !rest.is_empty() && !rest.starts_with('-') {
-        return None;
-    }
-    let month = parts.next().map(|month| fixed_digits(month, 2));
-    let day = parts.next().map(|day| fixed_digits(day, 2));
-    if parts.next().is_some() {
-        return None;
-    }
-    let month = match month {
-        None => 1,
-        Some(month) => month?,
-    };
-    let day = match day {
-        None => 1,
-        Some(day) => day?,
-    };
-    if !(1..=12).contains(&month) {
-        return Some(false);
-    }
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    let days_in_month = days_from_civil(next_year, next_month, 1) - days_from_civil(year, month, 1);
-    if day < 1 || day > days_in_month {
-        return Some(false);
-    }
-    let Some(time) = time else {
-        return Some(true);
-    };
-    let (clock, zone) = if let Some(clock) = time.strip_suffix('Z') {
-        (clock, None)
-    } else if let Some(index) = time.rfind(['+', '-']) {
-        (&time[..index], Some(&time[index..]))
-    } else {
-        (time, None)
-    };
-    if let Some(zone) = zone {
-        let offset = &zone[1..];
-        let (hours, minutes) = offset.split_once(':')?;
-        let (hours, minutes) = (fixed_digits(hours, 2)?, fixed_digits(minutes, 2)?);
-        if hours > 23 || minutes > 59 {
-            return Some(false);
-        }
-    }
-    let (clock, fraction) = match clock.split_once('.') {
-        Some((clock, fraction)) => (clock, Some(fraction)),
-        None => (clock, None),
-    };
-    if let Some(fraction) = fraction
-        && (fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()))
-    {
-        return None;
-    }
-    let fields: Vec<&str> = clock.split(':').collect();
-    if fields.len() < 2 || fields.len() > 3 || (fraction.is_some() && fields.len() != 3) {
-        return None;
-    }
-    let values: Option<Vec<i64>> = fields.iter().map(|field| fixed_digits(field, 2)).collect();
-    let values = values?;
-    let hours = values[0];
-    let minutes = values[1];
-    let seconds = values.get(2).copied().unwrap_or(0);
-    let is_midnight_24 = hours == 24
-        && minutes == 0
-        && seconds == 0
-        && fraction.is_none_or(|fraction| fraction.bytes().all(|byte| byte == b'0'));
-    Some((hours < 24 || is_midnight_24) && minutes < 60 && seconds < 60)
-}
-
-/// `normalizeProviderReplayTimestamp(value)`: `Ok(None)` for no timestamp,
-/// `Err` for a string outside the ECMAScript format, whose `Date.parse`
-/// result depends on V8's legacy parser.
-///
-/// # Errors
-/// Returns the unported kind for a non-ISO string; the log keys by kind.
-pub fn normalize_replay_timestamp(value: Option<&Value>) -> Result<Option<String>, String> {
+/// `normalizeProviderReplayTimestamp(value)`: a string is kept (trimmed) when
+/// `Date.parse` reads it (`spocky_contracts::js::date_parse`, V8's parser,
+/// ECMAScript format and legacy forms alike); a finite number is read as
+/// seconds or milliseconds and written as an ISO string.
+#[must_use]
+pub fn normalize_replay_timestamp(value: Option<&Value>) -> Option<String> {
     match value {
         Some(Value::String(text)) => {
             let trimmed = js_trim(text);
-            if trimmed.is_empty() {
-                return Ok(None);
-            }
-            match iso_date_time_is_valid(trimmed) {
-                Some(true) => Ok(Some(trimmed.to_owned())),
-                Some(false) => Ok(None),
-                None => Err("non-ISO history timestamp".to_owned()),
-            }
+            (!trimmed.is_empty() && date_parse(trimmed).is_some()).then(|| trimmed.to_owned())
         }
         Some(Value::Number(number)) => {
             let value = number.as_f64().unwrap_or(f64::NAN);
             if !value.is_finite() {
-                return Ok(None);
+                return None;
             }
             let millis = if value > 1_000_000_000_000.0 {
                 value
             } else {
                 value * 1000.0
             };
-            Ok(iso_string_from_millis(millis))
+            iso_string_from_millis(millis)
         }
-        _ => Ok(None),
+        _ => None,
     }
 }
 
-fn first_timestamp(
-    record: &Map<String, Value>,
-    keys: &[&str],
-    unported: &mut Vec<String>,
-) -> Option<String> {
-    for key in keys {
-        match normalize_replay_timestamp(record.get(*key)) {
-            Ok(Some(timestamp)) => return Some(timestamp),
-            Ok(None) => {}
-            Err(what) => {
-                unported.push(what);
-                return None;
-            }
-        }
-    }
-    None
+fn first_timestamp(record: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| normalize_replay_timestamp(record.get(*key)))
 }
 
 /// `loadCodexThreadHistoryTimeline` over a `thread/read` response.
@@ -296,20 +170,11 @@ pub fn project_thread_history(response: &Value) -> Result<HistoryProjection, Str
             };
             let is_user = timeline_item["type"] == "user_message";
             let item_timestamp = record.and_then(|record| {
-                first_timestamp(
-                    record,
-                    &["timestamp", "createdAt", "created_at"],
-                    &mut projection.unported,
-                )
+                first_timestamp(record, &["timestamp", "createdAt", "created_at"])
             });
             let timestamp = item_timestamp.or_else(|| {
-                let started =
-                    first_timestamp(turn, &["startedAt", "started_at"], &mut projection.unported);
-                let completed = first_timestamp(
-                    turn,
-                    &["completedAt", "completed_at"],
-                    &mut projection.unported,
-                );
+                let started = first_timestamp(turn, &["startedAt", "started_at"]);
+                let completed = first_timestamp(turn, &["completedAt", "completed_at"]);
                 if is_user {
                     started.or(completed)
                 } else {
@@ -340,17 +205,17 @@ mod tests {
     fn numeric_timestamps_become_iso_strings() {
         assert_eq!(
             normalize_replay_timestamp(Some(&json!(1_790_866_643))),
-            Ok(Some("2026-10-01T14:57:23.000Z".to_owned()))
+            Some("2026-10-01T14:57:23.000Z".to_owned())
         );
         assert_eq!(
             normalize_replay_timestamp(Some(&json!(1_790_866_643_125_u64))),
-            Ok(Some("2026-10-01T14:57:23.125Z".to_owned()))
+            Some("2026-10-01T14:57:23.125Z".to_owned())
         );
         assert_eq!(
             normalize_replay_timestamp(Some(&json!(0))),
-            Ok(Some("1970-01-01T00:00:00.000Z".to_owned()))
+            Some("1970-01-01T00:00:00.000Z".to_owned())
         );
-        assert_eq!(normalize_replay_timestamp(Some(&json!(9e15))), Ok(None));
+        assert_eq!(normalize_replay_timestamp(Some(&json!(9e15))), None);
         assert_eq!(
             iso_string_from_millis(-1.0),
             Some("1969-12-31T23:59:59.999Z".to_owned())
@@ -361,36 +226,78 @@ mod tests {
         );
     }
 
+    /// `Number.isNaN(Date.parse(text.trim()))` negated, printed by node
+    /// v22.20.0 (the pinned runtime) for each text:
+    /// `node -e 'for (const c of cases) console.log(!Number.isNaN(Date.parse(c.trim())))'`.
+    const NODE_DATE_PARSE: &[(&str, bool)] = &[
+        ("Oct 1 2026", true),
+        ("October 1, 2026 14:57:23 UTC", true),
+        ("Thu, 01 Oct 2026 14:57:23 GMT", true),
+        ("1/2/2026", true),
+        ("10/01/2026 2:57 PM", true),
+        ("2026-10-01 14:57:23", true),
+        ("2026-10-01 14:57:23Z", true),
+        ("2026-10-01T14:57:23", true),
+        ("2026/10/01", true),
+        ("2026-02-30", true),
+        ("2026-02-31", true),
+        ("2026-04-31", true),
+        ("2026-02-30T00:00:00Z", true),
+        ("2026-13-01", false),
+        ("2026-00-10", false),
+        ("2026-10-00", false),
+        ("20261001", false),
+        ("2026-10-01T25:00:00Z", false),
+        ("2026-10-01T24:00:00Z", true),
+        ("2026-10-01T24:00:01Z", false),
+        ("2026", true),
+        ("12", true),
+        ("1", true),
+        ("0", true),
+        ("garbage", false),
+        ("not a date", false),
+        ("2026-10-01T14:57:23.123456789Z", true),
+        ("2026-10-01T14:57Z", true),
+        ("+275760-09-13T00:00:00.000Z", true),
+        ("+275760-09-13T00:00:00.001Z", false),
+        ("-000000-01-01T00:00:00Z", false),
+        ("-000004-02-29", true),
+        ("-000003-02-29", true),
+        ("2024-02-29T00:00:00.5+01:00", true),
+        ("Tue Oct 01 2026 14:57:23 GMT+0100 (BST)", true),
+        ("2026-10-01T14:57:23+0100", true),
+        ("2026-10-01T14:57:23 +01:00", false),
+        ("Sep 31 2026", true),
+        ("Feb 30 2026", true),
+        ("31 Sep 2026", true),
+        ("Oct 2026", true),
+        ("2026 Oct 1", true),
+        ("1 Oct", true),
+        ("Oct 1", true),
+        ("T", false),
+        ("2026-10-01T", false),
+        ("2026-10-01Tz", false),
+        ("12:34", false),
+        ("12:34:56", false),
+        ("1e3", false),
+        ("1,2,3", true),
+        ("(2026)", false),
+        ("Z", false),
+        ("2026-10-01T14:57:23Z\0junk", true),
+        (" 2026-10-01T14:57:23Z ", true),
+        (" 2026-02-30 ", true),
+        ("", false),
+    ];
+
     #[test]
-    fn iso_strings_are_kept_trimmed_and_invalid_ones_dropped() {
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!(" 2026-10-01T14:57:23Z "))),
-            Ok(Some("2026-10-01T14:57:23Z".to_owned()))
-        );
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!("2026-02-30"))),
-            Ok(None)
-        );
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!("-000004-02-29"))),
-            Ok(Some("-000004-02-29".to_owned())),
-            "year -4 is a leap year"
-        );
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!("-000003-02-29"))),
-            Ok(None)
-        );
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!("Oct 1 2026"))),
-            Err("non-ISO history timestamp".to_owned())
-        );
-        assert_eq!(
-            normalize_replay_timestamp(Some(&json!("2024-02-29T00:00:00.5+01:00"))),
-            Ok(Some("2024-02-29T00:00:00.5+01:00".to_owned()))
-        );
-        assert_eq!(normalize_replay_timestamp(Some(&json!(""))), Ok(None));
-        assert!(normalize_replay_timestamp(Some(&json!("Oct 1 2026"))).is_err());
-        assert_eq!(normalize_replay_timestamp(Some(&json!(true))), Ok(None));
+    fn string_timestamps_follow_date_parse_and_are_kept_trimmed() {
+        for &(text, parses) in NODE_DATE_PARSE {
+            let kept = normalize_replay_timestamp(Some(&json!(text)));
+            let expected = parses.then(|| js_trim(text).to_owned());
+            assert_eq!(kept, expected, "{text:?}");
+        }
+        assert_eq!(normalize_replay_timestamp(Some(&json!(true))), None);
+        assert_eq!(normalize_replay_timestamp(None), None);
     }
 
     #[test]
