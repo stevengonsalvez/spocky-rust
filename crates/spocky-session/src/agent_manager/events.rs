@@ -604,9 +604,22 @@ impl AgentManager {
             let live = state
                 .agent(agent_id)
                 .is_some_and(|agent| agent.session.is_some());
-            if live {
-                // "Failed to process session event" is only logged.
-                let _ = self.dispatch_session_event_locked(&mut state, agent_id, &event);
+            if live
+                && self
+                    .dispatch_session_event_locked(&mut state, agent_id, &event)
+                    .is_err()
+            {
+                // pino prints the `err` binding, an `Error`, as `{}`.
+                let mut bindings = JsObject::new();
+                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+                if let Some(kind) = event
+                    .get("type")
+                    .filter(|kind| !matches!(kind, JsValue::Undefined))
+                {
+                    bindings.insert("eventType", kind.clone());
+                }
+                self.emit_error(JsValue::Object(bindings), "Failed to process session event");
             }
         }
     }
@@ -1755,7 +1768,20 @@ impl AgentManager {
         if let Some(agent) = self.lock().agent_mut(agent_id) {
             agent.snapshot.history_primed = false;
         }
-        let read = read_history(history).await?;
+        let read = match read_history(history).await {
+            Ok(read) => read,
+            Err(error) => {
+                // pino prints the `err` binding, an `Error`, as `{}`.
+                let mut bindings = JsObject::new();
+                bindings.insert("err", JsValue::Object(JsObject::new()));
+                bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+                self.emit_warn(
+                    JsValue::Object(bindings),
+                    "Failed to hydrate provider history",
+                );
+                return Err(error);
+            }
+        };
         let deferred = matches!(broadcast, HydrateBroadcast::Deferred(_));
         let immediate = matches!(broadcast, HydrateBroadcast::Now(true));
         let mut state = self.lock();
