@@ -16,6 +16,7 @@ use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::touch_updated_at;
 use super::log_error::err_binding;
+use super::plugin_lifecycle::describe_hook_agent;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot};
 use crate::agent_labels::{
     PARENT_AGENT_ID_LABEL, has_open_agent_tab, is_open_agent_tab_label, parent_agent_id_from_labels,
@@ -394,6 +395,32 @@ impl AgentManager {
             .upsert(archived.clone())
             .await
             .map_err(storage_error)?;
+        if !truthy(record.get("archivedAt"))
+            && !truthy(record.get("internal"))
+            && let Some(lifecycle) = self.plugin_lifecycle()
+        {
+            let text = |key: &str| archived.get(key).and_then(JsValue::as_str);
+            let mut event = JsObject::new();
+            event.insert(
+                "agent",
+                describe_hook_agent(
+                    &js_string(archived.get("id")),
+                    text("workspaceId"),
+                    archived.get("labels").unwrap_or(&JsValue::Undefined),
+                    &js_string(archived.get("provider")),
+                    &js_string(archived.get("cwd")),
+                    text("title"),
+                ),
+            );
+            event.insert(
+                "archivedAt",
+                archived
+                    .get("archivedAt")
+                    .cloned()
+                    .unwrap_or(JsValue::Undefined),
+            );
+            lifecycle.emit("agent.archived", JsValue::Object(event));
+        }
         Ok(archived)
     }
 
