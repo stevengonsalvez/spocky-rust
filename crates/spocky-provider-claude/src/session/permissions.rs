@@ -216,8 +216,23 @@ impl ClaudeSession {
     /// # Errors
     ///
     /// A mapper throw, or the abort of the request.
-    #[allow(clippy::too_many_lines)] // The baseline's canUseTool.
     pub(crate) async fn handle_permission_request(
+        self: &Rc<Self>,
+        tool_name: String,
+        input: JsValue,
+        options: CanUseToolOptions,
+    ) -> Result<JsValue, AgentError> {
+        let outcome = self
+            .permission_request_body(tool_name, input, options)
+            .await;
+        // The caller's `then` or `await` runs a tick after the function's
+        // promise settles, which is when its body returns.
+        tokio::task::yield_now().await;
+        outcome
+    }
+
+    #[allow(clippy::too_many_lines)] // The baseline's canUseTool.
+    async fn permission_request_body(
         self: &Rc<Self>,
         tool_name: String,
         input: JsValue,
@@ -346,7 +361,11 @@ impl ClaudeSession {
                 }
             }
         });
-        resolve.wait().await
+        let outcome = resolve.wait().await;
+        // `return await new Promise(...)`: the `await` resumes a tick after the
+        // promise settles, and the function's own promise a tick after that.
+        tokio::task::yield_now().await;
+        outcome
     }
 
     /// The `abortHandler` of a pending request.
