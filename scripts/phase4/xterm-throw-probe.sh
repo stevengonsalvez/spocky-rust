@@ -4,10 +4,11 @@
 #
 # The probe is a patch to crates/spocky-xterm/src (embedded below) that prints
 # one `THROW-SITE <file>:<line>:<col>` line to stderr wherever the port throws,
-# using #[track_caller] so the line is the caller's. The script applies it,
-# runs the three differential tests with --nocapture, counts the sites per
-# run, and reverses the patch on exit. It refuses to start when the crate
-# source has uncommitted changes. Nothing it prints is committed.
+# using #[track_caller] so the line is the caller's. The script exports the
+# committed HEAD into a scratch directory with `git archive`, applies the patch
+# there, runs the three differential tests with --nocapture, and counts the
+# sites per run. The working tree is never touched, so even a SIGKILL leaves
+# only a temporary directory behind. Uncommitted changes are not probed.
 #
 # Usage (Node 22.20.0), through the build gate:
 #   CARGO_TARGET_DIR=/private/tmp/spocky-targets/p4_xterm_core CARGO_BUILD_JOBS=3 \
@@ -22,22 +23,15 @@ set -u
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root" || exit 1
 src=crates/spocky-xterm/src
-if ! git diff --quiet -- "$src" || ! git diff --cached --quiet -- "$src"; then
-  echo "refusing to run: $src has uncommitted changes" >&2
-  exit 1
-fi
 
 work=$(mktemp -d)
-patch="$work/probe.patch"
-applied=0
-cleanup() {
-  if [ "$applied" = 1 ]; then
-    git apply -R "$patch" && applied=0
-  fi
-  rm -rf "$work"
-}
-trap cleanup EXIT
+work=$(cd "$work" && pwd -P)
+trap 'rm -rf "$work"' EXIT
 trap 'exit 130' INT TERM
+tree="$work/tree"
+patch="$work/probe.patch"
+mkdir "$tree"
+git archive HEAD | tar -x -C "$tree"
 
 cat > "$patch" <<'EOF_PATCH'
 diff --git a/crates/spocky-xterm/src/buffer.rs b/crates/spocky-xterm/src/buffer.rs
@@ -128,14 +122,13 @@ for file in buffer circular_list input_handler; do
     /req\(|Err\(Throw\)|\.line\(|wrapped_line\(|shift_elements\(|ok_or\(Throw\)/ {
       if (current == "req" || current == "line" || current == "wrapped_line") next
       print f ":" NR " " current
-    }' "$src/$file.rs"
+    }' "$tree/$src/$file.rs"
 done > "$work/candidates.txt"
 cat "$work/candidates.txt"
 echo "candidates: $(wc -l < "$work/candidates.txt" | tr -d ' ')"
 
-git apply --check "$patch" || exit 1
-git apply "$patch" || exit 1
-applied=1
+(cd "$tree" && git apply --check "$patch" && git apply "$patch") || exit 1
+cd "$tree" || exit 1
 
 run() {
   label=$1; shift
@@ -144,16 +137,16 @@ run() {
   status=$?
   grep -E "full matches" "$work/$label.err"
   echo "exit: $status"
-  grep '^THROW-SITE' "$work/$label.err" | sed "s#$root/##" | sort | uniq -c | sort -rn
+  grep '^THROW-SITE' "$work/$label.err" | sed "s#$tree/##" | sort | uniq -c | sort -rn
   echo "throw lines: $(grep -c '^THROW-SITE' "$work/$label.err")"
 }
 
-run corpus cargo test --locked -p spocky-xterm --test xterm_corpus -- --nocapture
+run corpus cargo test --locked --offline -p spocky-xterm --test xterm_corpus -- --nocapture
 run fuzz env "SPOCKY_XTERM_FUZZ_SEEDS=${SPOCKY_XTERM_FUZZ_SEEDS:-5000}" \
-  cargo test --locked -p spocky-xterm --test xterm_fuzz seeded -- --nocapture
+  cargo test --locked --offline -p spocky-xterm --test xterm_fuzz seeded -- --nocapture
 run biased env "SPOCKY_XTERM_BIASED_SEEDS=${SPOCKY_XTERM_BIASED_SEEDS:-1000}" \
-  cargo test --locked -p spocky-xterm --test xterm_fuzz biased -- --nocapture
+  cargo test --locked --offline -p spocky-xterm --test xterm_fuzz biased -- --nocapture
 
 echo "== reached sites (union)"
 cat "$work"/corpus.err "$work"/fuzz.err "$work"/biased.err \
-  | grep '^THROW-SITE' | sed "s#$root/##" | sed -E 's/:[0-9]+$//' | sort -u
+  | grep '^THROW-SITE' | sed "s#$tree/##" | sed -E 's/:[0-9]+$//' | sort -u
