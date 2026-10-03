@@ -754,6 +754,101 @@ pub fn g4_wire() -> GateSpec {
     }
 }
 
+/// The send-retry probe: one client creates an agent, sends with a fixed
+/// messageId, retries it, conflicts it, and races a fresh messageId.
+const G4_RETRY_PROBE: &str = include_str!("../../../scripts/phase3/receipts-retry-probe.mjs");
+/// The prompt the retry probe creates its agent with.
+pub const G4_PROMPT_RETRY_INITIAL: &str = "Reply with the single word INITIAL.";
+/// The prompt the probe sends with messageId `retry-1`.
+pub const G4_PROMPT_RETRY_SEND: &str = "Reply with the single word SENT.";
+/// The text the probe reuses with `retry-1` to provoke a key conflict.
+pub const G4_PROMPT_RETRY_OTHER: &str = "Reply with the single word OTHER.";
+/// The prompt the probe races on messageId `retry-2`.
+pub const G4_PROMPT_RETRY_RACE: &str = "Reply with the single word RACED.";
+
+fn g4_retry_preimages(captured: &BTreeMap<&'static str, String>) -> Vec<(&'static str, String)> {
+    creation_preimages(captured, "full-access", G4_PROMPT_RETRY_INITIAL)
+}
+
+/// G4 send retry: a retried send with the same messageId reuses its receipt
+/// and starts no second turn, a different request under that messageId is
+/// rejected, and concurrent sends of one fresh messageId start one turn. The
+/// stub holds exactly three turns, so a second turn from any retry fails the
+/// gate as an unscripted request.
+#[must_use]
+pub fn g4_retry() -> GateSpec {
+    use Arg::{Host, Lit, Project};
+    GateSpec {
+        id: "g4-retry",
+        script: Script {
+            responses: vec![
+                completed_turn("resp_g4r_1", "msg_g4r_1", "INITIAL"),
+                completed_turn("resp_g4r_2", "msg_g4r_2", "SENT"),
+                completed_turn("resp_g4r_3", "msg_g4r_3", "RACED"),
+            ],
+        },
+        steps: vec![StepSpec {
+            node_script: Some(G4_RETRY_PROBE),
+            ..step(
+                "probe",
+                vec![
+                    Host,
+                    Project,
+                    Lit(G4_PROMPT_RETRY_INITIAL),
+                    Lit(G4_PROMPT_RETRY_SEND),
+                    Lit(G4_PROMPT_RETRY_OTHER),
+                    Lit(G4_PROMPT_RETRY_RACE),
+                ],
+                Some(("workspace", "/workspaceId")),
+                None,
+            )
+        }],
+        checks: vec![
+            Check::AllExitZero,
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/0/ok",
+                expected: "true",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/1/ok",
+                expected: "true",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/2/ok",
+                expected: "true",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/3/ok",
+                expected: "true",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/4/ok",
+                expected: "false",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/4/error",
+                expected: "agent_request_key_conflict",
+            },
+            Check::FirstLineField {
+                step: "probe",
+                pointer: "/outcomes/5/ok",
+                expected: "true",
+            },
+            Check::StubExactlyConsumed,
+            Check::DaemonExit(0),
+        ],
+        preimages: g4_retry_preimages,
+        codex_present: true,
+        home_origin: HomeOrigin::Same,
+    }
+}
+
 /// G4 old state: the original daemon makes the home, the side's daemon opens it.
 #[must_use]
 pub fn g4_oldstate() -> GateSpec {
@@ -887,6 +982,7 @@ pub fn by_id(id: &str) -> Option<GateSpec> {
         "g4-disconnect" => Some(g4_disconnect()),
         "g4-socketdrop" => Some(g4_socketdrop()),
         "g4-wire" => Some(g4_wire()),
+        "g4-retry" => Some(g4_retry()),
         "g4-oldstate" => Some(g4_oldstate()),
         "g4-newstate" => Some(g4_newstate()),
         _ => None,
@@ -962,6 +1058,7 @@ mod tests {
             "g4-disconnect",
             "g4-socketdrop",
             "g4-wire",
+            "g4-retry",
             "g4-oldstate",
             "g4-newstate",
         ] {
