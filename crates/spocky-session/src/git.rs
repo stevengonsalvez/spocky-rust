@@ -22,6 +22,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use spocky_store::js_value::js_text_to_utf8;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
@@ -229,7 +230,8 @@ pub async fn run_git(args: &[&str], options: &GitOptions<'_>) -> Result<GitOutpu
     let mut command = Command::new("git");
     command
         .args(["-c", "core.quotepath=false", "-c", "core.fsmonitor=false"])
-        .args(args)
+        // The arguments are JavaScript text; node encodes them to UTF-8.
+        .args(args.iter().map(|argument| js_text_to_utf8(argument)))
         .current_dir(options.cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -432,6 +434,21 @@ fn signal_name(_status: std::process::ExitStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::{GitOptions, run_git};
+
+    /// A process argument that is JavaScript text is passed as UTF-8: a lone
+    /// surrogate is U+FFFD, as node's `execFile` encodes it.
+    #[tokio::test]
+    async fn arguments_encode_a_lone_surrogate_as_node_does() {
+        let directory = std::env::temp_dir();
+        let lone = spocky_store::js_value::js_text_from_utf16(&[0xD800]);
+        let output = run_git(
+            &["check-ref-format", "--branch", &format!("a{lone}b")],
+            &GitOptions::read_only(&directory),
+        )
+        .await
+        .expect("a name with U+FFFD is a valid branch name");
+        assert_eq!(output.stdout.trim_end(), "a\u{FFFD}b");
+    }
 
     #[tokio::test]
     async fn failure_message_matches_baseline_format() {
