@@ -14,7 +14,8 @@ pub struct InvalidUtf8;
 /// `{:ok, %{"type" => "ping"}} <- Jason.decode(payload)`. Anything else is ignored.
 #[must_use]
 pub fn is_ping(payload: &[u8]) -> bool {
-    scan(payload).is_some_and(|fields| fields.type_field == Field::Text("ping".to_owned()))
+    scan(payload)
+        .is_some_and(|fields| matches!(&fields.type_field, Field::Text(text) if text == "ping"))
 }
 
 /// `{"type":"sync","connectionIds":[...]}` for the Owner's client map; the ids are listed
