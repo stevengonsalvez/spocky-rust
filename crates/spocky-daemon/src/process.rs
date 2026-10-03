@@ -15,7 +15,10 @@ use std::time::Duration;
 
 use signal_hook::consts::{SIGINT, SIGTERM};
 
-use crate::daemon::{DAEMON_VERSION, DaemonEnv, FORCE_EXIT_AFTER, StartupError, start};
+use crate::config_file::configured_log_level;
+use crate::daemon::{
+    DAEMON_VERSION, DaemonEnv, FORCE_EXIT_AFTER, StartupError, resolve_paseo_home, start,
+};
 use crate::log::{JsonLineLogger, Logger};
 use crate::session_api::SessionBackend;
 
@@ -48,7 +51,11 @@ pub fn failure_text(error: &StartupError) -> String {
 /// the baseline's force-exit timer does.
 #[must_use]
 pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
-    let logger: Arc<dyn Logger> = Arc::new(daemon_logger(io::stdout()));
+    // `createRootLogger({ log: config.log }, { paseoHome, file: false })`: the
+    // level comes from the config file, which the start reads again.
+    let env = DaemonEnv::from_process();
+    let level = configured_log_level(&resolve_paseo_home(&env), false);
+    let logger: Arc<dyn Logger> = Arc::new(daemon_logger(io::stdout()).with_level(level));
     // Registered before startup, so a signal that arrives while starting is
     // held for the wait loop instead of killing the process mid-startup.
     let signalled = Arc::new(AtomicBool::new(false));
@@ -58,7 +65,7 @@ pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
             return ExitCode::from(1);
         }
     }
-    let daemon = match start(&DaemonEnv::from_process(), backend, &logger) {
+    let daemon = match start(&env, backend, &logger) {
         Ok(daemon) => daemon,
         Err(error) => {
             eprintln!("{}", failure_text(&error));
