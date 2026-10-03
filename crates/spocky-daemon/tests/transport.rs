@@ -1301,6 +1301,7 @@ impl Logger for Records {
         self.0.lock().unwrap().push((fields, message.to_owned()));
     }
     fn error(&self, _: &[(&str, &str)], _: &str) {}
+    fn fatal(&self, _: &[(&str, &str)], _: &str) {}
 }
 
 /// `websocket-server.ts` logs the request metadata with the cause of a 403.

@@ -14,12 +14,14 @@ use serde_json::{Map, Value};
 const INFO: u8 = 30;
 const WARN: u8 = 40;
 const ERROR: u8 = 50;
+const FATAL: u8 = 60;
 
 /// A log destination. `fields` are the first pino argument, `message` the second.
 pub trait Logger: Send + Sync {
     fn info(&self, fields: &[(&str, &str)], message: &str);
     fn warn(&self, fields: &[(&str, &str)], message: &str);
     fn error(&self, fields: &[(&str, &str)], message: &str);
+    fn fatal(&self, fields: &[(&str, &str)], message: &str);
 }
 
 /// Discards every record.
@@ -30,6 +32,7 @@ impl Logger for NullLogger {
     fn info(&self, _fields: &[(&str, &str)], _message: &str) {}
     fn warn(&self, _fields: &[(&str, &str)], _message: &str) {}
     fn error(&self, _fields: &[(&str, &str)], _message: &str) {}
+    fn fatal(&self, _fields: &[(&str, &str)], _message: &str) {}
 }
 
 /// Writes one pino-shaped JSON object per line: `level`, `time`, `pid`, the
@@ -78,6 +81,9 @@ impl<W: Write + Send> Logger for JsonLineLogger<W> {
     }
     fn error(&self, fields: &[(&str, &str)], message: &str) {
         self.write(ERROR, fields, message);
+    }
+    fn fatal(&self, fields: &[(&str, &str)], message: &str) {
+        self.write(FATAL, fields, message);
     }
 }
 
@@ -129,6 +135,9 @@ pub mod testing {
         fn error(&self, fields: &[(&str, &str)], message: &str) {
             self.push("error", fields, message);
         }
+        fn fatal(&self, fields: &[(&str, &str)], message: &str) {
+            self.push("fatal", fields, message);
+        }
     }
 }
 
@@ -175,6 +184,7 @@ mod tests {
         let logger = JsonLineLogger::new(Shared(Arc::clone(&bytes)), vec![]);
         logger.info(&[], "a");
         logger.error(&[], "b");
+        logger.fatal(&[], "c");
         let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
         let levels: Vec<i64> = text
             .lines()
@@ -184,6 +194,6 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        assert_eq!(levels, [30, 50]);
+        assert_eq!(levels, [30, 50, 60]);
     }
 }
