@@ -134,7 +134,7 @@ mod tests {
         StoredAgentRef, derive_initial_agent_title, resolve_agent_identifier,
         resolve_create_agent_titles,
     };
-    use crate::text::utf16_len;
+    use spocky_contracts::text::js_length;
 
     #[test]
     fn titles_match_baseline_rules() {
@@ -145,7 +145,7 @@ mod tests {
         let long = format!("{}😀tail", "a".repeat(59));
         // slice(0, 60) splits the emoji, leaving its high surrogate.
         let title = derive_initial_agent_title(&long).expect("title");
-        assert_eq!(utf16_len(&title), 60);
+        assert_eq!(js_length(&title), 60);
         assert_eq!(derive_initial_agent_title(" \n \t "), None);
         let titles = resolve_create_agent_titles(Some("  Named  "), Some("prompt"));
         assert_eq!(titles.explicit_title.as_deref(), Some("Named"));
