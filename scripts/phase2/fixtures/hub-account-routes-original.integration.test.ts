@@ -7,8 +7,13 @@ import { startProductionRuntime, stopProductionRuntime } from "./index.js";
 
 // Replays the shared account route case list against the pinned Hub's production runtime on its
 // embedded PGlite. Every traced step is a raw Request through `runtime.auth`, the same entry the
-// `/api/auth/$` route calls. Generated values are replaced by their names before the trace is
-// written; nothing else is rewritten.
+// `/api/auth/$` route calls. Only generated identity and wall-clock values are replaced before the
+// trace is written (see `mask` and the header of the case generator); nothing else is rewritten.
+
+const PINNED_NODE = "v22.20.0";
+const API_KEY_PREFIX = /^paseo_pk_[A-Za-z0-9_-]{12}$/u;
+const API_KEY_RANDOM = /^[A-Za-z0-9_-]{43}$/u;
+const NOMINAL_LIFETIMES_MS = [0, 48 * 3_600_000];
 
 const TEMPORARY_PASSWORD = "temporary-password";
 const REPLACEMENT_PASSWORD = "replacement-password";
@@ -24,6 +29,12 @@ const ENVIRONMENT_NAMES = [
   "PASEO_BOOTSTRAP_OWNER_PASSWORD",
 ] as const;
 
+interface Window {
+  ordinal: string;
+  startedAt: number;
+  endedAt: number;
+}
+
 type Runtime = Awaited<ReturnType<typeof startProductionRuntime>>;
 interface Step {
   kind: "setup" | "request";
@@ -36,6 +47,7 @@ interface Scenario {
 }
 
 it("captures the pinned account, organization and API key routes", async () => {
+  assert.equal(process.version, PINNED_NODE, "the capture runs on the node the Hub ships");
   const casesPath = process.env["SPOCKY_HUB_ACCOUNT_CASES"];
   const output = process.env["SPOCKY_HUB_ACCOUNT_OUTPUT"];
   assert.ok(casesPath, "SPOCKY_HUB_ACCOUNT_CASES is required");
@@ -89,6 +101,8 @@ async function replay(runtime: Runtime, appUrl: string, scenario: Scenario): Pro
   const cookies = new Map<string, string>();
   const values = new Map<string, string>();
   const trace: unknown[] = [];
+  const clock = new Map<string, string>();
+  const windows: Window[] = [];
 
   const resolve = (template: string): string =>
     template.replace(/\{\{([^}]+)\}\}/gu, (_whole, name: string) => {
@@ -97,34 +111,33 @@ async function replay(runtime: Runtime, appUrl: string, scenario: Scenario): Pro
       return value;
     });
 
-  // Learn each actor's account and membership id as soon as they exist, with unrecorded reads, so a
-  // value is known before a later step removes the membership it names.
+  // Learn each actor's account and membership id as soon as they exist, so a value is known before
+  // a later step removes the membership it names. The only hidden reads are `paseo/state`; the Rust
+  // replay issues the same ones through its own handler, and their only write is the bootstrap
+  // organization activation a recorded state read performs too.
   const learn = async (): Promise<void> => {
     for (const [actor, cookie] of cookies) {
-      if (!values.has(`${actor}.account`)) {
-        const response = await runtime.auth(
-          new Request(`${appUrl}/api/auth/get-session`, { headers: { cookie } }),
-        );
-        const body = (await response.json()) as { user?: { id?: string } } | null;
-        const id = body?.user?.id;
-        if (id !== undefined) values.set(`${actor}.account`, id);
+      if (values.has(`${actor}.account`) && values.has(`${actor}.member`)) continue;
+      const response = await runtime.auth(
+        new Request(`${appUrl}/api/auth/paseo/state`, { headers: { cookie } }),
+      );
+      const body = (await response.json()) as {
+        account?: { id?: string };
+        membership?: { id?: string };
+        organization?: { id?: string };
+      };
+      const account = body.account?.id;
+      if (account !== undefined && !values.has(`${actor}.account`)) {
+        values.set(`${actor}.account`, account);
       }
-      if (!values.has(`${actor}.member`)) {
-        const response = await runtime.auth(
-          new Request(`${appUrl}/api/auth/paseo/state`, { headers: { cookie } }),
-        );
-        const body = (await response.json()) as {
-          membership?: { id?: string };
-          organization?: { id?: string; slug?: string };
-        };
-        const id = body.membership?.id;
-        if (id !== undefined) values.set(`${actor}.member`, id);
-        // The owner's organization is the one the scenario operates on.
-        const organization = body.organization;
-        if (actor === "owner" && organization?.id !== undefined && !values.has("org")) {
-          values.set("org", organization.id);
-          if (organization.slug !== undefined) values.set("orgSlug", organization.slug);
-        }
+      const member = body.membership?.id;
+      if (member !== undefined && !values.has(`${actor}.member`)) {
+        values.set(`${actor}.member`, member);
+      }
+      // The owner's organization is the one the scenario operates on.
+      const organization = body.organization?.id;
+      if (actor === "owner" && organization !== undefined && !values.has("org")) {
+        values.set("org", organization);
       }
     }
   };
@@ -159,20 +172,15 @@ async function replay(runtime: Runtime, appUrl: string, scenario: Scenario): Pro
       }),
     );
     const text = await response.text();
-    for (const [name, pointer] of Object.entries((step["capture"] ?? {}) as Record<string, string>)) {
-      const value = pointer.split(".").reduce<unknown>(
-        (node, key) => (node as Record<string, unknown> | undefined)?.[key],
-        JSON.parse(text),
-      );
-      assert.equal(typeof value, "string", `capture ${name} from ${step["id"] as string}`);
-      values.set(name, value as string);
-    }
+    const endedAt = Date.now();
+    capture(step, text, values);
+    windows.push({ ordinal: ordinalOf(step["id"] as string), startedAt, endedAt });
     await learn();
     trace.push({
       id: step["id"],
       status: response.status,
       headers: [...response.headers.entries()],
-      body: mask(text, values, startedAt),
+      body: mask(text, values, clock, windows),
     });
   }
   return trace;
@@ -242,14 +250,81 @@ async function signIn(
   return cookie;
 }
 
-// Generated identity and wall clock only: every known generated value becomes its name, and an
-// ISO timestamp becomes its whole-hour offset from the request.
-function mask(text: string, values: Map<string, string>, startedAt: number): string {
+// Reads the captures of a step. An API key part keeps its exact prefix and format: the capture holds
+// only the random part, after the prefix, the format, the length and the charset are asserted.
+function capture(step: Step, text: string, values: Map<string, string>): void {
+  const captures = (step["capture"] ?? {}) as Record<string, string>;
+  const found = new Map<string, string>();
+  for (const [name, pointer] of Object.entries(captures)) {
+    const value = pointer.split(".").reduce<unknown>(
+      (node, key) => (node as Record<string, unknown> | undefined)?.[key],
+      JSON.parse(text),
+    );
+    assert.equal(typeof value, "string", `capture ${name} from ${step["id"] as string}`);
+    found.set(name, value as string);
+  }
+  for (const [name, value] of found) {
+    if (!name.startsWith("prefix")) continue;
+    assert.match(value, API_KEY_PREFIX, `API key prefix ${name}`);
+    values.set(name, value.slice("paseo_pk_".length));
+  }
+  for (const [name, value] of found) {
+    if (name.startsWith("prefix")) continue;
+    if (!name.startsWith("secret")) {
+      values.set(name, value);
+      continue;
+    }
+    const partner = values.get(`prefix${name.slice("secret".length)}`);
+    assert.ok(partner !== undefined, `secret ${name} needs its prefix capture`);
+    const random = value.slice(`paseo_pk_${partner}_`.length);
+    assert.equal(value, `paseo_pk_${partner}_${random}`, `API key secret format ${name}`);
+    assert.match(random, API_KEY_RANDOM, `API key secret ${name}`);
+    values.set(name, random);
+  }
+}
+
+// The step number inside a step id such as `open/192-admin-api-keys-created-admin`.
+function ordinalOf(id: string): string {
+  const match = /\/(\d+)-/u.exec(id);
+  assert.ok(match?.[1], `step id ${id}`);
+  return match[1];
+}
+
+// Generated identity and wall clock only. A captured value becomes its name; the first 8 characters
+// of a captured UUID become `<name:8>` (the generated part of an organization slug). A timestamp is
+// paired with the one request whose window, shifted by a nominal lifetime, contains it, and becomes
+// `<wall-clock@STEP+Nms>`; the first response that shows a timestamp may be a later request than
+// the one that wrote it (a revocation shows in the next listing). A timestamp that fits no window
+// stays raw, so a wrong lifetime shows in the trace; one that fits two windows fails the capture.
+function mask(
+  text: string,
+  values: Map<string, string>,
+  clock: Map<string, string>,
+  windows: readonly Window[],
+): string {
+  const known: [string, string][] = [];
+  for (const [name, value] of values) {
+    known.push([value, `<${name}>`]);
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value)) {
+      known.push([value.slice(0, 8), `<${name}:8>`]);
+    }
+  }
+  known.sort((a, b) => b[0].length - a[0].length);
   let masked = text;
-  const known = [...values.entries()].sort((a, b) => b[1].length - a[1].length);
-  for (const [name, value] of known) masked = masked.split(value).join(`<${name}>`);
+  for (const [value, label] of known) masked = masked.split(value).join(label);
   return masked.replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/gu, (iso) => {
-    const hours = Math.round((Date.parse(iso) - startedAt) / 3_600_000);
-    return `<wall-clock${hours >= 0 ? "+" : ""}${hours}h>`;
+    const seen = clock.get(iso);
+    if (seen !== undefined) return seen;
+    const at = Date.parse(iso);
+    const matches = windows.flatMap((window) =>
+      NOMINAL_LIFETIMES_MS.filter(
+        (offset) => window.startedAt + offset <= at && at <= window.endedAt + offset,
+      ).map((offset) => `<wall-clock@${window.ordinal}+${offset}ms>`),
+    );
+    assert.ok(matches.length <= 1, `timestamp ${iso} fits more than one request window`);
+    const label = matches[0];
+    if (label === undefined) return iso;
+    clock.set(iso, label);
+    return label;
   });
 }
