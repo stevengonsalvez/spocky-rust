@@ -289,6 +289,43 @@ impl AgentManager {
     ) -> Result<(), AgentError> {
         let event = limit_stream_event_content(event)?;
         let published = event.clone();
+        self.emit_trace(
+            || {
+                let metadata = if seq.is_none() && epoch.is_none() && timestamp.is_none() {
+                    JsValue::Undefined
+                } else {
+                    let mut object = JsObject::new();
+                    if let Some(seq) = seq {
+                        #[allow(
+                            clippy::cast_precision_loss,
+                            reason = "a sequence number is a double in node"
+                        )]
+                        object.insert("seq", JsValue::Number(seq as f64));
+                    }
+                    if let Some(epoch) = &epoch {
+                        object.insert("epoch", trace::text(epoch));
+                    }
+                    if let Some(timestamp) = &timestamp {
+                        object.insert("timestamp", trace::text(timestamp));
+                    }
+                    JsValue::Object(object)
+                };
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", event_provider(&event)),
+                    (
+                        "sessionId",
+                        state.agent(agent_id).map_or(JsValue::Undefined, |agent| {
+                            trace::session_id(&agent.snapshot)
+                        }),
+                    ),
+                    ("turnId", event_turn_value(&event)),
+                    ("metadata", metadata),
+                    ("event", event.clone()),
+                ])
+            },
+            "agent.manager.dispatch_stream",
+        );
         self.dispatch(
             state,
             AgentManagerEvent::AgentStream {
@@ -559,6 +596,27 @@ impl AgentManager {
         };
         Self::sync_features_from_session(agent);
         let snapshot = Box::new(agent.snapshot.clone());
+        self.emit_trace(
+            || {
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", trace::text(&snapshot.provider)),
+                    ("sessionId", trace::session_id(&snapshot)),
+                    ("turnId", trace::foreground_turn_id_or_undefined(&snapshot)),
+                    ("lifecycle", trace::lifecycle(&snapshot)),
+                    (
+                        "activeForegroundTurnId",
+                        trace::foreground_turn_id(&snapshot),
+                    ),
+                    (
+                        "pendingPermissions",
+                        trace::count(snapshot.pending_permissions.len()),
+                    ),
+                    ("persist", JsValue::Bool(persist)),
+                ])
+            },
+            "agent.manager.emit_state",
+        );
         self.dispatch(state, AgentManagerEvent::AgentState(snapshot));
     }
 
@@ -1184,6 +1242,13 @@ impl AgentManager {
                 self.on_stream_timeline_event(state, agent_id, event, from_history, flags)?;
             }
             Some("turn_completed") => {
+                self.trace_turn(
+                    state,
+                    agent_id,
+                    event_turn_id,
+                    false,
+                    "agent.manager.turn.completed",
+                );
                 self.on_stream_turn_completed(
                     state,
                     agent_id,
@@ -1203,15 +1268,31 @@ impl AgentManager {
                     from_history,
                 )?;
             }
-            Some("turn_canceled") => self.on_stream_turn_canceled(
-                state,
-                agent_id,
-                event,
-                is_foreground_event,
-                disposition,
-                from_history,
-            )?,
+            Some("turn_canceled") => {
+                self.trace_turn(
+                    state,
+                    agent_id,
+                    event_turn_id,
+                    true,
+                    "agent.manager.turn.canceled",
+                );
+                self.on_stream_turn_canceled(
+                    state,
+                    agent_id,
+                    event,
+                    is_foreground_event,
+                    disposition,
+                    from_history,
+                )?;
+            }
             Some("turn_started") => {
+                self.trace_turn(
+                    state,
+                    agent_id,
+                    event_turn_id,
+                    false,
+                    "agent.manager.turn.started",
+                );
                 self.on_stream_turn_started(
                     state,
                     agent_id,
@@ -1229,6 +1310,49 @@ impl AgentManager {
             _ => {}
         }
         Ok(())
+    }
+
+    /// The trace at the top of `onStreamTurnCompleted`, `onStreamTurnCanceled`
+    /// and `onStreamTurnStarted`: the agent's own provider, then the turn
+    /// (`eventTurnId` again for a cancellation).
+    fn trace_turn(
+        &self,
+        state: &State,
+        agent_id: &str,
+        event_turn_id: Option<&JsValue>,
+        repeat_turn: bool,
+        message: &str,
+    ) {
+        self.emit_trace(
+            || {
+                let snapshot = state.agent(agent_id).map(|agent| &agent.snapshot);
+                let turn = event_turn_id.cloned().unwrap_or(JsValue::Undefined);
+                let mut object = JsObject::new();
+                object.insert("agentId", trace::text(agent_id));
+                object.insert(
+                    "provider",
+                    snapshot.map_or(JsValue::Undefined, |agent| trace::text(&agent.provider)),
+                );
+                object.insert(
+                    "sessionId",
+                    snapshot.map_or(JsValue::Undefined, trace::session_id),
+                );
+                object.insert("turnId", turn.clone());
+                object.insert(
+                    "lifecycle",
+                    snapshot.map_or(JsValue::Undefined, trace::lifecycle),
+                );
+                object.insert(
+                    "activeForegroundTurnId",
+                    snapshot.map_or(JsValue::Undefined, trace::foreground_turn_id),
+                );
+                if repeat_turn {
+                    object.insert("eventTurnId", turn);
+                }
+                JsValue::Object(object)
+            },
+            message,
+        );
     }
 
     /// The `thread_started` case of `dispatchStreamEventByType`.
