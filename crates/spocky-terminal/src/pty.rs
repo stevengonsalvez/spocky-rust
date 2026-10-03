@@ -469,9 +469,14 @@ pub fn run_helper(args: &[OsString]) -> i32 {
 /// default. Installing a flag handler for each signal replaces any inherited
 /// `SIG_IGN`, and `exec` then resets it. Signals that cannot be caught are
 /// skipped, and `exec` through `Command` already unblocks the signal mask.
+///
+/// node-pty resets every signal below `NSIG`: 1 to 31 on macOS, and 1 to 64 on
+/// Linux, where 34 to 64 are the real-time signals (`pty.cc:442-447`). The
+/// glibc-reserved 32 and 33 refuse a handler and are skipped like the others.
 fn reset_signal_dispositions() {
     let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    for signal in 1..=31 {
+    let last = if cfg!(target_os = "linux") { 64 } else { 31 };
+    for signal in 1..=last {
         // `register` panics for the signals no handler may take.
         if !signal_hook::consts::FORBIDDEN.contains(&signal) {
             let _ = signal_hook::flag::register(signal, std::sync::Arc::clone(&flag));
