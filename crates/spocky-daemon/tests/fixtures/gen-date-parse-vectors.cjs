@@ -1,6 +1,9 @@
 // Regenerates date-parse-vectors.json: `Date.parse` of startedAt-like strings
-// under Node 22.20.0, the call at pid-lock.ts:59 (`precedesThisBoot`). Every
-// string names its own zone, so the values do not depend on TZ. A string
+// under Node 22.20.0, the call at pid-lock.ts:59 (`precedesThisBoot`). In
+// `cases` every string names its own zone, so the values do not depend on TZ.
+// `localCases` are strings with no zone, which V8 reads in local time, recorded
+// under each of `zones`: UTC, which the harness pins (TZ=UTC), and Europe/London,
+// where the offset changes and two local times are skipped or repeated. A string
 // V8 rejects is recorded as null (NaN).
 // Usage: node gen-date-parse-vectors.cjs > date-parse-vectors.json
 const crypto = require("node:crypto");
@@ -39,6 +42,38 @@ const inputs = [
   "2026-10-01T",
   "T14:00:00Z",
 ];
+const zones = ["UTC", "Europe/London"];
+const localInputs = [
+  "2026-10-01T14:00:00",
+  "2026-10-01T14:00",
+  "2026-10-01T14:00:00.123",
+  "2026-01-15T14:00:00",
+  "2026-03-29T00:59:59",
+  "2026-03-29T01:30:00",
+  "2026-03-29T02:00:00",
+  "2026-10-25T00:59:59",
+  "2026-10-25T01:30:00",
+  "2026-10-25T02:00:00",
+  "2026-10-01 14:00:00",
+  "Oct 1 2026",
+  "Oct 1 2026 15:17:04",
+  "Thu Oct 01 2026 14:00:00",
+  "1 October 2026 14:00",
+  "2026/10/01",
+  "2026/10/01 14:00:00",
+  "10/01/2026",
+  "10/01/2026 14:00:00",
+];
+const localCases = [];
+for (const zone of zones) {
+  // Node reads TZ again when it is assigned.
+  process.env.TZ = zone;
+  for (const text of localInputs) {
+    const value = Date.parse(text);
+    localCases.push({ zone, text, ms: Number.isNaN(value) ? null : value });
+  }
+}
+process.env.TZ = "UTC";
 const out = {
   node: process.version,
   nodeSha256: crypto.createHash("sha256").update(fs.readFileSync(process.execPath)).digest("hex"),
@@ -46,5 +81,6 @@ const out = {
     const value = Date.parse(text);
     return { text, ms: Number.isNaN(value) ? null : value };
   }),
+  localCases,
 };
 process.stdout.write(JSON.stringify(out, null, 1));
