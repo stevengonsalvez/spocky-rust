@@ -377,10 +377,10 @@ impl AgentManager {
         // Every map agent holds a session, so the missing session is the
         // `TypeError` pinned reading `setFeature` of `null` would throw.
         let Some(session) = session else {
-            return Err(AgentError {
-                name: "TypeError".to_owned(),
-                message: "Cannot read properties of null (reading 'setFeature')".to_owned(),
-            });
+            return Err(AgentError::named(
+                "TypeError".to_owned(),
+                "Cannot read properties of null (reading 'setFeature')".to_owned(),
+            ));
         };
         let Some(set_feature) = session.set_feature(feature_id, value.clone()) else {
             return Err(AgentError::new(
@@ -791,11 +791,10 @@ impl AgentManager {
         session: Option<Arc<dyn AgentSession>>,
     ) -> Result<Option<JsValue>, AgentError> {
         let Some(session) = session else {
-            return Err(AgentError {
-                name: "TypeError".to_owned(),
-                message: "Cannot read properties of null (reading 'respondToPermission')"
-                    .to_owned(),
-            });
+            return Err(AgentError::named(
+                "TypeError".to_owned(),
+                "Cannot read properties of null (reading 'respondToPermission')".to_owned(),
+            ));
         };
         let result = session.respond_to_permission(request_id, response).await?;
         if let Some(agent) = self.lock().agent_mut(agent_id) {
@@ -843,10 +842,9 @@ impl AgentManager {
         self.persist_snapshot_raw(agent_id, detached, overrides)
             .await
             .map_err(|error| match error {
-                crate::agent_storage::StorageError::Projection(error) => AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.0.clone(),
-                },
+                crate::agent_storage::StorageError::Projection(error) => {
+                    AgentError::named("TypeError".to_owned(), error.0.clone())
+                }
                 crate::agent_storage::StorageError::Store(error) => {
                     AgentError::new(error.to_string())
                 }
