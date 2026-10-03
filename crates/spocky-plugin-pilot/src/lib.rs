@@ -1483,10 +1483,10 @@ pub fn acquire_git(
                 .current_dir(&staging),
             timeout,
         )?;
-        let actual_revision = String::from_utf8(output.stdout)
-            .map_err(|_| PluginError::InvalidCommandOutput)?
-            .trim()
-            .to_owned();
+        let actual_revision = js_trim(
+            &String::from_utf8(output.stdout).map_err(|_| PluginError::InvalidCommandOutput)?,
+        )
+        .to_owned();
         if actual_revision != reviewed_revision {
             return Err(PluginError::ReviewedRevisionMismatch {
                 expected: reviewed_revision.to_owned(),
@@ -1693,7 +1693,7 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
                 return Ok(output);
             }
             return Err(PluginError::CommandFailed(
-                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+                js_trim(&String::from_utf8_lossy(&output.stderr)).to_owned(),
             ));
         }
         if Instant::now() >= deadline {
