@@ -14,21 +14,57 @@
  "cases": [
   {
    "name": "port_in_use",
-   "host": "127.0.0.1",
-   "port": 58141,
+   "listen": "127.0.0.1:PORT",
+   "port": 63937,
    "code": 1,
    "signal": null,
-   "fatalLine": "{\"level\":60,\"time\":1791040186779,\"pid\":45883,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRINUSE: address already in use 127.0.0.1:58141\",\"stack\":\"Error: listen EADDRINUSE: address already in use 127.0.0.1:58141\\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRINUSE\",\"errno\":-48,\"syscall\":\"listen\",\"address\":\"127.0.0.1\",\"port\":58141},\"msg\":\"Daemon failed to start listening\"}",
-   "workerStderr": "Error: listen EADDRINUSE: address already in use 127.0.0.1:58141\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
+   "fatalLine": "{\"level\":60,\"time\":1791059473009,\"pid\":56789,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRINUSE: address already in use 127.0.0.1:63937\",\"stack\":\"Error: listen EADDRINUSE: address already in use 127.0.0.1:63937\\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRINUSE\",\"errno\":-48,\"syscall\":\"listen\",\"address\":\"127.0.0.1\",\"port\":63937},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: listen EADDRINUSE: address already in use 127.0.0.1:63937\n    at Server.setupListenHandle [as _listen2] (node:net:1940:16)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
   },
   {
    "name": "address_not_available",
-   "host": "192.0.2.1",
-   "port": 58193,
+   "listen": "192.0.2.1:PORT",
+   "port": 64044,
    "code": 1,
    "signal": null,
-   "fatalLine": "{\"level\":60,\"time\":1791040238898,\"pid\":60216,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\",\"stack\":\"Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRNOTAVAIL\",\"errno\":-49,\"syscall\":\"listen\",\"address\":\"192.0.2.1\",\"port\":58193},\"msg\":\"Daemon failed to start listening\"}",
-   "workerStderr": "Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:58193\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
+   "fatalLine": "{\"level\":60,\"time\":1791059519278,\"pid\":68049,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EADDRNOTAVAIL: address not available 192.0.2.1:64044\",\"stack\":\"Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:64044\\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\\n    at listenInCluster (node:net:1997:12)\\n    at node:net:2206:7\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\",\"code\":\"EADDRNOTAVAIL\",\"errno\":-49,\"syscall\":\"listen\",\"address\":\"192.0.2.1\",\"port\":64044},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: listen EADDRNOTAVAIL: address not available 192.0.2.1:64044\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)\n"
+  },
+  {
+   "name": "port_too_large",
+   "listen": "127.0.0.1:70000",
+   "port": 70000,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791059559644,\"pid\":76699,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"RangeError\",\"message\":\"options.port should be >= 0 and < 65536. Received type number (70000).\",\"stack\":\"RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536. Received type number (70000).\\n    at Server.listen (node:net:2091:5)\\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1307:32\\n    at new Promise (<anonymous>)\\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\",\"code\":\"ERR_SOCKET_BAD_PORT\"},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536. Received type number (70000).\n    at Server.listen (node:net:2091:5)\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1307:32\n    at new Promise (<anonymous>)\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\n"
+  },
+  {
+   "name": "port_negative",
+   "listen": "127.0.0.1:-1",
+   "port": -1,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791059604737,\"pid\":81935,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"RangeError\",\"message\":\"options.port should be >= 0 and < 65536. Received type number (-1).\",\"stack\":\"RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536. Received type number (-1).\\n    at Server.listen (node:net:2091:5)\\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1307:32\\n    at new Promise (<anonymous>)\\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\",\"code\":\"ERR_SOCKET_BAD_PORT\"},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536. Received type number (-1).\n    at Server.listen (node:net:2091:5)\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1307:32\n    at new Promise (<anonymous>)\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\n"
+  },
+  {
+   "name": "host_not_found",
+   "listen": "nonexistent.invalid:PORT",
+   "port": 64260,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791059641813,\"pid\":89757,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"getaddrinfo ENOTFOUND nonexistent.invalid\",\"stack\":\"Error: getaddrinfo ENOTFOUND nonexistent.invalid\\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)\",\"errno\":-3008,\"code\":\"ENOTFOUND\",\"syscall\":\"getaddrinfo\",\"hostname\":\"nonexistent.invalid\"},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: getaddrinfo ENOTFOUND nonexistent.invalid\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)\n"
+  },
+  {
+   "name": "socket_in_missing_directory",
+   "listen": "unix:///nonexistent-dir-spocky/x.sock",
+   "port": null,
+   "code": 1,
+   "signal": null,
+   "fatalLine": "{\"level\":60,\"time\":1791059679716,\"pid\":95874,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"Error\",\"message\":\"listen EACCES: permission denied /nonexistent-dir-spocky/x.sock\",\"stack\":\"Error: listen EACCES: permission denied /nonexistent-dir-spocky/x.sock\\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\\n    at listenInCluster (node:net:1997:12)\\n    at Server.listen (node:net:2119:5)\\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1313:32\\n    at new Promise (<anonymous>)\\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\",\"code\":\"EACCES\",\"errno\":-13,\"syscall\":\"listen\",\"address\":\"/nonexistent-dir-spocky/x.sock\",\"port\":-1},\"msg\":\"Daemon failed to start listening\"}",
+   "workerStderr": "Error: listen EACCES: permission denied /nonexistent-dir-spocky/x.sock\n    at Server.setupListenHandle [as _listen2] (node:net:1918:21)\n    at listenInCluster (node:net:1997:12)\n    at Server.listen (node:net:2119:5)\n    at file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1313:32\n    at new Promise (<anonymous>)\n    at Object.start (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/bootstrap.js:1194:19)\n    at async main (file:///private/tmp/spocky-targets/p3_slice_harness/paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server/server/daemon-worker.js:252:9)\n"
   }
  ]
 }
