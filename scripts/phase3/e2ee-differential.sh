@@ -7,7 +7,7 @@
 #
 # Evidence lands in evidence/raw/phase3/e2ee-<utc>/ (untracked) and its
 # SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass,
-# both sides' transcripts of exactly 57 scenarios and 4 interop pairs exist,
+# both sides' transcripts of exactly 60 scenarios and 4 interop pairs exist,
 # and each is byte-identical. SPOCKY_ALLOW_SKIP is always unset, so the
 # differential can never skip.
 #
@@ -22,7 +22,7 @@ unset SPOCKY_ALLOW_SKIP
 
 # The scenario count is pinned: a scenario that silently stops running, or
 # one added without updating this number, fails the run.
-expected_scenarios=57
+expected_scenarios=60
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 . "$repository_root/scripts/phase3/pins.sh"
