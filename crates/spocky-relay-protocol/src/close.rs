@@ -1,7 +1,19 @@
-//! Every WebSocket close the pinned relay emits, with its exact code and reason.
+//! The WebSocket closes the pinned relay's own modules emit, with their exact code and
+//! reason (`PaseoRelay.Socket`, `PaseoRelay.Ownership`, `PaseoRelay.Delivery.Writer`) and
+//! Cowboy's frame-size close.
 //!
-//! Sources: `PaseoRelay.Socket`, `PaseoRelay.Ownership`, `PaseoRelay.Delivery.Writer`
-//! and Cowboy's own frame-size close.
+//! Observed on the wire (`scripts/phase4/relay-protocol-live.exs`): `SESSION_OWNER_MOVED`,
+//! `SESSION_EXPIRED`, `SERVER_DISCONNECTED`, `INVALID_HANDSHAKE_KEY`,
+//! `REPLACED_BY_NEW_CONNECTION`, `CLIENT_DISCONNECTED`, `MESSAGE_TOO_LARGE`.
+//!
+//! Source only, read from the Elixir and not yet produced on a socket (they need memory
+//! pressure, ledger loss, a stalled owner or a slow consumer, which belong to the flow
+//! slice): `RELAY_INGRESS_CAPACITY`, `DATA_ROUTE_UNAVAILABLE`, `DELIVERY_UNAVAILABLE`,
+//! `RELAY_MEMORY_PRESSURE`, `RELAY_CAPACITY_UNAVAILABLE`, `SLOW_CONSUMER`,
+//! `CONTROL_UNRESPONSIVE`.
+//!
+//! Not in this table: closes Cowboy itself raises for protocol violations (`1002`, `1007`)
+//! and a crashed connection process (`1011`).
 
 /// A WebSocket close code with its reason text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
