@@ -1370,7 +1370,11 @@ const steerScenario = async () => {
     if (item.running) {
       held = manager.streamAgent(agentId, "hold");
       heldEvents.push((await held.next()).value);
-      await sleep(50);
+      // The held turn's reasoning item reaches the timeline after the coalescing window.
+      for (let tick = 0; manager.getTimeline(agentId).length === 0; tick += 1) {
+        if (tick === 2000) throw new Error("the held turn never reached the timeline");
+        await sleep(5);
+      }
     }
     const results = [];
     for (const [kind, prompt, options] of item.ops) {
@@ -5523,7 +5527,15 @@ async fn steer_scenario(cwd: &str, home: &Path) -> JsValue {
                 .expect("held stream");
             held_events.push(stream.next().await.expect("first").expect("event"));
             held = Some(stream);
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            // The held turn's reasoning item reaches the timeline after the
+            // coalescing window.
+            for tick in 0..=2000 {
+                assert!(tick < 2000, "the held turn never reached the timeline");
+                if !manager.get_timeline(AGENT_ID).expect("timeline").is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
         }
         let mut results = Vec::new();
         for op in item.get("ops").and_then(JsValue::as_array).expect("ops") {
