@@ -17,6 +17,7 @@ use spocky_differential::{
     NormalizationTarget, Observation, ObservationSlot, Scenario, compare_observations,
 };
 
+use crate::heartbeat::{HEARTBEAT_GATE, HEARTBEAT_TRANSFORM, without_heartbeat_pongs};
 use crate::normalize::{
     SLICE_SHAPES, SideFacts, SideInput, Text, derived_digests, distinct_ids, mask,
     preimage_digests, receipt_key, root_slug, rules_for, value_classes,
@@ -665,26 +666,70 @@ fn prepare_side(
     (artifacts, state, counts)
 }
 
-/// The side as it is compared: on the persistence gate, with the early full
-/// handles rewritten (see [`without_enrichment_race`]), and the names of the
-/// artifacts that changed.
-fn enriched(gate: &GateSpec, side: &SideRun) -> (SideRun, Vec<String>) {
-    if gate.id == PERSISTENCE_GATE {
-        without_enrichment_race(side)
-    } else {
-        (side.clone(), Vec::new())
+/// One side as it is compared, with what the scoped transforms changed.
+struct Prepared {
+    run: SideRun,
+    /// Artifacts the persistence transform rewrote.
+    persistence: Vec<String>,
+    /// Bare heartbeat pongs removed, per step stdout.
+    pongs: Vec<(String, usize)>,
+}
+
+/// The side as it is compared: on g4-retry, with the bare heartbeat pongs
+/// removed and the early full persistence handles rewritten (see
+/// [`without_heartbeat_pongs`] and [`without_enrichment_race`]).
+fn prepared(gate: &GateSpec, side: &SideRun) -> Prepared {
+    let mut prepared = Prepared {
+        run: side.clone(),
+        persistence: Vec::new(),
+        pongs: Vec::new(),
+    };
+    if gate.id == HEARTBEAT_GATE {
+        (prepared.run, prepared.pongs) = without_heartbeat_pongs(&prepared.run);
     }
+    if gate.id == PERSISTENCE_GATE {
+        (prepared.run, prepared.persistence) = without_enrichment_race(&prepared.run);
+    }
+    prepared
+}
+
+/// Describes the heartbeat pong transform with the removed count per side;
+/// `None` on a gate it does not apply to.
+fn heartbeat_transform(left: &[(String, usize)], right: &[(String, usize)]) -> Option<Transform> {
+    if left.is_empty() && right.is_empty() {
+        return None;
+    }
+    let counts = |label: &str, removed: &[(String, usize)]| -> Vec<String> {
+        removed
+            .iter()
+            .map(|(name, count)| format!("{label}:{name}: removed {count}"))
+            .collect()
+    };
+    let mut changed = counts("left", left);
+    changed.extend(counts("right", right));
+    Some(Transform {
+        id: HEARTBEAT_TRANSFORM.into(),
+        target: "g4-retry only: step stdout lines exactly equal to the bare pong {\"type\":\"pong\"}; a pong with any other text and every other frame stay".into(),
+        reason: "the pinned client's 10 s liveness heartbeat is answered by a bare pong whose count and place among the other frames follow the wall clock (g4-retry original vs original, 20261003T162836Z: one difference, the pong's place)".into(),
+        owner: "p3_slice_harness".into(),
+        raw_retained: "left-*/side.json and right-*/side.json steps stdout, and files/".into(),
+        reordered: changed,
+    })
 }
 
 /// The named transforms a comparison applied, in a fixed order.
 fn transforms_of(
     sides: (&SideRun, &SideRun),
     probe: (&[usize], &[usize]),
-    enriched: (&[String], &[String]),
+    prepared: (&Prepared, &Prepared),
 ) -> Vec<Transform> {
     let mut transforms = vec![client_metadata_transform(sides.0, sides.1)];
     transforms.extend(git_probe_transform(probe.0, probe.1));
-    transforms.extend(persistence_transform(enriched.0, enriched.1));
+    transforms.extend(persistence_transform(
+        &prepared.0.persistence,
+        &prepared.1.persistence,
+    ));
+    transforms.extend(heartbeat_transform(&prepared.0.pongs, &prepared.1.pongs));
     transforms
 }
 
@@ -728,10 +773,11 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
     });
     let harness_errors = labelled(left, right, |side| side.harness_errors.clone());
     let (left_probe, right_probe) = git_probe_strips(left, right);
-    let (left_run, left_enriched) = enriched(gate, left);
-    let (right_run, right_enriched) = enriched(gate, right);
-    let (left_artifacts, left_state, left_counts) = prepare_side(gate, &left_run, &left_probe);
-    let (right_artifacts, right_state, right_counts) = prepare_side(gate, &right_run, &right_probe);
+    let (left_prepared, right_prepared) = (prepared(gate, left), prepared(gate, right));
+    let (left_artifacts, left_state, left_counts) =
+        prepare_side(gate, &left_prepared.run, &left_probe);
+    let (right_artifacts, right_state, right_counts) =
+        prepare_side(gate, &right_prepared.run, &right_probe);
     let left_texts = texts(&left_artifacts, &left_state);
     let right_texts = texts(&right_artifacts, &right_state);
     let (left_facts, right_facts) = (facts(left), facts(right));
@@ -776,7 +822,7 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
     let transforms = transforms_of(
         (left, right),
         (&left_probe, &right_probe),
-        (&left_enriched, &right_enriched),
+        (&left_prepared, &right_prepared),
     );
     let compared = manifest.is_some();
     let comparison = comparison_label(
@@ -1549,14 +1595,14 @@ mod tests {
                 &probe_record(pair().0, PROBE, None),
                 &probe_record(pair().1, "", None)
             ),
-            (vec![], vec![0])
+            (vec![0], vec![])
         );
         assert_eq!(
             git_probe_strips(
                 &probe_record(pair().0, "", None),
                 &probe_record(pair().1, PROBE, None)
             ),
-            (vec![0], vec![])
+            (vec![], vec![0])
         );
     }
 
@@ -1648,5 +1694,57 @@ mod tests {
             );
             assert!(!outcome.verdict.pass, "{early}");
         }
+    }
+
+    fn lines(lines: &[&str]) -> Vec<u8> {
+        format!("{}\n", lines.join("\n")).into_bytes()
+    }
+
+    #[test]
+    fn bare_heartbeat_pongs_are_removed_on_g4_retry_and_counted_per_side() {
+        let pong = r#"{"type":"pong"}"#;
+        let (left, right) = pair();
+        let left = with_wire(left, lines(&["{\"o\":1}", "frame-a", pong, "frame-b"]));
+        let right = with_wire(
+            right,
+            lines(&["{\"o\":1}", pong, "frame-a", "frame-b", pong]),
+        );
+        let outcome = compare_sides(&retry_gate(), &left, &right);
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
+        let named = outcome
+            .verdict
+            .transforms
+            .iter()
+            .find(|t| t.id == HEARTBEAT_TRANSFORM)
+            .expect("transform named");
+        assert_eq!(
+            named.reordered,
+            [
+                "left:step-01-run/stdout: removed 1",
+                "right:step-01-run/stdout: removed 2"
+            ]
+        );
+        // Other gates compare the pongs as frames.
+        assert!(
+            !compare_sides(&gate_with(Vec::new()), &left, &right)
+                .verdict
+                .pass
+        );
+    }
+
+    #[test]
+    fn only_the_exact_bare_pong_is_removed() {
+        let (left, right) = pair();
+        let left = with_wire(left, lines(&["{\"o\":1}", "frame-a"]));
+        for other in [
+            r#"{"type":"pong","payload":{"requestId":"r"}}"#,
+            r#"{"type": "pong"}"#,
+            r#" {"type":"pong"}"#,
+        ] {
+            let right = with_wire(pair().1, lines(&["{\"o\":1}", other, "frame-a"]));
+            let outcome = compare_sides(&retry_gate(), &left.clone(), &right);
+            assert!(!outcome.verdict.pass, "{other}");
+        }
+        drop(right);
     }
 }
