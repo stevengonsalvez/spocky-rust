@@ -6,29 +6,7 @@ use std::path::Path;
 
 use spocky_store::js_value::{js_text, js_text_from_utf16, js_text_utf16};
 
-/// ECMAScript `WhiteSpace` and `LineTerminator`: what `trim` removes and
-/// `/\s/` matches. Unlike Rust's `char::is_whitespace`, it includes U+FEFF and
-/// excludes U+0085.
-#[must_use]
-pub const fn is_js_whitespace(character: char) -> bool {
-    matches!(
-        character,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
-}
-
-/// `String.prototype.trim`.
-#[must_use]
-pub fn js_trim(value: &str) -> &str {
-    value.trim_matches(is_js_whitespace)
-}
+pub use spocky_contracts::text::{is_js_whitespace, js_trim};
 
 /// `value.replace(/\s+/g, " ")`.
 #[must_use]
@@ -55,12 +33,6 @@ pub fn collapse_js_whitespace(value: &str) -> String {
 pub fn slice_utf16(value: &str, units: usize) -> String {
     let code_units: Vec<u16> = js_text_utf16(value).take(units).collect();
     js_text_from_utf16(&code_units)
-}
-
-/// UTF-16 length, `value.length`.
-#[must_use]
-pub fn utf16_len(value: &str) -> usize {
-    js_text_utf16(value).count()
 }
 
 /// A path from the operating system (the working directory, a resolved path,
@@ -93,11 +65,10 @@ mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
+    use spocky_contracts::text::js_length;
     use spocky_store::js_value::{JsTextUnit, js_text_units};
 
-    use super::{
-        bytes_text, collapse_js_whitespace, js_trim, path_text, read_text, slice_utf16, utf16_len,
-    };
+    use super::{bytes_text, collapse_js_whitespace, js_trim, path_text, read_text, slice_utf16};
 
     /// The escape U+10FFFF followed by U+F0000 would read as an encoded lone
     /// surrogate unless the escape is doubled on the way in.
@@ -150,10 +121,10 @@ mod tests {
     #[test]
     fn utf16_slicing_keeps_lone_surrogates() {
         let text = "ab😀cd";
-        assert_eq!(utf16_len(text), 6);
+        assert_eq!(js_length(text), 6);
         assert_eq!(slice_utf16(text, 4), "ab😀");
         let split = slice_utf16(text, 3);
-        assert_eq!(utf16_len(&split), 3);
+        assert_eq!(js_length(&split), 3);
         assert_ne!(split, "ab😀");
         assert_eq!(slice_utf16(text, 100), text);
     }
