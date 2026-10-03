@@ -20,7 +20,12 @@ use crate::stub::{FORBIDDEN_PORTS, RecordedRequest, Script};
 /// Prefix of every disposable root and tmux session the harness owns.
 pub const OWNED_PREFIX: &str = "spocky-p3-";
 const ROOT_PARENT: &str = "/private/tmp";
-const READY_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a daemon may take to answer its first `ls`, in seconds. This is
+/// harness tolerance for a loaded machine, not a compared value: it is the
+/// same on both sides and recorded in every side's `launch.json`. A daemon
+/// that does not answer in time is a harness error, never a daemon verdict.
+pub const READY_TIMEOUT_SECS: u64 = 180;
+const READY_TIMEOUT: Duration = Duration::from_secs(READY_TIMEOUT_SECS);
 const READY_INTERVAL: Duration = Duration::from_millis(500);
 const STEP_TIMEOUT: Duration = Duration::from_secs(240);
 const STOP_GRACE: Duration = Duration::from_secs(30);
@@ -1627,6 +1632,7 @@ fn run_in_layout(
         "daemonPort": daemon_port,
         "stubPort": stub.port,
         "logPath": layout.text("daemon.out"),
+        "readyTimeoutSeconds": READY_TIMEOUT_SECS,
         "program": program,
         "environment": environment,
     });
@@ -2664,6 +2670,14 @@ mod tests {
                 "app-server --enable goals#1"
             ]
         );
+    }
+
+    #[test]
+    fn the_readiness_timeout_is_one_recorded_value() {
+        // One constant feeds the wait and the launch.json record, so the two
+        // can never disagree and both sides always get the same tolerance.
+        assert_eq!(READY_TIMEOUT_SECS, 180);
+        assert_eq!(READY_TIMEOUT, Duration::from_secs(READY_TIMEOUT_SECS));
     }
 
     #[test]
