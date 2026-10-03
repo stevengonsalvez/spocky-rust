@@ -7,7 +7,8 @@
 //! `prompt_started`, in the usual run only from the first
 //! `wait_for_finish_response`. This module accepts exactly two shapes in the
 //! early snapshots (`agent_ready`, `prompt_started`, `completed` and
-//! `agent.create.response`, and the stored creation record): the minimal one,
+//! `agent.create.response`, and the stored creation record's
+//! `/snapshot/agent/persistence`): the minimal one,
 //! or, byte for byte, the full handle the same side emits at its first
 //! `wait_for_finish_response`. The second is rewritten to the minimal one so
 //! both compare equal; any other shape is left as it is and so fails.
@@ -24,6 +25,9 @@ pub const PERSISTENCE_TRANSFORM: &str = "persistence-enrichment-timing";
 /// The only gate this transform applies to.
 pub const PERSISTENCE_GATE: &str = "g4-retry";
 
+/// Where a stored creation record keeps the agent snapshot's handle.
+const RECORD_HANDLE: &str = "/snapshot/agent/persistence";
+
 const EARLY_PHASES: [&str; 3] = ["agent_ready", "prompt_started", "completed"];
 
 fn serialized(value: &Value) -> String {
@@ -36,19 +40,19 @@ fn session_message(frame: &Value) -> Option<&Value> {
         .flatten()
 }
 
-/// The full handle: the `persistence` of the first `wait_for_finish_response`
-/// in the probe's wire, when it carries a `nativeHandle`.
+/// The full handle: the `persistence` of the FIRST `wait_for_finish_response`
+/// in the probe's wire. When that frame carries no `nativeHandle` there is no
+/// full handle and the transform does not apply; a later frame never stands
+/// in for it.
 fn full_handle(stdout: &str) -> Option<Value> {
-    stdout.lines().find_map(|line| {
+    let first = stdout.lines().find_map(|line| {
         let frame = serde_json::from_str::<Value>(line).ok()?;
         let message = session_message(&frame)?;
-        if message.get("type")? != "wait_for_finish_response" {
-            return None;
-        }
-        let handle = message.pointer("/payload/final/persistence")?;
-        handle.get("nativeHandle")?;
-        Some(handle.clone())
-    })
+        (message.get("type")? == "wait_for_finish_response").then(|| message.clone())
+    })?;
+    let handle = first.pointer("/payload/final/persistence")?;
+    handle.get("nativeHandle")?;
+    Some(handle.clone())
 }
 
 /// The minimal handle that goes with a full one.
@@ -103,28 +107,6 @@ fn rewritten_wire(stdout: &str, full: &Value, minimal: &Value) -> Option<String>
     changed.then(|| lines.join("\n"))
 }
 
-/// Replaces every `persistence` value equal to `full` with `minimal`.
-fn replace_handles(value: &mut Value, full_text: &str, minimal: &Value) -> bool {
-    match value {
-        Value::Object(map) => {
-            let mut changed = false;
-            for (key, child) in map.iter_mut() {
-                if key == "persistence" && serialized(child) == full_text {
-                    *child = minimal.clone();
-                    changed = true;
-                } else {
-                    changed |= replace_handles(child, full_text, minimal);
-                }
-            }
-            changed
-        }
-        Value::Array(items) => items.iter_mut().fold(false, |changed, item| {
-            replace_handles(item, full_text, minimal) | changed
-        }),
-        _ => false,
-    }
-}
-
 /// A stored creation record with its early full handle rewritten, or `None`
 /// when nothing changed or the record would not serialize back to itself.
 fn rewritten_record(text: &str, full: &Value, minimal: &Value) -> Option<String> {
@@ -135,9 +117,15 @@ fn rewritten_record(text: &str, full: &Value, minimal: &Value) -> Option<String>
     if serde_json::to_string_pretty(&record).ok()? != body {
         return None;
     }
-    replace_handles(&mut record, &full.to_string(), minimal)
-        .then(|| serde_json::to_string_pretty(&record).map(|text| format!("{text}{suffix}")))?
+    // Only at the one path a creation record keeps the agent's handle.
+    let handle = record.pointer_mut(RECORD_HANDLE)?;
+    if serialized(handle) != serialized(full) {
+        return None;
+    }
+    *handle = minimal.clone();
+    serde_json::to_string_pretty(&record)
         .ok()
+        .map(|text| format!("{text}{suffix}"))
 }
 
 /// The side with the early full handles of the probe wire and of the stored
@@ -266,5 +254,29 @@ mod tests {
         // Not byte-stable under a rewrite: left alone.
         let compact = record(FULL).replace("\n  ", "\n    ");
         assert!(rewritten_record(&compact, &full, &minimal).is_none());
+    }
+
+    #[test]
+    fn only_the_first_wait_for_finish_response_can_supply_the_full_handle() {
+        let mut lines = vec![frame("agent.create.update", "prompt_started", FULL)];
+        lines.push(later(MINIMAL));
+        lines.push(later(FULL));
+        let stdout = lines.join("\n");
+        // The first frame has no nativeHandle: no full handle, the class
+        // does not apply, and the later frame does not stand in for it.
+        assert!(full_handle(&stdout).is_none());
+    }
+
+    #[test]
+    fn a_record_is_rewritten_only_at_the_snapshot_agent_path() {
+        let stdout = wire(&[MINIMAL], FULL);
+        let full = full_handle(&stdout).unwrap();
+        let minimal = minimal_handle(&full).unwrap();
+        let elsewhere: Value = serde_json::from_str(&format!(
+            r#"{{"fingerprint":"f","other":{{"agent":{{"persistence":{FULL}}}}},"snapshot":{{"agent":{{"persistence":{MINIMAL}}}}}}}"#
+        ))
+        .unwrap();
+        let text = format!("{}\n", serde_json::to_string_pretty(&elsewhere).unwrap());
+        assert!(rewritten_record(&text, &full, &minimal).is_none());
     }
 }
