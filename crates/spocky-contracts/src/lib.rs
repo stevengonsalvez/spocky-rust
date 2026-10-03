@@ -23,6 +23,8 @@ pub mod field;
 pub mod frame;
 pub mod id;
 pub mod js;
+#[rustfmt::skip]
+pub mod js_case_tables;
 pub mod js_value;
 pub mod json;
 pub mod literal;
