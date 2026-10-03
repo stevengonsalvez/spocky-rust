@@ -1,0 +1,135 @@
+{
+  "method": {
+    "membership": "complete PNG SHA-256 equality",
+    "rmse": "sqrt(mean squared RGBA byte difference) / 255",
+    "normalization": "none",
+    "mask": "none",
+    "threshold": "none"
+  },
+  "baseline": {
+    "name": "candidate-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.83",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "candidate": {
+    "name": "candidate-repeat-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.83",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "visual": {
+    "baselineSha256": "72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe",
+    "candidateSha256": "72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe",
+    "exactMembership": true,
+    "baselineSize": [
+      1280,
+      800
+    ],
+    "candidateSize": [
+      1280,
+      800
+    ],
+    "comparable": true,
+    "normalizedRmse": 0.0,
+    "differentPixels": 0,
+    "differenceBoundingBox": []
+  },
+  "focusWalk": {
+    "baselineEntries": 20,
+    "candidateEntries": 20,
+    "baselineCompleted": true,
+    "candidateCompleted": true,
+    "equal": true
+  },
+  "activations": {
+    "addProjectActivation": {
+      "baselineChanged": true,
+      "candidateChanged": true,
+      "baselineDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline \u2191\u2193 Navigate \u23ce Select Esc Close",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory Find a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory Create an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "candidateDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline \u2191\u2193 Navigate \u23ce Select Esc Close",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory Find a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory Create an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "dialogsEqual": true,
+      "baselinePathAfter": "",
+      "candidatePathAfter": ""
+    },
+    "plusActivation": {
+      "baselineChanged": false,
+      "candidateChanged": false,
+      "baselineDialogs": [],
+      "candidateDialogs": [],
+      "dialogsEqual": true,
+      "baselinePathAfter": "",
+      "candidatePathAfter": ""
+    }
+  },
+  "accessibilityTree": {
+    "baselineNodes": 124,
+    "candidateNodes": 124,
+    "equal": true,
+    "rolesAndNamesEqual": true,
+    "differences": []
+  },
+  "inExactMembership": true
+}
