@@ -5,9 +5,11 @@ edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.94"
 
+[dependencies]
+spocky-contracts = { path = "../spocky-contracts" }
+
 [dev-dependencies]
 sha2 = "0.10.9"
-spocky-contracts = { path = "../spocky-contracts" }
 
 [lints.rust]
 unsafe_code = "forbid"
