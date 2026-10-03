@@ -1,6 +1,7 @@
 //! `PostgreSQL` implementation of pinned invitation serialization boundaries.
 
 use postgres::{Client, NoTls};
+use spocky_contracts::text::js_trim;
 use uuid::Uuid;
 
 use crate::{HubError, InvitationRole, StoreError};
@@ -261,7 +262,7 @@ fn lock_organization(
 }
 
 fn normalize_email(email: &str) -> Option<String> {
-    let email = email.trim().to_ascii_lowercase();
+    let email = js_trim(email).to_lowercase();
     (!email.is_empty() && email.contains('@')).then_some(email)
 }
 
