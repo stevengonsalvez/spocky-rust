@@ -1,7 +1,9 @@
 //! The slice of zod 4 behavior the Hub request schemas use: issue wording, issue order and the
 //! checks that still run on values of the wrong type.
 
-use spocky_contracts::js_value::{JsObject, js_number, js_text_utf16};
+use spocky_contracts::js::js_string;
+use spocky_contracts::js_value::JsObject;
+use spocky_contracts::text::{js_length, js_trim};
 
 use super::value::{JsValueExt as _, Json};
 
@@ -115,33 +117,6 @@ pub(super) fn index(path: &[PathPart], position: usize) -> Vec<PathPart> {
     next
 }
 
-/// `String.prototype.trim`: the `ECMAScript` `WhiteSpace` and `LineTerminator` sets.
-#[must_use]
-pub fn js_trim(text: &str) -> &str {
-    text.trim_matches(|ch| {
-        matches!(
-            ch,
-            '\u{9}'..='\u{d}'
-                | ' '
-                | '\u{a0}'
-                | '\u{1680}'
-                | '\u{2000}'..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-        )
-    })
-}
-
-/// JavaScript string length: UTF-16 code units, counting a lone surrogate as one.
-#[must_use]
-pub fn utf16_len(text: &str) -> usize {
-    js_text_utf16(text).count()
-}
-
 /// zod 4 `z.uuid()`: versions 1 to 8 with a variant nibble of 8 to b, plus the nil and the
 /// lower-case max UUID.
 #[must_use]
@@ -200,25 +175,12 @@ fn to_number(value: &Json) -> Option<f64> {
     })
 }
 
-fn join_scalar(item: &Json) -> String {
-    match item {
-        Json::Null | Json::Undefined => String::new(),
-        Json::Bool(flag) => flag.to_string(),
-        Json::Number(number) if number.is_infinite() => if *number > 0.0 {
-            "Infinity"
-        } else {
-            "-Infinity"
-        }
-        .to_owned(),
-        Json::Number(number) => js_number(*number),
-        Json::String(text) => text.clone(),
-        Json::Object(_) => "[object Object]".to_owned(),
-        Json::Array(_) => unreachable!("nested arrays are walked, not printed"),
-    }
-}
-
 /// `Array.prototype.join` as `ToPrimitive` applies it to an array value, with an explicit stack.
 /// `None` when the nesting is deeper than [`MAX_JOIN_DEPTH`].
+///
+/// Kept here because `spocky_contracts::js::js_string` joins arrays recursively and has no
+/// `RangeError` depth, so a body nested a megabyte deep would overflow the Rust stack there. Scalars
+/// still go through `js_string`.
 fn array_to_string(items: &[Json]) -> Option<String> {
     let mut out = String::new();
     let mut stack: Vec<(&[Json], usize)> = vec![(items, 0)];
@@ -238,13 +200,14 @@ fn array_to_string(items: &[Json]) -> Option<String> {
                 }
                 stack.push((nested, 0));
             }
-            scalar => out.push_str(&join_scalar(scalar)),
+            Json::Null | Json::Undefined => {}
+            scalar => out.push_str(&js_string(Some(scalar))),
         }
     }
     Some(out)
 }
 
-/// `StringToNumber`: trimmed decimal literals, `Infinity` and the `0x`, `0o` and `0b` forms.
+/// `StringToNumber`; `spocky_contracts` has no `ToNumber`, so it stays here. Trimmed decimal literals, `Infinity` and the `0x`, `0o` and `0b` forms.
 fn string_to_number(text: &str) -> f64 {
     let text = js_trim(text);
     if text.is_empty() {
@@ -362,7 +325,7 @@ fn length_after_type_failure(
         Json::String(text) => {
             length_issues(
                 Origin::String,
-                utf16_len(text) as f64,
+                js_length(text) as f64,
                 min,
                 max,
                 path,
@@ -397,7 +360,7 @@ pub fn string_field(
             #[allow(clippy::cast_precision_loss)]
             length_issues(
                 Origin::String,
-                utf16_len(text) as f64,
+                js_length(text) as f64,
                 rule.min,
                 rule.max,
                 path,
