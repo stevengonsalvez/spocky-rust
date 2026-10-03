@@ -5577,6 +5577,7 @@ name = "spocky-daemon-relay"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "spocky-contracts",
  "spocky-crypto",
  "url",
 ]
