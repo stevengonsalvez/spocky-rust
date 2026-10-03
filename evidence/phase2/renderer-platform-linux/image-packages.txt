@@ -1,5 +1,5 @@
 image: spocky-renderer-linux-image:pinned
-image id: sha256:289345c3127809ad4ecbaa16e7730db7a108cf59b8a3c68f3d8be5888ce001d4
+image id: sha256:57d713b68c6bd9b300384b10a7e07f8044d402bf3b1c0690546b8ab79d2d4cab
 base: rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
 rustc 1.94.0 (4a4ef493e 2026-03-02)
 cargo 1.94.0 (85eff7c80 2026-01-15)
