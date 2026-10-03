@@ -251,3 +251,24 @@ pub fn run_node(pinned: &Pinned, script: &str, args: &[&str]) -> String {
     );
     String::from_utf8(output.stdout).expect("utf8 stdout")
 }
+
+/// Runs a Node script file on the pinned Node with a bounded wall clock and
+/// returns its output.
+pub fn run_node_file(
+    pinned: &Pinned,
+    script: &Path,
+    args: &[&std::ffi::OsStr],
+) -> std::process::Output {
+    let timeout = if Command::new("gtimeout").arg("--version").output().is_ok() {
+        "gtimeout"
+    } else {
+        "timeout"
+    };
+    Command::new(timeout)
+        .args(["--kill-after=5", "120"])
+        .arg(&pinned.node)
+        .arg(script)
+        .args(args)
+        .output()
+        .expect("run pinned node script")
+}
