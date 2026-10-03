@@ -4,7 +4,7 @@ Baseline: Hub `28f6c78833065fd282f9064f92a9aa61875dd359`, `src/auth/organization
 (`OrganizationAccess.handle`) behind `src/auth/server.ts:245` (`/api/auth/paseo/*`), plus the
 `better-auth` library handler for the rest of `/api/auth/*`. Scope of this slice: the HTTP route
 table, request validation, status codes and error bodies. Capture target: the real pinned
-`createAuthServer` on PostgreSQL, driven by raw `Request` objects, trace compared byte for byte.
+production runtime on embedded PGlite, driven by raw `Request` objects, trace compared byte for byte.
 
 ## Route table (`/api/auth/paseo/*`)
 
