@@ -16,7 +16,10 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     rc::Rc,
-    sync::mpsc::{Receiver, RecvTimeoutError, channel},
+    sync::{
+        OnceLock,
+        mpsc::{Receiver, RecvTimeoutError, channel},
+    },
     thread,
     time::Duration,
 };
@@ -76,6 +79,8 @@ pub const PINNED_DIGESTS: [(&str, &str); 7] = [
     ),
 ];
 
+static NODE_DIGEST: OnceLock<String> = OnceLock::new();
+
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Locations of the pinned node binary, relay sources, and dependencies.
@@ -101,8 +106,10 @@ pub fn pinned() -> Option<Pinned> {
         }
         panic!("set SPOCKY_PINNED_NODE (or SPOCKY_ALLOW_SKIP=1)");
     };
+    // Every scenario calls `pinned`, and `SPOCKY_PINNED_NODE` is fixed for
+    // the process, so the binary is hashed once.
     assert_eq!(
-        sha256_file(Path::new(&node)),
+        NODE_DIGEST.get_or_init(|| sha256_file(Path::new(&node))),
         NODE_BINARY_SHA256,
         "SPOCKY_PINNED_NODE is not the pinned node {NODE_VERSION} binary"
     );
