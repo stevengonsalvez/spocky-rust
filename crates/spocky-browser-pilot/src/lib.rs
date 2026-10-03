@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
+use spocky_contracts::text::js_trim;
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -655,16 +656,8 @@ fn parse_deep_link(input: &str) -> Option<DeepLinkTarget> {
     if segments.len() != 3 || segments[1] != "agent" {
         return None;
     }
-    let server_id = percent_decode_str(segments[0])
-        .decode_utf8()
-        .ok()?
-        .trim()
-        .to_owned();
-    let agent_id = percent_decode_str(segments[2])
-        .decode_utf8()
-        .ok()?
-        .trim()
-        .to_owned();
+    let server_id = js_trim(&percent_decode_str(segments[0]).decode_utf8().ok()?).to_owned();
+    let agent_id = js_trim(&percent_decode_str(segments[2]).decode_utf8().ok()?).to_owned();
     if server_id.is_empty() || agent_id.is_empty() {
         return None;
     }
