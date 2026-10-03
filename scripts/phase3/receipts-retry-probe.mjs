@@ -52,10 +52,12 @@ prototype.handleJsonPayload = function (payload, length) {
   return handleJsonPayload.call(this, payload, length);
 };
 const record = (connection) => recorded.get(connection);
-// The client's 10 s liveness heartbeat is answered by a bare pong. How many
+// Class client-heartbeat-pong: the client's 10 s liveness heartbeat is
+// answered by a bare pong. How many
 // arrive, and between which other frames, follows the wall clock (two runs of
 // the same daemon put one in different places), so these are left out of the
-// ordered wire. A pong that is not exactly this text stays in it. The g4-wire
+// ordered wire. Only a frame exactly equal to this text is removed; a pong
+// with any other text stays in it. The g4-wire
 // fixture compares the daemon's answer to a ping.
 const HEARTBEAT_PONG = '{"type":"pong"}';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
