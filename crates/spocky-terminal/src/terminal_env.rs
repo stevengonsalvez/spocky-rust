@@ -27,7 +27,11 @@ pub fn external_process_env(base: &JsObject, overlays: &[&JsObject]) -> JsObject
     let mut merged = JsObject::new();
     for source in std::iter::once(base).chain(overlays.iter().copied()) {
         for (key, value) in source.iter() {
-            merged.insert(key, value.clone());
+            // `Object.assign` writes `__proto__` through the prototype
+            // setter, so it never becomes an own key.
+            if key != "__proto__" {
+                merged.insert(key, value.clone());
+            }
         }
     }
     let mut sanitized = JsObject::new();
@@ -70,7 +74,8 @@ pub fn build_terminal_environment(
     terminal.insert("TERM_PROGRAM", JsValue::String("kitty".to_owned()));
     let mut env = external_process_env(input.process_env, &[input.env, &terminal]);
 
-    if let Some(bin_dir) = input.paseo_cli_bin_dir {
+    // An empty string is falsy in the baseline, like a missing path.
+    if let Some(bin_dir) = input.paseo_cli_bin_dir.filter(|dir| !dir.is_empty()) {
         let path_key = env
             .iter()
             .map(|(key, _)| key)
@@ -81,7 +86,7 @@ pub fn build_terminal_environment(
         let prepended = prepend_path_entry(current, bin_dir);
         env.insert(path_key, JsValue::String(prepended));
     }
-    if let Some(cli_path) = input.paseo_hook_cli_path {
+    if let Some(cli_path) = input.paseo_hook_cli_path.filter(|path| !path.is_empty()) {
         env.insert(
             "PASEO_HOOK_CLI",
             JsValue::String(resolve_posix(input.cwd, &external_process_path(cli_path))),
