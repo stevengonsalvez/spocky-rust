@@ -7,4 +7,5 @@
 
 pub mod close;
 pub mod limits;
+pub mod query;
 pub mod rejection;
