@@ -903,6 +903,67 @@ fn rethrown_plaintext_frame_errors_close_with_their_message() {
 }
 
 #[test]
+fn only_error_rejections_are_rethrown_from_a_rehello() {
+    let Some(transcript) = differential(
+        "daemon-rehello-non-error-rejection",
+        &[
+            daemon(),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            // A string rejection carrying the marker falls through to
+            // ciphertext decoding of the hello text instead of closing with it.
+            mode("reject-value", "relay saw plaintext frame"),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            mode("pending", ""),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            json!({ "op": "settle", "id": 3, "errorValue": "late plaintext frame" }),
+            // The same text as an Error rethrows.
+            deliver_text(&hello(PEER_PUBLIC, "")),
+            settle(4, Some("late plaintext frame")),
+            mode("sync", ""),
+            deliver_base64(&seal(&peer_shared(), 1, b"still open")),
+        ],
+    ) else {
+        return;
+    };
+    assert!(!has(
+        &transcript,
+        r#"{"t":"transport-close","code":1011,"reason":"relay saw plaintext frame"}"#
+    ));
+    // Only the Error-typed settle of the same text closes with it.
+    assert_eq!(
+        count(
+            &transcript,
+            r#"{"t":"transport-close","code":1011,"reason":"late plaintext frame"}"#
+        ),
+        1
+    );
+    // Non-Error rejections elsewhere behave like errors, with String(value).
+    differential(
+        "non-error-rejections",
+        &[
+            mode("reject-value", "hello rejected with a string"),
+            client(),
+            json!({ "op": "tick" }),
+            mode("sync", ""),
+            deliver_text(READY_LEGACY),
+            mode("reject-value", "app send rejected with a string"),
+            send_text("rejected"),
+            mode("pending", ""),
+            send_text("pending"),
+            json!({ "op": "settle", "id": 4, "errorValue": "pending rejected with a string" }),
+        ],
+    );
+    differential(
+        "daemon-ready-non-error-rejection",
+        &[
+            mode("reject-value", "ready rejected with a string"),
+            daemon(),
+            deliver_text(&hello(PEER_PUBLIC, "")),
+        ],
+    );
+}
+
+#[test]
 fn unexpected_token_messages_match_v8() {
     let bases = [
         r#"{"plaintext frame":[1,true,null]}"#,
