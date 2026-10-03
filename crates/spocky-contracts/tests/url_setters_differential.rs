@@ -66,6 +66,31 @@ const HREFS: &[&str] = &[
     "non-spec://x/..//p",
     "http://example.com//a//b",
 ];
+/// The two places `url_aggregator` (what node uses) differs from `ada::url`,
+/// pinned directly: an empty host set on a URL that has no host changes
+/// nothing, or drops the `/.` prefix when the path starts with `//`; and the
+/// `host` getter reads empty when the hostname is empty even with a port.
+const AGGREGATOR_CASES: &[(&str, &str, &str)] = &[
+    ("foo:/a/b", "host", ""),
+    ("foo:/a/b", "hostname", ""),
+    ("foo:a/b?q", "host", ""),
+    ("foo:", "host", ""),
+    ("foo:/a/b", "host", ":80"),
+    ("foo:/a/b", "host", "h:80"),
+    ("non-spec:/.//p", "host", ""),
+    ("non-spec:/.//p", "hostname", ""),
+    ("non-spec:/.//p", "host", "h"),
+    ("non-spec://x/..//p", "host", ""),
+    ("foo:///x", "host", ""),
+    ("foo:///x", "host", ":80"),
+    ("foo://path/to", "host", ":80"),
+    ("foo://path/to", "host", ""),
+    ("foo://h:9/a", "hostname", ""),
+    ("foo://h:9/a", "host", ":9"),
+    ("foo://u:p@h:9/a", "host", ""),
+    ("foo://h/a", "host", ""),
+];
+
 const PROTOCOLS: &[&str] = &[
     "http",
     "https",
@@ -238,7 +263,10 @@ impl Random {
 /// Generated `(href, setter, value)` triples.
 fn generated_cases() -> Vec<(String, &'static str, String)> {
     let mut random = Random(0x9E37_79B9_7F4A_7C15);
-    let mut cases = Vec::new();
+    let mut cases: Vec<(String, &'static str, String)> = AGGREGATOR_CASES
+        .iter()
+        .map(|(href, setter, value)| ((*href).to_owned(), *setter, (*value).to_owned()))
+        .collect();
     for href in HREFS {
         for (setter, pool) in [
             ("protocol", PROTOCOLS),
