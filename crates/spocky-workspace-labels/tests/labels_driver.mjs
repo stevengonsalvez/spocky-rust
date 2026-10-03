@@ -120,7 +120,6 @@ for (const scenario of scenarios) {
     );
     const files = [];
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
       const entryRelative = relative === "" ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) files.push(...(await walk(path.join(directory, entry.name), entryRelative)));
       else files.push([entryRelative, await fs.readFile(path.join(directory, entry.name), "utf8")]);
