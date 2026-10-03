@@ -8,17 +8,20 @@ use spocky_store::js_value::{JsObject, JsValue};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::create::{attach_persistence_cwd, touch_updated_at};
+use super::events::{HydrateBroadcast, HydrateTimelineOptions};
 use super::events::{
     SubmittedPrompt, TerminalDisposition, event_type, format_turn_failed_message,
     is_turn_terminal_event, raw_turn_id,
 };
 use super::lifecycle::AgentRunCancellationResult;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, State, SubscribeOptions};
+use crate::agent_projection::SnapshotOverrides;
 use crate::agent_prompt::submitted_prompt_text;
 use crate::agent_sdk::{
     AbortReason, AbortSignal, AgentError, AgentPromptInput, AgentRunOptions, AgentSession,
     StreamCallback,
 };
+use crate::rewind::{RewindMode, invoke_rewind_capability};
 use spocky_contracts::js::{js_string, truthy};
 
 /// `finalizedForegroundTurnIds` keeps at most this many ids.
@@ -394,6 +397,192 @@ impl AgentManager {
             token,
             waiter_id: None,
         })
+    }
+
+    /// `rewind(agentId, messageId, mode)`: reverts the provider session to
+    /// before `message_id`, holding the agent's foreground run slot while it
+    /// does, then rebuilds the timeline from the provider's history unless
+    /// only files were reverted.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, `Cannot rewind before the
+    /// provider acknowledges the submitted prompt`, `AgentRunCancellationError`
+    /// when an active run cannot be cancelled, `RewindCapabilityError`, or
+    /// the provider's, history or persistence error.
+    pub async fn rewind(
+        &self,
+        agent_id: &str,
+        message_id: &str,
+        mode: RewindMode,
+    ) -> Result<(), AgentError> {
+        let (id, session, provider, provider_message_id) = {
+            let state = self.lock();
+            let agent = Self::require_agent(&state, agent_id)?;
+            let id = agent.snapshot.id.clone();
+            let Some(session) = agent.session.clone() else {
+                return Err(AgentError::new(format!(
+                    "Agent '{id}' has no managed session"
+                )));
+            };
+            let submitted = state.timeline.rows(&id).ok().and_then(|rows| {
+                rows.iter()
+                    .find(|row| {
+                        row.item.get("type").and_then(JsValue::as_str) == Some("user_message")
+                            && row.item.get("messageId").and_then(JsValue::as_str)
+                                == Some(message_id)
+                            && row.item.get("clientMessageId").and_then(JsValue::as_str)
+                                == Some(message_id)
+                    })
+                    .map(|row| row.provider_message_id.clone())
+            });
+            let acknowledged = match submitted {
+                Some(provider_message_id) => {
+                    match provider_message_id.filter(|provider_id| !provider_id.is_empty()) {
+                        Some(provider_id) => provider_id,
+                        None => {
+                            return Err(AgentError::new(
+                                "Cannot rewind before the provider acknowledges the submitted prompt",
+                            ));
+                        }
+                    }
+                }
+                None => message_id.to_owned(),
+            };
+            (id, session, agent.snapshot.provider.clone(), acknowledged)
+        };
+
+        if self.has_in_flight_run(agent_id) {
+            self.cancel_agent_run_before(agent_id, "rewind").await?;
+        }
+
+        let token = {
+            let mut state = self.lock();
+            let token = Self::next_token(&mut state);
+            state.runs.insert(
+                id.clone(),
+                TrackedRun::Foreground {
+                    token,
+                    start: RunStart::Pending,
+                    staged: Vec::new(),
+                    settled: watch::channel(false).0,
+                },
+            );
+            token
+        };
+        let attempt: Result<(), AgentError> = async {
+            self.log_rewind("agent.rewind.start", &id, &provider, message_id, mode);
+            invoke_rewind_capability(&*session, &provider_message_id, mode).await?;
+            if mode != RewindMode::Files {
+                self.hydrate_timeline_from_provider(
+                    &id,
+                    HydrateTimelineOptions {
+                        force: true,
+                        broadcast: Some(HydrateBroadcast::Now(true)),
+                        broadcast_timeline: Some(false),
+                    },
+                )
+                .await?;
+                let state = self.lock();
+                let epoch = state
+                    .timeline
+                    .epoch(&id)
+                    .map_err(|error| AgentError {
+                        name: "TypeError".to_owned(),
+                        message: error.to_string(),
+                    })?
+                    .to_owned();
+                self.dispatch(
+                    &state,
+                    AgentManagerEvent::TimelineReplacement {
+                        agent_id: id.clone(),
+                        epoch,
+                    },
+                );
+            }
+            self.refresh_session_persistence(&id);
+            self.refresh_session_state(&id, false).await;
+            self.persist_snapshot(&id, SnapshotOverrides::default())
+                .await?;
+            self.emit_state(&id, false);
+            self.log_rewind("agent.rewind.complete", &id, &provider, message_id, mode);
+            Ok(())
+        }
+        .await;
+        if let Err(error) = &attempt {
+            self.warn_rewind_failed(error, &id, &provider, message_id, mode);
+        }
+        Self::settle_foreground_run(&mut self.lock(), &id, token);
+        attempt
+    }
+
+    /// `logger.info({ agentId, provider, messageId, mode }, message)`.
+    fn log_rewind(
+        &self,
+        message: &str,
+        agent_id: &str,
+        provider: &str,
+        message_id: &str,
+        mode: RewindMode,
+    ) {
+        let Some(info) = &self.inner.log_info else {
+            return;
+        };
+        info(
+            Self::rewind_bindings(None, agent_id, provider, message_id, mode),
+            message,
+        );
+    }
+
+    /// The bindings `rewind` logs: `err` first when there is one.
+    fn rewind_bindings(
+        err: Option<JsValue>,
+        agent_id: &str,
+        provider: &str,
+        message_id: &str,
+        mode: RewindMode,
+    ) -> JsValue {
+        let mut bindings = JsObject::new();
+        if let Some(err) = err {
+            bindings.insert("err", err);
+        }
+        bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+        bindings.insert("provider", JsValue::String(provider.to_owned()));
+        bindings.insert("messageId", JsValue::String(message_id.to_owned()));
+        bindings.insert("mode", JsValue::String(mode.as_str().to_owned()));
+        JsValue::Object(bindings)
+    }
+
+    /// `logger.warn({ err, agentId, provider, messageId, mode },
+    /// "agent.rewind.failed")`.
+    fn warn_rewind_failed(
+        &self,
+        error: &AgentError,
+        agent_id: &str,
+        provider: &str,
+        message_id: &str,
+        mode: RewindMode,
+    ) {
+        let Some(warn) = &self.inner.log_warn else {
+            return;
+        };
+        // pino prints the `err` binding, an `Error`, as its own enumerable
+        // properties: `RewindCapabilityError` assigns `name`, other errors
+        // have none.
+        let mut err = JsObject::new();
+        if error.name == "RewindCapabilityError" {
+            err.insert("name", JsValue::String(error.name.clone()));
+        }
+        warn(
+            Self::rewind_bindings(
+                Some(JsValue::Object(err)),
+                agent_id,
+                provider,
+                message_id,
+                mode,
+            ),
+            "agent.rewind.failed",
+        );
     }
 
     /// `cancelAgentRunBefore(agentId, action)`: cancels the active run, and
