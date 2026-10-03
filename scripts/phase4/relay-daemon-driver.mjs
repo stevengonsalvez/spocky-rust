@@ -44,6 +44,7 @@ const files = {
 };
 // physical-socket.ts uses a constructor parameter property, which Node's strip-only mode
 // rejects, so that one file goes through the pinned TypeScript compiler instead.
+let transpiledDigest = null;
 const typescript = createRequire(`${nodeModules}/`)("typescript");
 const e2eeStub = new URL("./relay-daemon-e2ee-stub.mjs", import.meta.url).href;
 
@@ -53,6 +54,7 @@ registerHooks({
       const source = typescript.transpileModule(readFileSync(new URL(url), "utf8"), {
         compilerOptions: { module: typescript.ModuleKind.ESNext, target: typescript.ScriptTarget.ES2022 },
       }).outputText;
+      transpiledDigest = createHash("sha256").update(source).digest("hex");
       return { format: "module", source, shortCircuit: true };
     }
     return nextLoad(url, context);
@@ -189,6 +191,7 @@ class FakeSocket {
     this.bufferedAmount = 0;
     this.handlers = new Map();
     this.modes = { ...socketDefaults };
+    this.pendingCallbacks = [];
   }
 
   on(event, listener) {
@@ -216,6 +219,7 @@ class FakeSocket {
     const mode = this.modes.send ?? "ok";
     if (mode === "throw") throw new Error("send threw");
     if (mode === "error") callback?.(new Error("send failed"));
+    else if (mode === "pending") this.pendingCallbacks.push(callback);
     else callback?.();
   }
 
@@ -248,17 +252,28 @@ let attachMode = "ok";
 let attachWaiters = [];
 let attachCount = 0;
 let attached = new Map(); // connection id -> attached socket
+let listenerMode = "normal";
 
 const attachSocket = (ws, metadata) => {
   attachCount += 1;
   const id = metadata?.relayConnectionId;
   log({ t: "attach", id, kind: ws instanceof FakeSocket ? "plain" : "encrypted", metadata });
   attached.set(id, ws);
-  ws.on("message", (data) => log({ t: "app", a: "message", id, ...dataEntry(data) }));
-  ws.on("close", (code, reason) =>
-    log({ t: "app", a: "close", id, code, reason: reason === undefined ? undefined : String(reason) }),
-  );
-  ws.on("error", (error) => log({ t: "app", a: "error", id, message: failure(error) }));
+  const throwing = (kind) => listenerMode === "throw-all" || listenerMode === `throw-${kind}`;
+  if (listenerMode !== "none") {
+    ws.on("message", (data) => {
+      log({ t: "app", a: "message", id, ...dataEntry(data) });
+      if (throwing("message")) throw new Error("listener threw");
+    });
+    ws.on("close", (code, reason) => {
+      log({ t: "app", a: "close", id, code, reason: reason === undefined ? undefined : String(reason) });
+      if (throwing("close")) throw new Error("listener threw");
+    });
+    ws.on("error", (error) => {
+      log({ t: "app", a: "error", id, message: failure(error) });
+      if (throwing("error")) throw new Error("listener threw");
+    });
+  }
   if (attachMode === "ok") return Promise.resolve();
   if (attachMode === "reject") return Promise.reject(new Error("attach rejected"));
   return new Promise((resolve, reject) => attachWaiters.push({ resolve, reject }));
@@ -306,6 +321,7 @@ async function operate(op) {
       attachWaiters = [];
       attachCount = 0;
       attached = new Map();
+      listenerMode = "normal";
       runtimeStarts = [];
       runtimeStartMode = "ok";
       stub.reset();
@@ -348,6 +364,19 @@ async function operate(op) {
       const socket = sockets[op.id - 1];
       if (op.readyState !== undefined) socket.readyState = op.readyState;
       if (op.bufferedAmount !== undefined) socket.bufferedAmount = op.bufferedAmount;
+      return;
+    }
+    case "sendCallback": {
+      const callback = sockets[op.id - 1].pendingCallbacks.shift();
+      callback?.(op.error === undefined ? undefined : new Error(op.error));
+      return;
+    }
+    case "listenerMode": {
+      listenerMode = op.mode;
+      return;
+    }
+    case "channelSend": {
+      stub.send(op);
       return;
     }
     case "attachMode": {
@@ -489,7 +518,10 @@ async function operate(op) {
         outboundWireByteLength: (data) =>
           (typeof data === "string" ? Buffer.byteLength(data, "utf8") : data.byteLength) +
           (op.overhead ?? 40),
-        close: (code, reason) => log({ t: "enc", a: "channel.close", code, reason }),
+        close: (code, reason) => {
+          log({ t: "enc", a: "channel.close", code, reason });
+          if (op.closeThrows) throw new Error("channel close threw");
+        },
       };
       const emitter = new EventEmitter();
       const state = { buffered: op.buffered, sends: [] };
@@ -497,7 +529,10 @@ async function operate(op) {
         channel,
         emitter,
         getTransportBufferedAmount: () => state.buffered,
-        terminateTransport: () => log({ t: "enc", a: "terminateTransport" }),
+        terminateTransport: () => {
+          log({ t: "enc", a: "terminateTransport" });
+          if (op.terminateThrows) throw new Error("terminate threw");
+        },
       });
       if (op.listeners !== false) {
         socket.on("error", (error) => log({ t: "enc", a: "emit.error", message: failure(error) }));
@@ -538,11 +573,19 @@ async function operate(op) {
       return;
     }
     case "enc.close": {
-      enc.socket.close(op.code, op.reason);
+      try {
+        enc.socket.close(op.code, op.reason);
+      } catch (error) {
+        log({ t: "enc", a: "threw", op: "close", message: failure(error) });
+      }
       return;
     }
     case "enc.terminate": {
-      enc.socket.terminate();
+      try {
+        enc.socket.terminate();
+      } catch (error) {
+        log({ t: "enc", a: "threw", op: "terminate", message: failure(error) });
+      }
       return;
     }
     case "enc.emit": {
@@ -617,6 +660,12 @@ function decodeMessage(op) {
   }
 }
 
+digests["physical-socket.transpiled"] = transpiledDigest;
+// daemon-worker.ts logs fatal and exits on an unhandled rejection.
+process.on("unhandledRejection", (reason) =>
+  log({ t: "fatal", kind: "unhandledRejection", message: failure(reason) }),
+);
+
 console.log(JSON.stringify({ ready: true, node: process.version, digests }));
 
 let queue = Promise.resolve();
@@ -627,7 +676,8 @@ lines.on("line", (line) => {
     try {
       await operate(JSON.parse(line));
     } catch (error) {
-      log({ t: "driver-error", message: failure(error) });
+      // daemon-worker.ts logs fatal and exits on an uncaught exception.
+      log({ t: "fatal", kind: "uncaughtException", message: failure(error) });
     }
     await drain();
     for (const entry of entries) console.log(toJson(entry));

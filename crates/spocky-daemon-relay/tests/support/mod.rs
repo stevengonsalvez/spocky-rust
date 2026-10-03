@@ -28,7 +28,7 @@ pub const PASEO_COMMIT: &str = "5de45e208690b0efc51c59a585ae9729325a9204";
 pub const NODE_VERSION: &str = "v22.20.0";
 
 /// SHA-256 of every file the driver loads from the pinned commit and its lockfile install.
-pub const PINNED_DIGESTS: [(&str, &str); 8] = [
+pub const PINNED_DIGESTS: [(&str, &str); 9] = [
     (
         "relay-transport.ts",
         "a117b5af8082c44434e020cd5955de131b629ea7fa128245882b6425adda870b",
@@ -56,6 +56,10 @@ pub const PINNED_DIGESTS: [(&str, &str); 8] = [
     (
         "ws/package.json",
         "0e8b0104fec3e3b96704861c6ef3ad77c27add2cc016e49e111291b16b677f89",
+    ),
+    (
+        "physical-socket.transpiled",
+        "403d2136f05f21d080979760c739c5fded7ca9a8e45869ed0c5c1931bdc67c62",
     ),
     (
         "typescript/package.json",
@@ -202,22 +206,31 @@ impl Drop for NodeEndpoint {
     }
 }
 
+/// An operation whose entries differ between the two endpoints.
+pub struct Mismatch {
+    pub op: Value,
+    pub text: String,
+}
+
 /// Runs `ops` on both endpoints. Returns the shared transcript and every operation whose
 /// entries differ, with both sides, so one run reports all divergences.
 pub fn differential(
     node: &mut NodeEndpoint,
     rust: &mut RustEndpoint,
     ops: &[Value],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<Mismatch>) {
     let mut transcript = Vec::new();
     let mut mismatches = Vec::new();
     for (index, op) in ops.iter().enumerate() {
         let expected = node.op(op);
         let actual = rust.op(op);
         if expected != actual {
-            mismatches.push(format!(
-                "operation {index} {op} differs\npinned: {expected:#?}\nrust:   {actual:#?}"
-            ));
+            mismatches.push(Mismatch {
+                op: op.clone(),
+                text: format!(
+                    "operation {index} {op} differs\npinned: {expected:#?}\nrust:   {actual:#?}"
+                ),
+            });
         }
         transcript.push(format!("{op}"));
         transcript.extend(expected);

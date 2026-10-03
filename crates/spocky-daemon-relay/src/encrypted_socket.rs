@@ -9,7 +9,8 @@
 use spocky_crypto::channel::{AppSend, Data};
 use std::{error::Error, fmt};
 
-/// `MAX_PHYSICAL_SOCKET_BUFFERED_BYTES`: 64 MiB.
+/// `MAX_PHYSICAL_SOCKET_BUFFERED_BYTES`: 64 MiB. `spocky-daemon` holds the same constant for the
+/// daemon's own sockets; the differential compares this one with the pinned TypeScript value.
 pub const MAX_PHYSICAL_SOCKET_BUFFERED_BYTES: u64 = 64 * 1024 * 1024;
 
 /// WebSocket `readyState` of an open socket.
@@ -24,10 +25,28 @@ pub trait EncryptedRelayEnv {
     fn set_state_open(&mut self);
     fn channel_send(&mut self, data: &Data) -> AppSend;
     fn outbound_wire_byte_length(&self, data: &Data) -> u64;
-    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>);
+    /// # Errors
+    ///
+    /// `channel.close` threw.
+    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>) -> Result<(), EnvFailure>;
     fn transport_buffered_amount(&self) -> Option<u64>;
-    fn terminate_transport(&mut self);
+    /// # Errors
+    ///
+    /// `socket.terminate()` threw.
+    fn terminate_transport(&mut self) -> Result<(), EnvFailure>;
 }
+
+/// A throw from the channel or the physical socket, which the original lets propagate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvFailure(pub String);
+
+impl fmt::Display for EnvFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Error for EnvFailure {}
 
 /// Why a send was rejected before it reached the channel.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,17 +108,24 @@ impl EncryptedRelaySocket {
         env.transport_buffered_amount().unwrap_or(0)
     }
 
-    pub fn send(&mut self, env: &mut dyn EncryptedRelayEnv, data: &Data) -> SendOutcome {
+    /// # Errors
+    ///
+    /// The terminate at the high-water mark threw; the original's `send` throws it.
+    pub fn send(
+        &mut self,
+        env: &mut dyn EncryptedRelayEnv,
+        data: &Data,
+    ) -> Result<SendOutcome, EnvFailure> {
         if self.ready_state != READY_STATE_OPEN {
-            return SendOutcome::Rejected(RelaySocketError::NotOpen);
+            return Ok(SendOutcome::Rejected(RelaySocketError::NotOpen));
         }
         let outbound_bytes = env.outbound_wire_byte_length(data);
         let queued_bytes = env.transport_buffered_amount().unwrap_or(0);
         if queued_bytes.saturating_add(outbound_bytes) > MAX_PHYSICAL_SOCKET_BUFFERED_BYTES {
-            self.terminate(env);
-            return SendOutcome::Rejected(RelaySocketError::HighWaterMark);
+            self.terminate(env)?;
+            return Ok(SendOutcome::Rejected(RelaySocketError::HighWaterMark));
         }
-        SendOutcome::Channel(env.channel_send(data))
+        Ok(SendOutcome::Channel(env.channel_send(data)))
     }
 
     /// Resolves the promise `send` returned once the channel's send settles.
@@ -111,25 +137,31 @@ impl EncryptedRelaySocket {
         }
     }
 
+    /// # Errors
+    ///
+    /// `channel.close` threw after the state became closed.
     pub fn close(
         &mut self,
         env: &mut dyn EncryptedRelayEnv,
         code: Option<u16>,
         reason: Option<&str>,
-    ) {
+    ) -> Result<(), EnvFailure> {
         if self.ready_state == READY_STATE_CLOSED {
-            return;
+            return Ok(());
         }
         self.ready_state = READY_STATE_CLOSED;
-        env.channel_close(code, reason);
+        env.channel_close(code, reason)
     }
 
-    pub fn terminate(&mut self, env: &mut dyn EncryptedRelayEnv) {
+    /// # Errors
+    ///
+    /// `socket.terminate()` threw after the state became closed.
+    pub fn terminate(&mut self, env: &mut dyn EncryptedRelayEnv) -> Result<(), EnvFailure> {
         if self.ready_state == READY_STATE_CLOSED {
-            return;
+            return Ok(());
         }
         self.ready_state = READY_STATE_CLOSED;
-        env.terminate_transport();
+        env.terminate_transport()
     }
 
     /// The `emitter.on("close")` listener the constructor installs: it runs before any

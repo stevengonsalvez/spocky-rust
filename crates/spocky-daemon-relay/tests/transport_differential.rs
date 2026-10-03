@@ -354,7 +354,6 @@ fn scenario_e2ee() -> Vec<Value> {
         json!({ "op": "channelEvent", "n": 1, "event": "error", "message": "decrypt failed" }),
         json!({ "op": "channelEvent", "n": 1, "event": "close", "code": 4000, "reason": "bye" }),
         close(2, 1006, Some("wire")),
-        error(2, "wire error"),
     ]);
     // Boundary: exact hard bound accepted, one byte over rejected.
     ops.extend(attach_ready("ok", "ok"));
@@ -412,13 +411,188 @@ fn scenario_e2ee() -> Vec<Value> {
     ops.extend([
         text(1, &connected("e2")),
         open(3),
+        // The real channel rejects when the transport closes during the handshake, so the
+        // first data socket fails with 1011 and a later ready result changes nothing.
         close(2, 1006, Some("gone")),
         json!({ "op": "channel", "n": 1, "result": "ok" }),
         json!({ "op": "channel", "n": 2, "result": "ok" }),
-        json!({ "op": "app.read", "id": "e1" }),
         json!({ "op": "app.read", "id": "e2" }),
     ]);
+    // A transport error during the handshake fails it as well.
+    ops.extend(attach_ready("pending", "ok"));
+    ops.extend([
+        error(2, "handshake wire error"),
+        json!({ "op": "channel", "n": 1, "result": "ok" }),
+    ]);
     ops
+}
+
+/// The adapter's `send` (`relay-transport.ts:470-486`): the channel's frames reach the relay
+/// socket, and a failed callback or a throw logs `relay_socket_send_failed` and rejects.
+fn scenario_adapter_send() -> Vec<Value> {
+    let channel_open = |send: &str| -> Vec<Value> {
+        vec![
+            reset(),
+            json!({ "op": "channelMode", "mode": "ok" }),
+            modes("socketDefaults", None, &json!({ "send": send })),
+            start(RELAY, true, true),
+            open(1),
+            text(1, &connected("a1")),
+            open(2),
+        ]
+    };
+    let send = |n: u64, payload: &str| json!({ "op": "channelSend", "n": n, "text": payload });
+    let mut ops = Vec::new();
+    for mode in ["ok", "error", "throw"] {
+        ops.extend(channel_open(mode));
+        ops.extend([
+            send(1, "frame"),
+            json!({ "op": "channelSend", "n": 1, "binary": "00ff" }),
+        ]);
+    }
+    ops.extend(channel_open("pending"));
+    ops.extend([
+        send(1, "one"),
+        send(1, "two"),
+        json!({ "op": "sendCallback", "id": 2 }),
+        json!({ "op": "sendCallback", "id": 2, "error": "write after close" }),
+        json!({ "op": "sendCallback", "id": 2 }),
+    ]);
+    // Switching modes between frames.
+    ops.extend(channel_open("ok"));
+    ops.extend([
+        send(1, "fine"),
+        modes("socketMode", Some(2), &json!({ "send": "error" })),
+        send(1, "fails"),
+        modes("socketMode", Some(2), &json!({ "send": "throw" })),
+        send(1, "throws"),
+    ]);
+    ops
+}
+
+/// What the baseline does where the daemon process ends: `daemon-worker.ts:344,348` log
+/// `fatal` and exit on an uncaught exception and on an unhandled rejection.
+fn scenario_fatal() -> Vec<Value> {
+    let encrypted = |listeners: &str, attach: &str| -> Vec<Value> {
+        vec![
+            reset(),
+            json!({ "op": "channelMode", "mode": "ok" }),
+            json!({ "op": "attachMode", "mode": attach }),
+            json!({ "op": "listenerMode", "mode": listeners }),
+            start(RELAY, true, true),
+            open(1),
+            text(1, &connected("f1")),
+            open(2),
+        ]
+    };
+    let mut ops = Vec::new();
+    // A plain attach that rejects is an unhandled rejection.
+    ops.extend([
+        reset(),
+        json!({ "op": "attachMode", "mode": "reject" }),
+        start(RELAY, true, false),
+        open(1),
+        text(1, &connected("p1")),
+        open(2),
+        advance(0),
+    ]);
+    ops.extend([
+        reset(),
+        json!({ "op": "attachMode", "mode": "pending" }),
+        start(RELAY, true, false),
+        open(1),
+        text(1, &connected("p1")),
+        open(2),
+        json!({ "op": "attachSettle", "result": "reject" }),
+    ]);
+    // The application returned without listeners (the server is starting or stopping):
+    // a later channel error has no `error` listener and EventEmitter throws.
+    ops.extend(encrypted("none", "ok"));
+    ops.extend([
+        json!({ "op": "channelEvent", "n": 1, "event": "message", "text": "unheard" }),
+        json!({ "op": "channelEvent", "n": 1, "event": "close", "code": 1000, "reason": "bye" }),
+        json!({ "op": "channelEvent", "n": 1, "event": "error", "message": "no listener" }),
+    ]);
+    // A listener throwing during the pending flush fails the handshake (1011), and what
+    // is still queued is dropped.
+    for mode in ["throw-message", "throw-all"] {
+        ops.extend(encrypted(mode, "pending"));
+        ops.extend([
+            json!({ "op": "channelEvent", "n": 1, "event": "message", "text": "first" }),
+            json!({ "op": "channelEvent", "n": 1, "event": "message", "text": "second" }),
+            json!({ "op": "attachSettle", "result": "ok" }),
+            json!({ "op": "channelEvent", "n": 1, "event": "message", "text": "after" }),
+        ]);
+    }
+    // A listener throwing after attach is an uncaught exception.
+    for (mode, event) in [
+        (
+            "throw-message",
+            json!({ "event": "message", "text": "boom" }),
+        ),
+        (
+            "throw-close",
+            json!({ "event": "close", "code": 1000, "reason": "bye" }),
+        ),
+        (
+            "throw-error",
+            json!({ "event": "error", "message": "boom" }),
+        ),
+    ] {
+        ops.extend(encrypted(mode, "ok"));
+        let mut op = json!({ "op": "channelEvent", "n": 1 });
+        for (key, value) in event.as_object().unwrap() {
+            op[key] = value.clone();
+        }
+        ops.push(op);
+    }
+    // The same on a plain socket.
+    for (mode, event) in [
+        (
+            "throw-message",
+            message(2, "buffer", &json!({ "text": "boom" })),
+        ),
+        ("throw-close", close(2, 1006, Some("boom"))),
+        ("throw-error", error(2, "boom")),
+    ] {
+        ops.extend([
+            reset(),
+            json!({ "op": "listenerMode", "mode": mode }),
+            start(RELAY, true, false),
+            open(1),
+            text(1, &connected("q1")),
+            open(2),
+            event,
+        ]);
+    }
+    ops
+}
+
+/// The terminate and close of the encrypted socket propagate a throw in the original.
+fn scenario_encrypted_socket_throws() -> Vec<Value> {
+    let create = |close: bool, terminate: bool, buffered: u64| {
+        json!({
+            "op": "enc.create", "closeThrows": close, "terminateThrows": terminate,
+            "buffered": buffered, "listeners": true,
+        })
+    };
+    let max = 64_u64 * 1024 * 1024;
+    vec![
+        reset(),
+        create(true, true, 0),
+        json!({ "op": "enc.close", "code": 1000 }),
+        json!({ "op": "enc.read" }),
+        json!({ "op": "enc.close", "code": 1000 }),
+        reset(),
+        create(true, true, 0),
+        json!({ "op": "enc.terminate" }),
+        json!({ "op": "enc.read" }),
+        reset(),
+        create(false, true, max),
+        json!({ "op": "enc.send", "text": "over the bound" }),
+        json!({ "op": "enc.read" }),
+        json!({ "op": "enc.send", "text": "again" }),
+    ]
 }
 
 fn scenario_runtime() -> Vec<Value> {
@@ -561,8 +735,9 @@ fn scenario_encrypted_socket() -> Vec<Value> {
 /// One mini scenario per control message: a ready control socket, then the message.
 fn control_message_scenarios() -> Vec<Vec<Value>> {
     let ws = [
-        "\u{a0}", "\u{2028}", "\u{feff}", "\u{85}", "\u{180e}", "\t", "\u{b}", "\u{3000}",
-        "\u{200b}",
+        "\u{a0}", "\u{2028}", "\u{feff}", "\u{85}", "\u{180e}",
+        // JSON.parse rejects a raw control character, so these two are JSON escapes.
+        "\\t", "\\u000b", "\u{3000}", "\u{200b}",
     ];
     let mut texts: Vec<String> = vec![
         r#"{"type":"ping"}"#.into(),
@@ -672,6 +847,32 @@ fn control_message_scenarios() -> Vec<Vec<Value>> {
         json!({ "kind": "buffer", "hex": "7b2274797065223a22636f6e6e6563746564222c22636f6e6e656374696f6e4964223a22e29" }),
         json!({ "kind": "buffer", "hex": "" }),
     ];
+    // Invalid UTF-8 inside an id: node replaces each maximal invalid subpart with U+FFFD
+    // (3, 2 and 4 of them for the three sequences below).
+    let id_prefix = "7b2274797065223a22636f6e6e6563746564222c22636f6e6e656374696f6e4964223a22";
+    let mut kinds = kinds.to_vec();
+    for bytes in ["eda080", "c080", "f4908080", "ed", "f0", "e282", "c3a9ff41"] {
+        kinds.push(json!({ "kind": "buffer", "hex": format!("{id_prefix}{bytes}227d") }));
+    }
+    // Deep nesting: V8 parses iteratively up to its own limits.
+    for depth in [500_usize, 5_000, 100_000] {
+        kinds.push(json!({
+            "kind": "string",
+            "text": format!(
+                r#"{{"type":"sync","connectionIds":["x",{}{}]}}"#,
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        }));
+        kinds.push(json!({
+            "kind": "string",
+            "text": format!(
+                r#"{{"type":"connected","connectionId":"d","n":{}1{}}}"#,
+                r#"{"a":"#.repeat(depth),
+                "}".repeat(depth)
+            )
+        }));
+    }
     for extra in kinds {
         let mut ops = ready(false);
         ops.pop();
@@ -697,8 +898,9 @@ fn run(
     evidence.extend(transcript);
     if let Some(first) = mismatches.first() {
         failures.push(format!(
-            "{name}: {} differences, first:\n{first}",
-            mismatches.len()
+            "{name}: {} differences, first:\n{}",
+            mismatches.len(),
+            first.text
         ));
     }
 }
@@ -723,6 +925,12 @@ fn relay_client_matches_the_pinned_typescript() {
         ("e2ee", scenario_e2ee()),
         ("runtime", scenario_runtime()),
         ("encrypted-socket", scenario_encrypted_socket()),
+        ("adapter-send", scenario_adapter_send()),
+        ("fatal", scenario_fatal()),
+        (
+            "encrypted-socket-throws",
+            scenario_encrypted_socket_throws(),
+        ),
     ];
     for (name, ops) in &named {
         run(
@@ -755,6 +963,17 @@ fn relay_client_matches_the_pinned_typescript() {
             .collect::<Vec<_>>()
             .join("\n\n")
     );
+    // The evidence document quotes these counts: 15 named and 116 control message scenarios,
+    // 1,231 operations, 3,857 transcript lines including the scenario headings.
+    assert_eq!(evidence.iter().filter(|line| *line == ".").count(), 1231);
+    assert_eq!(
+        evidence
+            .iter()
+            .filter(|line| line.starts_with("# "))
+            .count(),
+        131
+    );
+    assert_eq!(evidence.len(), 3857);
     if let Some(directory) = std::env::var_os("SPOCKY_RELAY_DAEMON_EVIDENCE") {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
