@@ -50,10 +50,7 @@ mod tests {
     use crate::agent_sdk::AgentError;
 
     fn named(name: &str) -> AgentError {
-        AgentError {
-            name: name.to_owned(),
-            message: "m".to_owned(),
-        }
+        AgentError::named(name.to_owned(), "m".to_owned())
     }
 
     #[test]
