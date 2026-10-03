@@ -19,7 +19,7 @@ use spocky_contracts::text::{js_to_lowercase, js_trim_end, js_trim_start};
 const NODE_SCRIPT: &str = r#"
 const [dist, file] = process.argv.slice(1);
 const { readFileSync } = await import("node:fs");
-const { trims, contexts } = JSON.parse(readFileSync(file, "utf8"));
+const { trims, contexts, pieces } = JSON.parse(readFileSync(file, "utf8"));
 const out = [];
 for (const text of trims) out.push(JSON.stringify(text.trimStart()) + "|" + JSON.stringify(text.trimEnd()));
 for (let code = 0; code <= 0x10ffff; code++) {
@@ -29,6 +29,8 @@ for (let code = 0; code <= 0x10ffff; code++) {
   if (lower !== text) out.push(code.toString(16) + ":" + [...lower].map((c) => c.codePointAt(0).toString(16)).join(","));
 }
 for (const text of contexts) out.push(JSON.stringify(text.toLowerCase()));
+// Strings built by concatenation: a high and a low surrogate that meet are one character.
+for (const parts of pieces) out.push(JSON.stringify(parts.join("").toLowerCase()));
 process.stdout.write(out.join("\n") + "\n");
 "#;
 
@@ -172,6 +174,38 @@ fn contexts() -> Vec<Vec<&'static str>> {
     out
 }
 
+/// Pieces concatenated after parsing, so a high and a low surrogate meet only
+/// by concatenation (in the [`spocky_contracts::js_value`] encoding they are
+/// then two escaped units, not one character).
+fn pieces() -> Vec<Vec<&'static str>> {
+    vec![
+        vec!["\\ud801", "\\udc00"],
+        vec!["\\ud801", "\\udc00", "\\ud801", "\\udc00"],
+        vec!["A", "\\ud801", "\\udc00", "B"],
+        vec!["\\ud801", "\\udc00", "\\u03a3"],
+        vec!["\\u03a3", "\\ud801", "\\udc00"],
+        vec!["\\ud801", "\\udc00", "\\u0301", "\\u03a3"],
+        vec!["\\ud801", "a", "\\udc00"],
+        vec!["\\udc00", "\\ud801"],
+        vec!["\\ud801", "\\ud801", "\\udc00"],
+        vec!["\\ud801", "\\udc00", "\\udc00"],
+        vec!["\\ud83d", "\\ude00"],
+        vec!["\\ud801"],
+        vec!["\\udc00"],
+    ]
+}
+
+fn pieces_json() -> String {
+    let items: Vec<String> = pieces()
+        .iter()
+        .map(|parts| {
+            let quoted: Vec<String> = parts.iter().map(|part| format!("\"{part}\"")).collect();
+            format!("[{}]", quoted.join(","))
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
 fn text_of(json: &str) -> String {
     let value = parse(&format!("\"{json}\"")).expect("string JSON");
     value.as_str().expect("a string").to_owned()
@@ -208,6 +242,11 @@ fn rust_output(trims: &[Vec<&str>], contexts: &[Vec<&str>]) -> String {
         out.push_str(&quoted(js_to_lowercase(&text_of(&chars.concat()))));
         out.push('\n');
     }
+    for parts in pieces() {
+        let text: String = parts.iter().map(|part| text_of(part)).collect();
+        out.push_str(&quoted(js_to_lowercase(&text)));
+        out.push('\n');
+    }
     out
 }
 
@@ -221,9 +260,10 @@ fn trim_ends_and_lowercase_match_v8() {
     std::fs::write(
         &file,
         format!(
-            r#"{{"trims":{},"contexts":{}}}"#,
+            r#"{{"trims":{},"contexts":{},"pieces":{}}}"#,
             json_strings(&trims),
-            json_strings(&contexts)
+            json_strings(&contexts),
+            pieces_json()
         ),
     )
     .expect("write cases");
