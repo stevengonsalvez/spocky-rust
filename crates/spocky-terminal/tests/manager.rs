@@ -7,7 +7,10 @@
 //! compared without `activity`.
 //!
 //! Terminal ids and activity tokens are given explicitly. Every wait is
-//! bounded and only sessions the script created are signalled.
+//! bounded and only sessions the script created are signalled. A create that
+//! fails is not covered: a missing cwd or command does not fail the baseline
+//! create, it starts a shell that exits at once, and that exit races the
+//! next operation on both sides.
 
 mod support;
 
@@ -152,12 +155,6 @@ fn ops() -> Vec<Op> {
         Op::Observe("env"),
         Op::Get("env"),
         Op::Get("missing"),
-        Op::Create(Create {
-            token: Some("tok-fail"),
-            ..create("fail", "/missing-directory", IDLE_SCRIPT)
-        }),
-        Op::Token("fail", "tok-fail"),
-        Op::Get("fail"),
         Op::Create(create("exits", "/a/deep", EXIT_SCRIPT)),
         Op::WaitGone("exits"),
         Op::Token("exits", "anything"),
@@ -189,7 +186,7 @@ fn path_of(root: &Path, suffix: &str) -> String {
     } else if suffix.starts_with('/') {
         let trimmed = suffix.trim_end_matches('/');
         let trailing = &suffix[trimmed.len()..];
-        if DIRS.contains(&trimmed) || trimmed == "/missing-directory" || trimmed == "/elsewhere" {
+        if DIRS.contains(&trimmed) || trimmed == "/elsewhere" {
             format!("{}{trimmed}{trailing}", root.to_string_lossy())
         } else {
             suffix.to_owned()
