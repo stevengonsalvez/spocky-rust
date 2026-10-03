@@ -581,7 +581,7 @@ pub fn differing_artifacts(manifest: &DifferentialManifest) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::normalize::PINNED_CLIENT;
+    use crate::normalize::PINNED_CLI_PROGRAM;
     use crate::side::{Check, DaemonKind, HomeOrigin, StepSpec};
     use crate::stub::Script;
 
@@ -659,7 +659,7 @@ mod tests {
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
             codex_order: Vec::new(),
-            client: PINNED_CLIENT.to_owned(),
+            client: format!("/paseo/{PINNED_CLI_PROGRAM}"),
         }
     }
 

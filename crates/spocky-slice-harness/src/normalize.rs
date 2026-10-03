@@ -39,11 +39,21 @@ use spocky_differential::{NormalizationCategory, NormalizationRule, Normalizatio
 
 const OWNER: &str = "p3_slice_harness";
 
-/// The client every side runs: the unchanged pinned Paseo CLI. Classes that
-/// depend on the CLI's own rendering (`cli-relative-age`) apply only when both
-/// sides recorded this identity; a Spocky CLI would need that rendering
+/// Where the pinned Paseo CLI's entry point sits under the pinned Paseo root.
+/// The harness runs exactly this program for every step, and records the full
+/// path it ran as the side's client.
+pub const PINNED_CLI_PROGRAM: &str = "packages/cli/bin/paseo";
+
+/// Whether `program`, the path a side ran its steps with, is the pinned Paseo
+/// CLI. Classes that depend on the CLI's own rendering (`cli-relative-age`)
+/// apply only when both sides ran it; a Spocky CLI would need that rendering
 /// proved separately with a fixed clock.
-pub const PINNED_CLIENT: &str = "pinned-paseo-cli";
+#[must_use]
+pub fn is_pinned_cli(program: &str) -> bool {
+    program
+        .strip_suffix(PINNED_CLI_PROGRAM)
+        .is_some_and(|root| root.ends_with('/'))
+}
 
 /// Secret classes the harness may read from known files. No other class id is
 /// accepted for extracted values.
@@ -60,7 +70,7 @@ pub struct SideFacts {
     /// Inclusive wall-clock window of the run, in Unix milliseconds.
     pub window_start_ms: u64,
     pub window_end_ms: u64,
-    /// The client this side ran, [`PINNED_CLIENT`] for every gate today.
+    /// The program path this side's steps ran, see [`is_pinned_cli`].
     pub client: String,
 }
 
@@ -875,7 +885,7 @@ fn relative_age_class(
 ) -> Result<Option<ValueClass>, String> {
     // The age text is the pinned CLI's rendering. Without that identity on
     // both sides there is no class: the ages stay raw and differ.
-    if left.facts.client != PINNED_CLIENT || right.facts.client != PINNED_CLIENT {
+    if !is_pinned_cli(&left.facts.client) || !is_pinned_cli(&right.facts.client) {
         return Ok(None);
     }
     let (left_ages, right_ages) = (relative_ages(&left.texts), relative_ages(&right.texts));
@@ -1525,7 +1535,7 @@ mod tests {
 
     fn facts(root: &str, daemon_port: u16, stub_port: u16) -> SideFacts {
         SideFacts {
-            client: PINNED_CLIENT.to_owned(),
+            client: format!("/paseo/{PINNED_CLI_PROGRAM}"),
             root: root.into(),
             daemon_port,
             stub_port,
@@ -2337,12 +2347,16 @@ mod tests {
             .into_iter()
             .any(|class| class.id == "cli-relative-age")
         };
-        assert!(classes(PINNED_CLIENT, PINNED_CLIENT));
+        let pinned = format!("/a/{PINNED_CLI_PROGRAM}");
+        assert!(classes(&pinned, &format!("/b/{PINNED_CLI_PROGRAM}")));
         // A side that did not run the pinned CLI gets no class, so its age
         // text stays raw and the comparison reports it.
-        assert!(!classes(PINNED_CLIENT, "spocky-cli"));
-        assert!(!classes("spocky-cli", PINNED_CLIENT));
-        assert!(!classes("spocky-cli", "spocky-cli"));
+        assert!(!classes(&pinned, "/x/target/debug/spocky-cli"));
+        assert!(!classes("/x/target/debug/spocky-cli", &pinned));
+        assert!(!classes("/x/spocky-cli", "/y/spocky-cli"));
+        // A longer name ending in the same text is not the pinned entry point.
+        assert!(!is_pinned_cli(&format!("/a/not-{PINNED_CLI_PROGRAM}")));
+        assert!(!is_pinned_cli(PINNED_CLI_PROGRAM));
     }
 
     #[test]

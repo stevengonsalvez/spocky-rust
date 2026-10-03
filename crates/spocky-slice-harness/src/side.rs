@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::normalize::PINNED_CLIENT;
+use crate::normalize::PINNED_CLI_PROGRAM;
 use crate::stub::{FORBIDDEN_PORTS, RecordedRequest, Script};
 
 /// Prefix of every disposable root and tmux session the harness owns.
@@ -319,7 +319,7 @@ pub struct SideRun {
     /// Codex invocations in shim arrival order, labelled by argv and
     /// occurrence (see [`arrival_labels`]), for the partial-order check.
     pub codex_order: Vec<String>,
-    /// The client every step ran: [`PINNED_CLIENT`].
+    /// The program every step ran, the path [`cli_command`] was given.
     pub client: String,
 }
 
@@ -1345,6 +1345,12 @@ fn expand_args(
     Ok(argv)
 }
 
+/// The program every step runs, under the Paseo root. [`cli_command`] runs it
+/// and each side records it as its client, so the two cannot disagree.
+fn cli_program(tools: &Tools) -> PathBuf {
+    tools.paseo_root.join(PINNED_CLI_PROGRAM)
+}
+
 fn cli_command(
     tools: &Tools,
     layout: &Layout,
@@ -1354,7 +1360,7 @@ fn cli_command(
     let mut command = Command::new(SANDBOX_EXEC);
     command
         .args(["-p", EGRESS_PROFILE])
-        .arg(tools.paseo_root.join("packages/cli/bin/paseo"))
+        .arg(cli_program(tools))
         .args(argv)
         .current_dir(layout.path("project"))
         .env_clear()
@@ -1853,7 +1859,7 @@ fn run_in_layout(
         harness_errors: errors,
         observed_pids: pids,
         codex_order,
-        client: PINNED_CLIENT.to_owned(),
+        client: cli_program(tools).display().to_string(),
     };
     write_raw(&side, &side_evidence);
     Ok(side)
@@ -2649,7 +2655,7 @@ mod tests {
             harness_errors: Vec::new(),
             observed_pids: Vec::new(),
             codex_order: Vec::new(),
-            client: PINNED_CLIENT.to_owned(),
+            client: format!("/paseo/{PINNED_CLI_PROGRAM}"),
         }
     }
 
