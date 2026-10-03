@@ -273,6 +273,12 @@ const oversizedHeader = (() => {
 // `pending.authenticating` for its whole length, so every frame that reaches it
 // meanwhile is answered as a message before hello. The "in one chunk" cases show
 // that; the "sent later" case waits for the compare to finish first.
+// A FileBegin frame: request id "a", a two-byte length, then the metadata JSON.
+const FILE_BEGIN_METADATA = '{"mime":"text/plain","size":1,"encoding":"utf-8","modifiedAt":"x"}';
+const FILE_BEGIN =
+  "10" + "01" + "61" + (FILE_BEGIN_METADATA.length).toString(16).padStart(4, "0") +
+  Buffer.from(FILE_BEGIN_METADATA).toString("hex");
+
 function cases() {
   const open = [
     // Frames written in the same chunk as the hello arrive while the hello is
@@ -291,6 +297,35 @@ function cases() {
     ["unknown_type_before_hello", [["connect", "a"], ["text", "a", '{"type":"nope"}']]],
     ["not_an_object_before_hello", [["connect", "a"], ["text", "a", "5"]]],
     ["binary_frame_before_hello", [["connect", "a"], ["binary", "a", "00ff"]]],
+    // decodeBinaryFrame (protocol binary-frames/demux.ts) runs on every inbound message,
+    // text frames included: terminal opcodes 1 to 5 with at least two bytes, file-transfer
+    // opcodes 0x10 to 0x12 with a request id (and valid metadata for a begin frame).
+    // Anything else falls through to the JSON path.
+    ["terminal_output_before_hello", [["connect", "a"], ["binary", "a", "010041"]]],
+    ["terminal_input_before_hello", [["connect", "a"], ["binary", "a", "0200"]]],
+    ["terminal_restore_before_hello", [["connect", "a"], ["binary", "a", "05ff7b7d"]]],
+    ["terminal_opcode_too_short_before_hello", [["connect", "a"], ["binary", "a", "01"]]],
+    ["terminal_opcode_6_before_hello", [["connect", "a"], ["binary", "a", "060041"]]],
+    ["file_begin_before_hello", [["connect", "a"], ["binary", "a", FILE_BEGIN]]],
+    ["file_begin_bad_metadata_before_hello", [["connect", "a"], ["binary", "a", "10016100037b7d20"]]],
+    ["file_chunk_before_hello", [["connect", "a"], ["binary", "a", "11016141424344"]]],
+    ["file_end_before_hello", [["connect", "a"], ["binary", "a", "120161"]]],
+    ["file_end_with_payload_before_hello", [["connect", "a"], ["binary", "a", "12016142"]]],
+    ["file_chunk_request_id_zero_before_hello", [["connect", "a"], ["binary", "a", "11004142"]]],
+    ["file_chunk_request_id_too_long_before_hello", [["connect", "a"], ["binary", "a", "11056162"]]],
+    ["text_frame_that_decodes_as_binary_before_hello", [["connect", "a"], ["text", "a", "\u0001a"]]],
+    ["text_frame_with_opcode_6_before_hello", [["connect", "a"], ["text", "a", "\u0006a"]]],
+    ["terminal_frame_in_one_chunk_with_hello", [["connect", "a"], ["texts", "a", [hello("c1"), "\u0001a"]]]],
+    ["terminal_output_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "010041"], ["text", "a", '{"type":"ping"}']]],
+    ["terminal_resize_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "03007b22726f7773223a312c22636f6c73223a317d"], ["text", "a", '{"type":"ping"}']]],
+    ["file_chunk_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "11016141424344"], ["text", "a", '{"type":"ping"}']]],
+    ["file_begin_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", FILE_BEGIN], ["text", "a", '{"type":"ping"}']]],
+    ["file_end_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "120161"], ["text", "a", '{"type":"ping"}']]],
+    ["undecodable_binary_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "ffee"], ["text", "a", '{"type":"ping"}']]],
+    ["terminal_opcode_too_short_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "01"], ["text", "a", '{"type":"ping"}']]],
+    ["file_begin_bad_metadata_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "10016100037b7d20"], ["text", "a", '{"type":"ping"}']]],
+    ["json_ping_in_a_binary_frame_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", Buffer.from('{"type":"ping"}').toString("hex")]]],
+    ["text_frame_that_decodes_as_binary_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", "\u0001a"], ["text", "a", '{"type":"ping"}']]],
     ["hello_missing_fields", [["connect", "a"], ["text", "a", '{"type":"hello"}']]],
     ["hello_empty_client_id", [["connect", "a"], ["text", "a", hello("")]]],
     ["hello_bad_client_type", [["connect", "a"], ["text", "a", '{"type":"hello","clientId":"c","clientType":"toaster","protocolVersion":1}']]],
