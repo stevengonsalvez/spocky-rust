@@ -237,7 +237,6 @@ fn rust_output(ops: &str) -> String {
     for op in parse(ops).expect("ops").as_array().expect("array") {
         let op = op.as_array().expect("op");
         let now = op[1].as_f64().expect("now");
-        let was_pending = coalescer.timer_pending();
         match op[0].as_str().expect("name") {
             "handle" => match coalescer.handle(op[2].as_str().expect("text"), now) {
                 Handled::Flushed(flush) => emit(&mut out, Some(flush)),
@@ -258,16 +257,18 @@ fn rust_output(ops: &str) -> String {
             }
             "mark" => coalescer.mark_flushed(now),
             name => {
-                if was_pending {
+                // The port reports each timer it clears, where the baseline
+                // calls clearTimeout.
+                let (flush, cleared) = if name == "flush" {
+                    coalescer.flush_clearing(now)
+                } else {
+                    (None, coalescer.dispose())
+                };
+                if cleared {
                     armed.clear();
                     out.push(JsValue::Array(vec![tag("clear")]));
                 }
-                if name == "flush" {
-                    let flush = coalescer.flush(now);
-                    emit(&mut out, flush);
-                } else {
-                    coalescer.dispose();
-                }
+                emit(&mut out, flush);
             }
         }
     }
