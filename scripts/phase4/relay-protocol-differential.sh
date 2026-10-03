@@ -68,19 +68,24 @@ live_wire=$(binary live_wire_baseline)
 capture() { # corpus-file baseline-out live-out generated-out
   cp "$1" "$work/io/corpus.tsv"
   docker_run 'mix run --no-start /io/baseline.exs /io/corpus.tsv /io/baseline.tsv'
-  cp "$fixtures/relay-protocol-extra-corpus.tsv" "$work/io/extra-corpus.tsv" 2>/dev/null || true
+  cp "$fixtures/relay-protocol-extra-corpus.tsv" "$work/io/extra-corpus.tsv"
   docker_run 'mix run --no-start /io/baseline.exs /io/extra-corpus.tsv /io/extra-baseline.tsv'
-  docker_run 'mix run /io/live.exs /io/live.tsv /io/generated.tsv' >"$work/live.log" 2>&1
+  cp "$fixtures/relay-protocol-percent-corpus.tsv" "$work/io/percent-corpus.tsv"
+  docker_run 'mix run --no-start /io/baseline.exs /io/percent-corpus.tsv /io/percent-baseline.tsv'
+  docker_run 'mix run /io/live.exs /io/live.tsv /io/generated.tsv /io/percent.tsv' >"$work/live.log" 2>&1
 }
 
 if [[ "$mode" == "regenerate" ]]; then
   SPOCKY_RELAY_CORPUS_OUT="$fixtures/relay-protocol-corpus.tsv" "$differential" --ignored write_corpus
   SPOCKY_RELAY_CORPUS_OUT="$fixtures/relay-protocol-extra-corpus.tsv" "$differential" --ignored write_extra_corpus
+  SPOCKY_RELAY_CORPUS_OUT="$fixtures/relay-protocol-percent-corpus.tsv" "$differential" --ignored write_percent_corpus
   capture "$fixtures/relay-protocol-corpus.tsv"
   cp "$work/io/baseline.tsv" "$fixtures/relay-protocol-baseline.tsv"
   cp "$work/io/extra-baseline.tsv" "$fixtures/relay-protocol-extra-baseline.tsv"
   cp "$work/io/live.tsv" "$fixtures/relay-protocol-live-wire.tsv"
   cp "$work/io/generated.tsv" "$fixtures/relay-protocol-live-generated.tsv"
+  cp "$work/io/percent-baseline.tsv" "$fixtures/relay-protocol-percent-baseline.tsv"
+  cp "$work/io/percent.tsv" "$fixtures/relay-protocol-live-percent.tsv"
 fi
 
 # Compare pass: a fresh capture against the committed fixtures, then the Rust crate against
@@ -88,9 +93,11 @@ fi
 capture "$fixtures/relay-protocol-corpus.tsv"
 diff "$fixtures/relay-protocol-baseline.tsv" "$work/io/baseline.tsv"
 diff "$fixtures/relay-protocol-extra-baseline.tsv" "$work/io/extra-baseline.tsv"
+diff "$fixtures/relay-protocol-percent-baseline.tsv" "$work/io/percent-baseline.tsv"
 diff "$fixtures/relay-protocol-live-wire.tsv" "$work/io/live.tsv"
+diff "$fixtures/relay-protocol-live-percent.tsv" "$work/io/percent.tsv"
 
-for pair in "relay-protocol-corpus:baseline" "relay-protocol-extra-corpus:extra-baseline"; do
+for pair in "relay-protocol-corpus:baseline" "relay-protocol-extra-corpus:extra-baseline" "relay-protocol-percent-corpus:percent-baseline"; do
   corpus=${pair%%:*}
   baseline=${pair##*:}
   SPOCKY_RELAY_CORPUS_IN="$fixtures/$corpus.tsv" SPOCKY_RELAY_RENDER_OUT="$work/rust-$baseline.tsv" \
@@ -99,7 +106,8 @@ for pair in "relay-protocol-corpus:baseline" "relay-protocol-extra-corpus:extra-
 done
 
 SPOCKY_RELAY_LIVE_FIXTURE="$work/io/live.tsv" SPOCKY_RELAY_GENERATED_FIXTURE="$work/io/generated.tsv" \
+  SPOCKY_RELAY_PERCENT_FIXTURE="$work/io/percent.tsv" \
   "$live_wire" 2>&1 | tee "$work/live-wire-test.log"
 grep -q "test result: ok" "$work/live-wire-test.log"
 
-echo "relay protocol differential: $(($(wc -l <"$work/io/baseline.tsv") + $(wc -l <"$work/io/extra-baseline.tsv"))) corpus cases and $(wc -l <"$work/io/live.tsv") live wire cases: pinned relay identical to the fixtures, Rust identical to the pinned relay"
+echo "relay protocol differential: $(($(wc -l <"$work/io/baseline.tsv") + $(wc -l <"$work/io/extra-baseline.tsv") + $(wc -l <"$work/io/percent-baseline.tsv"))) corpus cases and $(wc -l <"$work/io/live.tsv") live wire cases: pinned relay identical to the fixtures, Rust identical to the pinned relay"
