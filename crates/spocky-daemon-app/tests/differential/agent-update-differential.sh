@@ -27,6 +27,9 @@
 #      stub, and the home it leaves (home, paseo-home, codex-home, project) is
 #      saved; each side then starts from a copy of that home, at the same
 #      path, on the stub script in SPOCKY_AU_RUN_STUB,
+#      SPOCKY_AU_COMPARE: a node script that replaces the byte comparison of
+#      the masked frames with a scoped one (it gets the original and spocky
+#      masked.jsonl paths and exits nonzero on a mismatch),
 #      CARGO_TARGET_DIR (default /private/tmp/spocky-targets/p3_g1_wiring),
 #      which holds debug/spocky-daemon and debug/spocky-responses-stub.
 set -u
@@ -208,7 +211,11 @@ for side in original spocky; do
     printf 'sha256 %s  %s/%s\n' "$(shasum -a 256 "$top/$side/$file" | cut -d' ' -f1)" "$side" "$file"
   done
 done
-if cmp -s "$top/original/masked.jsonl" "$top/spocky/masked.jsonl"; then
+if [ -n "${SPOCKY_AU_COMPARE:-}" ]; then
+  # A scoped comparison for a class of pinned nondeterminism; it reads
+  # <original> and <spocky> masked.jsonl under $top and prints its own verdict.
+  "$NODE_BIN/node" "$SPOCKY_AU_COMPARE" "$top/original/masked.jsonl" "$top/spocky/masked.jsonl" || exit 1
+elif cmp -s "$top/original/masked.jsonl" "$top/spocky/masked.jsonl"; then
   echo "PASS: recorded frame sequences are byte-identical after masking"
 else
   echo "FAIL: frame sequences differ"
