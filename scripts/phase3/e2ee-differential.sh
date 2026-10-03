@@ -6,7 +6,10 @@
 # Usage: scripts/phase3/e2ee-differential.sh
 #
 # Evidence lands in evidence/raw/phase3/e2ee-<utc>/ (untracked) and its
-# SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass.
+# SHA-256 digests are printed. Exit 0 only when test, clippy, and fmt pass,
+# both sides' transcripts of exactly 53 scenarios and 4 interop pairs exist,
+# and each is byte-identical. SPOCKY_ALLOW_SKIP is always unset, so the
+# differential can never skip.
 #
 # Env: PASEO_REFERENCE_ROOT (default: the paseo-rewrite sibling of the main
 #      checkout), SPOCKY_PASEO_NODE_MODULES (default: the
@@ -15,6 +18,11 @@
 #      CARGO_BUILD_JOBS (default 2), SPOCKY_BUILD_GATE (default
 #      /private/tmp/spocky-targets/build-gate.sh).
 set -eu
+unset SPOCKY_ALLOW_SKIP
+
+# The scenario count is pinned: a scenario that silently stops running, or
+# one added without updating this number, fails the run.
+expected_scenarios=53
 
 repository_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
 . "$repository_root/scripts/phase3/pins.sh"
@@ -79,8 +87,16 @@ done
   status=1
 }
 
+scenarios=$(find "$evidence/transcripts" -name '*.node.txt' | wc -l | tr -d ' ')
+rust_scenarios=$(find "$evidence/transcripts" -name '*.rust.txt' | wc -l | tr -d ' ')
+if [ "$scenarios" != "$expected_scenarios" ] || [ "$rust_scenarios" != "$expected_scenarios" ]; then
+  printf 'expected %s scenarios per side, found node %s and rust %s\n' \
+    "$expected_scenarios" "$scenarios" "$rust_scenarios" >&2
+  status=1
+fi
+
 grep -E '^test result' "$evidence/test.log" || true
-printf 'scenarios %s\n' "$(find "$evidence/transcripts" -name '*.node.txt' | wc -l | tr -d ' ')"
+printf 'scenarios %s\n' "$scenarios"
 printf 'evidence %s\n' "$evidence"
 for file in "$evidence"/*.txt "$evidence"/*.log; do
   printf '%s  %s\n' "$(p3_sha256 "$file")" "${file#"$repository_root"/}"
