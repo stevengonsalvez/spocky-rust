@@ -89,6 +89,7 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
     ["member", "Mia Member"],
     ["outsider", "Otto Outsider"],
     ["rival", "Rita Rival"],
+    ["maker", "Max Maker"],
   ]) {
     s.setup("createAccount", { actor, name, email: `${actor}@example.test`, password: `${actor}-password-1` });
   }
@@ -160,8 +161,24 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
     ["duplicate-key", text('{"name":"","name":"Valid"}')],
     ["bom", text('﻿{"name":"Valid"}')],
   ];
+  // Valid bodies create an organization; the maker actor owns those so that no other actor's
+  // state lists an organization whose id the trace cannot name.
+  const accepted = new Map([
+    ["name-padded-101", "Padded"],
+    ["proto-key", "Proto"],
+    ["duplicate-key", "Dup"],
+    ["bom", "Bom"],
+  ]);
   for (const [name, body] of bodies) {
-    s.post("outsider", "create-organization", body, { label: `create-organization-${name}` });
+    const tag = accepted.get(name);
+    if (tag === undefined) {
+      s.post("outsider", "create-organization", body, { label: `create-organization-${name}` });
+    } else {
+      s.post("maker", "create-organization", body, {
+        label: `create-organization-${name}`,
+        capture: { [`org${tag}`]: "organizationId", [`org${tag}Slug`]: "organizationSlug" },
+      });
+    }
   }
   s.post("outsider", "create-organization", text(json({ name: "n".repeat(100) })), {
     label: "create-organization-name-100",
@@ -173,10 +190,11 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
   });
   s.post("rival", "create-organization", json({ name: "Zeta Labs" }), {
     label: "create-organization-rival",
-    capture: { rivalOrg: "organizationId" },
+    capture: { rivalOrg: "organizationId", rivalOrgSlug: "organizationSlug" },
   });
-  s.post("outsider", "create-organization", json({ name: "Otto &  Co!" }), {
+  s.post("maker", "create-organization", json({ name: "Otto &  Co!" }), {
     label: "create-organization-second",
+    capture: { orgSecond: "organizationId", orgSecondSlug: "organizationSlug" },
   });
 
   // Invitations: manager setup, validation, duplicates, replay.
@@ -194,6 +212,7 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
   s.post("owner", "create-invitation", json({ email: "owner@example.test", role: "member" }), {
     label: "create-invitation-already-member",
   });
+  const invitationCaptures = { "email-plus": "invEmailPlus", "email-long-local": "invEmailLong" };
   for (const [name, body] of [
     ["invalid-json", text("not json")],
     ["empty-object", json({})],
@@ -211,7 +230,11 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
     ["email-number", json({ email: 5, role: "member" })],
     ["extra-key", json({ email: "x@example.test", role: "member", extra: true })],
   ]) {
-    s.post("owner", "create-invitation", body, { label: `create-invitation-${name}` });
+    const captured = invitationCaptures[name];
+    s.post("owner", "create-invitation", body, {
+      label: `create-invitation-${name}`,
+      ...(captured === undefined ? {} : { capture: { [captured]: "id" } }),
+    });
   }
   s.post("owner", "create-invitation", json({ email: "plus+tag@example.test", role: "member" }), {
     label: "create-invitation-valid-plus",
@@ -292,7 +315,7 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
   });
   s.post("owner", "api-keys", json({ name: "k".repeat(100), scopes: ["projects:read", "configuration:validate", "configuration:install", "runs:dispatch", "daemons:enroll"] }), {
     label: "api-keys-created-all-scopes",
-    capture: { keyOwner: "key.id" },
+    capture: { keyOwner: "key.id", secretOwner: "secret", prefixOwner: "key.prefix" },
   });
   s.get("owner", "api-keys", { label: "api-keys-owner-listed" });
   s.get("rival", "api-keys", { label: "api-keys-rival-isolated" });
@@ -319,6 +342,22 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
   s.post("owner", "revoke-cli-credential", json({ id: "{{keyOwner}}" }), { label: "revoke-cli-credential-api-key-id" });
   s.post("member", "revoke-cli-credential", json({ id: UUID_A }), { label: "revoke-cli-credential-member-forbidden" });
   s.post("owner", "revoke-cli-credential", json({ id: "x" }), { label: "revoke-cli-credential-not-uuid" });
+
+  // Cancel invitation.
+  s.post("member", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-member-forbidden" });
+  s.post("owner", "cancel-invitation", json({ invitationId: UUID_A }), { label: "cancel-invitation-unknown" });
+  s.post("rival", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-other-org" });
+  for (const [name, body] of [
+    ["invalid-json", text("{")],
+    ["empty-object", json({})],
+    ["empty-id", json({ invitationId: "" })],
+    ["extra-key", json({ invitationId: "{{invPlus}}", extra: 1 })],
+  ]) {
+    s.post("owner", "cancel-invitation", body, { label: `cancel-invitation-${name}` });
+  }
+  s.post("owner", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-canceled" });
+  s.post("owner", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-replay" });
+  s.post("owner", "cancel-invitation", json({ invitationId: "{{invAdmin}}" }), { label: "cancel-invitation-accepted" });
 
   // Members: change role and remove, in check order, last owner.
   s.post("member", "change-member-role", json({ memberId: "{{admin.member}}", role: "member" }), {
@@ -380,31 +419,16 @@ scenario("open", { registration: "open", organizationCreation: "open" }, (s) => 
   ]) {
     s.post("owner", "remove-member", body, { label: `remove-member-${name}` });
   }
-  s.post("owner", "remove-member", json({ memberId: "{{owner.member}}" }), {
+  s.post("owner", "remove-member", json({ memberId: "{{member.member}}" }), {
     label: "remove-member-owner-removes-other-owner",
   });
+  s.get("member", "state", { label: "state-removed-owner" });
   s.post("owner", "remove-member", json({ memberId: "{{admin.member}}" }), { label: "remove-member-admin" });
   s.get("admin", "state", { label: "state-removed-admin" });
   s.post("admin", "select-organization", json({ organizationId: "{{org}}" }), {
     label: "select-organization-removed",
   });
   s.get("owner", "state", { label: "state-owner-final" });
-
-  // Cancel invitation.
-  s.post("member", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-member-forbidden" });
-  s.post("owner", "cancel-invitation", json({ invitationId: UUID_A }), { label: "cancel-invitation-unknown" });
-  s.post("rival", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-other-org" });
-  for (const [name, body] of [
-    ["invalid-json", text("{")],
-    ["empty-object", json({})],
-    ["empty-id", json({ invitationId: "" })],
-    ["extra-key", json({ invitationId: "{{invPlus}}", extra: 1 })],
-  ]) {
-    s.post("owner", "cancel-invitation", body, { label: `cancel-invitation-${name}` });
-  }
-  s.post("owner", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-canceled" });
-  s.post("owner", "cancel-invitation", json({ invitationId: "{{invPlus}}" }), { label: "cancel-invitation-replay" });
-  s.post("owner", "cancel-invitation", json({ invitationId: "{{invAdmin}}" }), { label: "cancel-invitation-accepted" });
 });
 
 // ---------------------------------------------------------------------------------------------
