@@ -4,7 +4,8 @@ Baseline: Hub `28f6c78833065fd282f9064f92a9aa61875dd359`, `src/auth/organization
 (`OrganizationAccess.handle`) behind `src/auth/server.ts:245` (`/api/auth/paseo/*`), plus the
 `better-auth` library handler for the rest of `/api/auth/*`. Scope of this slice: the HTTP route
 table, request validation, status codes and error bodies. Capture target: the real pinned
-production runtime on embedded PGlite, driven by raw `Request` objects, trace compared byte for byte.
+production runtime on embedded PGlite, driven by raw `Request` objects. The Rust comparison of the
+trace is pending: only the baseline trace exists so far.
 
 ## Route table (`/api/auth/paseo/*`)
 
@@ -124,9 +125,23 @@ Baseline trace (`hub-account-routes-original.json`, sha256 in `hub-account-route
   actors plus a maker and a rival organization) and `bootstrap` (invite-only, bootstrap owner,
   organization creation disabled, forced password change).
 - Per request the trace holds status, every response header and the raw body. Masking is limited
-  to generated identity (account, membership, organization, invitation, key ids, slugs and secrets,
-  each replaced by its capture name) and wall clock (an ISO timestamp becomes its whole-hour offset
-  from the request, so the 48 hour invitation lifetime stays checked).
+  to generated identity and wall clock:
+  - a captured id (account, membership, organization, invitation, key) becomes its capture name;
+  - an organization slug is compared exactly except its generated tail, the first 8 characters of
+    the organization id, so the name stem and its 48 unit truncation are checked
+    (`acme-robotics-<org:8>`);
+  - an API key keeps `paseo_pk_` and the `_` separator; only the random part is masked, after the
+    capture asserts 12 base64url characters for the prefix and 43 for the secret
+    (`paseo_pk_<prefixAdmin>_<secretAdmin>`);
+  - a timestamp is paired with the one request window that contains it, shifted by its nominal
+    lifetime, and becomes `<wall-clock@STEP+Nms>` (0 for created and revoked times, 172800000 for
+    the 48 hour invitation lifetime). A time outside every window stays raw and a time inside two
+    windows fails the capture, so a 30 minute error cannot hide.
+- Hidden reads: after each step the capture reads `paseo/state` for every actor whose account or
+  membership id is not yet known. Their only write is the bootstrap organization activation that a
+  recorded state read performs too; the Rust replay issues the same reads through its own handler.
+- Runtime: node v22.20.0 (sha256 `1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931`),
+  asserted by the capture script and by the fixture; the Hub ships `node:22-slim`.
 - Two captures are byte-identical.
 
 Not traced: sign-in, sign-up, sign-out and verify-email payloads (better-auth session cookies belong
