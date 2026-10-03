@@ -21,6 +21,7 @@ baseline_json="$main_root/evidence/raw/phase2/browser-runtime-comparison.json"
 output_dir="$repository_root/evidence/phase2/renderer-platform-linux"
 build_gate=/private/tmp/spocky-targets/build-gate.sh
 container_name="spocky-renderer-linux-$(date +%s)-$$"
+cargo_lock_label=org.spocky.cargo-lock-sha256
 # One source for the limits so the printed plan cannot drift from the docker run.
 limit_cpus=2
 limit_memory_gb=3
@@ -71,9 +72,11 @@ done
 mkdir -p "$output_dir"
 gate=
 if [ -x "$build_gate" ]; then gate=$build_gate; fi
+cargo_lock_sha=$(shasum -a 256 "$repository_root/Cargo.lock" | awk '{print $1}')
 if [ "$build_image" -eq 1 ]; then
   # The only networked step: apt packages and locked crates are baked into the image.
   $gate gtimeout --kill-after=30 2400 docker build --platform linux/amd64 \
+    --build-arg "CARGO_LOCK_SHA256=$cargo_lock_sha" \
     --file "$dockerfile" --tag "$image_tag" "$repository_root"
   image_id=$(docker image inspect "$image_tag" --format '{{.Id}}')
   printf '%s\n' "$image_id" >"$image_pin_file"
@@ -93,6 +96,12 @@ pinned_id=$(cat "$image_pin_file")
 actual_id=$(docker image inspect "$image_tag" --format '{{.Id}}' 2>/dev/null || true)
 if [ "$actual_id" != "$pinned_id" ]; then
   printf 'Derived image mismatch: pinned %s, local %s. Run with --build-image.\n' "$pinned_id" "$actual_id" >&2
+  exit 1
+fi
+image_lock_sha=$(docker image inspect "$image_tag" --format "{{index .Config.Labels \"$cargo_lock_label\"}}")
+if [ "$image_lock_sha" != "$cargo_lock_sha" ]; then
+  printf 'Cargo.lock changed since the image was built: image %s, workspace %s. Run with --build-image.\n' \
+    "$image_lock_sha" "$cargo_lock_sha" >&2
   exit 1
 fi
 linux_command='set -eu
@@ -160,9 +169,11 @@ $gate gtimeout --kill-after=30 "$limit_seconds" docker run --name "$container_na
   --network none \
   "$image_tag" bash -c "$linux_command" >"$output_dir/container.log" 2>&1
 status=$?
+# State plus the limits and network the run actually had, read back from Docker.
 inspect=$(docker inspect "$container_name" --format '{{json .State}}' 2>/dev/null || true)
+host_config=$(docker inspect "$container_name" --format '{"NetworkMode":{{json .HostConfig.NetworkMode}},"Memory":{{json .HostConfig.Memory}},"MemorySwap":{{json .HostConfig.MemorySwap}},"NanoCpus":{{json .HostConfig.NanoCpus}}}' 2>/dev/null || true)
 if [ -n "$inspect" ]; then
-  printf '%s\n' "$inspect" >"$output_dir/container-state.json"
+  printf '{"State":%s,"HostConfig":%s}\n' "$inspect" "$host_config" >"$output_dir/container-state.json"
 fi
 docker rm -f "$container_name" >/dev/null 2>&1 || true
 set -e
