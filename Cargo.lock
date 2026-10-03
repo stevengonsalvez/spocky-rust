@@ -5579,7 +5579,6 @@ dependencies = [
  "serde_json",
  "spocky-contracts",
  "spocky-crypto",
- "url",
 ]
 
 [[package]]

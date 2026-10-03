@@ -8,7 +8,6 @@ rust-version = "1.94"
 [dependencies]
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-crypto = { path = "../spocky-crypto" }
-url = "2.5.8"
 
 [dev-dependencies]
 serde_json = "1.0.145"
