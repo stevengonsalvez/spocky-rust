@@ -66,7 +66,7 @@ cd "$repository_root"
 status=0
 "$gate" cargo test --locked -p spocky-crypto >"$evidence/test.log" 2>&1 || status=1
 "$gate" cargo clippy --locked -p spocky-crypto --all-targets -- -D warnings >"$evidence/clippy.log" 2>&1 || status=1
-cargo fmt --package spocky-crypto -- --check >"$evidence/fmt.log" 2>&1 || status=1
+"$gate" cargo fmt --package spocky-crypto -- --check >"$evidence/fmt.log" 2>&1 || status=1
 
 # Both sides must have produced byte-identical transcripts.
 for node_transcript in "$evidence"/transcripts/*.node.txt; do
