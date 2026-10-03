@@ -95,9 +95,10 @@ use spocky_session::agent_manager::{
     AgentArchivedCallback, AgentManager, AgentManagerEvent, AgentManagerOptions,
     AgentMetadataUpdates, AgentSteerOptions, AppendedTimelineItem, AttentionCallback,
     CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest,
-    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError, ProviderDefinition,
-    ProviderRegistryUpdate, ReloadAgentOptions, ResumeAgentOptions, SteerDispatch,
-    SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError, PaseoToolCatalogFactory,
+    PaseoToolRuntimeContext, ProviderDefinition, ProviderRegistryUpdate, ReloadAgentOptions,
+    ResumeAgentOptions, SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
+    WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -106,8 +107,8 @@ use spocky_session::agent_sdk::{
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
     FetchCatalogOptions, ImportProviderSessionContext, ImportProviderSessionInput,
     ImportableProviderSession, ImportedProviderSession, ImportedTimelineEntry,
-    ListImportableSessionsOptions, OutOfBandHandler, ProviderRefreshContext, SteerResult,
-    StreamCallback, Unsubscribe,
+    ListImportableSessionsOptions, OutOfBandHandler, PaseoToolCatalog, PaseoToolDefinition,
+    PaseoToolExecutionContext, ProviderRefreshContext, SteerResult, StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::rewind::RewindMode;
@@ -1687,6 +1688,50 @@ const persistFailureScenario = async () => {
   }
 };
 
+const catalogScenario = async () => {
+  const gammaId = "00000000-0000-4000-8000-0000000000f5";
+  const calls = [];
+  const factoryLog = [];
+  const native = { ...JSON.parse(capabilitiesJson), supportsNativePaseoTools: true };
+  const factory = async (context) => {
+    factoryLog.push(context);
+    return { toJSON() { return { caller: context.callerAgentId }; }, tools: new Map(), getTool() {}, async executeTool() {} };
+  };
+  const clients = {
+    native: fakeClient(calls, spec("native", { capabilities: native })),
+    plain: fakeClient(calls, spec("plain")),
+    quiet: fakeClient(calls, spec("quiet", { capabilities: native })),
+  };
+  const manager = new AgentManager({
+    logger,
+    registry: new AgentStorage(`${home}/catalog`, logger),
+    clients,
+    providerDefinitions: Object.fromEntries(Object.keys(clients).map((provider) => [provider, { enabled: true }])),
+    paseoToolCatalogFactory: factory,
+    resolvePaseoToolPolicy: (provider) => (provider === "quiet" ? { enabled: false } : { enabled: true, name: provider }),
+  });
+  const steps = [];
+  const step = async (name, run) => {
+    const result = await outcome(run);
+    steps.push({ name, result, factory: factoryLog.splice(0), calls: calls.splice(0) });
+  };
+  const create = (provider, id) => async () => (await manager.createAgent({ provider, cwd }, id, {})).provider;
+  await step("native", create("native", agentId));
+  await step("plain", create("plain", otherId));
+  await step("quiet", create("quiet", gammaId));
+  manager.setPaseoToolsEnabled(false);
+  await step("toolsOff", create("native"));
+  manager.setPaseoToolsEnabled(true);
+  manager.setPaseoToolCatalogFactory(null);
+  await step("noFactory", create("native"));
+  manager.setPaseoToolCatalogFactory(async () => { throw new Error("catalog broke"); });
+  await step("failing", create("native"));
+  manager.setPaseoToolCatalogFactory(factory);
+  await step("resume", async () => (await manager.resumeAgentFromPersistence({ provider: "native", sessionId: "sess-c", nativeHandle: "thread-c", metadata: { cwd, model: "m" } })).provider);
+  await step("reload", async () => (await manager.reloadAgentSession(agentId)).provider);
+  return { steps };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1795,7 +1840,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), catalog: await catalogScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -2340,6 +2385,15 @@ fn launch_context_value(launch_context: Option<AgentLaunchContext>) -> JsValue {
         }
         if let Some(env) = context.env {
             value.insert("env", JsValue::Object(env));
+        }
+        if let Some(tools) = context.paseo_tools {
+            value.insert(
+                "paseoTools",
+                object(vec![(
+                    "caller",
+                    text(&tools.tools().first().expect("a tool").name),
+                )]),
+            );
         }
         JsValue::Object(value)
     })
@@ -3780,6 +3834,7 @@ async fn scenarios_match_pinned_manager() {
             "persistFailure",
             persist_failure_scenario(&cwd, &rust_home.0).await,
         ),
+        ("catalog", catalog_scenario(&cwd, &rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -6693,6 +6748,177 @@ async fn persist_failure_scenario(cwd: &str, home: &Path) -> JsValue {
         ("errors", JsValue::Array(masked)),
         ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
     ])
+}
+
+/// A catalog that names the agent it was built for.
+struct CallerCatalog(String);
+
+impl PaseoToolCatalog for CallerCatalog {
+    fn tools(&self) -> Vec<PaseoToolDefinition> {
+        vec![PaseoToolDefinition {
+            name: self.0.clone(),
+            title: None,
+            description: String::new(),
+            input_schema: None,
+            output_schema: None,
+        }]
+    }
+    fn get_tool(&self, _name: &str) -> Option<PaseoToolDefinition> {
+        None
+    }
+    fn execute_tool(
+        &self,
+        _name: &str,
+        _input: JsValue,
+        _context: Option<PaseoToolExecutionContext>,
+    ) -> BoxFuture<'_, AgentResult<JsValue>> {
+        Box::pin(async { Err(AgentError::new("unused")) })
+    }
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn catalog_scenario(cwd: &str, home: &Path) -> JsValue {
+    const GAMMA_ID: &str = "00000000-0000-4000-8000-0000000000f5";
+    let calls = Calls::default();
+    let factory_log: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let working: PaseoToolCatalogFactory = {
+        let log = Arc::clone(&factory_log);
+        Arc::new(move |context: PaseoToolRuntimeContext| {
+            log.lock().expect("log").push(object(vec![
+                (
+                    "callerAgentId",
+                    context
+                        .caller_agent_id
+                        .as_deref()
+                        .map_or(JsValue::Undefined, text),
+                ),
+                (
+                    "paseoToolPolicy",
+                    context.paseo_tool_policy.unwrap_or(JsValue::Undefined),
+                ),
+            ]));
+            let caller = context.caller_agent_id.unwrap_or_default();
+            Box::pin(
+                async move { Ok(Arc::new(CallerCatalog(caller)) as Arc<dyn PaseoToolCatalog>) },
+            )
+        })
+    };
+    let failing: PaseoToolCatalogFactory = Arc::new(|_| {
+        Box::pin(async { Err::<Arc<dyn PaseoToolCatalog>, _>(AgentError::new("catalog broke")) })
+    });
+    let mut native = json(CAPABILITIES);
+    if let JsValue::Object(capabilities) = &mut native {
+        capabilities.insert("supportsNativePaseoTools", JsValue::Bool(true));
+    }
+    let client = |provider: &str, capabilities: Option<&JsValue>| {
+        let mut fake = spec(provider);
+        if let Some(capabilities) = capabilities {
+            fake.capabilities = capabilities.clone();
+        }
+        (
+            provider.to_owned(),
+            Arc::new(FakeClient {
+                spec: fake,
+                calls: Arc::clone(&calls),
+            }) as Arc<dyn AgentClient>,
+        )
+    };
+    let clients = vec![
+        client("native", Some(&native)),
+        client("plain", None),
+        client("quiet", Some(&native)),
+    ];
+    let provider_definitions = clients
+        .iter()
+        .map(|(provider, _)| (provider.clone(), enabled()))
+        .collect();
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients,
+        provider_definitions,
+        registry: Some(AgentStorage::new(home.join("catalog"))),
+        paseo_tool_catalog_factory: Some(Arc::clone(&working)),
+        resolve_paseo_tool_policy: Some(Arc::new(|provider| {
+            Some(if provider == "quiet" {
+                object(vec![("enabled", JsValue::Bool(false))])
+            } else {
+                object(vec![
+                    ("enabled", JsValue::Bool(true)),
+                    ("name", text(provider)),
+                ])
+            })
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let mut steps = Vec::new();
+    let mut step = |name: &'static str, result: JsValue| {
+        steps.push(object(vec![
+            ("name", text(name)),
+            ("result", result),
+            (
+                "factory",
+                JsValue::Array(std::mem::take(&mut *factory_log.lock().expect("log"))),
+            ),
+            (
+                "calls",
+                JsValue::Array(std::mem::take(&mut *calls.lock().expect("calls"))),
+            ),
+        ]));
+    };
+    let create = |provider: &'static str, id: Option<&'static str>| {
+        let manager = manager.clone();
+        let cwd = cwd.to_owned();
+        async move {
+            outcome(
+                manager
+                    .create_agent(
+                        object(vec![("provider", text(provider)), ("cwd", text(&cwd))]),
+                        id.map(str::to_owned),
+                        CreateAgentOptions::default(),
+                    )
+                    .await
+                    .map(|agent| text(&agent.provider)),
+            )
+        }
+    };
+    step("native", create("native", Some(AGENT_ID)).await);
+    step("plain", create("plain", Some(OTHER_ID)).await);
+    step("quiet", create("quiet", Some(GAMMA_ID)).await);
+    manager.set_paseo_tools_enabled(false);
+    step("toolsOff", create("native", None).await);
+    manager.set_paseo_tools_enabled(true);
+    manager.set_paseo_tool_catalog_factory(None);
+    step("noFactory", create("native", None).await);
+    manager.set_paseo_tool_catalog_factory(Some(failing));
+    step("failing", create("native", None).await);
+    manager.set_paseo_tool_catalog_factory(Some(working));
+    let resumed = manager
+        .resume_agent_from_persistence(
+            object(vec![
+                ("provider", text("native")),
+                ("sessionId", text("sess-c")),
+                ("nativeHandle", text("thread-c")),
+                (
+                    "metadata",
+                    object(vec![("cwd", text(cwd)), ("model", text("m"))]),
+                ),
+            ]),
+            None,
+            None,
+            ResumeAgentOptions::default(),
+            None,
+        )
+        .await
+        .map(|agent| text(&agent.provider));
+    step("resume", outcome(resumed));
+    let reloaded = manager
+        .reload_agent_session(AGENT_ID, None, ReloadAgentOptions::default())
+        .await
+        .map(|agent| text(&agent.provider));
+    step("reload", outcome(reloaded));
+    object(vec![("steps", JsValue::Array(steps))])
 }
 
 #[allow(
