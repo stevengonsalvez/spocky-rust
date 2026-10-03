@@ -7,6 +7,7 @@
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::js_case_tables::{CASE_IGNORABLE, CASED, LOWER_MULTI, LOWER_SINGLE};
 use crate::js_value::{JsTextUnit, js_text, js_text_canonical_cow, js_text_units};
 
 /// Returns `true` for the `WhiteSpace` and `LineTerminator` code points that
@@ -38,6 +39,77 @@ pub fn is_js_whitespace(character: char) -> bool {
 #[must_use]
 pub fn js_trim(value: &str) -> &str {
     value.trim_matches(is_js_whitespace)
+}
+
+/// `String.prototype.trimStart`.
+#[must_use]
+pub fn js_trim_start(value: &str) -> &str {
+    value.trim_start_matches(is_js_whitespace)
+}
+
+/// `String.prototype.trimEnd`.
+#[must_use]
+pub fn js_trim_end(value: &str) -> &str {
+    value.trim_end_matches(is_js_whitespace)
+}
+
+/// `String.prototype.toLowerCase` as node v22.20.0 runs it: the mappings and
+/// the `Cased` and `Case_Ignorable` properties of its Unicode version (see
+/// [`crate::js_case_tables`]), with `Final_Sigma` for `U+03A3`. The Rust
+/// toolchain's own `str::to_lowercase` follows a newer Unicode. A lone
+/// surrogate in the [`crate::js_value`] encoding is not cased, so it passes
+/// through.
+#[must_use]
+pub fn js_to_lowercase(value: &str) -> String {
+    let mut lowered = String::with_capacity(value.len());
+    for (index, character) in value.char_indices() {
+        if character == '\u{3a3}' {
+            let before = cased_after_ignorables(value[..index].chars().rev());
+            let after = cased_after_ignorables(value[index + character.len_utf8()..].chars());
+            lowered.push(if before && !after {
+                '\u{3c2}'
+            } else {
+                '\u{3c3}'
+            });
+            continue;
+        }
+        let code = u32::from(character);
+        if let Ok(position) = LOWER_SINGLE.binary_search_by_key(&code, |entry| entry.0) {
+            lowered.extend(char::from_u32(LOWER_SINGLE[position].1));
+        } else if let Ok(position) = LOWER_MULTI.binary_search_by_key(&code, |entry| entry.0) {
+            lowered.extend(
+                LOWER_MULTI[position]
+                    .1
+                    .iter()
+                    .filter_map(|unit| char::from_u32(*unit)),
+            );
+        } else {
+            lowered.push(character);
+        }
+    }
+    lowered
+}
+
+fn in_ranges(ranges: &[(u32, u32)], character: char) -> bool {
+    let code = u32::from(character);
+    ranges
+        .binary_search_by(|&(low, high)| {
+            if high < code {
+                std::cmp::Ordering::Less
+            } else if low > code {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+/// Skips `Case_Ignorable` characters, then asks whether the next is `Cased`.
+fn cased_after_ignorables(mut characters: impl Iterator<Item = char>) -> bool {
+    characters
+        .find(|character| !in_ranges(&CASE_IGNORABLE, *character))
+        .is_some_and(|character| in_ranges(&CASED, character))
 }
 
 /// `String.prototype.length` of JavaScript text: UTF-16 code units, with a
