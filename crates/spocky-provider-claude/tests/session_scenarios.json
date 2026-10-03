@@ -53,7 +53,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "state"
@@ -149,7 +149,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "history"
@@ -267,7 +267,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "close"
@@ -388,7 +388,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "close"
@@ -454,7 +454,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -503,7 +503,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -552,14 +552,14 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "emitEnd"
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -722,7 +722,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -771,14 +771,14 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "interrupt"
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "state"
@@ -858,7 +858,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "interrupt"
@@ -869,7 +869,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "close"
@@ -946,7 +946,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "steer",
@@ -957,7 +957,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "close"
@@ -1006,7 +1006,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "steer",
@@ -1106,7 +1106,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "setModel",
@@ -1207,7 +1207,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "canUseTool",
@@ -1220,7 +1220,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "pending"
@@ -1234,7 +1234,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "pending"
@@ -1290,7 +1290,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "canUseTool",
@@ -1302,7 +1302,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "respondPermission",
@@ -1315,7 +1315,7 @@
    },
    {
     "op": "wait",
-    "ms": 80
+    "ms": 200
    },
    {
     "op": "close"
@@ -1350,7 +1350,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "canUseTool",
@@ -1363,7 +1363,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "pending"
@@ -1374,7 +1374,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "pending"
@@ -1412,7 +1412,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "canUseTool",
@@ -1424,14 +1424,14 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "close"
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    }
   ]
  },
@@ -1463,7 +1463,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "canUseTool",
@@ -1475,7 +1475,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "pending"
@@ -1489,7 +1489,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "close"
@@ -1550,7 +1550,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "revertFiles",
@@ -1616,7 +1616,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "run",
@@ -1624,7 +1624,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -1686,7 +1686,7 @@
    },
    {
     "op": "wait",
-    "ms": 150
+    "ms": 375
    },
    {
     "op": "close"
@@ -1718,7 +1718,7 @@
    },
    {
     "op": "wait",
-    "ms": 60
+    "ms": 150
    },
    {
     "op": "emit",
@@ -1764,7 +1764,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "emit",
@@ -1800,7 +1800,7 @@
    },
    {
     "op": "wait",
-    "ms": 100
+    "ms": 250
    },
    {
     "op": "close"
@@ -1910,7 +1910,774 @@
    },
    {
     "op": "wait",
+    "ms": 375
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "resume_history": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "fixtures": [
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old.jsonl",
+    "lines": [
+     {
+      "type": "user",
+      "uuid": "u-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:05.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": "hello old"
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:06.000Z",
+      "message": {
+       "id": "msg-old-1",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "old answer"
+        },
+        {
+         "type": "tool_use",
+         "id": "toolu_old",
+         "name": "Read",
+         "input": {
+          "file_path": "/tmp/x.txt"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-2",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:07.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "toolu_old",
+         "content": "file body"
+        }
+       ]
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-2",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:08.000Z",
+      "message": {
+       "id": "msg-old-2",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "tool_use",
+         "id": "toolu_task",
+         "name": "Task",
+         "input": {
+          "description": "inspect",
+          "prompt": "look",
+          "subagent_type": "general-purpose"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-3",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:09.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "toolu_task",
+         "content": "child done"
+        }
+       ]
+      }
+     },
+     {
+      "type": "system",
+      "subtype": "compact_boundary",
+      "uuid": "c-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:10.000Z",
+      "compactMetadata": {
+       "trigger": "auto",
+       "preTokens": 500
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-4",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:11.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": "second question"
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-3",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:12.000Z",
+      "message": {
+       "id": "msg-old-3",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "hmm",
+         "signature": "s"
+        },
+        {
+         "type": "text",
+         "text": "second answer"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old/subagents/agent-abc.jsonl",
+    "lines": [
+     {
+      "type": "user",
+      "isSidechain": true,
+      "agentId": "abc",
+      "uuid": "s-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:08.500Z",
+      "message": {
+       "role": "user",
+       "content": "look"
+      }
+     },
+     {
+      "type": "assistant",
+      "isSidechain": true,
+      "agentId": "abc",
+      "uuid": "s-2",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:08.800Z",
+      "message": {
+       "id": "msg-side-1",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "child text"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old/subagents/agent-abc.meta.json",
+    "lines": [
+     {
+      "agentType": "general-purpose",
+      "description": "inspect"
+     }
+    ]
+   }
+  ],
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-n1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "continued"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "resume",
+    "handle": {
+     "provider": "claude",
+     "sessionId": "sess-old",
+     "nativeHandle": "sess-old",
+     "metadata": {
+      "provider": "claude",
+      "cwd": "/tmp/spocky-claude-diff",
+      "modeId": "default",
+      "model": "claude-opus-4-8"
+     }
+    }
+   },
+   {
+    "op": "history"
+   },
+   {
+    "op": "state"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "continue"
+   },
+   {
+    "op": "wait",
+    "ms": 300
+   },
+   {
+    "op": "history"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "resume_invalid_utf8": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "fixtures": [
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old.jsonl",
+    "lines": [
+     {
+      "type": "user",
+      "uuid": "u-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:05.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": "hello old"
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:06.000Z",
+      "message": {
+       "id": "msg-old-1",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "old answer"
+        },
+        {
+         "type": "tool_use",
+         "id": "toolu_old",
+         "name": "Read",
+         "input": {
+          "file_path": "/tmp/x.txt"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-2",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:07.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "toolu_old",
+         "content": "file body"
+        }
+       ]
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-2",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:08.000Z",
+      "message": {
+       "id": "msg-old-2",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "tool_use",
+         "id": "toolu_task",
+         "name": "Task",
+         "input": {
+          "description": "inspect",
+          "prompt": "look",
+          "subagent_type": "general-purpose"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-3",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:09.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "toolu_task",
+         "content": "child done"
+        }
+       ]
+      }
+     },
+     {
+      "type": "system",
+      "subtype": "compact_boundary",
+      "uuid": "c-1",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:10.000Z",
+      "compactMetadata": {
+       "trigger": "auto",
+       "preTokens": 500
+      }
+     },
+     {
+      "type": "user",
+      "uuid": "u-4",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:11.000Z",
+      "cwd": "/tmp/spocky-claude-diff",
+      "message": {
+       "role": "user",
+       "content": "second question"
+      }
+     },
+     {
+      "type": "assistant",
+      "uuid": "a-3",
+      "sessionId": "sess-old",
+      "timestamp": "2026-01-02T03:04:12.000Z",
+      "message": {
+       "id": "msg-old-3",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "hmm",
+         "signature": "s"
+        },
+        {
+         "type": "text",
+         "text": "second answer"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old/subagents/agent-abc.jsonl",
+    "hex": "7b2274797065223a202275736572222c2022697353696465636861696e223a20747275652c20226167656e744964223a2022616263222c202275756964223a2022732d31222c202273657373696f6e4964223a2022736573732d6f6c64222c202274696d657374616d70223a2022323032362d30312d30325430333a30343a30382e3530305a222c20226d657373616765223a207b22726f6c65223a202275736572222c2022636f6e74656e74223a20226c6f6f6b20ff207461696c227d7d0a7b2274797065223a2022617373697374616e74222c2022697353696465636861696e223a20747275652c20226167656e744964223a2022616263222c202275756964223a2022732d32222c202273657373696f6e4964223a2022736573732d6f6c64222c202274696d657374616d70223a2022323032362d30312d30325430333a30343a30382e3830305a222c20226d657373616765223a207b226964223a20226d73672d736964652d31222c2022726f6c65223a2022617373697374616e74222c2022636f6e74656e74223a205b7b2274797065223a202274657874222c202274657874223a20226368696c642074657874227d5d7d7d0a"
+   },
+   {
+    "path": "projects/-tmp-spocky-claude-diff/sess-old/subagents/agent-abc.meta.json",
+    "hex": "7b226167656e7454797065223a2267656e6572616c2d707572706f7365222c226465736372697074696f6e223a22696eff7370656374227d"
+   }
+  ],
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-n1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "continued"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "resume",
+    "handle": {
+     "provider": "claude",
+     "sessionId": "sess-old",
+     "nativeHandle": "sess-old",
+     "metadata": {
+      "provider": "claude",
+      "cwd": "/tmp/spocky-claude-diff",
+      "modeId": "default",
+      "model": "claude-opus-4-8"
+     }
+    }
+   },
+   {
+    "op": "history"
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "resume_no_transcript": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "fixtures": [],
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-n1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "continued"
+       }
+      ]
+     }
+    },
+    {
+     "type": "result",
+     "subtype": "success",
+     "usage": {
+      "input_tokens": 3,
+      "cache_read_input_tokens": 1,
+      "output_tokens": 2
+     },
+     "total_cost_usd": 0.5,
+     "session_id": "sess-1",
+     "uuid": "res-1"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "resume",
+    "handle": {
+     "provider": "claude",
+     "sessionId": "sess-old",
+     "nativeHandle": "sess-old",
+     "metadata": {
+      "provider": "claude",
+      "cwd": "/tmp/spocky-claude-diff",
+      "modeId": "default",
+      "model": "claude-opus-4-8"
+     }
+    }
+   },
+   {
+    "op": "history"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "continue"
+   },
+   {
+    "op": "wait",
+    "ms": 300
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "interrupt_buffered": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 200
+   },
+   {
+    "op": "emitInterrupt",
+    "messages": [
+     {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+       "input_tokens": 1,
+       "output_tokens": 1
+      },
+      "total_cost_usd": 0,
+      "session_id": "sess-1",
+      "uuid": "res-late"
+     },
+     {
+      "type": "assistant",
+      "session_id": "sess-1",
+      "message": {
+       "id": "msg-late",
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "late"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "op": "wait",
+    "ms": 250
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "interrupt_steer_queued": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    },
+    {
+     "type": "assistant",
+     "session_id": "sess-1",
+     "message": {
+      "id": "msg-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "working"
+       }
+      ]
+     }
+    }
+   ],
+   []
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "long"
+   },
+   {
+    "op": "wait",
+    "ms": 200
+   },
+   {
+    "op": "steer",
+    "prompt": "change",
+    "options": {
+     "expectedTurnId": "foreground-turn-1"
+    }
+   },
+   {
+    "op": "interrupt"
+   },
+   {
+    "op": "wait",
+    "ms": 250
+   },
+   {
+    "op": "close"
+   }
+  ]
+ },
+ "plan_approval_abort": {
+  "config": {
+   "provider": "claude",
+   "cwd": "/tmp/spocky-claude-diff",
+   "modeId": "default",
+   "model": "claude-opus-4-8"
+  },
+  "onPrompt": [
+   [
+    {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "permissionMode": "default",
+     "model": "claude-opus-4-8"
+    }
+   ]
+  ],
+  "steps": [
+   {
+    "op": "create"
+   },
+   {
+    "op": "startTurn",
+    "prompt": "plan"
+   },
+   {
+    "op": "wait",
     "ms": 150
+   },
+   {
+    "op": "canUseTool",
+    "toolName": "ExitPlanMode",
+    "input": {
+     "plan": "1. do it"
+    },
+    "toolUseID": "toolu_p"
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "respondPermissionAbort",
+    "index": 0,
+    "abortIndex": 0,
+    "response": {
+     "behavior": "allow"
+    }
+   },
+   {
+    "op": "wait",
+    "ms": 150
+   },
+   {
+    "op": "pending"
    },
    {
     "op": "close"
