@@ -11,7 +11,7 @@
 use crate::control::{
     ControlMessage, MessageData, normalize_message_data, try_parse_control_message,
 };
-use crate::encrypted_socket::{EncryptedRelayEnv, EncryptedRelaySocket, SendOutcome};
+use crate::encrypted_socket::{EncryptedRelayEnv, EncryptedRelaySocket, EnvFailure, SendOutcome};
 use crate::endpoint::{
     EndpointError, RelayRole, RelayUrlParams, VersionInput, build_relay_websocket_url,
 };
@@ -79,6 +79,34 @@ pub struct AttachMetadata {
     pub relay_connection_id: JsString,
 }
 
+/// How `socket.send(data, callback)` started.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SendStart {
+    /// `send` threw.
+    Threw(IoFailure),
+    /// The callback ran at once, with an error or without.
+    Callback(Option<String>),
+    /// The callback runs later; see [`RelayTransport::on_adapter_send_callback`].
+    Pending,
+}
+
+/// What the adapter's `send` returned to the channel.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AdapterSend {
+    /// The promise settled: resolved, or rejected with the message.
+    Settled(Result<(), String>),
+    /// The promise settles when the callback runs.
+    Pending,
+}
+
+/// The daemon process ends on these: `daemon-worker.ts` logs `fatal` and exits for an
+/// uncaught exception and for an unhandled rejection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Fatal {
+    UncaughtException(String),
+    UnhandledRejection(String),
+}
+
 /// Everything the transport does to the outside world.
 pub trait RelayIo {
     /// `createWebSocket(url)`.
@@ -126,11 +154,23 @@ pub trait RelayIo {
     /// `relayTransport.onerror`.
     fn channel_error(&mut self, socket: SocketId, message: &str);
     /// `emitter.emit("message")` on the encrypted socket.
-    fn emit_message(&mut self, socket: SocketId, data: &Data);
+    ///
+    /// # Errors
+    ///
+    /// A listener threw.
+    fn emit_message(&mut self, socket: SocketId, data: &Data) -> Result<(), String>;
     /// `emitter.emit("close")`.
-    fn emit_close(&mut self, socket: SocketId, code: u16, reason: &str);
+    ///
+    /// # Errors
+    ///
+    /// A listener threw.
+    fn emit_close(&mut self, socket: SocketId, code: u16, reason: &str) -> Result<(), String>;
     /// `emitter.emit("error")`.
-    fn emit_error(&mut self, socket: SocketId, message: &str);
+    ///
+    /// # Errors
+    ///
+    /// No `error` listener is registered, or one threw; `EventEmitter` throws the error then.
+    fn emit_error(&mut self, socket: SocketId, message: &str) -> Result<(), String>;
     /// `channel.setState("open")` on the socket's channel.
     fn channel_set_state_open(&mut self, socket: SocketId);
     /// `channel.send(data)`.
@@ -138,7 +178,18 @@ pub trait RelayIo {
     /// `channel.outboundWireByteLength(data)`.
     fn channel_outbound_wire_byte_length(&self, socket: SocketId, data: &Data) -> u64;
     /// `channel.close(code, reason)`.
-    fn channel_close(&mut self, socket: SocketId, code: Option<u16>, reason: Option<&str>);
+    ///
+    /// # Errors
+    ///
+    /// `channel.close` threw.
+    fn channel_close(
+        &mut self,
+        socket: SocketId,
+        code: Option<u16>,
+        reason: Option<&str>,
+    ) -> Result<(), IoFailure>;
+    /// `socket.send(data, callback)` for the end-to-end adapter.
+    fn send_data(&mut self, socket: SocketId, data: &Data) -> SendStart;
     /// The physical socket's `bufferedAmount`.
     fn transport_buffered_amount(&self, socket: SocketId) -> Option<u64>;
 }
@@ -162,18 +213,20 @@ impl EncryptedRelayEnv for SocketEnv<'_> {
         self.io.channel_outbound_wire_byte_length(self.socket, data)
     }
 
-    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>) {
-        self.io.channel_close(self.socket, code, reason);
+    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>) -> Result<(), EnvFailure> {
+        self.io
+            .channel_close(self.socket, code, reason)
+            .map_err(|failure| EnvFailure(failure.0))
     }
 
     fn transport_buffered_amount(&self) -> Option<u64> {
         self.io.transport_buffered_amount(self.socket)
     }
 
-    fn terminate_transport(&mut self) {
-        // `terminateTransport: () => socket.terminate()` is not guarded; the original's
-        // throw would reach the caller, which the port reports through the io's own log.
-        let _ = self.io.terminate(self.socket);
+    fn terminate_transport(&mut self) -> Result<(), EnvFailure> {
+        self.io
+            .terminate(self.socket)
+            .map_err(|failure| EnvFailure(failure.0))
     }
 }
 
@@ -207,6 +260,9 @@ struct DataClosure {
     url: String,
     open_timer: TimerId,
     attached: bool,
+    /// The socket's `close` event ran. The closure is dropped once the end-to-end attach has
+    /// settled too, so a long-running daemon does not keep every client it ever served.
+    closed: bool,
     e2ee: Option<E2ee>,
 }
 
@@ -287,13 +343,13 @@ impl RelayTransport {
     pub fn stop(&mut self, io: &mut dyn RelayIo) {
         self.stopped = true;
         if let Some(timer) = self.reconnect_timer.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         if let Some(timer) = self.keepalive.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         if let Some(timer) = self.ready_timer.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         if let Some(control) = self.control.take() {
             let _ = io.close(control.socket, None, None);
@@ -323,6 +379,12 @@ impl RelayTransport {
 
     fn remember(&mut self, timer: TimerId, kind: TimerKind) {
         self.timers.push((timer, kind));
+    }
+
+    /// `clearTimeout` / `clearInterval`: the timer is forgotten here and cancelled in the io.
+    fn clear(&mut self, io: &mut dyn RelayIo, timer: TimerId) {
+        self.timers.retain(|(candidate, _)| *candidate != timer);
+        io.clear_timer(timer);
     }
 
     fn connect_control(&mut self, io: &mut dyn RelayIo) -> Result<(), EndpointError> {
@@ -365,13 +427,20 @@ impl RelayTransport {
         };
         match kind {
             TimerKind::Reconnect => {
+                self.timers.retain(|(candidate, _)| *candidate != timer);
                 self.reconnect_timer = None;
                 // The configuration already produced a URL once, so this cannot fail.
                 let _ = self.connect_control(io);
             }
-            TimerKind::ControlReady(socket) => self.on_control_ready_timeout(io, socket),
+            TimerKind::ControlReady(socket) => {
+                self.timers.retain(|(candidate, _)| *candidate != timer);
+                self.on_control_ready_timeout(io, socket);
+            }
             TimerKind::Keepalive(socket) => self.on_keepalive(io, socket),
-            TimerKind::DataOpen(socket) => self.on_data_open_timeout(io, socket),
+            TimerKind::DataOpen(socket) => {
+                self.timers.retain(|(candidate, _)| *candidate != timer);
+                self.on_data_open_timeout(io, socket);
+            }
         }
     }
 
@@ -507,10 +576,10 @@ impl RelayTransport {
         let seq = self.control.as_ref().map_or(0, |control| control.seq);
         self.control_last_seen_at = io.now_ms();
         if let Some(timer) = self.keepalive.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         if let Some(timer) = self.ready_timer.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         let ready = io.set_timeout(CONTROL_READY_TIMEOUT_MS);
         self.ready_timer = Some(ready);
@@ -549,10 +618,10 @@ impl RelayTransport {
         fields.push(("connectionId", number(control.seq)));
         warn(io, "relay_control_disconnected", fields);
         if let Some(timer) = self.keepalive.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         if let Some(timer) = self.ready_timer.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         self.schedule_reconnect(io);
     }
@@ -602,7 +671,7 @@ impl RelayTransport {
         let seq = control.seq;
         self.reconnect_attempt = 0;
         if let Some(timer) = self.ready_timer.take() {
-            io.clear_timer(timer);
+            self.clear(io, timer);
         }
         io.log(LogRecord {
             level: LogLevel::Info,
@@ -650,6 +719,8 @@ impl RelayTransport {
                     .iter()
                     .position(|(candidate, _)| *candidate == connection_id)
                 {
+                    // The original closes, then deletes; `ws` never emits `close` from inside
+                    // `close()`, so deleting first is not observable.
                     let (_, existing) = self.data_sockets.remove(index);
                     let _ = io.close(existing, Some(1001), Some("Client disconnected"));
                 }
@@ -681,6 +752,7 @@ impl RelayTransport {
             url,
             open_timer,
             attached: false,
+            closed: false,
             e2ee: None,
         });
     }
@@ -717,33 +789,38 @@ impl RelayTransport {
         let Some(closure) = self.closure(socket) else {
             return;
         };
-        let (open_timer, connection_id) = (closure.open_timer, closure.connection_id.clone());
-        io.clear_timer(open_timer);
+        let (open_timer, connection_id, attached) = (
+            closure.open_timer,
+            closure.connection_id.clone(),
+            closure.attached,
+        );
+        self.clear(io, open_timer);
         io.log(LogRecord {
             level: LogLevel::Info,
             message: "relay_data_connected",
             context: LogContext::Transport,
             fields: vec![("connectionId", FieldValue::Js(connection_id.clone()))],
         });
-        let Some(closure) = self.closure(socket) else {
-            return;
-        };
-        if closure.attached {
+        if attached {
             return;
         }
-        closure.attached = true;
         let mut session_key = utf16("session:");
         session_key.extend_from_slice(&connection_id);
         let metadata = AttachMetadata {
             external_session_key: session_key,
             relay_connection_id: connection_id,
         };
+        if let Some(closure) = self.closure(socket) {
+            closure.attached = true;
+            if has_key_pair {
+                closure.e2ee = Some(E2ee {
+                    phase: E2eePhase::AwaitingChannel,
+                    pending: Vec::new(),
+                    socket: None,
+                });
+            }
+        }
         if has_key_pair {
-            closure.e2ee = Some(E2ee {
-                phase: E2eePhase::AwaitingChannel,
-                pending: Vec::new(),
-                socket: None,
-            });
             io.start_daemon_channel(socket);
         } else {
             io.attach_plain(socket, &metadata);
@@ -765,7 +842,7 @@ impl RelayTransport {
                 closure.connection_id.clone(),
                 closure.url.clone(),
             );
-            io.clear_timer(open_timer);
+            self.clear(io, open_timer);
             let mut fields = vec![("code", FieldValue::Number(i64::from(code)))];
             if let Some(reason) = reason_text(reason) {
                 fields.push(("reason", FieldValue::Text(reason)));
@@ -785,6 +862,10 @@ impl RelayTransport {
         if self.adapter_active(socket) {
             io.channel_closed(socket, code, &reason_text(reason).unwrap_or_default());
         }
+        if let Some(closure) = self.closure(socket) {
+            closure.closed = true;
+        }
+        self.prune(socket);
     }
 
     /// A data socket's `error` event.
@@ -877,19 +958,44 @@ impl RelayTransport {
         if e2ee.phase != E2eePhase::AwaitingAttach {
             return;
         }
+        // `attached = true` comes before the flush, so a later message goes straight out.
         e2ee.phase = E2eePhase::Attached;
         let pending = std::mem::take(&mut e2ee.pending);
         for data in &pending {
-            io.emit_message(socket, data);
+            // The flush sits inside the original's `try`: a listener that throws fails the
+            // handshake and the remaining messages are dropped.
+            if let Err(message) = io.emit_message(socket, data) {
+                // `attached` stays true: later messages go straight to the emitter.
+                self.fail_handshake(io, socket, &message, false);
+                return;
+            }
         }
+        self.prune(socket);
+    }
+
+    /// A plain `attachSocket(socket, metadata)` settled. The original does not await it
+    /// (`void attachSocket(...)`), so a rejection is an unhandled rejection.
+    #[must_use]
+    pub fn on_plain_attach_settled(&mut self, result: Result<(), String>) -> Option<Fatal> {
+        result.err().map(Fatal::UnhandledRejection)
     }
 
     fn handshake_failed(&mut self, io: &mut dyn RelayIo, socket: SocketId, message: &str) {
+        self.fail_handshake(io, socket, message, true);
+    }
+
+    fn fail_handshake(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        message: &str,
+        mark_failed: bool,
+    ) {
         let Some(closure) = self.closure(socket) else {
             return;
         };
         let connection_id = closure.connection_id.clone();
-        if let Some(e2ee) = closure.e2ee.as_mut() {
+        if let Some(e2ee) = closure.e2ee.as_mut().filter(|_| mark_failed) {
             e2ee.phase = E2eePhase::Failed;
         }
         io.log(LogRecord {
@@ -899,31 +1005,52 @@ impl RelayTransport {
             fields: vec![("err", FieldValue::Error(message.to_owned()))],
         });
         let _ = io.close(socket, Some(1011), Some("E2EE handshake failed"));
+        self.prune(socket);
     }
 
-    /// The channel decrypted an application message (`events.onmessage`).
-    pub fn on_channel_message(&mut self, io: &mut dyn RelayIo, socket: SocketId, data: Data) {
-        let Some(closure) = self.closure(socket) else {
-            return;
-        };
-        let Some(e2ee) = closure.e2ee.as_mut() else {
-            return;
-        };
+    /// Drops the closure of a socket that has closed and whose end-to-end attach is over.
+    fn prune(&mut self, socket: SocketId) {
+        self.closures.retain(|closure| {
+            closure.socket != socket
+                || !closure.closed
+                || closure.e2ee.as_ref().is_some_and(|e2ee| {
+                    matches!(
+                        e2ee.phase,
+                        E2eePhase::AwaitingChannel | E2eePhase::AwaitingAttach
+                    )
+                })
+        });
+    }
+
+    /// The channel decrypted an application message (`events.onmessage`). An exception from
+    /// a listener on an attached socket is uncaught in the original.
+    #[must_use]
+    pub fn on_channel_message(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        data: Data,
+    ) -> Option<Fatal> {
+        let e2ee = self.closure(socket)?.e2ee.as_mut()?;
         if e2ee.phase == E2eePhase::Attached {
-            io.emit_message(socket, &data);
-        } else {
-            e2ee.pending.push(data);
+            return io
+                .emit_message(socket, &data)
+                .err()
+                .map(Fatal::UncaughtException);
         }
+        e2ee.pending.push(data);
+        None
     }
 
     /// The channel closed (`events.onclose`): the emitter reports it at once.
+    #[must_use]
     pub fn on_channel_close(
         &mut self,
         io: &mut dyn RelayIo,
         socket: SocketId,
         code: u16,
         reason: &str,
-    ) {
+    ) -> Option<Fatal> {
         if let Some(encrypted) = self
             .closure(socket)
             .and_then(|closure| closure.e2ee.as_mut())
@@ -931,14 +1058,23 @@ impl RelayTransport {
         {
             encrypted.on_emitter_close();
         }
-        io.emit_close(socket, code, reason);
+        io.emit_close(socket, code, reason)
+            .err()
+            .map(Fatal::UncaughtException)
     }
 
-    /// The channel failed (`events.onerror`): log, then the emitter reports it.
-    pub fn on_channel_error(&mut self, io: &mut dyn RelayIo, socket: SocketId, message: &str) {
-        let Some(closure) = self.closure(socket) else {
-            return;
-        };
+    /// The channel failed (`events.onerror`): log, then the emitter reports it. With no
+    /// `error` listener `EventEmitter` throws, which is uncaught in the original: the
+    /// application's `attachSocket` returns without binding listeners while the server is
+    /// starting or stopping.
+    #[must_use]
+    pub fn on_channel_error(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        message: &str,
+    ) -> Option<Fatal> {
+        let closure = self.closure(socket)?;
         let connection_id = closure.connection_id.clone();
         io.log(LogRecord {
             level: LogLevel::Warn,
@@ -946,49 +1082,148 @@ impl RelayTransport {
             context: LogContext::Attach(connection_id),
             fields: vec![("err", FieldValue::Error(message.to_owned()))],
         });
-        io.emit_error(socket, message);
+        io.emit_error(socket, message)
+            .err()
+            .map(Fatal::UncaughtException)
+    }
+
+    /// The end-to-end adapter's `send` (`relayTransport.send`): the channel's frame goes to
+    /// the relay socket. A failed callback or a throw logs `relay_socket_send_failed` and
+    /// rejects.
+    pub fn adapter_send(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        data: &Data,
+    ) -> AdapterSend {
+        match io.send_data(socket, data) {
+            SendStart::Threw(failure) => {
+                AdapterSend::Settled(self.send_failed(io, socket, failure.0))
+            }
+            SendStart::Callback(None) => AdapterSend::Settled(Ok(())),
+            SendStart::Callback(Some(message)) => {
+                AdapterSend::Settled(self.send_failed(io, socket, message))
+            }
+            SendStart::Pending => AdapterSend::Pending,
+        }
+    }
+
+    /// The `ws` send callback of a pending [`RelayTransport::adapter_send`] ran.
+    ///
+    /// # Errors
+    ///
+    /// The callback reported an error: the adapter's promise rejects with it.
+    pub fn on_adapter_send_callback(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        error: Option<String>,
+    ) -> Result<(), String> {
+        match error {
+            None => Ok(()),
+            Some(message) => self.send_failed(io, socket, message),
+        }
+    }
+
+    fn send_failed(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        message: String,
+    ) -> Result<(), String> {
+        if let Some(closure) = self.closure(socket) {
+            let connection_id = closure.connection_id.clone();
+            io.log(LogRecord {
+                level: LogLevel::Warn,
+                message: "relay_socket_send_failed",
+                context: LogContext::Attach(connection_id),
+                fields: vec![("err", FieldValue::Error(message.clone()))],
+            });
+        }
+        Err(message)
     }
 
     /// The application sends on its encrypted socket.
+    ///
+    /// # Errors
+    ///
+    /// The terminate at the high-water mark threw.
     pub fn encrypted_send(
         &mut self,
         io: &mut dyn RelayIo,
         socket: SocketId,
         data: &Data,
-    ) -> Option<SendOutcome> {
+    ) -> Option<Result<SendOutcome, EnvFailure>> {
         let encrypted = self.closure(socket)?.e2ee.as_mut()?.socket.as_mut()?;
         Some(encrypted.send(&mut SocketEnv { io, socket }, data))
     }
 
+    /// The channel's send for an application frame settled. A failure reaches the
+    /// socket's `error` listeners first, then rejects with the same error, or with what a
+    /// throwing listener threw.
+    ///
+    /// # Errors
+    ///
+    /// The send's promise rejects with the returned message.
+    pub fn encrypted_send_settled(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+        result: Result<(), String>,
+    ) -> Result<(), String> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(message) => match io.emit_error(socket, &message) {
+                Ok(()) => Err(message),
+                Err(thrown) => Err(thrown),
+            },
+        }
+    }
+
     /// The application closes its encrypted socket.
+    ///
+    /// # Errors
+    ///
+    /// `channel.close` threw.
     pub fn encrypted_close(
         &mut self,
         io: &mut dyn RelayIo,
         socket: SocketId,
         code: Option<u16>,
         reason: Option<&str>,
-    ) {
-        if let Some(encrypted) = self
+    ) -> Result<(), EnvFailure> {
+        match self
             .closure(socket)
             .and_then(|c| c.e2ee.as_mut())
             .and_then(|e| e.socket.as_mut())
         {
-            encrypted.close(&mut SocketEnv { io, socket }, code, reason);
+            Some(encrypted) => encrypted.close(&mut SocketEnv { io, socket }, code, reason),
+            None => Ok(()),
         }
     }
 
     /// The application terminates its encrypted socket.
-    pub fn encrypted_terminate(&mut self, io: &mut dyn RelayIo, socket: SocketId) {
-        if let Some(encrypted) = self
+    ///
+    /// # Errors
+    ///
+    /// `socket.terminate()` threw.
+    pub fn encrypted_terminate(
+        &mut self,
+        io: &mut dyn RelayIo,
+        socket: SocketId,
+    ) -> Result<(), EnvFailure> {
+        match self
             .closure(socket)
             .and_then(|c| c.e2ee.as_mut())
             .and_then(|e| e.socket.as_mut())
         {
-            encrypted.terminate(&mut SocketEnv { io, socket });
+            Some(encrypted) => encrypted.terminate(&mut SocketEnv { io, socket }),
+            None => Ok(()),
         }
     }
 
-    /// The `readyState` of the application's encrypted socket.
+    /// The `readyState` of the application's encrypted socket. `None` once the socket has
+    /// closed and its closure was dropped: treat it as closed.
     #[must_use]
     pub fn encrypted_ready_state(&self, socket: SocketId) -> Option<u8> {
         self.closures

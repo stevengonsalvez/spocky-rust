@@ -13,7 +13,7 @@ use spocky_crypto::channel::{AppSend, ChannelError, Data, SendId, TransportError
 use spocky_crypto::js_string::{JsString, utf16};
 use spocky_daemon_relay::control::MessageData;
 use spocky_daemon_relay::encrypted_socket::{
-    EncryptedRelayEnv, EncryptedRelaySocket, SendOutcome, Settlement,
+    EncryptedRelayEnv, EncryptedRelaySocket, EnvFailure, SendOutcome, Settlement,
 };
 use spocky_daemon_relay::endpoint::{
     RelayRole, RelayUrlParams, VersionInput, build_relay_websocket_url,
@@ -23,8 +23,8 @@ use spocky_daemon_relay::runtime::{
     RelayRuntime, RelayRuntimeConfig, RuntimeEffect, TransportController, TransportStarter,
 };
 use spocky_daemon_relay::transport::{
-    AttachMetadata, FieldValue, IoFailure, LogContext, LogLevel, LogRecord, RelayIo,
-    RelayTransport, SocketId, TimerId, TransportOptions,
+    AdapterSend, AttachMetadata, Fatal, FieldValue, IoFailure, LogContext, LogLevel, LogRecord,
+    RelayIo, RelayTransport, SendStart, SocketId, TimerId, TransportOptions,
 };
 
 use super::{Endpoint, entry::Entry};
@@ -51,13 +51,41 @@ fn data_entry(entry: Entry, data: &Data) -> Entry {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq)]
+enum SendMode {
+    #[default]
+    Ok,
+    Throw,
+    Error,
+    Pending,
+}
+
 #[derive(Clone, Default)]
-#[allow(clippy::struct_excessive_bools)]
 struct Modes {
-    send_throws: bool,
+    send: SendMode,
     close_throws: bool,
     terminate_throws: bool,
     ping_throws: bool,
+}
+
+/// How the application's `attachSocket` registers listeners (the driver's `listenerMode`).
+#[derive(Clone, Copy, PartialEq)]
+enum ListenerMode {
+    Normal,
+    None,
+    ThrowMessage,
+    ThrowClose,
+    ThrowError,
+    ThrowAll,
+}
+
+impl ListenerMode {
+    fn throws(self, kind: &str) -> bool {
+        self == Self::ThrowAll
+            || (self == Self::ThrowMessage && kind == "message")
+            || (self == Self::ThrowClose && kind == "close")
+            || (self == Self::ThrowError && kind == "error")
+    }
 }
 
 struct Socket {
@@ -92,11 +120,19 @@ enum Reaction {
     ChannelReady(SocketId),
     ChannelFailed(SocketId, String),
     AttachSettled(SocketId, Result<(), String>),
+    PlainAttachSettled(Result<(), String>),
 }
 
 struct Channel {
     socket: SocketId,
+    /// The `createDaemonChannel` promise has resolved or rejected.
+    settled: bool,
+    /// It resolved: the channel reports transport events instead of rejecting.
+    open: bool,
 }
+
+/// A pending `attachSocket` promise: `Some` for an encrypted attach, `None` for a plain one.
+type AttachWaiter = Option<SocketId>;
 
 /// Everything except the transport, so the transport can borrow it as [`RelayIo`].
 struct Io {
@@ -109,7 +145,10 @@ struct Io {
     attach_mode: AttachMode,
     /// Pending `attachSocket` promises, in call order; `None` is a plain attach whose
     /// result nobody observes.
-    attach_waiters: VecDeque<Option<SocketId>>,
+    attach_waiters: VecDeque<AttachWaiter>,
+    listener_mode: ListenerMode,
+    /// Channel numbers of adapter sends whose `ws` callback has not run, per socket.
+    adapter_pending: Vec<(SocketId, u64)>,
     channel_mode: ChannelMode,
     channel_fail_message: String,
     channels: Vec<Channel>,
@@ -132,6 +171,8 @@ impl Io {
             defaults: Modes::default(),
             attach_mode: AttachMode::Ok,
             attach_waiters: VecDeque::new(),
+            listener_mode: ListenerMode::Normal,
+            adapter_pending: Vec::new(),
             channel_mode: ChannelMode::Pending,
             channel_fail_message: "handshake failed".to_owned(),
             channels: Vec::new(),
@@ -238,7 +279,7 @@ impl RelayIo for Io {
                 .num("id", socket.0)
                 .str("text", text),
         );
-        if self.socket(socket).modes.send_throws {
+        if self.socket(socket).modes.send == SendMode::Throw {
             return Err(IoFailure("send threw".to_owned()));
         }
         Ok(())
@@ -328,14 +369,24 @@ impl RelayIo for Io {
                 .str("kind", "plain")
                 .raw("metadata", Self::metadata_entry(metadata)),
         );
-        self.app_plain.push(socket);
-        if self.attach_mode == AttachMode::Pending {
-            self.attach_waiters.push_back(None);
+        if self.listener_mode != ListenerMode::None {
+            self.app_plain.push(socket);
+        }
+        match self.attach_mode {
+            AttachMode::Ok => {}
+            AttachMode::Reject => self.reactions.push_back(Reaction::PlainAttachSettled(Err(
+                "attach rejected".to_owned(),
+            ))),
+            AttachMode::Pending => self.attach_waiters.push_back(None),
         }
     }
 
     fn start_daemon_channel(&mut self, socket: SocketId) {
-        self.channels.push(Channel { socket });
+        self.channels.push(Channel {
+            socket,
+            settled: false,
+            open: false,
+        });
         let n = self.channels.len();
         self.log(
             &Entry::new("channel")
@@ -362,7 +413,9 @@ impl RelayIo for Io {
                 .str("kind", "encrypted")
                 .raw("metadata", Self::metadata_entry(metadata)),
         );
-        self.app_encrypted.push(socket);
+        if self.listener_mode != ListenerMode::None {
+            self.app_encrypted.push(socket);
+        }
         match self.attach_mode {
             AttachMode::Ok => self
                 .reactions
@@ -383,6 +436,14 @@ impl RelayIo for Io {
 
     fn channel_closed(&mut self, socket: SocketId, code: u16, reason: &str) {
         let n = self.channel_number(socket);
+        if !self.channels[usize::try_from(n).unwrap() - 1].open {
+            // Before the handshake finishes the channel rejects instead of reporting.
+            self.reactions.push_back(Reaction::ChannelFailed(
+                socket,
+                format!("Connection closed during handshake: {code} {reason}"),
+            ));
+            return;
+        }
         self.log(
             &Entry::new("channel")
                 .str("a", "closed")
@@ -394,6 +455,11 @@ impl RelayIo for Io {
 
     fn channel_error(&mut self, socket: SocketId, message: &str) {
         let n = self.channel_number(socket);
+        if !self.channels[usize::try_from(n).unwrap() - 1].open {
+            self.reactions
+                .push_back(Reaction::ChannelFailed(socket, message.to_owned()));
+            return;
+        }
         self.log(
             &Entry::new("channel")
                 .str("a", "error")
@@ -402,27 +468,52 @@ impl RelayIo for Io {
         );
     }
 
-    fn emit_message(&mut self, socket: SocketId, data: &Data) {
+    fn emit_message(&mut self, socket: SocketId, data: &Data) -> Result<(), String> {
         if self.app_encrypted.contains(&socket) {
             let entry = data_entry(self.app_entry("message", socket), data);
             self.log(&entry);
+            if self.listener_mode.throws("message") {
+                return Err("listener threw".to_owned());
+            }
         }
+        Ok(())
     }
 
-    fn emit_close(&mut self, socket: SocketId, code: u16, reason: &str) {
+    fn emit_close(&mut self, socket: SocketId, code: u16, reason: &str) -> Result<(), String> {
         if self.app_encrypted.contains(&socket) {
             let entry = self
                 .app_entry("close", socket)
                 .num("code", code)
                 .str("reason", reason);
             self.log(&entry);
+            if self.listener_mode.throws("close") {
+                return Err("listener threw".to_owned());
+            }
         }
+        Ok(())
     }
 
-    fn emit_error(&mut self, socket: SocketId, message: &str) {
-        if self.app_encrypted.contains(&socket) {
-            let entry = self.app_entry("error", socket).str("message", message);
-            self.log(&entry);
+    fn emit_error(&mut self, socket: SocketId, message: &str) -> Result<(), String> {
+        if !self.app_encrypted.contains(&socket) {
+            // `EventEmitter` throws the error itself when nothing listens for `error`.
+            return Err(message.to_owned());
+        }
+        let entry = self.app_entry("error", socket).str("message", message);
+        self.log(&entry);
+        if self.listener_mode.throws("error") {
+            return Err("listener threw".to_owned());
+        }
+        Ok(())
+    }
+
+    fn send_data(&mut self, socket: SocketId, data: &Data) -> SendStart {
+        let entry = data_entry(Entry::new("ws").str("a", "send").num("id", socket.0), data);
+        self.log(&entry);
+        match self.socket(socket).modes.send {
+            SendMode::Throw => SendStart::Threw(IoFailure("send threw".to_owned())),
+            SendMode::Error => SendStart::Callback(Some("send failed".to_owned())),
+            SendMode::Pending => SendStart::Pending,
+            SendMode::Ok => SendStart::Callback(None),
         }
     }
 
@@ -451,13 +542,19 @@ impl RelayIo for Io {
         u64::try_from(length).unwrap() + 40
     }
 
-    fn channel_close(&mut self, socket: SocketId, code: Option<u16>, reason: Option<&str>) {
+    fn channel_close(
+        &mut self,
+        socket: SocketId,
+        code: Option<u16>,
+        reason: Option<&str>,
+    ) -> Result<(), IoFailure> {
         let n = self.channel_number(socket);
         let mut entry = Entry::new("channel").str("a", "close").num("n", n);
         if let Some(code) = code {
             entry = entry.num("code", code);
         }
         self.log(&entry.opt_str("reason", reason));
+        Ok(())
     }
 
     fn transport_buffered_amount(&self, socket: SocketId) -> Option<u64> {
@@ -538,6 +635,8 @@ struct Enc {
 }
 
 struct EncEnv {
+    close_throws: bool,
+    terminate_throws: bool,
     entries: Vec<String>,
     send_mode: String,
     overhead: u64,
@@ -578,21 +677,29 @@ impl EncryptedRelayEnv for EncEnv {
         u64::try_from(length).unwrap() + self.overhead
     }
 
-    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>) {
+    fn channel_close(&mut self, code: Option<u16>, reason: Option<&str>) -> Result<(), EnvFailure> {
         let mut entry = Entry::new("enc").str("a", "channel.close");
         if let Some(code) = code {
             entry = entry.num("code", code);
         }
         self.entries.push(entry.opt_str("reason", reason).render());
+        if self.close_throws {
+            return Err(EnvFailure("channel close threw".to_owned()));
+        }
+        Ok(())
     }
 
     fn transport_buffered_amount(&self) -> Option<u64> {
         self.buffered
     }
 
-    fn terminate_transport(&mut self) {
+    fn terminate_transport(&mut self) -> Result<(), EnvFailure> {
         self.entries
             .push(Entry::new("enc").str("a", "terminateTransport").render());
+        if self.terminate_throws {
+            return Err(EnvFailure("terminate threw".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -634,21 +741,60 @@ impl RustEndpoint {
     }
 
     /// Promise reactions queued during an operation, in order.
+    /// Marks the channel's promise settled. A promise settles once: later results are ignored.
+    fn settle_channel(&mut self, socket: SocketId, open: bool) -> bool {
+        let channel = self
+            .io
+            .channels
+            .iter_mut()
+            .find(|channel| channel.socket == socket)
+            .unwrap();
+        if channel.settled {
+            return false;
+        }
+        channel.settled = true;
+        channel.open = open;
+        true
+    }
+
+    fn fatal(&mut self, fatal: Option<Fatal>) {
+        let Some(fatal) = fatal else { return };
+        let (kind, message) = match fatal {
+            Fatal::UncaughtException(message) => ("uncaughtException", message),
+            Fatal::UnhandledRejection(message) => ("unhandledRejection", message),
+        };
+        self.io.log(
+            &Entry::new("fatal")
+                .str("kind", kind)
+                .str("message", &message),
+        );
+    }
+
     fn drain(&mut self) {
         while let Some(reaction) = self.io.reactions.pop_front() {
             match reaction {
                 Reaction::ChannelReady(socket) => {
-                    self.with_transport(|transport, io| transport.on_channel_ready(io, socket));
+                    if self.settle_channel(socket, true) {
+                        self.with_transport(|transport, io| transport.on_channel_ready(io, socket));
+                    }
                 }
                 Reaction::ChannelFailed(socket, message) => {
-                    self.with_transport(|transport, io| {
-                        transport.on_channel_failed(io, socket, &message);
-                    });
+                    if self.settle_channel(socket, false) {
+                        self.with_transport(|transport, io| {
+                            transport.on_channel_failed(io, socket, &message);
+                        });
+                    }
                 }
                 Reaction::AttachSettled(socket, result) => {
                     self.with_transport(|transport, io| {
                         transport.on_attach_settled(io, socket, result);
                     });
+                }
+                Reaction::PlainAttachSettled(result) => {
+                    let fatal = self
+                        .with_transport(|transport, _| transport.on_plain_attach_settled(result))
+                        .flatten();
+                    self.fatal(fatal);
                 }
             }
         }
@@ -704,6 +850,7 @@ impl RustEndpoint {
                         _ => entry,
                     };
                     self.io.log(&entry);
+                    self.plain_listener_threw("message");
                 }
             }
             "close" => {
@@ -721,6 +868,7 @@ impl RustEndpoint {
                         None => entry,
                     };
                     self.io.log(&entry);
+                    self.plain_listener_threw("close");
                 }
             }
             "error" => {
@@ -729,12 +877,20 @@ impl RustEndpoint {
                 if self.io.app_plain.contains(&socket) {
                     let entry = self.io.app_entry("error", socket).str("message", message);
                     self.io.log(&entry);
+                    self.plain_listener_threw("error");
                 }
             }
             "pong" => {
                 self.with_transport(|transport, io| transport.on_pong(io, socket));
             }
             other => panic!("unknown socket event {other}"),
+        }
+    }
+
+    /// A throwing `ws` listener is an uncaught exception in the original.
+    fn plain_listener_threw(&mut self, kind: &str) {
+        if self.io.listener_mode.throws(kind) {
+            self.fatal(Some(Fatal::UncaughtException("listener threw".to_owned())));
         }
     }
 
@@ -762,24 +918,46 @@ impl RustEndpoint {
                     .flatten()
                     .unwrap();
                 let entry = Entry::new("app").str("a", "send.settled").str("id", id);
-                match outcome {
-                    SendOutcome::Rejected(error) => self.io.log(
-                        &entry
-                            .str("result", "rejected")
-                            .str("message", &error.to_string()),
-                    ),
-                    SendOutcome::Channel(_) => self.io.log(&entry.str("result", "resolved")),
+                let settled = match outcome {
+                    Err(failure) => {
+                        let entry = Entry::new("app")
+                            .str("a", "send.threw")
+                            .str("id", id)
+                            .str("message", &failure.to_string());
+                        self.io.log(&entry);
+                        return;
+                    }
+                    Ok(SendOutcome::Rejected(error)) => Err(error.to_string()),
+                    Ok(SendOutcome::Channel(AppSend::Settled(result))) => self
+                        .with_transport(|transport, io| {
+                            transport.encrypted_send_settled(
+                                io,
+                                socket,
+                                result.map_err(|error| error.to_string()),
+                            )
+                        })
+                        .unwrap(),
+                    Ok(SendOutcome::Channel(AppSend::Pending(_))) => {
+                        panic!("the harness channel settles at once")
+                    }
+                };
+                match settled {
+                    Ok(()) => self.io.log(&entry.str("result", "resolved")),
+                    Err(message) => self
+                        .io
+                        .log(&entry.str("result", "rejected").str("message", &message)),
                 }
             }
             "app.close" => {
                 let code = op["code"].as_u64().map(|code| u16::try_from(code).unwrap());
                 let reason = op["reason"].as_str();
-                self.with_transport(|transport, io| {
-                    transport.encrypted_close(io, socket, code, reason);
+                let _ = self.with_transport(|transport, io| {
+                    transport.encrypted_close(io, socket, code, reason)
                 });
             }
             "app.terminate" => {
-                self.with_transport(|transport, io| transport.encrypted_terminate(io, socket));
+                let _ =
+                    self.with_transport(|transport, io| transport.encrypted_terminate(io, socket));
             }
             _ => {
                 let ready_state = self
@@ -796,6 +974,54 @@ impl RustEndpoint {
                         .num("bufferedAmount", buffered),
                 );
             }
+        }
+    }
+
+    /// The stub's `send` operation: a channel frame goes through the transport adapter.
+    fn channel_send(&mut self, op: &Value) {
+        let n = op["n"].as_u64().unwrap();
+        let socket = self.io.channels[usize::try_from(n).unwrap() - 1].socket;
+        let data = match op["text"].as_str() {
+            Some(text) => Data::Text(text.to_owned()),
+            None => Data::Binary(hex_decode(op["binary"].as_str().unwrap())),
+        };
+        let sent = self
+            .with_transport(|transport, io| transport.adapter_send(io, socket, &data))
+            .unwrap();
+        match sent {
+            AdapterSend::Settled(result) => self.send_settled(n, &result),
+            AdapterSend::Pending => self.io.adapter_pending.push((socket, n)),
+        }
+    }
+
+    /// A `ws` send callback ran (the driver's `sendCallback` operation).
+    fn send_callback(&mut self, op: &Value) {
+        let socket = SocketId(op["id"].as_u64().unwrap());
+        let error = op["error"].as_str().map(str::to_owned);
+        let Some(index) = self
+            .io
+            .adapter_pending
+            .iter()
+            .position(|(candidate, _)| *candidate == socket)
+        else {
+            return;
+        };
+        let (_, n) = self.io.adapter_pending.remove(index);
+        let result = self
+            .with_transport(|transport, io| transport.on_adapter_send_callback(io, socket, error))
+            .unwrap();
+        self.send_settled(n, &result);
+    }
+
+    fn send_settled(&mut self, n: u64, result: &Result<(), String>) {
+        let entry = Entry::new("channel")
+            .str("a", "transport.send.settled")
+            .num("n", n);
+        match result {
+            Ok(()) => self.io.log(&entry.str("result", "resolved")),
+            Err(message) => self
+                .io
+                .log(&entry.str("result", "rejected").str("message", message)),
         }
     }
 
@@ -852,19 +1078,18 @@ impl RustEndpoint {
         self.io.entries.extend(lines);
     }
 
-    fn runtime_effects(&mut self, effects: Vec<RuntimeEffect>) {
+    fn runtime_effects(&mut self, effects: &[RuntimeEffect]) {
         for effect in effects {
-            let RuntimeEffect::StopFailed(message) = effect;
             self.io.entries.push(
                 Entry::new("log")
                     .str("level", "warn")
-                    .str("msg", "Failed to stop relay transport")
+                    .str("msg", effect.message())
                     .raw("ctx", r#"{"runtime":true}"#)
                     .raw(
                         "fields",
                         format!(
                             r#"{{"err":{{"error":{}}}}}"#,
-                            spocky_crypto::js_string::json_quote(&utf16(&message))
+                            spocky_crypto::js_string::json_quote(&utf16(effect.error()))
                         ),
                     )
                     .render(),
@@ -876,6 +1101,8 @@ impl RustEndpoint {
         let name = op["op"].as_str().unwrap();
         if name == "enc.create" {
             let mut env = EncEnv {
+                close_throws: op["closeThrows"] == true,
+                terminate_throws: op["terminateThrows"] == true,
                 entries: Vec::new(),
                 send_mode: op["sendMode"].as_str().unwrap_or("sync").to_owned(),
                 overhead: op["overhead"].as_u64().unwrap_or(40),
@@ -912,28 +1139,24 @@ impl RustEndpoint {
                 let outcome = enc.socket.send(&mut enc.env, &data);
                 self.io.entries.append(&mut enc.env.entries);
                 match outcome {
-                    SendOutcome::Rejected(error) => {
+                    Err(failure) => {
+                        // The driver records a send only once `send` returned.
+                        self.io.log(
+                            &Entry::new("enc")
+                                .str("a", "send.threw")
+                                .num("index", index)
+                                .str("message", &failure.to_string()),
+                        );
+                    }
+                    Ok(SendOutcome::Rejected(error)) => {
                         enc.sends.push(None);
                         self.enc_settled(index, Err(error.to_string()));
                     }
-                    SendOutcome::Channel(AppSend::Settled(result)) => {
+                    Ok(SendOutcome::Channel(AppSend::Settled(result))) => {
                         enc.sends.push(None);
-                        let settled = match EncryptedRelaySocket::settle(result) {
-                            Settlement::Resolved => Ok(()),
-                            Settlement::EmitErrorThenReject(error) => {
-                                if enc.listeners {
-                                    self.io.log(
-                                        &Entry::new("enc")
-                                            .str("a", "emit.error")
-                                            .str("message", &error.to_string()),
-                                    );
-                                }
-                                Err(error.to_string())
-                            }
-                        };
-                        self.enc_settled(index, settled);
+                        self.enc_channel_result(enc.listeners, index, result);
                     }
-                    SendOutcome::Channel(AppSend::Pending(id)) => {
+                    Ok(SendOutcome::Channel(AppSend::Pending(id))) => {
                         enc.sends.push(Some(id));
                         enc.pending.push_back(index);
                     }
@@ -941,19 +1164,14 @@ impl RustEndpoint {
             }
             "enc.settle" => {
                 let index = enc.pending.pop_front().unwrap();
-                let settled = if op["result"] == "reject" {
-                    if enc.listeners {
-                        self.io.log(
-                            &Entry::new("enc")
-                                .str("a", "emit.error")
-                                .str("message", "channel send failed"),
-                        );
-                    }
-                    Err("channel send failed".to_owned())
+                let result = if op["result"] == "reject" {
+                    Err(ChannelError::Transport(TransportError(
+                        "channel send failed".to_owned(),
+                    )))
                 } else {
                     Ok(())
                 };
-                self.enc_settled(index, settled);
+                self.enc_channel_result(enc.listeners, index, result);
             }
             "enc.state" => {
                 if let Some(buffered) = op.get("buffered") {
@@ -961,16 +1179,18 @@ impl RustEndpoint {
                 }
             }
             "enc.close" => {
-                enc.socket.close(
+                let result = enc.socket.close(
                     &mut enc.env,
                     op["code"].as_u64().map(|code| u16::try_from(code).unwrap()),
                     op["reason"].as_str(),
                 );
                 self.io.entries.append(&mut enc.env.entries);
+                self.enc_threw("close", result);
             }
             "enc.terminate" => {
-                enc.socket.terminate(&mut enc.env);
+                let result = enc.socket.terminate(&mut enc.env);
                 self.io.entries.append(&mut enc.env.entries);
+                self.enc_threw("terminate", result);
             }
             "enc.emit" => match op["event"].as_str().unwrap() {
                 "close" => {
@@ -988,7 +1208,8 @@ impl RustEndpoint {
                         );
                     } else {
                         self.io.log(
-                            &Entry::new("driver-error")
+                            &Entry::new("fatal")
+                                .str("kind", "uncaughtException")
                                 .str("message", op["message"].as_str().unwrap()),
                         );
                     }
@@ -1013,6 +1234,40 @@ impl RustEndpoint {
             other => panic!("unsupported operation {other}"),
         }
         self.enc = Some(enc);
+    }
+
+    /// The channel's send settled: a failure reaches the `error` listeners, then rejects.
+    fn enc_channel_result(
+        &mut self,
+        listeners: bool,
+        index: usize,
+        result: Result<(), ChannelError>,
+    ) {
+        let settled = match EncryptedRelaySocket::settle(result) {
+            Settlement::Resolved => Ok(()),
+            Settlement::EmitErrorThenReject(error) => {
+                if listeners {
+                    self.io.log(
+                        &Entry::new("enc")
+                            .str("a", "emit.error")
+                            .str("message", &error.to_string()),
+                    );
+                }
+                Err(error.to_string())
+            }
+        };
+        self.enc_settled(index, settled);
+    }
+
+    fn enc_threw(&mut self, operation: &str, result: Result<(), EnvFailure>) {
+        if let Err(failure) = result {
+            self.io.log(
+                &Entry::new("enc")
+                    .str("a", "threw")
+                    .str("op", operation)
+                    .str("message", &failure.to_string()),
+            );
+        }
     }
 
     fn enc_settled(&mut self, index: usize, result: Result<(), String>) {
@@ -1100,6 +1355,18 @@ impl Endpoint for RustEndpoint {
                     self.io.socket(socket).buffered = buffered;
                 }
             }
+            "listenerMode" => {
+                self.io.listener_mode = match op["mode"].as_str().unwrap() {
+                    "none" => ListenerMode::None,
+                    "throw-message" => ListenerMode::ThrowMessage,
+                    "throw-close" => ListenerMode::ThrowClose,
+                    "throw-error" => ListenerMode::ThrowError,
+                    "throw-all" => ListenerMode::ThrowAll,
+                    _ => ListenerMode::Normal,
+                };
+            }
+            "sendCallback" => self.send_callback(op),
+            "channelSend" => self.channel_send(op),
             "attachMode" => {
                 self.io.attach_mode = match op["mode"].as_str().unwrap() {
                     "ok" => AttachMode::Ok,
@@ -1108,15 +1375,16 @@ impl Endpoint for RustEndpoint {
                 };
             }
             "attachSettle" => {
-                if let Some(Some(socket)) = self.io.attach_waiters.pop_front() {
+                if let Some(waiter) = self.io.attach_waiters.pop_front() {
                     let result = if op["result"] == "reject" {
                         Err("attach rejected".to_owned())
                     } else {
                         Ok(())
                     };
-                    self.io
-                        .reactions
-                        .push_back(Reaction::AttachSettled(socket, result));
+                    self.io.reactions.push_back(match waiter {
+                        Some(socket) => Reaction::AttachSettled(socket, result),
+                        None => Reaction::PlainAttachSettled(result),
+                    });
                 }
             }
             "start" => {
@@ -1179,22 +1447,31 @@ impl Endpoint for RustEndpoint {
                             Some(text) => Data::Text(text.to_owned()),
                             None => Data::Binary(hex_decode(op["binary"].as_str().unwrap())),
                         };
-                        self.with_transport(|transport, io| {
-                            transport.on_channel_message(io, socket, data);
-                        });
+                        let fatal = self
+                            .with_transport(|transport, io| {
+                                transport.on_channel_message(io, socket, data)
+                            })
+                            .flatten();
+                        self.fatal(fatal);
                     }
                     "close" => {
                         let code = u16::try_from(op["code"].as_u64().unwrap()).unwrap();
                         let reason = op["reason"].as_str().unwrap_or_default().to_owned();
-                        self.with_transport(|transport, io| {
-                            transport.on_channel_close(io, socket, code, &reason);
-                        });
+                        let fatal = self
+                            .with_transport(|transport, io| {
+                                transport.on_channel_close(io, socket, code, &reason)
+                            })
+                            .flatten();
+                        self.fatal(fatal);
                     }
                     _ => {
                         let message = op["message"].as_str().unwrap().to_owned();
-                        self.with_transport(|transport, io| {
-                            transport.on_channel_error(io, socket, &message);
-                        });
+                        let fatal = self
+                            .with_transport(|transport, io| {
+                                transport.on_channel_error(io, socket, &message)
+                            })
+                            .flatten();
+                        self.fatal(fatal);
                     }
                 }
             }
@@ -1252,7 +1529,7 @@ impl Endpoint for RustEndpoint {
                 };
                 let entry = self.runtime_config_entry();
                 self.io.log(&entry);
-                self.runtime_effects(effects);
+                self.runtime_effects(&effects);
             }
             "runtimeStop" => {
                 let result = self.runtime.as_mut().unwrap().stop();
@@ -1274,7 +1551,14 @@ fn modes_from(value: &Value, base: &Modes) -> Modes {
     for (key, mode) in value.as_object().into_iter().flatten() {
         let throws = mode == "throw";
         match key.as_str() {
-            "send" => modes.send_throws = throws,
+            "send" => {
+                modes.send = match mode.as_str().unwrap() {
+                    "throw" => SendMode::Throw,
+                    "error" => SendMode::Error,
+                    "pending" => SendMode::Pending,
+                    _ => SendMode::Ok,
+                };
+            }
             "close" => modes.close_throws = throws,
             "terminate" => modes.terminate_throws = throws,
             "ping" => modes.ping_throws = throws,

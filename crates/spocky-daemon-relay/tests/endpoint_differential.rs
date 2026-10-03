@@ -8,7 +8,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{NodeEndpoint, RustEndpoint, differential, pinned};
+use support::{Mismatch, NodeEndpoint, RustEndpoint, differential, pinned};
 
 const HOSTS: &[&str] = &[
     "localhost",
@@ -60,6 +60,49 @@ const HOSTS: &[&str] = &[
     ":",
     "",
     " ",
+];
+
+/// Hosts where UTS 46 versions, bidi rules, joiners or newer Unicode decide the answer. Node's
+/// ada and the `url` crate's idna can differ on them.
+const IDNA_HOSTS: &[&str] = &[
+    "\u{661}.com",
+    "1.\u{5d0}",
+    "\u{5d0}1",
+    "a\u{200c}b.com",
+    "a\u{200d}b.com",
+    "\u{1fae9}.test",
+    "\u{1f642}.test",
+    "\u{628}\u{200c}\u{628}.com",
+    "xn--9hb.com",
+    "xn--4db",
+    "\u{3c2}.com",
+    "\u{df}.com",
+    "a\u{3002}com",
+    "\u{ff41}.com",
+    "a\u{ad}b.com",
+    "\u{5d0}\u{5d1}.com",
+    "\u{5d0}a.com",
+    "a\u{5d0}.com",
+    "\u{627}\u{661}.com",
+    "\u{661}\u{627}.com",
+    "\u{200d}.com",
+    "\u{a1}.com",
+    "\u{2488}.com",
+    "\u{1e9e}.com",
+    "\u{10fffd}.com",
+    "\u{e0001}.com",
+];
+
+/// Hosts the Rust port is known to answer differently from ada, until
+/// `spocky_contracts::url` provides an ada-exact host step. Each must still diverge.
+const KNOWN_DIVERGENT_HOSTS: &[&str] = &[
+    "\u{661}.com",
+    "1.\u{5d0}",
+    "\u{1fae9}.test",
+    "xn--9hb.com",
+    "a\u{5d0}.com",
+    "\u{661}\u{627}.com",
+    "\u{1e9e}.com",
 ];
 
 const IPV6: &[&str] = &[
@@ -147,7 +190,7 @@ fn build(
 fn operations() -> Vec<Value> {
     let mut ops = vec![json!({ "op": "constants" })];
     let mut endpoints: Vec<String> = Vec::new();
-    for host in HOSTS {
+    for host in HOSTS.iter().chain(IDNA_HOSTS) {
         for port in PORTS {
             endpoints.push(format!("{host}:{port}"));
         }
@@ -218,7 +261,11 @@ fn endpoint_functions_match_the_pinned_typescript() {
     let Some(pinned) = pinned() else { return };
     let mut node = NodeEndpoint::spawn(&pinned);
     let mut rust = RustEndpoint::new();
-    let (transcript, mismatches) = differential(&mut node, &mut rust, &operations());
+    let operations = operations();
+    // The evidence document quotes these counts.
+    assert_eq!(operations.len(), 4424);
+    let (transcript, mismatches) = differential(&mut node, &mut rust, &operations);
+    assert_eq!(transcript.len(), 13272);
     if let Some(directory) = std::env::var_os("SPOCKY_RELAY_DAEMON_EVIDENCE") {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
@@ -227,15 +274,35 @@ fn endpoint_functions_match_the_pinned_typescript() {
         )
         .unwrap();
     }
+    let mentions = |mismatch: &Mismatch, host: &str| {
+        ["input", "endpoint"]
+            .iter()
+            .filter_map(|key| mismatch.op[key].as_str())
+            .any(|text| text.contains(host))
+    };
+    let unexpected: Vec<&Mismatch> = mismatches
+        .iter()
+        .filter(|mismatch| {
+            !KNOWN_DIVERGENT_HOSTS
+                .iter()
+                .any(|host| mentions(mismatch, host))
+        })
+        .collect();
     assert!(
-        mismatches.is_empty(),
+        unexpected.is_empty(),
         "{} operations differ; first 10:\n{}",
-        mismatches.len(),
-        mismatches
+        unexpected.len(),
+        unexpected
             .iter()
             .take(10)
-            .cloned()
+            .map(|mismatch| mismatch.text.clone())
             .collect::<Vec<_>>()
             .join("\n")
     );
+    for host in KNOWN_DIVERGENT_HOSTS {
+        assert!(
+            mismatches.iter().any(|mismatch| mentions(mismatch, host)),
+            "{host:?} no longer diverges: remove it from KNOWN_DIVERGENT_HOSTS"
+        );
+    }
 }

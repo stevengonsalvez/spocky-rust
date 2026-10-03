@@ -24,7 +24,7 @@ function describeMessage(message) {
 }
 
 export function createDaemonChannel(transport, keyPair, events) {
-  const entry = { n: channels.length + 1, transport, events, waiter: null };
+  const entry = { n: channels.length + 1, transport, events, waiter: null, resolved: false };
   channels.push(entry);
   helpers.log({
     t: "channel",
@@ -32,12 +32,6 @@ export function createDaemonChannel(transport, keyPair, events) {
     n: entry.n,
     keyPairShape: [keyPair.publicKey.length, keyPair.secretKey.length],
   });
-  transport.onmessage = (message) =>
-    helpers.log({ t: "channel", a: "rx", n: entry.n, ...describeMessage(message) });
-  transport.onclose = (code, reason) =>
-    helpers.log({ t: "channel", a: "closed", n: entry.n, code, reason });
-  transport.onerror = (error) =>
-    helpers.log({ t: "channel", a: "error", n: entry.n, message: helpers.failure(error) });
   const channel = {
     setState: (state) => helpers.log({ t: "channel", a: "setState", n: entry.n, state }),
     send: (data) => {
@@ -49,11 +43,48 @@ export function createDaemonChannel(transport, keyPair, events) {
     close: (code, reason) => helpers.log({ t: "channel", a: "close", n: entry.n, code, reason }),
   };
   entry.channel = channel;
-  if (mode.kind === "ok") return Promise.resolve(channel);
-  if (mode.kind === "fail") return Promise.reject(new Error(mode.message ?? "handshake failed"));
+  transport.onmessage = (message) =>
+    helpers.log({ t: "channel", a: "rx", n: entry.n, ...describeMessage(message) });
+  // The real createDaemonChannel rejects when the transport closes or fails before the
+  // handshake completes (encrypted-channel.ts:296-312), and then reports them as events.
+  const becomeOpen = () => {
+    entry.resolved = true;
+    transport.onclose = (code, reason) =>
+      helpers.log({ t: "channel", a: "closed", n: entry.n, code, reason });
+    transport.onerror = (error) =>
+      helpers.log({ t: "channel", a: "error", n: entry.n, message: helpers.failure(error) });
+  };
   return new Promise((resolve, reject) => {
-    entry.waiter = { resolve: () => resolve(channel), reject };
+    transport.onclose = (code, reason) =>
+      reject(new Error(`Connection closed during handshake: ${code} ${reason}`));
+    transport.onerror = (error) => reject(error);
+    entry.waiter = {
+      resolve: () => {
+        becomeOpen();
+        resolve(channel);
+      },
+      reject,
+    };
+    if (mode.kind === "ok") entry.waiter.resolve();
+    else if (mode.kind === "fail") reject(new Error(mode.message ?? "handshake failed"));
   });
+}
+
+/** The channel sends a frame through the transport adapter (relay-transport.ts:470-486). */
+export function send(op) {
+  const entry = channels[op.n - 1];
+  const data = op.text !== undefined ? op.text : Uint8Array.from(Buffer.from(op.binary, "hex")).buffer;
+  entry.transport.send(data).then(
+    () => helpers.log({ t: "channel", a: "transport.send.settled", n: entry.n, result: "resolved" }),
+    (error) =>
+      helpers.log({
+        t: "channel",
+        a: "transport.send.settled",
+        n: entry.n,
+        result: "rejected",
+        message: helpers.failure(error),
+      }),
+  );
 }
 
 export function settle(op) {
