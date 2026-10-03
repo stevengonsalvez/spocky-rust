@@ -10,6 +10,7 @@ use spocky_store::js_value::{JsObject, JsValue};
 use tokio::sync::OnceCell;
 
 use super::create::touch_updated_at;
+use super::log_error::{err_binding, err_binding_with};
 use super::run::TrackedRun;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot, State};
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
@@ -512,38 +513,29 @@ impl AgentManager {
             let session = Arc::clone(session);
             async move { session.interrupt().await }
         });
-        // pino prints the `err` binding, an `Error`, as `{}`.
-        let bindings = |extra: Option<(&str, JsValue)>| {
-            let mut bindings = JsObject::new();
-            if extra.is_none() {
-                bindings.insert("err", JsValue::Object(JsObject::new()));
-            }
-            bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
-            if let Some((key, value)) = extra {
-                bindings.insert(key, value);
-            }
-            JsValue::Object(bindings)
-        };
         match tokio::time::timeout(Duration::from_millis(timeout_ms), &mut interrupt).await {
             Ok(Ok(Ok(()))) => true,
-            Ok(Ok(Err(_))) => {
-                self.emit_error(bindings(None), "Failed to interrupt session");
+            Ok(Ok(Err(error))) => {
+                self.emit_error(
+                    interrupt_bindings(agent_id, Some(&error), None),
+                    "Failed to interrupt session",
+                );
                 false
             }
             Ok(Err(_)) => false,
             Err(_) => {
                 #[allow(clippy::cast_precision_loss, reason = "a few seconds in milliseconds")]
-                let timeout = JsValue::Number(timeout_ms as f64);
+                let timeout = timeout_ms as f64;
                 self.emit_warn(
-                    bindings(Some(("timeoutMs", timeout))),
+                    interrupt_bindings(agent_id, None, Some(timeout)),
                     "Timed out interrupting session during cancel",
                 );
                 let manager = self.clone();
-                let late = bindings(None);
+                let agent_id = agent_id.to_owned();
                 tokio::spawn(async move {
-                    if let Ok(Err(_)) = interrupt.await {
+                    if let Ok(Err(error)) = interrupt.await {
                         manager.emit_warn(
-                            late,
+                            interrupt_bindings(&agent_id, Some(&error), None),
                             "Session interrupt failed after timeout during cancel",
                         );
                     }
@@ -637,6 +629,9 @@ impl AgentManager {
         provider: &str,
         settled: tokio::sync::watch::Receiver<bool>,
     ) {
+        // Logged once the state lock is released, so a sink may call back into
+        // the manager.
+        let mut warning = None;
         let wait_for_settle = {
             let mut state = self.lock();
             let run = state.runs.get(agent_id);
@@ -646,14 +641,14 @@ impl AgentManager {
                 _ => None,
             };
             let autonomous = matches!(run, Some(TrackedRun::Autonomous { .. }));
-            let warn_cancel = |turn_id: Option<&str>, kind: &str, message: &str| {
+            let mut warn_cancel = |turn_id: Option<&str>, kind: &str, message: &'static str| {
                 let mut bindings = JsObject::new();
                 bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
                 if let Some(turn_id) = turn_id {
                     bindings.insert("turnId", JsValue::String(turn_id.to_owned()));
                 }
                 bindings.insert("kind", JsValue::String(kind.to_owned()));
-                self.emit_warn(JsValue::Object(bindings), message);
+                warning = Some((JsValue::Object(bindings), message));
             };
             let kind = if autonomous {
                 "autonomous"
@@ -711,6 +706,9 @@ impl AgentManager {
                 false
             }
         };
+        if let Some((bindings, message)) = warning {
+            self.emit_warn(bindings, message);
+        }
         if wait_for_settle {
             let _ = run_settled(settled).await;
         }
@@ -889,27 +887,49 @@ impl AgentManager {
     }
 }
 
-/// The `err` binding pino prints for a storage failure: a file system error
-/// carries its `errno`, `code`, `syscall`, `path` and `dest`, any other
-/// `Error` prints as `{}`.
+/// The bindings of the interrupt logs: `{ err, agentId }` for a failure,
+/// `{ agentId, timeoutMs }` for the timeout.
+fn interrupt_bindings(
+    agent_id: &str,
+    error: Option<&AgentError>,
+    timeout_ms: Option<f64>,
+) -> JsValue {
+    let mut bindings = JsObject::new();
+    if let Some(error) = error {
+        bindings.insert("err", err_binding(error));
+    }
+    bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+    if let Some(timeout_ms) = timeout_ms {
+        bindings.insert("timeoutMs", JsValue::Number(timeout_ms));
+    }
+    JsValue::Object(bindings)
+}
+
+/// The `err` binding pino prints for a storage failure. A file system error
+/// is an `Error` with its `errno`, `code`, `syscall`, `path` and `dest`; a
+/// record that does not project is the `TypeError` it threw.
 pub(crate) fn storage_error_binding(error: &crate::agent_storage::StorageError) -> JsValue {
-    let mut binding = JsObject::new();
-    if let crate::agent_storage::StorageError::Store(store) = error
-        && let spocky_store::StoreError::Fs(fs) = &**store
-    {
-        if let Some(errno) = fs.source.raw_os_error() {
-            binding.insert("errno", JsValue::Number(-f64::from(errno)));
-        }
-        binding.insert("code", JsValue::String(fs.code()));
-        binding.insert("syscall", JsValue::String(fs.syscall.to_owned()));
-        if let Some(path) = &fs.path {
-            binding.insert("path", JsValue::String(path.clone()));
-        }
-        if let Some(dest) = &fs.dest {
-            binding.insert("dest", JsValue::String(dest.clone()));
+    use crate::agent_storage::StorageError;
+    match error {
+        StorageError::Projection(error) => err_binding_with("TypeError", &error.0, Vec::new()),
+        StorageError::Store(store) => {
+            let mut extras = Vec::new();
+            if let spocky_store::StoreError::Fs(fs) = &**store {
+                if let Some(errno) = fs.source.raw_os_error() {
+                    extras.push(("errno", JsValue::Number(-f64::from(errno))));
+                }
+                extras.push(("code", JsValue::String(fs.code())));
+                extras.push(("syscall", JsValue::String(fs.syscall.to_owned())));
+                if let Some(path) = &fs.path {
+                    extras.push(("path", JsValue::String(path.clone())));
+                }
+                if let Some(dest) = &fs.dest {
+                    extras.push(("dest", JsValue::String(dest.clone())));
+                }
+            }
+            err_binding_with("Error", &store.to_string(), extras)
         }
     }
-    JsValue::Object(binding)
 }
 
 /// A shared close result.

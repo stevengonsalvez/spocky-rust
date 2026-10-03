@@ -1097,7 +1097,7 @@ const cancelLogsScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
   const logs = [];
-  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", bindings, message]); }, error(bindings, message) { logs.push(["error", bindings, message]); } };
+  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
   const cases = {};
   const runCase = async (name, turns, specExtra, managerExtra = {}, wait = 0) => {
     const calls = [];
@@ -1673,7 +1673,7 @@ const persistFailureScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
   const errors = [];
-  const errorLogger = { ...logger, child() { return this; }, error(bindings, message) { errors.push([bindings, message]); } };
+  const errorLogger = { ...logger, child() { return this; }, error(bindings, message) { errors.push([serializeLogErr(bindings), message]); } };
   const base = `${home}/persist-failure`;
   const manager = new AgentManager({ logger: errorLogger, registry: new AgentStorage(base, logger), clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.coalesce] })) }, providerDefinitions: { fake: { enabled: true } } });
   const feed = recordFeed(manager);
@@ -1689,7 +1689,10 @@ const persistFailureScenario = async () => {
     await manager.flush();
     // The record directory, process id, clock and uuid in a temporary file name.
     const maskTemp = (path) => path.replace(/^.*\/persist-failure\//, "").replace(/\.\d+\.\d+\.[0-9a-f-]{36}\.tmp$/, ".<pid>.<ms>.<uuid>.tmp");
-    const masked = errors.map(([bindings, message]) => [{ ...bindings, err: { ...bindings.err, path: maskTemp(bindings.err.path) } }, message]);
+    const masked = errors.map(([bindings, message]) => {
+      const path = bindings.err.path;
+      return [{ ...bindings, err: { ...bindings.err, message: bindings.err.message.replace(path, maskTemp(path)), path: maskTemp(path) } }, message];
+    });
     return { result, errors: masked, feed };
   } finally {
     for (const dir of dirs) fs.chmodSync(dir, 0o700);
@@ -6745,8 +6748,18 @@ async fn persist_failure_scenario(cwd: &str, home: &Path) -> JsValue {
                 .and_then(JsValue::as_object)
                 .expect("err")
                 .clone();
-            let path = err.get("path").and_then(JsValue::as_str).expect("path");
-            err.insert("path", text(&mask_temp_path(path)));
+            let path = err
+                .get("path")
+                .and_then(JsValue::as_str)
+                .expect("path")
+                .to_owned();
+            let err_message = err
+                .get("message")
+                .and_then(JsValue::as_str)
+                .expect("message");
+            let masked_message = err_message.replace(&path, &mask_temp_path(&path));
+            err.insert("message", text(&masked_message));
+            err.insert("path", text(&mask_temp_path(&path)));
             bindings.insert("err", JsValue::Object(err));
             JsValue::Array(vec![JsValue::Object(bindings), message.clone()])
         })
