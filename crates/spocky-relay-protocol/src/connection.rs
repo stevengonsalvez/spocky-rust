@@ -1,4 +1,9 @@
 //! `PaseoRelay.Connection.from_query/1`: route validation of an upgrade request.
+//!
+//! BEAM relay only. Where the Cloudflare adapter (`packages/relay/src/cloudflare-adapter.ts`)
+//! validates differently, this follows the BEAM relay: 256-byte limits, `String.trim`
+//! (strips U+0085, keeps U+FEFF), last duplicate key wins, invalid UTF-8 kept as bytes and
+//! a generated id of `conn_` plus 8 random bytes in hex. See `evidence/phase4/relay-protocol.md`.
 
 use crate::limits::MAXIMUM_ROUTE_ID_BYTES;
 use std::collections::BTreeMap;
