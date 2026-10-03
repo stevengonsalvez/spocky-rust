@@ -485,6 +485,14 @@ pub trait AgentSession: Send + Sync {
     ) -> Option<BoxFuture<'_, AgentResult<SteerResult>>> {
         None
     }
+    /// Whether the session has `steerActiveTurn` (the JS check is the
+    /// member being present). A session that implements
+    /// [`Self::steer_active_turn`] is taken to have it; one that does not
+    /// steer should answer `false`, so the manager answers `unavailable`
+    /// without admitting a steer.
+    fn supports_steer_active_turn(&self) -> bool {
+        true
+    }
     /// `subscribe(callback)`, under the [`StreamCallback`] delivery contract.
     fn subscribe(&self, callback: StreamCallback) -> Unsubscribe;
     /// `streamHistory()`.
