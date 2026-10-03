@@ -41,18 +41,33 @@ fn session_message(frame: &Value) -> Option<&Value> {
 }
 
 /// The full handle: the `persistence` of the FIRST `wait_for_finish_response`
-/// in the probe's wire. When that frame carries no `nativeHandle` there is no
-/// full handle and the transform does not apply; a later frame never stands
-/// in for it.
-fn full_handle(stdout: &str) -> Option<Value> {
-    let first = stdout.lines().find_map(|line| {
-        let frame = serde_json::from_str::<Value>(line).ok()?;
-        let message = session_message(&frame)?;
-        (message.get("type")? == "wait_for_finish_response").then(|| message.clone())
-    })?;
-    let handle = first.pointer("/payload/final/persistence")?;
-    handle.get("nativeHandle")?;
-    Some(handle.clone())
+/// in the probe's wire. When that frame carries no `nativeHandle`, or its
+/// line does not serialize back to itself byte for byte, there is no full
+/// handle and the transform does not apply; a later frame never stands in
+/// for it.
+fn full_handle(stdout: &[u8]) -> Option<Value> {
+    for line in stdout.split(|byte| *byte == b'\n') {
+        let Ok(text) = std::str::from_utf8(line) else {
+            continue;
+        };
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            continue;
+        };
+        let Some(message) = session_message(&frame) else {
+            continue;
+        };
+        if message.get("type") != Some(&Value::from("wait_for_finish_response")) {
+            continue;
+        }
+        // The first one decides; it must not change under a rewrite.
+        if serialized(&frame) != text {
+            return None;
+        }
+        let handle = message.pointer("/payload/final/persistence")?;
+        handle.get("nativeHandle")?;
+        return Some(handle.clone());
+    }
+    None
 }
 
 /// The minimal handle that goes with a full one.
@@ -79,32 +94,36 @@ fn early_snapshot(frame: &Value) -> bool {
     }
 }
 
-/// Probe wire with every early full handle rewritten to the minimal one, or
-/// `None` when nothing changed.
-fn rewritten_wire(stdout: &str, full: &Value, minimal: &Value) -> Option<String> {
+/// The probe wire as bytes with every early full handle rewritten to the
+/// minimal one, or `None` when nothing changed. A line that is not UTF-8, or
+/// not JSON, or does not serialize back to itself, keeps its bytes.
+fn rewritten_wire(stdout: &[u8], full: &Value, minimal: &Value) -> Option<Vec<u8>> {
     let full_text = full.to_string();
     let mut changed = false;
-    let lines: Vec<String> = stdout
-        .split('\n')
+    let lines: Vec<Vec<u8>> = stdout
+        .split(|byte| *byte == b'\n')
         .map(|line| {
-            let Ok(mut frame) = serde_json::from_str::<Value>(line) else {
-                return line.to_owned();
+            let Ok(text) = std::str::from_utf8(line) else {
+                return line.to_vec();
+            };
+            let Ok(mut frame) = serde_json::from_str::<Value>(text) else {
+                return line.to_vec();
             };
             // Rewriting must change nothing but the handle.
-            if serialized(&frame) != line || !early_snapshot(&frame) {
-                return line.to_owned();
+            if serialized(&frame) != text || !early_snapshot(&frame) {
+                return line.to_vec();
             }
             match frame.pointer_mut("/message/payload/agent/persistence") {
                 Some(handle) if serialized(handle) == full_text => {
                     *handle = minimal.clone();
                     changed = true;
-                    frame.to_string()
+                    frame.to_string().into_bytes()
                 }
-                _ => line.to_owned(),
+                _ => line.to_vec(),
             }
         })
         .collect();
-    changed.then(|| lines.join("\n"))
+    changed.then(|| lines.join(&b'\n'))
 }
 
 /// A stored creation record with its early full handle rewritten, or `None`
@@ -136,18 +155,14 @@ fn rewritten_record(text: &str, full: &Value, minimal: &Value) -> Option<String>
 pub fn without_enrichment_race(side: &SideRun) -> (SideRun, Vec<String>) {
     let mut side = side.clone();
     let mut names = Vec::new();
-    let full = side
-        .steps
-        .iter()
-        .find_map(|step| full_handle(&String::from_utf8_lossy(&step.stdout)));
+    let full = side.steps.iter().find_map(|step| full_handle(&step.stdout));
     let Some(minimal) = full.as_ref().and_then(minimal_handle) else {
         return (side, names);
     };
     let full = full.unwrap_or(Value::Null);
     for (index, step) in side.steps.iter_mut().enumerate() {
-        let wire = String::from_utf8_lossy(&step.stdout).into_owned();
-        if let Some(new) = rewritten_wire(&wire, &full, &minimal) {
-            step.stdout = new.into_bytes();
+        if let Some(new) = rewritten_wire(&step.stdout, &full, &minimal) {
+            step.stdout = new;
             names.push(format!("step-{:02}-{}/stdout", index + 1, step.name));
         }
     }
@@ -158,7 +173,9 @@ pub fn without_enrichment_race(side: &SideRun) -> (SideRun, Vec<String>) {
         if !file.path.contains("/creations/") || !is_json {
             continue;
         }
-        let text = String::from_utf8_lossy(&file.bytes).into_owned();
+        let Ok(text) = String::from_utf8(file.bytes.clone()) else {
+            continue;
+        };
         if let Some(new) = rewritten_record(&text, &full, &minimal) {
             file.bytes = new.into_bytes();
             names.push(file.path.clone());
@@ -201,9 +218,12 @@ mod tests {
     }
 
     fn rewritten(stdout: &str) -> String {
-        let full = full_handle(stdout).unwrap();
+        let full = full_handle(stdout.as_bytes()).unwrap();
         let minimal = minimal_handle(&full).unwrap();
-        rewritten_wire(stdout, &full, &minimal).unwrap_or_else(|| stdout.to_owned())
+        rewritten_wire(stdout.as_bytes(), &full, &minimal).map_or_else(
+            || stdout.to_owned(),
+            |bytes| String::from_utf8(bytes).unwrap(),
+        )
     }
 
     #[test]
@@ -244,7 +264,7 @@ mod tests {
             format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
         };
         let stdout = wire(&[MINIMAL], FULL);
-        let full = full_handle(&stdout).unwrap();
+        let full = full_handle(stdout.as_bytes()).unwrap();
         let minimal = minimal_handle(&full).unwrap();
         assert_eq!(
             rewritten_record(&record(FULL), &full, &minimal).unwrap(),
@@ -264,13 +284,13 @@ mod tests {
         let stdout = lines.join("\n");
         // The first frame has no nativeHandle: no full handle, the class
         // does not apply, and the later frame does not stand in for it.
-        assert!(full_handle(&stdout).is_none());
+        assert!(full_handle(stdout.as_bytes()).is_none());
     }
 
     #[test]
     fn a_record_is_rewritten_only_at_the_snapshot_agent_path() {
         let stdout = wire(&[MINIMAL], FULL);
-        let full = full_handle(&stdout).unwrap();
+        let full = full_handle(stdout.as_bytes()).unwrap();
         let minimal = minimal_handle(&full).unwrap();
         let elsewhere: Value = serde_json::from_str(&format!(
             r#"{{"fingerprint":"f","other":{{"agent":{{"persistence":{FULL}}}}},"snapshot":{{"agent":{{"persistence":{MINIMAL}}}}}}}"#
@@ -278,5 +298,36 @@ mod tests {
         .unwrap();
         let text = format!("{}\n", serde_json::to_string_pretty(&elsewhere).unwrap());
         assert!(rewritten_record(&text, &full, &minimal).is_none());
+    }
+
+    #[test]
+    fn a_first_wait_line_that_does_not_round_trip_supplies_nothing() {
+        let first = later(FULL).replacen("\"type\":\"session\"", "\"type\": \"session\"", 1);
+        assert_ne!(first, later(FULL));
+        let stdout = [first, later(FULL)].join("\n");
+        // The first line decides and it would change under a rewrite.
+        assert!(full_handle(stdout.as_bytes()).is_none());
+        let stdout = [later(FULL), later(FULL)].join("\n");
+        assert!(full_handle(stdout.as_bytes()).is_some());
+    }
+
+    #[test]
+    fn bytes_that_are_not_utf8_survive_a_rewrite() {
+        let raced = wire(&[FULL], FULL);
+        let full = full_handle(raced.as_bytes()).unwrap();
+        let minimal = minimal_handle(&full).unwrap();
+        let mut bytes = b"\xff\xfe raw \xc3(\n".to_vec();
+        bytes.extend_from_slice(raced.as_bytes());
+        bytes.extend_from_slice(b"\n\xe2\x28\xa1 tail");
+        let new = rewritten_wire(&bytes, &full, &minimal).unwrap();
+        assert!(new.starts_with(b"\xff\xfe raw \xc3(\n"));
+        assert!(new.ends_with(b"\n\xe2\x28\xa1 tail"));
+        let count = |bytes: &[u8]| {
+            String::from_utf8_lossy(bytes)
+                .matches("nativeHandle")
+                .count()
+        };
+        // The two early full handles are gone; the one at wait_for_finish stays.
+        assert_eq!((count(&bytes), count(&new)), (3, 1));
     }
 }
