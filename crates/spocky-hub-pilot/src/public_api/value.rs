@@ -6,7 +6,7 @@
 //! surrogate is held as an escape pair, and the same encoding is used for strings that cross the
 //! operation boundary in either direction.
 
-use spocky_contracts::js_value::{self, JsObject, JsValue};
+use spocky_contracts::js_value::{self, JsObject, JsValue, js_text};
 
 /// The value type of the public API.
 pub type Json = JsValue;
@@ -45,7 +45,9 @@ impl JsValueExt for JsValue {
     }
 
     fn string(value: &str) -> Self {
-        Self::String(value.to_owned())
+        // Rust text enters the value domain through `js_text`, which doubles a literal U+10FFFF so
+        // it cannot read as the lone surrogate escape.
+        Self::String(js_text(value))
     }
 
     #[allow(clippy::cast_precision_loss)]
@@ -91,6 +93,16 @@ mod tests {
             decode_request_json(b"{\"b\":1,\"2\":2,\"a\":1e21,\"1\":4,\"b\":-0}").expect("parses");
         assert_eq!(parsed.stringify(), "{\"1\":4,\"2\":2,\"b\":0,\"a\":1e+21}");
         assert_eq!(Json::integer(100).stringify(), "100");
+    }
+
+    #[test]
+    fn rust_text_with_the_escape_character_stays_text() {
+        // Read raw, U+10FFFF followed by U+F0000 would decode as one lone surrogate.
+        let value = Json::string("\u{10FFFF}\u{F0000}");
+        let Json::String(text) = &value else {
+            unreachable!("string builds a string");
+        };
+        assert_eq!(spocky_contracts::text::js_length(text), 4);
     }
 
     #[test]
