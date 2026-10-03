@@ -465,8 +465,11 @@ async function operate(op) {
     }
     case "runtime": {
       runtimeStartMode = op.startMode ?? "ok";
+      // The operation text may order keys either way (serde_json sorts them or keeps source
+      // order depending on the features cargo unifies); the record prints the keys sorted.
+      const { enabled, endpoint, publicEndpoint, publicUseTls, useTls } = op.config;
       runtime = createRelayRuntime({
-        config: op.config,
+        config: { enabled, endpoint, publicEndpoint, publicUseTls, useTls },
         logger: makeLogger({ runtime: true }),
         attachSocket: async () => undefined,
         serverId: op.serverId,
