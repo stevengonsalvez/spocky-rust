@@ -15,7 +15,7 @@
 
 use serde_json::{Map, Value, json};
 use spocky_contracts::js_value::array_index;
-use spocky_contracts::text::{is_js_whitespace, js_length, js_trim};
+use spocky_contracts::text::{is_js_whitespace, js_length, js_trim, js_trim_start};
 
 use crate::transport::js_truthy;
 
@@ -1005,11 +1005,6 @@ fn within_diff_limit(text: &str) -> Result<String, DiffTruncationUnported> {
     } else {
         Ok(text.to_owned())
     }
-}
-
-/// `String.prototype.trimStart`.
-fn js_trim_start(text: &str) -> &str {
-    text.trim_start_matches(is_js_whitespace)
 }
 
 /// `text.split(/\r?\n/)`.
