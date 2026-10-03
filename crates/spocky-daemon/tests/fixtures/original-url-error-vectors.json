@@ -1,0 +1,46 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b",
+   "packages/server/dist/server/server/logger.js": "132649f4769d47a0d6208f8f72b1ad00a8f3bb30d7681d8bd8ae97ea67dd805d"
+  }
+ },
+ "cases": [
+  {
+   "name": "unclosed_ipv6_host",
+   "args": [
+    "http://[::1/mcp/agents"
+   ],
+   "line": "{\"level\":60,\"time\":1791067318554,\"pid\":72514,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"TypeError\",\"message\":\"Invalid URL\",\"stack\":\"TypeError: Invalid URL\\n    at new URL (node:internal/url:825:25)\\n    at file:///private/var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-url-error-vectors-DyV44K/[eval1]:8:5\\n    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)\\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)\\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)\\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\",\"code\":\"ERR_INVALID_URL\",\"input\":\"http://[::1/mcp/agents\"},\"msg\":\"Daemon failed to start listening\"}"
+  },
+  {
+   "name": "relative_input_with_an_invalid_base",
+   "args": [
+    "/mcp/agents",
+    "not a url"
+   ],
+   "line": "{\"level\":60,\"time\":1791067318576,\"pid\":72514,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"TypeError\",\"message\":\"Invalid URL\",\"stack\":\"TypeError: Invalid URL\\n    at new URL (node:internal/url:825:25)\\n    at file:///private/var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-url-error-vectors-DyV44K/[eval1]:8:5\\n    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)\\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)\\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)\\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\",\"code\":\"ERR_INVALID_URL\",\"input\":\"/mcp/agents\",\"base\":\"not a url\"},\"msg\":\"Daemon failed to start listening\"}"
+  },
+  {
+   "name": "empty_input",
+   "args": [
+    ""
+   ],
+   "line": "{\"level\":60,\"time\":1791067318577,\"pid\":72514,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"TypeError\",\"message\":\"Invalid URL\",\"stack\":\"TypeError: Invalid URL\\n    at new URL (node:internal/url:825:25)\\n    at file:///private/var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-url-error-vectors-DyV44K/[eval1]:8:5\\n    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)\\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)\\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)\\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\",\"code\":\"ERR_INVALID_URL\",\"input\":\"\"},\"msg\":\"Daemon failed to start listening\"}"
+  },
+  {
+   "name": "empty_host",
+   "args": [
+    "http://"
+   ],
+   "line": "{\"level\":60,\"time\":1791067318577,\"pid\":72514,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"err\":{\"type\":\"TypeError\",\"message\":\"Invalid URL\",\"stack\":\"TypeError: Invalid URL\\n    at new URL (node:internal/url:825:25)\\n    at file:///private/var/folders/22/cd4xst3s12s46zjg6pqcp8bw0000gn/T/spocky-url-error-vectors-DyV44K/[eval1]:8:5\\n    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)\\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)\\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)\\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\",\"code\":\"ERR_INVALID_URL\",\"input\":\"http://\"},\"msg\":\"Daemon failed to start listening\"}"
+  }
+ ]
+}
