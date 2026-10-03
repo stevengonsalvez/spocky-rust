@@ -201,6 +201,7 @@ impl ClaudeSession {
                 }
                 state.pending_permissions.remove(0).1
             };
+            pending.cleanup.settle(());
             let denied = self.resolve_denied_permission(
                 &pending.request,
                 &deny_response(STEER_SUPERSEDED_PERMISSION_MESSAGE),
@@ -312,6 +313,7 @@ impl ClaudeSession {
             );
         }
         let resolve: Rc<Deferred<Result<JsValue, AgentError>>> = Deferred::new();
+        let cleanup: Rc<Deferred<()>> = Deferred::new();
         if options.signal.aborted() {
             self.abort_permission(&request_id);
             return Err(AgentError::new("Permission request aborted"));
@@ -321,6 +323,7 @@ impl ClaudeSession {
             PendingPermission {
                 request,
                 resolve: Rc::clone(&resolve),
+                cleanup: Rc::clone(&cleanup),
             },
         ));
         let weak = Rc::downgrade(self);
@@ -328,14 +331,19 @@ impl ClaudeSession {
         let id = request_id;
         let signal = options.signal;
         tokio::task::spawn_local(async move {
+            // The listener is gone once the request is settled or cleaned up,
+            // whichever branch is ready: those win over a signal that fired
+            // meanwhile.
             tokio::select! {
+                biased;
+                () = cleanup.wait() => {}
+                _ = watched.wait() => {}
                 () = signal.wait() => {
                     if let Some(session) = weak.upgrade() {
                         session.abort_permission(&id);
                     }
                     watched.settle(Err(AgentError::new("Permission request aborted")));
                 }
-                _ = watched.wait() => {}
             }
         });
         resolve.wait().await
@@ -399,6 +407,7 @@ impl ClaudeSession {
                 "No pending permission request with id '{request_id}'"
             )));
         };
+        pending.cleanup.settle(());
         let request = pending.request.clone();
         if str_of(response, "behavior") == Some("allow") {
             if str_of(&request, "kind") == Some("plan") {

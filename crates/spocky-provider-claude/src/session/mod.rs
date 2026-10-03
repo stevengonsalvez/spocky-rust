@@ -171,6 +171,8 @@ pub(crate) struct ToolUseEntry {
 pub(crate) struct PendingPermission {
     pub request: JsValue,
     pub resolve: Rc<crate::local::Deferred<Result<JsValue, AgentError>>>,
+    /// `pending.cleanup()`: removes the request's abort listener.
+    pub cleanup: Rc<crate::local::Deferred<()>>,
 }
 
 /// `ClaudeRewindTurnAnchor`.
@@ -955,6 +957,7 @@ impl ClaudeSession {
                 state.pending_permissions.remove(0)
             };
             let (id, pending) = pending;
+            pending.cleanup.settle(());
             pending.resolve.settle(Err(AgentError::new(message)));
             let mut resolution = JsObject::new();
             resolution.insert("behavior", text("deny"));
