@@ -1,5 +1,5 @@
 # Drives the running pinned relay over real sockets and prints the raw wire it answers with.
-# Usage (inside the baseline project, test env): mix run relay-protocol-live.exs OUT GENERATED
+# Usage (inside the baseline project, test env): mix run relay-protocol-live.exs OUT GENERATED PERCENT
 # Masked in OUT: ts (wall_clock) and a generated v2 connection id (generated_id), nothing else.
 # GENERATED receives the unmasked frames of the generated-id sync case: its ids are random,
 # so it is replayed by the Rust test against the encoder instead of being diffed.
@@ -100,7 +100,7 @@ defmodule Live do
   end
 end
 
-[output, generated_output] = System.argv()
+[output, generated_output, percent_output] = System.argv()
 unless Node.alive?() do
   {_, 0} = System.cmd("epmd", ["-daemon"])
   {:ok, _} = Node.start(:relay_protocol_live, :shortnames)
@@ -256,6 +256,31 @@ gen_second = Live.connect("serverId=live_generated&role=server&v=2")
 :ets.insert(generated_lines, {41, "sync\t" <> sync_frame})
 File.write!(generated_output, :ets.tab2list(generated_lines) |> Enum.map(fn {_, text} -> [text, "\n"] end))
 Enum.each(gen_clients, &WebSockex.cast(&1, :close))
+
+# percent and plus encoded route parameters reach Connection.from_query decoded
+percent_lines = :ets.new(:percent, [:ordered_set, :public])
+percent_control = Live.connect("serverId=live_percent&role=server&v=%32")
+{:text, percent_first} = Live.recv(percent_control)
+:ets.insert(percent_lines, {0, "control\t" <> percent_first})
+
+for {query, index} <- Enum.with_index([
+      "role=client&serverId=live_percent&v=%32&connectionId=%63%31",
+      "role=client&serverId=live_percent&v=2&connectionId=c%2B2",
+      "role=client&serverId=live_percent&v=2&connectionId=c+3",
+      "role=client&serverId=live_percent&v=2&connectionId=%20c4%20",
+      "role=client&serverId=live_percent&v=2&connectionId=%2563",
+      "role=client&serverId=live_percent&v=%202%20&connectionId=c6",
+      "role=client&serverId=live_percent&v=2&connectionId=%C3%A9%e2%82%ac",
+      "%72ole=client&%73erverId=live_percent&%76=2&%63onnectionId=c8"
+    ], 1) do
+  client = Live.connect(query)
+  :ets.insert(percent_lines, {index, "query\t" <> query <> "\t" <> Live.show(Live.recv(percent_control))})
+  WebSockex.cast(client, :close)
+  _ = Live.recv(percent_control)
+end
+
+File.write!(percent_output, :ets.tab2list(percent_lines) |> Enum.map(fn {_, text} -> [text, "\n"] end))
+WebSockex.cast(percent_control, :close)
 
 # handshake validation closes the client with 1008
 public_key = :binary.copy(<<7>>, 32)
