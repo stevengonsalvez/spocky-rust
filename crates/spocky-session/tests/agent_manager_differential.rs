@@ -95,8 +95,9 @@ use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, AgentSteerOptions,
     AppendedTimelineItem, CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions,
     ImportProviderSessionRequest, ImportablePersistedAgentQueryOptions,
-    ImportableSessionProviderError, ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions,
-    SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    ImportableSessionProviderError, ProviderDefinition, ProviderRegistryUpdate, ReloadAgentOptions,
+    ResumeAgentOptions, SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
+    WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -1554,6 +1555,58 @@ const draftScenario = async () => {
   return results;
 };
 
+const registryScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const gammaId = "00000000-0000-4000-8000-0000000000f5";
+  const calls = [];
+  const warns = [];
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const client = (provider, extra = {}) => fakeClient(calls, spec(provider, extra));
+  const definition = { enabled: true };
+  const manager = new AgentManager({
+    logger: warnLogger,
+    registry: new AgentStorage(`${home}/provider-registry`, logger),
+    clients: { alpha: client("alpha", { turns: [scripted.held] }), beta: client("beta", { closeFails: true }), gamma: client("gamma") },
+    providerDefinitions: { alpha: definition, beta: definition, gamma: definition },
+    mcpAuthToken: "secret-token",
+    resolvePaseoToolPolicy: (provider) => ({ enabled: true, name: provider }),
+  });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "alpha", cwd }, agentId, {});
+  await manager.createAgent({ provider: "beta", cwd }, otherId, {});
+  await manager.createAgent({ provider: "gamma", cwd }, gammaId, {});
+  for (const [id, body] of [[agentId, "one"], [agentId, "two"], [gammaId, "three"]]) await manager.appendTimelineItem(id, { type: "assistant_message", text: body });
+  const held = manager.streamAgent(agentId, "hold");
+  const heldFirst = (await held.next()).value;
+  await sleep(50);
+  const view = async () => ({
+    ids: manager.getRegisteredProviderIds(),
+    metrics: manager.getMetricsSnapshot(),
+    availability: await manager.listProviderAvailability(),
+    policies: [manager.getPaseoToolPolicy(agentId), manager.getPaseoToolPolicy(otherId), manager.getPaseoToolPolicy(unknownId)],
+    token: manager.getMcpAuthToken(),
+  });
+  const create = async (provider) => await outcome(async () => (await manager.createAgent({ provider, cwd }, undefined, {})).provider);
+  const steps = [];
+  steps.push({ name: "initial", view: await view() });
+  manager.registerClient("alpha", client("alpha"));
+  manager.registerClient("delta", client("delta"));
+  steps.push({ name: "registered", view: await view(), zeta: await create("zeta"), delta: await create("delta") });
+  manager.updateProviderRegistry({
+    providerDefinitions: { gamma: definition, alpha: definition, off: { enabled: false } },
+    clients: { gamma: client("gamma"), alpha: client("alpha"), off: client("off") },
+    retiredProviders: ["beta", "gamma", "nobody"],
+  });
+  await sleep(150);
+  steps.push({ name: "updated", view: await view(), beta: await create("beta"), off: await create("off"), alpha: await create("alpha"), agents: manager.listAgents().map((agent) => [agent.id, agent.provider, agent.lifecycle]) });
+  manager.updateProviderRegistry({ providerDefinitions: {}, clients: {} });
+  steps.push({ name: "emptied", view: await view(), alpha: await create("alpha") });
+  await manager.cancelAgentRun(agentId);
+  await sleep(100);
+  await manager.flush();
+  return { steps, heldFirst, feed, warns, calls };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1662,7 +1715,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3641,6 +3694,7 @@ async fn scenarios_match_pinned_manager() {
         ("availability", availability_scenario(&rust_home.0).await),
         ("importable", importable_scenario(&rust_home.0).await),
         ("draft", draft_scenario(&cwd, &rust_home.0).await),
+        ("registry", registry_scenario(&cwd, &rust_home.0).await),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -6042,6 +6096,246 @@ async fn draft_scenario(cwd: &str, home: &Path) -> JsValue {
         ]));
     }
     JsValue::Array(results)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn registry_scenario(cwd: &str, home: &Path) -> JsValue {
+    const GAMMA_ID: &str = "00000000-0000-4000-8000-0000000000f5";
+    let calls = Calls::default();
+    let warns: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let warn_sink = Arc::clone(&warns);
+    let client = |provider: &str, configure: &dyn Fn(&mut Spec)| {
+        let mut fake = spec(provider);
+        configure(&mut fake);
+        Arc::new(FakeClient {
+            spec: fake,
+            calls: Arc::clone(&calls),
+        }) as Arc<dyn AgentClient>
+    };
+    let plain = |provider: &str| client(provider, &|_| {});
+    let alpha = client("alpha", &|fake| scripted(fake, &["held"]));
+    let beta = client("beta", &|fake| fake.close_fails = true);
+    let manager = AgentManager::new(AgentManagerOptions {
+        clients: vec![
+            ("alpha".to_owned(), alpha),
+            ("beta".to_owned(), beta),
+            ("gamma".to_owned(), plain("gamma")),
+        ],
+        provider_definitions: ["alpha", "beta", "gamma"]
+            .into_iter()
+            .map(|provider| (provider.to_owned(), enabled()))
+            .collect(),
+        registry: Some(AgentStorage::new(home.join("provider-registry"))),
+        mcp_auth_token: Some("secret-token".to_owned()),
+        resolve_paseo_tool_policy: Some(Arc::new(|provider| {
+            Some(object(vec![
+                ("enabled", JsValue::Bool(true)),
+                ("name", text(provider)),
+            ]))
+        })),
+        log_warn: Some(Arc::new(move |bindings, message| {
+            warn_sink
+                .lock()
+                .expect("warns")
+                .push(JsValue::Array(vec![bindings, text(message)]));
+        })),
+        ..AgentManagerOptions::default()
+    });
+    let feed = record_feed(&manager);
+    for (id, provider) in [(AGENT_ID, "alpha"), (OTHER_ID, "beta"), (GAMMA_ID, "gamma")] {
+        manager
+            .create_agent(
+                object(vec![("provider", text(provider)), ("cwd", text(cwd))]),
+                Some(id.to_owned()),
+                CreateAgentOptions::default(),
+            )
+            .await
+            .expect("create");
+    }
+    for (id, body) in [(AGENT_ID, "one"), (AGENT_ID, "two"), (GAMMA_ID, "three")] {
+        manager
+            .append_timeline_item(
+                id,
+                object(vec![
+                    ("type", text("assistant_message")),
+                    ("text", text(body)),
+                ]),
+            )
+            .await
+            .expect("append");
+    }
+    let mut held = manager
+        .stream_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+        .expect("stream");
+    let held_first = held.next().await.expect("first").expect("event");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let view = || async {
+        let metrics = manager.metrics_snapshot();
+        let mut by_lifecycle = JsObject::new();
+        for (name, count) in &metrics.by_lifecycle {
+            by_lifecycle.insert(name, number(i64::try_from(*count).expect("count")));
+        }
+        let count = |value: usize| number(i64::try_from(value).expect("count"));
+        let availability = manager
+            .list_provider_availability()
+            .await
+            .into_iter()
+            .map(|(provider, available, error)| {
+                object(vec![
+                    ("provider", text(&provider)),
+                    ("available", JsValue::Bool(available)),
+                    ("error", error.map_or(JsValue::Null, |error| text(&error))),
+                ])
+            })
+            .collect();
+        object(vec![
+            (
+                "ids",
+                JsValue::Array(
+                    manager
+                        .registered_provider_ids()
+                        .iter()
+                        .map(|id| text(id))
+                        .collect(),
+                ),
+            ),
+            (
+                "metrics",
+                object(vec![
+                    ("total", count(metrics.total)),
+                    ("subscriptionCount", count(metrics.subscription_count)),
+                    ("byLifecycle", JsValue::Object(by_lifecycle)),
+                    (
+                        "withActiveForegroundTurn",
+                        count(metrics.with_active_foreground_turn),
+                    ),
+                    (
+                        "timelineStats",
+                        object(vec![
+                            ("totalItems", count(metrics.timeline_total_items)),
+                            (
+                                "maxItemsPerAgent",
+                                count(metrics.timeline_max_items_per_agent),
+                            ),
+                        ]),
+                    ),
+                ]),
+            ),
+            ("availability", JsValue::Array(availability)),
+            (
+                "policies",
+                JsValue::Array(
+                    [AGENT_ID, OTHER_ID, UNKNOWN_ID]
+                        .map(|id| manager.paseo_tool_policy(id).unwrap_or(JsValue::Null))
+                        .to_vec(),
+                ),
+            ),
+            (
+                "token",
+                manager.mcp_auth_token().map_or(JsValue::Null, text),
+            ),
+        ])
+    };
+    let create = |provider: &'static str| {
+        let manager = manager.clone();
+        let cwd = cwd.to_owned();
+        async move {
+            outcome(
+                manager
+                    .create_agent(
+                        object(vec![("provider", text(provider)), ("cwd", text(&cwd))]),
+                        None,
+                        CreateAgentOptions::default(),
+                    )
+                    .await
+                    .map(|agent| text(&agent.provider)),
+            )
+        }
+    };
+    let mut steps = Vec::new();
+    steps.push(object(vec![
+        ("name", text("initial")),
+        ("view", view().await),
+    ]));
+    manager.register_client("alpha", plain("alpha"));
+    manager.register_client("delta", plain("delta"));
+    steps.push(object(vec![
+        ("name", text("registered")),
+        ("view", view().await),
+        ("zeta", create("zeta").await),
+        ("delta", create("delta").await),
+    ]));
+    manager.update_provider_registry(ProviderRegistryUpdate {
+        provider_definitions: vec![
+            ("gamma".to_owned(), enabled()),
+            ("alpha".to_owned(), enabled()),
+            (
+                "off".to_owned(),
+                ProviderDefinition {
+                    enabled: false,
+                    ..ProviderDefinition::default()
+                },
+            ),
+        ],
+        clients: vec![
+            ("gamma".to_owned(), plain("gamma")),
+            ("alpha".to_owned(), plain("alpha")),
+            ("off".to_owned(), plain("off")),
+        ],
+        retired_providers: vec!["beta".to_owned(), "gamma".to_owned(), "nobody".to_owned()],
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let updated_view = view().await;
+    let beta_result = create("beta").await;
+    let off_result = create("off").await;
+    let alpha_result = create("alpha").await;
+    let agents = manager
+        .list_agents()
+        .into_iter()
+        .map(|agent| {
+            JsValue::Array(vec![
+                text(&agent.id),
+                text(&agent.provider),
+                text(agent.lifecycle.as_str()),
+            ])
+        })
+        .collect();
+    steps.push(object(vec![
+        ("name", text("updated")),
+        ("view", updated_view),
+        ("beta", beta_result),
+        ("off", off_result),
+        ("alpha", alpha_result),
+        ("agents", JsValue::Array(agents)),
+    ]));
+    manager.update_provider_registry(ProviderRegistryUpdate::default());
+    steps.push(object(vec![
+        ("name", text("emptied")),
+        ("view", view().await),
+        ("alpha", create("alpha").await),
+    ]));
+    manager
+        .cancel_agent_run(AGENT_ID)
+        .await
+        .expect("cancel the held run");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    object(vec![
+        ("steps", JsValue::Array(steps)),
+        ("heldFirst", held_first),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+        (
+            "warns",
+            JsValue::Array(warns.lock().expect("warns").clone()),
+        ),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
+    ])
 }
 
 #[allow(
