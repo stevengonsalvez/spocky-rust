@@ -1,7 +1,12 @@
-# Original Paseo in Electron 44.2.0 on macOS (baseline)
+# Web renderer in pinned Electron 44.2.0 on macOS (not the desktop product)
 
-Task P2-RENDERER-CEF-01, step 2 (macOS). This is the baseline that a Dioxus web
-bundle hosted in CEF must match. It is measured evidence, not a selection.
+Task P2-RENDERER-CEF-01, first macOS capture. This loads the Metro development web
+build of the original into a bare Electron `44.2.0` window. It has no Paseo main
+process, preload, window chrome mode, or `webviewTag`, and it is a development
+bundle, so the app renders its plain-web path. It measures the web page in Chromium
+`152.0.7977.76`. It is NOT the baseline for the CEF desktop gate. The gate baseline
+is `renderer-platform-desktop-macos.md`, which captures the shipped desktop app.
+This file stays as evidence of the web renderer only.
 
 ## What is captured
 
