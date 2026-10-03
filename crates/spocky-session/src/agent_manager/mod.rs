@@ -63,7 +63,9 @@ pub use run::{
 };
 
 use crate::agent_projection::{AgentAttention, AgentPayloadView, ManagedAgentRecordView};
-use crate::agent_sdk::{AgentClient, AgentError, AgentSession, Unsubscribe};
+use crate::agent_sdk::{
+    AgentClient, AgentError, AgentSession, BoxFuture, PaseoToolCatalog, Unsubscribe,
+};
 use crate::agent_storage::AgentStorage;
 use crate::provider_subagents::ProviderSubagentStore;
 use crate::stream_coalescer::{AGENT_STREAM_COALESCE_DEFAULT_WINDOW_MS, AgentStreamCoalescer};
@@ -246,6 +248,24 @@ pub type WorkspaceStateCallback = Arc<dyn Fn(&str) + Send + Sync>;
 /// `resolvePaseoToolPolicy(provider)`: a `ProviderPaseoToolsPolicy`.
 pub type PaseoToolPolicyResolver = Arc<dyn Fn(&str) -> Option<JsValue> + Send + Sync>;
 
+/// `PaseoToolRuntimeContext` as the manager builds it: the calling agent and
+/// its tool policy.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PaseoToolRuntimeContext {
+    pub caller_agent_id: Option<String>,
+    /// `ProviderPaseoToolsPolicy`.
+    pub paseo_tool_policy: Option<JsValue>,
+}
+
+/// `PaseoToolCatalogFactory`: builds the tools one agent launches with.
+pub type PaseoToolCatalogFactory = Arc<
+    dyn Fn(
+            PaseoToolRuntimeContext,
+        ) -> BoxFuture<'static, Result<Arc<dyn PaseoToolCatalog>, AgentError>>
+        + Send
+        + Sync,
+>;
+
 /// `validateOptions(options)`; it may throw.
 pub type ValidateProviderOptions =
     Arc<dyn Fn(Option<&JsValue>) -> Result<Option<JsValue>, AgentError> + Send + Sync>;
@@ -285,6 +305,8 @@ pub struct AgentManagerOptions {
     /// `paseoToolsEnabled ?? true`.
     pub paseo_tools_enabled: Option<bool>,
     pub resolve_paseo_tool_policy: Option<PaseoToolPolicyResolver>,
+    /// `paseoToolCatalogFactory`; none by default.
+    pub paseo_tool_catalog_factory: Option<PaseoToolCatalogFactory>,
     pub append_system_prompt: Option<String>,
     pub agent_stream_coalesce_window_ms: Option<f64>,
     /// `pluginLifecycle` present with no plugin loaded, as the daemon runs
@@ -362,6 +384,9 @@ pub(crate) struct State {
     pub(crate) reloaded_session_closes: Vec<create::ReloadedClose>,
     pub(crate) mcp_base_url: Option<String>,
     pub(crate) paseo_tools_enabled: bool,
+    /// `paseoToolCatalogFactory`, replaceable through
+    /// `setPaseoToolCatalogFactory`.
+    pub(crate) paseo_tool_catalog_factory: Option<PaseoToolCatalogFactory>,
     pub(crate) append_system_prompt: String,
     pub(crate) plugin_lifecycle: bool,
 }
@@ -530,6 +555,7 @@ impl AgentManager {
             steer_event_barriers: HashMap::new(),
             mcp_base_url: options.mcp_base_url,
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
+            paseo_tool_catalog_factory: options.paseo_tool_catalog_factory,
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
             plugin_lifecycle: options.plugin_lifecycle,
         };
@@ -606,6 +632,11 @@ impl AgentManager {
     /// `setPaseoToolsEnabled(enabled)`.
     pub fn set_paseo_tools_enabled(&self, enabled: bool) {
         self.lock().paseo_tools_enabled = enabled;
+    }
+
+    /// `setPaseoToolCatalogFactory(factory)`.
+    pub fn set_paseo_tool_catalog_factory(&self, factory: Option<PaseoToolCatalogFactory>) {
+        self.lock().paseo_tool_catalog_factory = factory;
     }
 
     /// `setAppendSystemPrompt(prompt)`.

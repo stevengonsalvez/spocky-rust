@@ -10,7 +10,7 @@ use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
 use super::{
     AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgent, ManagedAgentSnapshot,
-    validate_agent_id,
+    PaseoToolRuntimeContext, validate_agent_id,
 };
 use crate::agent_identity::resolve_create_agent_titles;
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
@@ -322,8 +322,15 @@ impl AgentManager {
         let cwd = config_text(&prepared.stored_config, "cwd")
             .unwrap_or_default()
             .to_owned();
-        let launch_context =
-            Self::build_launch_context(&resolved_agent_id, &cwd, options.env.as_ref());
+        let launch_context = self
+            .build_launch_context(
+                &resolved_agent_id,
+                &client,
+                &cwd,
+                prepared.paseo_tool_policy.as_ref(),
+                options.env.as_ref(),
+            )
+            .await?;
         let create_options =
             options
                 .persist_session
@@ -393,7 +400,15 @@ impl AgentManager {
         let cwd = config_text(&prepared.stored_config, "cwd")
             .unwrap_or_default()
             .to_owned();
-        let launch_context = Self::build_launch_context(&resolved_agent_id, &cwd, None);
+        let launch_context = self
+            .build_launch_context(
+                &resolved_agent_id,
+                &client,
+                &cwd,
+                prepared.paseo_tool_policy.as_ref(),
+                None,
+            )
+            .await?;
         let Some(import) = client.import_session(
             ImportProviderSessionInput {
                 provider_handle_id: input.provider_handle_id.clone(),
@@ -570,7 +585,15 @@ impl AgentManager {
             prepared.paseo_tool_policy.clone(),
         );
         let cwd = js_string(prepared.stored_config.get("cwd"));
-        let launch_context = Self::build_launch_context(&resolved_agent_id, &cwd, None);
+        let launch_context = self
+            .build_launch_context(
+                &resolved_agent_id,
+                &client,
+                &cwd,
+                prepared.paseo_tool_policy.as_ref(),
+                None,
+            )
+            .await?;
         let session = client
             .resume_session(
                 handle.clone(),
@@ -643,6 +666,10 @@ impl AgentManager {
         Ok((agent.snapshot.clone(), session))
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one baseline method, kept in the baseline's order"
+    )]
     async fn reload_agent_session_internal(
         &self,
         agent_id: &str,
@@ -679,7 +706,15 @@ impl AgentManager {
             .await?;
         let previous_policy = self.lock().paseo_tool_policies.get(agent_id).cloned();
         let cwd = js_string(prepared.stored_config.get("cwd"));
-        let launch_context = Self::build_launch_context(agent_id, &cwd, None);
+        let launch_context = self
+            .build_launch_context(
+                agent_id,
+                &client,
+                &cwd,
+                prepared.paseo_tool_policy.as_ref(),
+                None,
+            )
+            .await?;
         let has_mcp_servers = matches!(
             prepared.stored_config.get("mcpServers"),
             Some(JsValue::Object(servers)) if servers.iter().next().is_some()
@@ -1091,24 +1126,56 @@ impl AgentManager {
         })
     }
 
-    /// `buildLaunchContext` without plugin hooks or a Paseo tool catalog:
-    /// `{ agentId, env: { ...env, PASEO_AGENT_ID, PASEO_AGENT_CWD } }`.
-    fn build_launch_context(
+    /// `buildLaunchContext` without plugin hooks:
+    /// `{ agentId, env: { ...env, PASEO_AGENT_ID, PASEO_AGENT_CWD } }`, plus the
+    /// Paseo tool catalog when tools are on, the policy allows them, the
+    /// client has native Paseo tools and a factory is set.
+    ///
+    /// # Errors
+    ///
+    /// The factory's own rejection.
+    async fn build_launch_context(
+        &self,
         agent_id: &str,
+        client: &Arc<dyn AgentClient>,
         cwd: &str,
+        paseo_tool_policy: Option<&JsValue>,
         env: Option<&JsObject>,
-    ) -> AgentLaunchContext {
+    ) -> Result<AgentLaunchContext, AgentError> {
         let mut launch_env = JsObject::new();
         if let Some(env) = env {
             spread_into(&mut launch_env, Some(&JsValue::Object(env.clone())));
         }
         launch_env.insert("PASEO_AGENT_ID", JsValue::String(agent_id.to_owned()));
         launch_env.insert("PASEO_AGENT_CWD", JsValue::String(cwd.to_owned()));
-        AgentLaunchContext {
+        let mut context = AgentLaunchContext {
             agent_id: Some(agent_id.to_owned()),
             env: Some(launch_env),
             paseo_tools: None,
+        };
+        let factory = {
+            let state = self.lock();
+            state
+                .paseo_tools_enabled
+                .then(|| state.paseo_tool_catalog_factory.clone())
+                .flatten()
+        };
+        // `isPaseoToolPolicyEnabled`: `policy?.enabled !== false`.
+        let policy_enabled = paseo_tool_policy.and_then(|policy| policy.get("enabled"))
+            != Some(&JsValue::Bool(false));
+        if let Some(factory) = factory
+            && policy_enabled
+            && truthy(client.capabilities().get("supportsNativePaseoTools"))
+        {
+            context.paseo_tools = Some(
+                factory(PaseoToolRuntimeContext {
+                    caller_agent_id: Some(agent_id.to_owned()),
+                    paseo_tool_policy: paseo_tool_policy.cloned(),
+                })
+                .await?,
+            );
         }
+        Ok(context)
     }
 
     /// `requireEnabledProvider`.
