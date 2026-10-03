@@ -8,7 +8,7 @@
 mod support;
 
 use serde_json::{Value, json};
-use support::{Mismatch, NodeEndpoint, RustEndpoint, differential, pinned};
+use support::{NodeEndpoint, RustEndpoint, differential, pinned};
 
 const HOSTS: &[&str] = &[
     "localhost",
@@ -62,8 +62,7 @@ const HOSTS: &[&str] = &[
     " ",
 ];
 
-/// Hosts where UTS 46 versions, bidi rules, joiners or newer Unicode decide the answer. Node's
-/// ada and the `url` crate's idna can differ on them.
+/// Hosts where UTS 46 versions, bidi rules, joiners or newer Unicode decide the answer.
 const IDNA_HOSTS: &[&str] = &[
     "\u{661}.com",
     "1.\u{5d0}",
@@ -91,18 +90,6 @@ const IDNA_HOSTS: &[&str] = &[
     "\u{1e9e}.com",
     "\u{10fffd}.com",
     "\u{e0001}.com",
-];
-
-/// Hosts the Rust port is known to answer differently from ada, until
-/// `spocky_contracts::url` provides an ada-exact host step. Each must still diverge.
-const KNOWN_DIVERGENT_HOSTS: &[&str] = &[
-    "\u{661}.com",
-    "1.\u{5d0}",
-    "\u{1fae9}.test",
-    "xn--9hb.com",
-    "a\u{5d0}.com",
-    "\u{661}\u{627}.com",
-    "\u{1e9e}.com",
 ];
 
 const IPV6: &[&str] = &[
@@ -274,35 +261,15 @@ fn endpoint_functions_match_the_pinned_typescript() {
         )
         .unwrap();
     }
-    let mentions = |mismatch: &Mismatch, host: &str| {
-        ["input", "endpoint"]
-            .iter()
-            .filter_map(|key| mismatch.op[key].as_str())
-            .any(|text| text.contains(host))
-    };
-    let unexpected: Vec<&Mismatch> = mismatches
-        .iter()
-        .filter(|mismatch| {
-            !KNOWN_DIVERGENT_HOSTS
-                .iter()
-                .any(|host| mentions(mismatch, host))
-        })
-        .collect();
     assert!(
-        unexpected.is_empty(),
+        mismatches.is_empty(),
         "{} operations differ; first 10:\n{}",
-        unexpected.len(),
-        unexpected
+        mismatches.len(),
+        mismatches
             .iter()
             .take(10)
             .map(|mismatch| mismatch.text.clone())
             .collect::<Vec<_>>()
             .join("\n")
     );
-    for host in KNOWN_DIVERGENT_HOSTS {
-        assert!(
-            mismatches.iter().any(|mismatch| mentions(mismatch, host)),
-            "{host:?} no longer diverges: remove it from KNOWN_DIVERGENT_HOSTS"
-        );
-    }
 }

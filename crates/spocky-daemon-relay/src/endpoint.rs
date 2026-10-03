@@ -1,8 +1,8 @@
 //! `packages/protocol/src/daemon-endpoints.ts`: relay endpoint parsing and the relay
 //! WebSocket URL, including the WHATWG `URL` and `URLSearchParams` behavior it relies on.
 
+use spocky_contracts::url::Url;
 use std::{error::Error, fmt};
-use url::Url;
 
 /// An error with the exact JavaScript `message`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -182,34 +182,18 @@ pub fn build_relay_websocket_url(params: &RelayUrlParams<'_>) -> Result<String, 
     } else {
         parts.host.clone()
     };
-    let mut url = Url::parse(&format!("{protocol}://{host_part}:{}/ws", parts.port))
-        .map_err(|_| error("Invalid URL"))?;
+    let mut url = Url::parse(&format!("{protocol}://{host_part}:{}/ws", parts.port), None)
+        .ok_or_else(|| error("Invalid URL"))?;
     let version = normalize_relay_protocol_version(&params.version)?;
     // `url.searchParams.set` re-serializes the whole query, so a query that came from a
     // `?` inside the host is re-encoded as form data before the new pairs are added.
-    let mut pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
-    search_params_set(&mut pairs, "serverId", params.server_id);
-    search_params_set(&mut pairs, "role", params.role.as_str());
-    search_params_set(&mut pairs, "v", version);
+    let mut pairs = url.search_params();
+    pairs.set("serverId", params.server_id);
+    pairs.set("role", params.role.as_str());
+    pairs.set("v", version);
     if let Some(connection_id) = params.connection_id.filter(|id| !id.is_empty()) {
-        search_params_set(&mut pairs, "connectionId", connection_id);
+        pairs.set("connectionId", connection_id);
     }
-    url.query_pairs_mut().clear().extend_pairs(&pairs);
-    Ok(url.to_string())
-}
-
-/// `URLSearchParams.prototype.set`: replaces the first pair with the name and removes the
-/// rest, or appends.
-fn search_params_set(pairs: &mut Vec<(String, String)>, name: &str, value: &str) {
-    if let Some(index) = pairs.iter().position(|(candidate, _)| candidate == name) {
-        value.clone_into(&mut pairs[index].1);
-        let mut position = 0;
-        pairs.retain(|(candidate, _)| {
-            let keep = candidate != name || position == index;
-            position += 1;
-            keep
-        });
-    } else {
-        pairs.push((name.to_owned(), value.to_owned()));
-    }
+    url.set_search_params(&pairs);
+    Ok(url.href())
 }
