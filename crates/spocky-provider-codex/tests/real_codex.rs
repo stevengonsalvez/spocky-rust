@@ -751,7 +751,7 @@ fn a_dropped_stream_is_retried_with_will_retry_then_the_turn_completes() {
         },
     ]);
     let root = DisposableRoot::new("stream-retry");
-    let provider = stub_provider(&root, &stub, &codex);
+    let provider = support::recording_stub_provider(&root, &stub, &codex);
     let session = provider
         .create_session(manager_full_access_config(&root, &provider), None, false)
         .expect("create session");
@@ -780,6 +780,28 @@ fn a_dropped_stream_is_retried_with_will_retry_then_the_turn_completes() {
         .collect();
     assert_eq!(assistant.len(), 1, "{snapshot:?}");
     assert_eq!(assistant[0]["item"]["text"], json!("Hello after retries."));
+    // Codex reported each dropped stream as an `error` notification with
+    // `willRetry: true` (the session ignores them, so read what Codex wrote).
+    let retries: Vec<(String, bool)> = support::recorded_server_lines(&root)
+        .iter()
+        .filter(|line| line["method"] == "error")
+        .map(|line| {
+            (
+                line["params"]["error"]["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                line["params"]["willRetry"] == json!(true),
+            )
+        })
+        .collect();
+    assert_eq!(
+        retries,
+        [
+            ("Reconnecting... 1/5".to_owned(), true),
+            ("Reconnecting... 2/5".to_owned(), true)
+        ]
+    );
     assert_eq!(session.unported(), Vec::<String>::new());
     session.close().expect("close");
 }
