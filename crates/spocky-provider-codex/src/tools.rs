@@ -15,7 +15,9 @@
 
 use serde_json::{Map, Value, json};
 use spocky_contracts::js_value::array_index;
-use spocky_contracts::text::{is_js_whitespace, js_length, js_trim, js_trim_start};
+use spocky_contracts::text::{
+    is_js_whitespace, js_length, js_to_lowercase, js_trim, js_trim_start,
+};
 
 use crate::transport::js_truthy;
 
@@ -58,7 +60,7 @@ pub fn normalize_tool_call_status(
         return "failed";
     }
     if let Some(raw) = raw_status {
-        let normalized = js_trim(raw).to_lowercase();
+        let normalized = js_to_lowercase(js_trim(raw));
         if !normalized.is_empty() {
             if FAILED_STATUS_VOCAB.contains(&normalized.as_str()) {
                 return "failed";
