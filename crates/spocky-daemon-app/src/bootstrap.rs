@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
+use spocky_daemon::listen::ListenTarget;
 use spocky_session::clock::random_uuid;
+use url::Url;
 
 /// The pinned `OpenCode` bridge plugin bundle.
 const OPENCODE_BRIDGE_PLUGIN: &[u8] = include_bytes!("../assets/opencode-bridge-plugin.bundle.mjs");
@@ -25,6 +27,38 @@ const OPENCODE_BRIDGE_PLUGIN: &[u8] = include_bytes!("../assets/opencode-bridge-
 /// SHA-256 of the pinned bundle, as the pinned daemon names the file.
 pub const OPENCODE_BRIDGE_PLUGIN_SHA256: &str =
     "a88cef53578dcb32cfa4af17e13e44c84751a30e5c19f847733904dd84eda872";
+
+/// `createAgentMcpBaseUrl(boundListenTarget)`: the agent MCP url for the
+/// target the listener bound, `None` for a socket or pipe listener. The url
+/// goes through the WHATWG parser, as `new URL(..).toString()` does, so the
+/// host is lowercased, an IPv6 literal compressed and an IPv4 form
+/// normalized.
+///
+/// # Errors
+///
+/// `Invalid URL`, which the pinned URL constructor throws for a host it
+/// rejects.
+pub fn agent_mcp_base_url(bound: &ListenTarget) -> Result<Option<String>, String> {
+    let ListenTarget::Tcp { host, port } = bound else {
+        return Ok(None);
+    };
+    // `resolveAgentMcpClientHost`, then `formatHostForHttpUrl`.
+    let host = match host.as_str() {
+        "0.0.0.0" => "127.0.0.1",
+        "::" | "[::]" => "::1",
+        other => other,
+    };
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    let invalid = |_| "Invalid URL".to_owned();
+    Url::parse(&format!("http://{host}:{port}"))
+        .and_then(|base| base.join("/mcp/agents"))
+        .map(|url| Some(url.to_string()))
+        .map_err(invalid)
+}
 
 fn hex_sha256(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -93,9 +127,11 @@ pub fn ensure_schedule_store_dir(paseo_home: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use spocky_daemon::listen::ListenTarget;
+
     use super::{
-        OPENCODE_BRIDGE_PLUGIN, OPENCODE_BRIDGE_PLUGIN_SHA256, ensure_schedule_store_dir,
-        hex_sha256, materialize_opencode_bridge_plugin,
+        OPENCODE_BRIDGE_PLUGIN, OPENCODE_BRIDGE_PLUGIN_SHA256, agent_mcp_base_url,
+        ensure_schedule_store_dir, hex_sha256, materialize_opencode_bridge_plugin,
     };
 
     #[test]
@@ -133,5 +169,61 @@ mod tests {
         ensure_schedule_store_dir(&home).expect("schedules again");
         assert!(home.join("schedules").is_dir());
         std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn the_agent_mcp_url_matches_new_url_for_the_bound_target() {
+        let tcp = |host: &str, port| ListenTarget::Tcp {
+            host: host.to_owned(),
+            port,
+        };
+        // Printed by node 22: new URL("/mcp/agents", `http://${host}:${port}`)
+        // after resolveAgentMcpClientHost and formatHostForHttpUrl.
+        let cases = [
+            ("127.0.0.1", 43211, "http://127.0.0.1:43211/mcp/agents"),
+            ("0.0.0.0", 6767, "http://127.0.0.1:6767/mcp/agents"),
+            ("::", 6767, "http://[::1]:6767/mcp/agents"),
+            ("[::]", 6767, "http://[::1]:6767/mcp/agents"),
+            ("::1", 7000, "http://[::1]:7000/mcp/agents"),
+            ("localhost", 80, "http://localhost/mcp/agents"),
+            ("LocalHost", 81, "http://localhost:81/mcp/agents"),
+            ("[0:0:0:0:0:0:0:1]", 9, "http://[::1]:9/mcp/agents"),
+            ("0:0:0:0:0:0:0:1", 9, "http://[::1]:9/mcp/agents"),
+            ("EXAMPLE.com", 8080, "http://example.com:8080/mcp/agents"),
+            ("127.1", 5, "http://127.0.0.1:5/mcp/agents"),
+            ("0x7f.1", 6, "http://127.0.0.1:6/mcp/agents"),
+            (
+                "[::ffff:127.0.0.1]",
+                8,
+                "http://[::ffff:7f00:1]:8/mcp/agents",
+            ),
+            (
+                "\u{dc}n\u{ef}.test",
+                9,
+                "http://xn--n-nga1b.test:9/mcp/agents",
+            ),
+        ];
+        for (host, port, expected) in cases {
+            assert_eq!(
+                agent_mcp_base_url(&tcp(host, port)),
+                Ok(Some(expected.to_owned())),
+                "{host}:{port}"
+            );
+        }
+        // `new URL` throws ERR_INVALID_URL for a host with a space.
+        assert_eq!(
+            agent_mcp_base_url(&tcp("a b", 7)),
+            Err("Invalid URL".to_owned())
+        );
+        for target in [
+            ListenTarget::Socket {
+                path: "/tmp/paseo.sock".to_owned(),
+            },
+            ListenTarget::Pipe {
+                path: r"\\.\pipe\paseo".to_owned(),
+            },
+        ] {
+            assert_eq!(agent_mcp_base_url(&target), Ok(None));
+        }
     }
 }
