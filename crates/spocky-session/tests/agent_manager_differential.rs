@@ -93,9 +93,9 @@ use spocky_contracts::js::{date_parse, js_string, spread, spread_into};
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
     AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, AgentSteerOptions,
-    CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest,
-    ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions, SteerDispatch, SubscribeOptions,
-    TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    AppendedTimelineItem, CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions,
+    ImportProviderSessionRequest, ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions,
+    SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -1357,6 +1357,41 @@ const steerScenario = async () => {
   return out;
 };
 
+const timelineItemsScenario = async () => {
+  const unknownId = "00000000-0000-4000-8000-0000000000f3";
+  const otherId = "00000000-0000-4000-8000-0000000000f4";
+  const calls = [];
+  const registry = new AgentStorage(`${home}/timeline-items`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  // An agent restored with recorded timestamps shows what each call touches.
+  for (const id of [agentId, otherId]) {
+    await manager.resumeAgentFromPersistence(
+      { provider: "fake", sessionId: `sess-${id}`, nativeHandle: `thread-${id}`, metadata: { cwd, model: "model-a" } },
+      undefined,
+      id,
+      { createdAt: new Date(1700000000000), updatedAt: new Date(1700000005000), lastUserMessageAt: new Date(1700000004000) },
+      { purpose: "interactive" },
+    );
+  }
+  const message = (text) => ({ type: "assistant_message", text });
+  const results = [];
+  const step = async (id, run) => {
+    const result = await outcome(run);
+    await sleep(50);
+    await manager.flush();
+    await registry.flush();
+    results.push({ result, agent: toAgentPayload(manager.getAgent(id)), stored: await registry.get(id) });
+  };
+  await step(agentId, async () => { await manager.emitLiveTimelineItem(agentId, message("live")); return null; });
+  await step(agentId, async () => { await manager.emitLiveTimelineItem(unknownId, message("x")); return null; });
+  await step(otherId, async () => await manager.appendTimelineItem(otherId, message("appended")));
+  await step(otherId, async () => await manager.appendTimelineItem(otherId, { type: "tool_call", callId: "x", name: "shell", status: "running", error: null }));
+  await step(otherId, async () => await manager.appendTimelineItem(otherId, { type: "tool_call", callId: "big", name: "shell", status: "completed", error: null, detail: { type: "shell", command: "ls", output: "x".repeat(70000) } }));
+  await step(otherId, async () => await manager.appendTimelineItem(unknownId, message("x")));
+  return { results, rows: await manager.getTimelineRows(agentId), otherRows: await manager.getTimelineRows(otherId), feed };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1465,7 +1500,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3330,6 +3365,10 @@ async fn scenarios_match_pinned_manager() {
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
+        (
+            "timelineItems",
+            timeline_items_scenario(&cwd, &rust_home.0).await,
+        ),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -5172,6 +5211,150 @@ async fn steer_scenario(cwd: &str, home: &Path) -> JsValue {
         );
     }
     JsValue::Object(out)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn timeline_items_scenario(cwd: &str, home: &Path) -> JsValue {
+    const UNKNOWN: &str = "00000000-0000-4000-8000-0000000000f3";
+    const OTHER: &str = "00000000-0000-4000-8000-0000000000f4";
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("timeline-items"));
+    let manager = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&manager);
+    // An agent restored with recorded timestamps shows what each call touches.
+    for id in [AGENT_ID, OTHER] {
+        manager
+            .resume_agent_from_persistence(
+                object(vec![
+                    ("provider", text("fake")),
+                    ("sessionId", text(&format!("sess-{id}"))),
+                    ("nativeHandle", text(&format!("thread-{id}"))),
+                    (
+                        "metadata",
+                        object(vec![("cwd", text(cwd)), ("model", text("model-a"))]),
+                    ),
+                ]),
+                None,
+                Some(id.to_owned()),
+                ResumeAgentOptions {
+                    created_at_millis: Some(1_700_000_000_000),
+                    updated_at_millis: Some(1_700_000_005_000),
+                    last_user_message_at_millis: Some(1_700_000_004_000),
+                    ..ResumeAgentOptions::default()
+                },
+                Some(AgentResumeSessionOptions {
+                    purpose: Some(AgentResumePurpose::Interactive),
+                }),
+            )
+            .await
+            .expect("resume");
+    }
+    let message = |body: &str| {
+        object(vec![
+            ("type", text("assistant_message")),
+            ("text", text(body)),
+        ])
+    };
+    let appended = |result: Result<AppendedTimelineItem, AgentError>| {
+        outcome(result.map(|item| {
+            object(vec![
+                ("seq", number(item.seq)),
+                ("epoch", text(&item.epoch)),
+            ])
+        }))
+    };
+    let running_call = object(vec![
+        ("type", text("tool_call")),
+        ("callId", text("x")),
+        ("name", text("shell")),
+        ("status", text("running")),
+        ("error", JsValue::Null),
+    ]);
+    let big_call = object(vec![
+        ("type", text("tool_call")),
+        ("callId", text("big")),
+        ("name", text("shell")),
+        ("status", text("completed")),
+        ("error", JsValue::Null),
+        (
+            "detail",
+            object(vec![
+                ("type", text("shell")),
+                ("command", text("ls")),
+                ("output", text(&"x".repeat(70_000))),
+            ]),
+        ),
+    ]);
+    let mut results = Vec::new();
+    macro_rules! step {
+        ($id:expr, $result:expr) => {{
+            let result = $result;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            manager.flush().await;
+            registry.flush().await;
+            let stored = registry.get($id).await.unwrap_or(JsValue::Null);
+            results.push(object(vec![
+                ("result", result),
+                (
+                    "agent",
+                    to_agent_payload(&manager.get_agent($id).expect("agent").payload_view(), None)
+                        .expect("payload"),
+                ),
+                ("stored", stored),
+            ]));
+        }};
+    }
+    step!(
+        AGENT_ID,
+        outcome(
+            manager
+                .emit_live_timeline_item(AGENT_ID, message("live"))
+                .map(|()| JsValue::Null)
+        )
+    );
+    step!(
+        AGENT_ID,
+        outcome(
+            manager
+                .emit_live_timeline_item(UNKNOWN, message("x"))
+                .map(|()| JsValue::Null)
+        )
+    );
+    step!(
+        OTHER,
+        appended(
+            manager
+                .append_timeline_item(OTHER, message("appended"))
+                .await
+        )
+    );
+    step!(
+        OTHER,
+        appended(manager.append_timeline_item(OTHER, running_call).await)
+    );
+    step!(
+        OTHER,
+        appended(manager.append_timeline_item(OTHER, big_call).await)
+    );
+    step!(
+        OTHER,
+        appended(manager.append_timeline_item(UNKNOWN, message("x")).await)
+    );
+    object(vec![
+        ("results", JsValue::Array(results)),
+        (
+            "rows",
+            JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows")),
+        ),
+        (
+            "otherRows",
+            JsValue::Array(manager.get_timeline_rows(OTHER).expect("rows")),
+        ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+    ])
 }
 
 #[allow(
