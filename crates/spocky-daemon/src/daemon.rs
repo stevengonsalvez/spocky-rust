@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
-use std::net::{TcpListener, ToSocketAddrs};
+use std::net::{IpAddr, TcpListener, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,7 +29,7 @@ use crate::listen::{
 use crate::local_credential::{
     delete_local_credential, read_local_credential, write_local_credential,
 };
-use crate::log::Logger;
+use crate::log::{LogError, Logger};
 use crate::pid_lock::{
     AcquireOptions, HeartbeatHandle, PID_LOCK_HEARTBEAT_INTERVAL, PidLockError, PidLockPatch,
     acquire_pid_lock, release_pid_lock, start_pid_lock_heartbeat, update_pid_lock,
@@ -91,9 +91,12 @@ impl DaemonEnv {
     }
 }
 
-/// A startup failure; the message goes to stderr and the exit code is 1.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartupError(pub String);
+/// A startup failure; the message goes to stderr and the exit code is 1. The
+/// second field is the Error the baseline threw, when this failure is one
+/// `daemon.start()` rejected with: pino logs it as an object and Node prints its
+/// stack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartupError(pub String, pub Option<LogError>);
 
 impl std::fmt::Display for StartupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -188,7 +191,53 @@ pub struct RunningDaemon {
 }
 
 fn fail(message: impl Into<String>) -> StartupError {
-    StartupError(message.into())
+    StartupError(message.into(), None)
+}
+
+/// The error of a failed `listen`, as Node's `listenInCluster` builds it from
+/// a libuv status: `listen <CODE>: <description> <address>:<port>`, with `code`,
+/// `errno`, `syscall`, `address` and `port` as own properties. The stack lines are
+/// those of Node 22.20.0 on macOS (the pinned runtime), which differ by code.
+fn listen_error(error: &io::Error, address: IpAddr, port: i64) -> StartupError {
+    let (code, description, frame) = match error.kind() {
+        io::ErrorKind::AddrInUse => (
+            "EADDRINUSE",
+            "address already in use",
+            "Server.setupListenHandle [as _listen2] (node:net:1940:16)",
+        ),
+        io::ErrorKind::AddrNotAvailable => (
+            "EADDRNOTAVAIL",
+            "address not available",
+            "Server.setupListenHandle [as _listen2] (node:net:1918:21)",
+        ),
+        _ => {
+            return fail(format!(
+                "listen {} {address}:{port}: {error}",
+                errno_name(error)
+            ));
+        }
+    };
+    let message = format!("listen {code}: {description} {address}:{port}");
+    let stack = format!(
+        "Error: {message}\n    at {frame}\n    at listenInCluster (node:net:1997:12)\n    at node:net:2206:7\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)"
+    );
+    let errno = error.raw_os_error().map_or(0, |errno| -i64::from(errno));
+    let props = vec![
+        ("code".to_owned(), Value::from(code)),
+        ("errno".to_owned(), Value::from(errno)),
+        ("syscall".to_owned(), Value::from("listen")),
+        ("address".to_owned(), Value::from(address.to_string())),
+        ("port".to_owned(), Value::from(port)),
+    ];
+    StartupError(
+        message.clone(),
+        Some(LogError {
+            name: "Error".to_owned(),
+            message,
+            stack,
+            props,
+        }),
+    )
 }
 
 /// Binds the configured target. A TCP port is checked here, as Node checks it
@@ -209,12 +258,8 @@ fn bind(
                 .map_err(|error| fail(format!("listen ENOTFOUND {host}: {error}")))?
                 .next()
                 .ok_or_else(|| fail(format!("listen ENOTFOUND {host}")))?;
-            let listener = TcpListener::bind(address).map_err(|error| {
-                fail(format!(
-                    "listen {} {host}:{port}: {error}",
-                    errno_name(&error)
-                ))
-            })?;
+            let listener = TcpListener::bind(address)
+                .map_err(|error| listen_error(&error, address.ip(), *port))?;
             let handle = server
                 .serve_tcp(listener)
                 .map_err(|error| fail(error.to_string()))?;
@@ -561,8 +606,14 @@ fn start_after_lock(
 /// `daemon-worker.ts`: a rejection of `daemon.start()` is logged at fatal, after
 /// the start was undone, whatever step failed.
 fn start_rejected(logger: &Arc<dyn Logger>, error: StartupError) -> StartupError {
-    logger.fatal(&[("err", &error.0)], "Daemon failed to start listening");
-    error
+    let err = error.1.clone().unwrap_or_else(|| LogError {
+        name: "Error".to_owned(),
+        message: error.0.clone(),
+        stack: format!("Error: {}", error.0),
+        props: Vec::new(),
+    });
+    logger.fatal_with_error(&err, &[], "Daemon failed to start listening");
+    StartupError(error.0, Some(err))
 }
 
 impl RunningDaemon {

@@ -275,7 +275,8 @@ fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
     let fatal = records.last().unwrap();
     assert_eq!(fatal["level"], 60);
     assert_eq!(fatal["msg"], "Daemon failed to start listening");
-    assert_eq!(fatal["err"], "agent MCP base url is unusable");
+    assert_eq!(fatal["err"]["type"], "Error");
+    assert_eq!(fatal["err"]["message"], "agent MCP base url is unusable");
     assert_eq!(fatal.as_object().unwrap().len(), 6, "{fatal}");
     assert_only_one_fatal(&records);
     assert!(
@@ -311,12 +312,19 @@ fn a_bind_error_is_logged_at_fatal() {
     let error = start(&env(&home, &[]), Arc::new(NoSessionBackend), &logger)
         .err()
         .expect("the port is taken");
-    assert!(error.0.starts_with("listen EADDRINUSE"), "{}", error.0);
+    assert_eq!(
+        error.0,
+        format!("listen EADDRINUSE: address already in use 127.0.0.1:{port}")
+    );
     let records = sink.records();
     let fatal = records.last().unwrap();
     assert_eq!(fatal["level"], 60);
     assert_eq!(fatal["msg"], "Daemon failed to start listening");
-    assert_eq!(fatal["err"], error.0.as_str());
+    assert_eq!(fatal["err"]["message"], error.0.as_str());
+    assert_eq!(fatal["err"]["code"], "EADDRINUSE");
+    assert_eq!(fatal["err"]["syscall"], "listen");
+    assert_eq!(fatal["err"]["address"], "127.0.0.1");
+    assert_eq!(fatal["err"]["port"], port);
     assert_only_one_fatal(&records);
     assert!(!home.join("local-credential").exists());
     assert!(!home.join("paseo.pid").exists());
