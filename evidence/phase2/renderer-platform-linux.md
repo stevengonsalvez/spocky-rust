@@ -56,7 +56,8 @@ The method is complete PNG SHA-256 equality plus
 `sqrt(mean squared RGBA byte difference) / 255`. The candidate PNG,
 `visual.json`, and `atspi.json` from the offline pinned-image run are
 byte-identical to the files committed from the earlier run that downloaded its
-packages (commits `f919db1`, `af5606f`, `e1ea511`).
+packages (commits `f030cfa0` for `candidate.png`, `5f2c430d` for `visual.json`,
+`27d8b80a` for `atspi.json`).
 
 Observed cause of the largest difference: the Dioxus desktop host adds a GTK
 menu bar (`Window`, `Edit`, `Help`) above the web view. In the screenshot the
