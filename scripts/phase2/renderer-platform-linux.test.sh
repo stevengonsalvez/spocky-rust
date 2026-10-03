@@ -59,6 +59,32 @@ expect_in "$dockerfile" "FROM rust@$base_in_runner"
 expect_in "$dockerfile" 'COPY rust-toolchain.toml'
 expect_in "$dockerfile.dockerignore" '!rust-toolchain.toml'
 
+# Offline resolution needs every workspace package, so a stale image must be refused.
+expect_in "$dockerfile" 'cargo fetch --locked'
+expect_in "$dockerfile" 'LABEL org.spocky.cargo-lock-sha256=$CARGO_LOCK_SHA256'
+expect_in "$runner" '--build-arg "CARGO_LOCK_SHA256=$cargo_lock_sha"'
+expect_in "$runner" 'Cargo.lock changed since the image was built'
+
+# The image rebuilds to the same package versions: snapshot sources, every package pinned.
+expect_in "$dockerfile" 'snapshot.debian.org/archive/debian/20261001T170000Z/'
+expect_in "$dockerfile" 'snapshot.debian.org/archive/debian-security/20261001T170000Z/'
+pinned=$(grep -c -E '^    [a-z0-9.+-]+=[^ ]+ \\$' "$dockerfile")
+unpinned=$(sed -n '/apt-get install/,/&& sed/p' "$dockerfile" | grep -c -E '^    [a-z0-9.+-]+ \\$' || true)
+[ "$pinned" -eq 17 ] || fail "expected 17 pinned apt packages, found $pinned"
+[ "$unpinned" -eq 0 ] || fail "found $unpinned apt packages without a version"
+count=$((count + 2))
+
+# The run records the network and limits Docker applied, not only the exit state.
+expect_in "$runner" '.HostConfig.NetworkMode'
+expect_in "$runner" '.HostConfig.Memory}}'
+expect_in "$runner" '.HostConfig.MemorySwap'
+expect_in "$runner" '.HostConfig.NanoCpus'
+
+# Activation is compared from the same focus state, snapshotted right before Return.
+expect_in "$scripts/renderer-platform-linux-atspi.py" 'tree_before_plus != tree_after_plus'
+expect_in "$scripts/renderer-platform-linux-atspi.py" 'tree_before_add != tree_after_add'
+expect_absent "$scripts/renderer-platform-linux-atspi.py" 'tree_before != tree_after'
+
 # Dialog detection reads the AT-SPI role, never a substring of the whole tree.
 python3 - "$scripts/renderer-platform-linux-tree.py" <<'PY'
 import importlib.util
