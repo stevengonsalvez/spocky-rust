@@ -11,19 +11,27 @@ normalization is applied.
 from `scripts/phase2/renderer-platform-linux.Dockerfile`. The base is the pinned
 `rust:1.94-bookworm` digest
 `sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55`. The
-build installs the apt packages, generates the `en_US.UTF-8` locale, installs the
-Rust `1.94.0` toolchain that the repository `rust-toolchain.toml` pins (the base
-ships `1.94.1`), and builds every locked dependency. This is the only networked
-step. The image is pinned by its local image ID in
+build points apt at the Debian snapshot of 2026-10-01T17:00:00Z and installs 17
+packages at exact versions, generates the `en_US.UTF-8` locale, installs the Rust
+`1.94.0` toolchain that the repository `rust-toolchain.toml` pins (the base ships
+`1.94.1`), runs `cargo fetch --locked` for the whole workspace, and builds the
+pilot. Offline resolution needs every workspace member's locked packages, so the
+image carries the SHA-256 of the `Cargo.lock` it was built from as the label
+`org.spocky.cargo-lock-sha256` (`921d24440da810a1b9b46b60129d3554712e9acc71d3dbeef1bf030705bf8902`).
+This is the only networked step. The image is pinned by its local image ID in
 `scripts/phase2/renderer-platform-linux.image-id`
-(`sha256:289345c3127809ad4ecbaa16e7730db7a108cf59b8a3c68f3d8be5888ce001d4`). A
+(`sha256:57d713b68c6bd9b300384b10a7e07f8044d402bf3b1c0690546b8ab79d2d4cab`). A
 local image ID is a content digest of the image config, not a registry digest.
-`image-packages.txt` lists every installed package version.
+`image-packages.txt` lists every installed package version. The directly named
+packages are pinned in the Dockerfile; their dependencies resolve from the same
+snapshot.
 
 `scripts/phase2/renderer-platform-linux.sh` then runs one disposable container
 from that image with `--network none`, 2 CPUs, 3 GB memory, `--memory-swap 3g`,
 and a 1,200 second bound, and refuses to run if the local image ID differs from
-the pin. The repository, the two pinned browser PNGs, and the pinned browser
+the pin or if the image `Cargo.lock` label differs from the workspace
+`Cargo.lock` (a stale image failed at an earlier tip with a missing `wasmparser`
+package). The repository, the two pinned browser PNGs, and the pinned browser
 comparison JSON are mounted read-only. The run builds the pilot offline
 (`cargo build --locked --offline`). An earlier version of the runner ran apt and
 let rustup download `1.94.0` on every run. Those downloads are now baked into the
@@ -53,11 +61,12 @@ membership is false.
 | `original-repeat-desktop.png` | 91009 | 0.05431467328743619 | 0,0,1280,781 |
 
 The method is complete PNG SHA-256 equality plus
-`sqrt(mean squared RGBA byte difference) / 255`. The candidate PNG,
-`visual.json`, and `atspi.json` from the offline pinned-image run are
-byte-identical to the files committed from the earlier run that downloaded its
-packages (commits `f030cfa0` for `candidate.png`, `5f2c430d` for `visual.json`,
-`27d8b80a` for `atspi.json`).
+`sqrt(mean squared RGBA byte difference) / 255`. The candidate PNG
+and `visual.json` from the offline pinned-image run are byte-identical to the
+files committed from the earlier run that downloaded its packages (commits
+`f030cfa0` for `candidate.png`, `5f2c430d` for `visual.json`). `atspi.json`
+differs from that run (`27d8b80a`) in one field, `plusInteraction.treeChanged`,
+which the same-focus comparison changed from true to false.
 
 Observed cause of the largest difference: the Dioxus desktop host adds a GTK
 menu bar (`Window`, `Edit`, `Help`) above the web view. In the screenshot the
@@ -99,10 +108,12 @@ trace, the Tab walk, and the baseline comparison.
 
 - Plus control: Tab walk, then Return on `New workspace` (the first
   keyboard-focusable control, with the Plus icon). Focus stays on the button,
-  no dialog appears, and the tree snapshot differs from the pre-interaction
-  snapshot (`treeChanged` true). The pinned baseline records no activation of
-  this control, so there is no baseline value to compare. This is recorded as
-  an observation only.
+  no dialog appears, and the tree snapshot taken right before Return equals the
+  snapshot after it (`treeChanged` false), so Return changes nothing observable
+  in the AT-SPI tree. An earlier version compared against a snapshot taken
+  before the Tab walk, when no node was focused, and reported `treeChanged`
+  true. The pinned baseline records no activation of this control, so there is
+  no baseline value to compare. This is recorded as an observation only.
 - Add a project: Tab until the focused node text contains `Add a project`,
   then Return. A dialog is observed. Its three control names are `Search for
   directory Find a directory on isolated-baseline`, `Clone from GitHub Search
@@ -116,15 +127,17 @@ trace, the Tab walk, and the baseline comparison.
 |---|---|
 | `renderer-platform-linux/candidate.png` | `a5bede533dce1a6e70fe44f020918b2bc3a80496484802f7fc7578dcda191bfe` |
 | `renderer-platform-linux/visual.json` | `39d85d24834f099cb8627004ba0ce069e4e8a78a26ac30a895d23ba43005dd7b` |
-| `renderer-platform-linux/atspi.json` | `afdc728d2694f3c12d792e1ed8f80da64bb3129a708ef8ce2cccb7689365719c` |
-| `renderer-platform-linux/container.log` | `a039117f9680b2b28ab281d39c94228e560988870da68b6bfcf0d19f2c311d49` |
-| `renderer-platform-linux/container-state.json` | `9479a14a17c29cb7cf9e045506207eaf60670b53ba17ee6625f71e1fef983e60` |
-| `renderer-platform-linux/image-packages.txt` | `a60bb8190c87f2cc47965ebc24a2dc187318cef27f1aef957d8130032209d981` |
-| `renderer-platform-linux.image-id` (under `scripts/phase2/`) | `0be2aa5196ebb51395400e81f47274151bbb34f4d083c8ff23ea3d3552eadb2f` |
+| `renderer-platform-linux/atspi.json` | `85413758032800fdad22156572eadcea31b6841df7a8aadaa05f2cb85a7e1c20` |
+| `renderer-platform-linux/container.log` | `3488fbf5d35e7e577cc2611d1e716e09abe6ecb70ca742dedea0a77423bab996` |
+| `renderer-platform-linux/container-state.json` | `6ede23b58530677b0e7c3a7e9d13716200fef01b3d8acef9bff44fbad4163faf` |
+| `renderer-platform-linux/image-packages.txt` | `4c910eecbab0ac12176dcbf564086ac28bfdcb48ca694bac98ebd5f7bbf932d7` |
+| `renderer-platform-linux.image-id` (under `scripts/phase2/`) | `7e1a58eee2a8082dbceaf202c4dd8e3bc0617f3426f9b14413ebba5138d90e8f` |
 
 `application.log` is empty (SHA-256 `e3b0c442...b855`), so the application
 wrote nothing to stdout or stderr. The container exited 0 and was not
-OOM-killed. The run took about 45 seconds.
+OOM-killed. The run took about 40 seconds. `container-state.json` also records
+what Docker applied to the container: `NetworkMode` `none`, `Memory` and
+`MemorySwap` 3221225472 bytes, `NanoCpus` 2000000000.
 
 The debug binary SHA-256 (`45e108d2...ebc1` in this run) is not an evidence
 key. It differed between earlier runs that used different Cargo home paths.
