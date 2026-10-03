@@ -66,31 +66,37 @@ pub fn js_to_lowercase(value: &str) -> String {
     let value = js_text_canonical_cow(value);
     let mut lowered = String::with_capacity(value.len());
     for (index, character) in value.char_indices() {
-        if character == '\u{3a3}' {
-            let before = cased_after_ignorables(value[..index].chars().rev());
-            let after = cased_after_ignorables(value[index + character.len_utf8()..].chars());
-            lowered.push(if before && !after {
-                '\u{3c2}'
-            } else {
-                '\u{3c3}'
-            });
-            continue;
-        }
-        let code = u32::from(character);
-        if let Ok(position) = LOWER_SINGLE.binary_search_by_key(&code, |entry| entry.0) {
-            lowered.extend(char::from_u32(LOWER_SINGLE[position].1));
-        } else if let Ok(position) = LOWER_MULTI.binary_search_by_key(&code, |entry| entry.0) {
-            lowered.extend(
-                LOWER_MULTI[position]
-                    .1
-                    .iter()
-                    .filter_map(|unit| char::from_u32(*unit)),
-            );
-        } else {
-            lowered.push(character);
-        }
+        lowercase_default(&value, index, character, &mut lowered);
     }
     lowered
+}
+
+/// The root lowercase mapping of the character at `index` of `value`,
+/// including `Final_Sigma`, appended to `lowered`.
+pub(crate) fn lowercase_default(value: &str, index: usize, character: char, lowered: &mut String) {
+    if character == '\u{3a3}' {
+        let before = cased_after_ignorables(value[..index].chars().rev());
+        let after = cased_after_ignorables(value[index + character.len_utf8()..].chars());
+        lowered.push(if before && !after {
+            '\u{3c2}'
+        } else {
+            '\u{3c3}'
+        });
+        return;
+    }
+    let code = u32::from(character);
+    if let Ok(position) = LOWER_SINGLE.binary_search_by_key(&code, |entry| entry.0) {
+        lowered.extend(char::from_u32(LOWER_SINGLE[position].1));
+    } else if let Ok(position) = LOWER_MULTI.binary_search_by_key(&code, |entry| entry.0) {
+        lowered.extend(
+            LOWER_MULTI[position]
+                .1
+                .iter()
+                .filter_map(|unit| char::from_u32(*unit)),
+        );
+    } else {
+        lowered.push(character);
+    }
 }
 
 fn in_ranges(ranges: &[(u32, u32)], character: char) -> bool {
