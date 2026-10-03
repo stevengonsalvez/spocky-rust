@@ -104,6 +104,7 @@ pub struct JsonLineLogger<W: Write + Send> {
     sink: Mutex<W>,
     hostname: String,
     bindings: Vec<(String, String)>,
+    value_bindings: Vec<(String, Value)>,
     min_level: u8,
 }
 
@@ -114,6 +115,7 @@ impl<W: Write + Send> JsonLineLogger<W> {
             sink: Mutex::new(sink),
             hostname: gethostname::gethostname().to_string_lossy().into_owned(),
             bindings,
+            value_bindings: Vec::new(),
             min_level: INFO,
         }
     }
@@ -126,30 +128,74 @@ impl<W: Write + Send> JsonLineLogger<W> {
         self
     }
 
+    /// Bindings whose values are not strings, written after the string ones
+    /// (`logger.child({ headers: { ... } })`).
+    #[must_use]
+    pub fn with_value_bindings(mut self, bindings: Vec<(String, Value)>) -> Self {
+        self.value_bindings = bindings;
+        self
+    }
+
+    /// `logger[level](fields, message)` with fields of any JSON type, in the
+    /// order given.
+    pub fn log_values(&self, level: Level, fields: &[(String, Value)], message: &str) {
+        self.write_pairs(level.number(), None, fields.to_vec(), message);
+    }
+
     fn write(&self, level: u8, err: Option<&LogError>, fields: &[(&str, &str)], message: &str) {
+        let fields = fields
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), Value::from(*value)))
+            .collect();
+        self.write_pairs(level, err, fields, message);
+    }
+
+    /// One record as pino writes it: `level`, `time`, `pid`, `hostname`, the
+    /// bindings, the fields, `msg`. A key that a binding and a field both
+    /// carry is written twice, as pino does.
+    fn write_pairs(
+        &self,
+        level: u8,
+        err: Option<&LogError>,
+        fields: Vec<(String, Value)>,
+        message: &str,
+    ) {
         if level < self.min_level {
             return;
         }
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis());
-        let mut record = Map::new();
-        record.insert("level".into(), Value::from(level));
-        record.insert("time".into(), Value::from(u64::try_from(time).unwrap_or(0)));
-        record.insert("pid".into(), Value::from(std::process::id()));
-        record.insert("hostname".into(), Value::from(self.hostname.as_str()));
+        let mut pairs: Vec<(String, Value)> = vec![
+            ("level".to_owned(), Value::from(level)),
+            (
+                "time".to_owned(),
+                Value::from(u64::try_from(time).unwrap_or(0)),
+            ),
+            ("pid".to_owned(), Value::from(std::process::id())),
+            ("hostname".to_owned(), Value::from(self.hostname.as_str())),
+        ];
         for (key, value) in &self.bindings {
-            record.insert(key.clone(), Value::from(value.as_str()));
+            pairs.push((key.clone(), Value::from(value.as_str())));
         }
+        pairs.extend(self.value_bindings.iter().cloned());
         if let Some(err) = err {
-            record.insert("err".into(), err.to_value());
+            pairs.push(("err".to_owned(), err.to_value()));
         }
-        for (key, value) in fields {
-            record.insert((*key).to_owned(), Value::from(*value));
+        pairs.extend(fields);
+        pairs.push(("msg".to_owned(), Value::from(message)));
+        let mut line = String::from("{");
+        for (index, (key, value)) in pairs.iter().enumerate() {
+            if index > 0 {
+                line.push(',');
+            }
+            line.push_str(&Value::from(key.as_str()).to_string());
+            line.push(':');
+            line.push_str(&value.to_string());
         }
-        record.insert("msg".into(), Value::from(message));
+        line.push('}');
         if let Ok(mut sink) = self.sink.lock() {
-            let _ = writeln!(sink, "{}", Value::Object(record));
+            let _ = writeln!(sink, "{line}");
         }
     }
 }
@@ -378,6 +424,43 @@ mod tests {
                 .map(|r| r["msg"].as_str().unwrap())
                 .collect::<Vec<_>>(),
             ["warn"]
+        );
+    }
+
+    #[test]
+    fn a_key_in_a_binding_and_a_field_is_written_twice() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let logger = JsonLineLogger::new(
+            Shared(Arc::clone(&bytes)),
+            vec![("module".to_owned(), "bootstrap".to_owned())],
+        );
+        logger.info(&[("module", "daemon-keypair")], "Saved daemon keypair");
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(
+            text.contains(r#""module":"bootstrap","module":"daemon-keypair","msg""#),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn fields_of_any_json_type_keep_their_order() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let logger = JsonLineLogger::new(Shared(Arc::clone(&bytes)), vec![]);
+        logger.log_values(
+            Level::Info,
+            &[
+                (
+                    "z".to_owned(),
+                    serde_json::json!({"b": 1, "a": [true, null]}),
+                ),
+                ("a".to_owned(), serde_json::json!(2.5)),
+            ],
+            "typed",
+        );
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(
+            text.contains(r#""z":{"b":1,"a":[true,null]},"a":2.5,"msg":"typed""#),
+            "{text}"
         );
     }
 
