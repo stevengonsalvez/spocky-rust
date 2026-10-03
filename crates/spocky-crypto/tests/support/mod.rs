@@ -38,6 +38,10 @@ use spocky_crypto::{
 
 pub const PASEO_COMMIT: &str = "5de45e208690b0efc51c59a585ae9729325a9204";
 pub const NODE_VERSION: &str = "v22.20.0";
+/// SHA-256 of the node 22.20.0 darwin-x64 binary, as pinned in
+/// `scripts/phase3/pins.sh` (`P3_NODE_BINARY_SHA256`).
+pub const NODE_BINARY_SHA256: &str =
+    "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931";
 
 /// SHA-256 of every file the driver loads, from the pinned commit and the
 /// pinned lockfile install (tweetnacl 1.0.3, base64-js 1.5.1).
@@ -97,6 +101,11 @@ pub fn pinned() -> Option<Pinned> {
         }
         panic!("set SPOCKY_PINNED_NODE (or SPOCKY_ALLOW_SKIP=1)");
     };
+    assert_eq!(
+        sha256_file(Path::new(&node)),
+        NODE_BINARY_SHA256,
+        "SPOCKY_PINNED_NODE is not the pinned node {NODE_VERSION} binary"
+    );
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let reference = std::env::var_os("PASEO_REFERENCE_ROOT").map_or_else(
         || {
@@ -130,6 +139,25 @@ pub fn pinned() -> Option<Pinned> {
         relay_src: reference.join("packages/relay/src"),
         node_modules,
     })
+}
+
+/// SHA-256 of a file from the platform `shasum` or `sha256sum`.
+fn sha256_file(path: &Path) -> String {
+    let attempts: [(&str, &[&str]); 2] = [("shasum", &["-a", "256"]), ("sha256sum", &[])];
+    for (program, args) in attempts {
+        let Ok(output) = Command::new(program).args(args).arg(path).output() else {
+            continue;
+        };
+        if output.status.success() {
+            let text = String::from_utf8(output.stdout).expect("digest output is UTF-8");
+            return text
+                .split_whitespace()
+                .next()
+                .expect("digest output has a digest")
+                .to_owned();
+        }
+    }
+    panic!("no shasum or sha256sum for {}", path.display());
 }
 
 /// One channel endpoint that executes operations.
