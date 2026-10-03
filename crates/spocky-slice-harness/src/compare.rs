@@ -223,29 +223,38 @@ pub fn strip_git_probe(record: &str) -> String {
 /// Id of the codex git probe transform.
 pub const GIT_PROBE_TRANSFORM: &str = "codex-workspace-git-probe";
 
+/// The one stub request record whose probe may differ between sides: the
+/// first request of the session, where codex 0.159.0 sometimes goes out
+/// before its asynchronous git collection finishes. Later requests carry the
+/// probe or not for reasons no flake explains, so they are compared raw.
+const PROBE_FLAKE_RECORD: usize = 0;
+
 /// Stub request records where exactly one side carries codex's git probe, as
-/// (left records, right records) to strip. A record that has it on both sides
-/// is compared as is, so a different commit hash or `has_changes` still
-/// fails; records are paired by position, and a different record count
-/// strips nothing.
+/// (left records, right records) to strip. Only the first request of the
+/// session is eligible; a record that has it on both sides is compared as is,
+/// so a different commit hash or `has_changes` still fails. Nothing is
+/// stripped when the record counts differ, or when the side without it
+/// carries it in no record while the other side carries it in two or more
+/// (a systematic absence, not the first-request flake).
 fn git_probe_strips(left: &SideRun, right: &SideRun) -> (Vec<usize>, Vec<usize>) {
-    let (mut on_left, mut on_right) = (Vec::new(), Vec::new());
+    let none = (Vec::new(), Vec::new());
     if left.stub_records.len() != right.stub_records.len() {
-        return (on_left, on_right);
+        return none;
     }
-    for (index, (l, r)) in left
-        .stub_records
-        .iter()
-        .zip(&right.stub_records)
-        .enumerate()
-    {
-        match (git_probe(l), git_probe(r)) {
-            (true, false) => on_left.push(index),
-            (false, true) => on_right.push(index),
-            _ => {}
-        }
+    let (Some(l), Some(r)) = (
+        left.stub_records.get(PROBE_FLAKE_RECORD),
+        right.stub_records.get(PROBE_FLAKE_RECORD),
+    ) else {
+        return none;
+    };
+    let carried = |side: &SideRun| side.stub_records.iter().filter(|r| git_probe(r)).count();
+    let systematic =
+        |lacking: &SideRun, other: &SideRun| carried(lacking) == 0 && carried(other) >= 2;
+    match (git_probe(l), git_probe(r)) {
+        (true, false) if !systematic(right, left) => (vec![PROBE_FLAKE_RECORD], Vec::new()),
+        (false, true) if !systematic(left, right) => (Vec::new(), vec![PROBE_FLAKE_RECORD]),
+        _ => none,
     }
-    (on_left, on_right)
 }
 
 /// Describes the git probe transform; `None` when it changed no record.
@@ -1439,5 +1448,38 @@ mod tests {
             turn_metadata("")
         );
         assert!(!stripped["body"].as_str().unwrap().contains("workspaces"));
+    }
+
+    #[test]
+    fn only_the_first_request_may_lack_the_probe() {
+        let records = |first: &str, second: &str| {
+            let mut side = probe_record(pair().0, first, None);
+            side.stub_records
+                .push(probe_record(pair().0, second, None).stub_records.remove(0));
+            side
+        };
+        // The first-request flake: only record 0 differs.
+        let (strips_left, strips_right) =
+            git_probe_strips(&records(PROBE, PROBE), &records("", PROBE));
+        assert_eq!((strips_left, strips_right), (vec![0], vec![]));
+        // A later request that lacks it on one side is compared raw.
+        assert_eq!(
+            git_probe_strips(&records(PROBE, PROBE), &records(PROBE, "")),
+            (vec![], vec![])
+        );
+        // A side that never carries it while the other carries it twice is
+        // a systematic absence, not the flake.
+        assert_eq!(
+            git_probe_strips(&records(PROBE, PROBE), &records("", "")),
+            (vec![], vec![])
+        );
+        // A single request has no later record to tell the two apart.
+        assert_eq!(
+            git_probe_strips(
+                &probe_record(pair().0, PROBE, None),
+                &probe_record(pair().1, "", None)
+            ),
+            (vec![0], vec![])
+        );
     }
 }
