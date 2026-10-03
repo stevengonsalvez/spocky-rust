@@ -7,6 +7,7 @@ use spocky_contracts::js::{js_string, truthy};
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::AgentManager;
+use super::log_error::err_binding;
 use crate::agent_sdk::{AgentClient, AgentError, AgentResumePurpose, AgentSession};
 
 impl AgentManager {
@@ -98,10 +99,9 @@ impl AgentManager {
         provider: &str,
         message: &str,
     ) {
-        if session.close().await.is_err() {
-            // pino prints the `err` binding, an `Error`, as `{}`.
+        if let Err(error) = session.close().await {
             let mut bindings = JsObject::new();
-            bindings.insert("err", JsValue::Object(JsObject::new()));
+            bindings.insert("err", err_binding(&error));
             bindings.insert("provider", JsValue::String(provider.to_owned()));
             self.emit_warn(JsValue::Object(bindings), message);
         }

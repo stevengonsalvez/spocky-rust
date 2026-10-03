@@ -1520,7 +1520,7 @@ const importableScenario = async () => {
 const draftScenario = async () => {
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const commands = [{ name: "review", description: "Review code", argumentHint: "" }];
   const features = [{ type: "toggle", id: "fast", label: "Fast", value: false }];
   const sessionCommands = [{ name: "session-review", description: "From a session", argumentHint: "" }];
