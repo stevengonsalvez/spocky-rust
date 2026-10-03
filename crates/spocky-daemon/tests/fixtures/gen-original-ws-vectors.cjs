@@ -279,6 +279,31 @@ const FILE_BEGIN =
   "10" + "01" + "61" + (FILE_BEGIN_METADATA.length).toString(16).padStart(4, "0") +
   Buffer.from(FILE_BEGIN_METADATA).toString("hex");
 
+// A FileBegin frame for arbitrary metadata bytes and request id bytes.
+function fileBegin(metadata, requestId = Buffer.from("a")) {
+  const body = Buffer.isBuffer(metadata) ? metadata : Buffer.from(metadata);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(body.length);
+  return Buffer.concat([Buffer.from([0x10, requestId.length]), requestId, length, body]).toString("hex");
+}
+const metadataWith = (size) => `{"mime":"text/plain","size":${size},"encoding":"utf-8","modifiedAt":"x"}`;
+const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+// FileBeginMetadataSchema (zod 4.4.3) takes only safe integers for size, and
+// TextDecoder drops a byte order mark and replaces invalid UTF-8 before JSON.parse.
+const beginFrames = [
+  ["size_max_safe_integer", fileBegin(metadataWith("9007199254740991"))],
+  ["size_2_pow_53", fileBegin(metadataWith("9007199254740992"))],
+  ["size_1e21", fileBegin(metadataWith("1e21"))],
+  ["size_1e300", fileBegin(metadataWith("1e300"))],
+  ["size_negative_zero", fileBegin(metadataWith("-0"))],
+  ["size_exponent_form", fileBegin(metadataWith("1e2"))],
+  ["metadata_with_byte_order_mark", fileBegin(Buffer.concat([BOM, Buffer.from(metadataWith("1"))]))],
+  ["metadata_with_invalid_utf8_in_a_string", fileBegin(Buffer.concat([Buffer.from('{"mime":"te'), Buffer.from([0xff]), Buffer.from('xt","size":1,"encoding":"utf-8","modifiedAt":"x"}')]))],
+  ["metadata_with_invalid_utf8_outside_a_string", fileBegin(Buffer.concat([Buffer.from(metadataWith("1")), Buffer.from([0xff])]))],
+  ["request_id_with_byte_order_mark", fileBegin(metadataWith("1"), Buffer.concat([BOM, Buffer.from("a")]))],
+  ["request_id_with_invalid_utf8", fileBegin(metadataWith("1"), Buffer.from([0xff, 0x61]))],
+];
+
 function cases() {
   const open = [
     // Frames written in the same chunk as the hello arrive while the hello is
@@ -324,6 +349,8 @@ function cases() {
     ["undecodable_binary_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "ffee"], ["text", "a", '{"type":"ping"}']]],
     ["terminal_opcode_too_short_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "01"], ["text", "a", '{"type":"ping"}']]],
     ["file_begin_bad_metadata_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", "10016100037b7d20"], ["text", "a", '{"type":"ping"}']]],
+    ...beginFrames.map(([name, frame]) => [`file_begin_${name}_before_hello`, [["connect", "a"], ["binary", "a", frame]]]),
+    ...beginFrames.map(([name, frame]) => [`file_begin_${name}_after_hello`, [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", frame], ["text", "a", '{"type":"ping"}']]]),
     ["json_ping_in_a_binary_frame_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["binary", "a", Buffer.from('{"type":"ping"}').toString("hex")]]],
     ["text_frame_that_decodes_as_binary_after_hello", [["connect", "a"], ["text", "a", hello("c1")], ["text", "a", "\u0001a"], ["text", "a", '{"type":"ping"}']]],
     ["hello_missing_fields", [["connect", "a"], ["text", "a", '{"type":"hello"}']]],
