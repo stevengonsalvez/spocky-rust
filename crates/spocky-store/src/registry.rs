@@ -16,6 +16,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use spocky_contracts::js::{self, js_sort_by};
+
 use crate::StoreError;
 use crate::atomic::write_json_atomic;
 use crate::collate::locale_compare;
@@ -727,15 +729,18 @@ impl FileRegistry<PersistedProjectRecord> {
         input: &ProjectRootInput<'_>,
         mut project_id_factory: impl FnMut() -> String,
     ) -> Result<ProjectAllocation, StoreError> {
-        let active = self
+        let mut matching: Vec<PersistedProjectRecord> = self
             .list()
             .into_iter()
             .filter(|project| {
                 project.archived_at.as_deref().is_none_or(str::is_empty)
                     && are_equivalent_paths(&project.root_path, input.root_path)
             })
-            .min_by(compare_projects);
-        if let Some(active) = active {
+            .collect();
+        // `.sort(compare)[0]`: with an unparseable date the comparator is not
+        // a consistent ordering, so a minimum scan can pick another project.
+        js_sort_by(&mut matching, compare_projects);
+        if let Some(active) = matching.into_iter().next() {
             if active.kind == input.kind && active.project_key.as_deref() == input.project_key {
                 return Ok(ProjectAllocation::Existing(active));
             }
@@ -799,16 +804,18 @@ impl FileRegistry<PersistedWorkspaceRecord> {
 /// `Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
 /// left.projectId.localeCompare(right.projectId)`. A `NaN` or zero
 /// difference falls through to the id collation.
-fn compare_projects(
-    left: &PersistedProjectRecord,
-    right: &PersistedProjectRecord,
-) -> std::cmp::Ordering {
-    match (
-        spocky_contracts::js::date_parse(&left.created_at),
-        spocky_contracts::js::date_parse(&right.created_at),
-    ) {
-        (Some(a), Some(b)) if a != b => a.cmp(&b),
-        _ => locale_compare(&left.project_id, &right.project_id),
+// Epoch milliseconds are below 2^53, so the `f64` difference is exact.
+#[allow(clippy::cast_precision_loss)]
+fn compare_projects(left: &PersistedProjectRecord, right: &PersistedProjectRecord) -> f64 {
+    let millis = |text: &str| js::date_parse(text).map_or(f64::NAN, |millis| millis as f64);
+    let difference = millis(&left.created_at) - millis(&right.created_at);
+    if difference != 0.0 && !difference.is_nan() {
+        return difference;
+    }
+    match locale_compare(&left.project_id, &right.project_id) {
+        std::cmp::Ordering::Less => -1.0,
+        std::cmp::Ordering::Equal => 0.0,
+        std::cmp::Ordering::Greater => 1.0,
     }
 }
 
