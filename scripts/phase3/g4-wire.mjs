@@ -5,8 +5,12 @@
 //
 // argv: <paseoRoot> --host <host:port>
 //
-// After the hello is accepted (the server_info status is read and dropped, as
-// it carries per-run ids), it sends, one at a time, each waiting for its
+// Every inbound frame is recorded and printed, from the first one: the
+// server_info status that answers the hello goes under the "hello" step, and
+// anything the daemon sends on its own in the 500 ms after it goes under
+// "idle". Per-run ids and instants in them are masked by the harness's
+// existing generated_id and wall_clock classes, never dropped here.
+// After the hello is accepted it sends, one at a time, each waiting for its
 // reply and then settling:
 //   valid        a fetch_workspaces_request; the reply must echo its requestId
 //   invalid      a JSON object with no known type but a requestId (invalid_message, echoed)
@@ -20,6 +24,7 @@
 // stdout line 1 is a JSON summary of what each step produced; every other line
 // is either {"step": "<name>"} or one raw inbound text frame, in arrival
 // order, unmodified, so key order is preserved for the wire comparison.
+// idleFrames counts the frames the daemon sent unprompted after the hello.
 const [, , , hostFlag, host] = process.argv;
 if (hostFlag !== "--host" || !host) {
   console.error("usage: g4-wire.mjs <paseoRoot> --host <host:port>");
@@ -68,8 +73,8 @@ if (!hello) {
   console.error("no server_info after hello");
   process.exit(3);
 }
+const helloEnd = frames.findIndex((text) => parse(text)?.payload?.status === "server_info") + 1;
 await sleep(500);
-let mark = frames.length;
 
 const steps = [];
 const run = async (name, send, expect) => {
@@ -79,9 +84,10 @@ const run = async (name, send, expect) => {
   await sleep(400);
   steps.push({ name, replies: frames.slice(before) });
 };
-// Frames that arrive on their own after the hello, before anything is sent.
-steps.push({ name: "idle", replies: frames.slice(mark) });
-mark = frames.length;
+// Everything up to and including server_info, then whatever the daemon sent
+// on its own in the 500 ms after it, before anything is sent.
+steps.push({ name: "hello", replies: frames.slice(0, helloEnd) });
+steps.push({ name: "idle", replies: frames.slice(helloEnd) });
 
 await run("valid", () => ws.send(JSON.stringify({ type: "session", message: { type: "fetch_workspaces_request", requestId: "g4-valid-1" } })), 1);
 await run("invalid", () => ws.send(JSON.stringify({ type: "nope", requestId: "g4-invalid-1" })), 1);
