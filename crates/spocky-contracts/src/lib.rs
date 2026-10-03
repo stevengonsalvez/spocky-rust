@@ -40,6 +40,7 @@ pub mod url;
 #[rustfmt::skip]
 pub mod url_tables;
 pub mod workspace;
+pub mod workspace_labels;
 pub mod ws;
 pub mod zod;
 #[rustfmt::skip]
