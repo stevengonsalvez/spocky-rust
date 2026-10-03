@@ -1,6 +1,8 @@
 # Drives the running pinned relay over real sockets and prints the raw wire it answers with.
-# Usage (inside the baseline project, test env): mix run relay-protocol-live.exs OUT
-# Masked: ts (wall_clock) and the generated connection id (generated_id).
+# Usage (inside the baseline project, test env): mix run relay-protocol-live.exs OUT GENERATED
+# Masked in OUT: ts (wall_clock) and a generated v2 connection id (generated_id), nothing else.
+# GENERATED receives the unmasked frames of the generated-id sync case: its ids are random,
+# so it is replayed by the Rust test against the encoder instead of being diffed.
 
 defmodule Live.Client do
   use WebSockex
@@ -38,7 +40,7 @@ defmodule Live do
     end
   end
 
-  def recv(client, timeout \\ 1_500) do
+  def recv(client, timeout \\ 5_000) do
     receive do
       {:frame, ^client, kind, payload} -> {kind, payload}
       {:closed, ^client, {:remote, code, reason}} -> {:close, code, reason}
@@ -48,24 +50,25 @@ defmodule Live do
     end
   end
 
-  def drain(client, label, emit) do
+  def drain(client, label, emit, show \\ &show/1) do
     case recv(client, 300) do
       :none -> :ok
       other ->
-        emit.("#{label}\t" <> show(other))
-        drain(client, label, emit)
+        emit.("#{label}\t" <> show.(other))
+        drain(client, label, emit, show)
     end
   end
 
-  def show({kind, payload}) when kind in [:text, :binary], do: "#{kind} " <> mask(payload)
+  # ts is wall_clock; every frame that can carry a time masks it.
+  def show({kind, payload}) when kind in [:text, :binary],
+    do: "#{kind} " <> String.replace(payload, ~r/"ts":\d+/, ~s("ts":<wall_clock>))
+
   def show({:close, code, reason}), do: "close #{code} #{inspect(reason)}"
   def show(other), do: inspect(other)
 
-  defp mask(payload) do
-    payload
-    |> String.replace(~r/"ts":\d+/, ~s("ts":<wall_clock>))
-    |> String.replace(~r/conn_[0-9a-f]{16}/, "<generated_id>")
-  end
+  # A generated v2 connection id is generated_id: exactly conn_ and 16 lowercase hex digits.
+  def show_generated(value),
+    do: String.replace(show(value), ~r/conn_[0-9a-f]{16}/, "<generated_id>")
 
   def http(request) do
     {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, @port, [:binary, active: false])
@@ -97,7 +100,7 @@ defmodule Live do
   end
 end
 
-[output] = System.argv()
+[output, generated_output] = System.argv()
 unless Node.alive?() do
   {_, 0} = System.cmd("epmd", ["-daemon"])
   {:ok, _} = Node.start(:relay_protocol_live, :shortnames)
@@ -139,11 +142,11 @@ WebSockex.send_frame(client, {:text, "before-data"})
 data = Live.connect("serverId=live_a&role=server&v=2&connectionId=clt_a")
 emit.("buffered_to_data\t" <> Live.show(Live.recv(data)))
 generated = Live.connect("serverId=live_a&role=client&v=2")
-emit.("generated_connected\t" <> Live.show(Live.recv(control)))
+emit.("generated_connected\t" <> Live.show_generated(Live.recv(control)))
 
 control2 = Live.connect("serverId=live_a&role=server&v=2")
 emit.("control_replaced_old\t" <> Live.show(Live.recv(control)))
-emit.("control_replaced_new_sync\t" <> Live.show(Live.recv(control2)) |> String.replace(~r/"conn_[^"]*"/, ~s("<generated_id>")))
+emit.("control_replaced_new_sync\t" <> Live.show_generated(Live.recv(control2)))
 
 WebSockex.cast(client, :close)
 Process.sleep(200)
@@ -151,7 +154,7 @@ emit.("client_left_control\t" <> Live.show(Live.recv(control2)))
 emit.("client_left_data\t" <> Live.show(Live.recv(data)))
 WebSockex.cast(generated, :close)
 Process.sleep(200)
-Live.drain(control2, "control_late", emit)
+Live.drain(control2, "control_late", emit, &Live.show_generated/1)
 
 # data replaced and server disconnect
 client_b = Live.connect("serverId=live_a&role=client&v=2&connectionId=clt_b")
@@ -185,26 +188,82 @@ emit.("invalid_utf8_control\t" <> Live.show(Live.recv(control2, 2_000)))
 emit.("invalid_utf8_client\t" <> Live.show(Live.recv(bad, 2_000)))
 emit.("invalid_utf8_control_after\t" <> Live.show(Live.recv(control2, 500)))
 
-# sync order beyond a small map
-big = Live.connect("serverId=live_many&role=server&v=2")
-_ = Live.recv(big)
-clients =
+# sync order beyond a small map: ids of every length class the hash loop treats differently
+sync_case = fn label, server, ids ->
+  first = Live.connect("serverId=#{server}&role=server&v=2")
+  _ = Live.recv(first)
+
+  clients =
+    for id <- ids do
+      client = Live.connect("serverId=#{server}&role=client&v=2&connectionId=#{URI.encode_www_form(id)}")
+      _ = Live.recv(first)
+      client
+    end
+
+  second = Live.connect("serverId=#{server}&role=server&v=2")
+  emit.("#{label}\t" <> Live.show(Live.recv(second, 3_000)))
+  {clients, second}
+end
+
+hex16 = fn i -> i |> Integer.to_string(16) |> String.pad_leading(16, "0") |> String.downcase() end
+numbered = fn prefix, length -> for i <- 1..40, do: String.pad_trailing("#{prefix}#{i}", length, "x") end
+
+for {label, ids} <- [
+      {"sync_40", for(i <- 1..40, do: "conn_#{i}")},
+      {"sync_conn21", for(i <- 1..40, do: "conn_" <> hex16.(i * 7919))},
+      {"sync_id16", numbered.("i", 16)},
+      {"sync_id32", numbered.("j", 32)},
+      {"sync_id255", for(i <- 1..34, do: String.pad_trailing("k#{i}", 255, "y"))},
+      {"sync_tails", for(length <- [12, 13, 14, 15, 17, 24, 28, 31, 32, 33, 48, 64], i <- 1..3, do: String.pad_trailing("t#{length}_#{i}", length, "z"))},
+      {"sync_nonascii", for(i <- 1..40, do: "é€😀#{i}")}
+    ] do
+  {clients, second} = sync_case.(label, "live_#{label}", ids)
+  Enum.each(clients, &WebSockex.cast(&1, :close))
+  WebSockex.cast(second, :close)
+  Process.sleep(200)
+end
+
+# the disconnect path: the client map grows past 32 keys, then shrinks back
+{shrink_clients, shrink_control} = sync_case.("sync_33", "live_shrink", for(i <- 1..33, do: "conn_" <> hex16.(i * 104_729)))
+[gone | rest] = shrink_clients
+WebSockex.cast(gone, :close)
+Process.sleep(300)
+shrink_second = Live.connect("serverId=live_shrink&role=server&v=2")
+emit.("sync_32_after_disconnect\t" <> Live.show(Live.recv(shrink_second, 3_000)))
+[gone2 | rest] = rest
+WebSockex.cast(gone2, :close)
+Process.sleep(300)
+shrink_third = Live.connect("serverId=live_shrink&role=server&v=2")
+emit.("sync_31_after_disconnect\t" <> Live.show(Live.recv(shrink_third, 3_000)))
+Enum.each(rest, &WebSockex.cast(&1, :close))
+_ = shrink_control
+
+# generated ids: random, so recorded unmasked in GENERATED
+generated_lines = :ets.new(:generated, [:ordered_set, :public])
+gen_first = Live.connect("serverId=live_generated&role=server&v=2")
+_ = Live.recv(gen_first)
+
+gen_clients =
   for i <- 1..40 do
-    c = Live.connect("serverId=live_many&role=client&v=2&connectionId=conn_#{i}")
-    _ = Live.recv(big)
-    c
+    client = Live.connect("serverId=live_generated&role=client&v=2")
+    {:text, frame} = Live.recv(gen_first)
+    :ets.insert(generated_lines, {i, "connected\t" <> frame})
+    client
   end
-big2 = Live.connect("serverId=live_many&role=server&v=2")
-emit.("sync_40\t" <> Live.show(Live.recv(big2)))
-Enum.each(clients, &WebSockex.cast(&1, :close))
+
+gen_second = Live.connect("serverId=live_generated&role=server&v=2")
+{:text, sync_frame} = Live.recv(gen_second, 3_000)
+:ets.insert(generated_lines, {41, "sync\t" <> sync_frame})
+File.write!(generated_output, :ets.tab2list(generated_lines) |> Enum.map(fn {_, text} -> [text, "\n"] end))
+Enum.each(gen_clients, &WebSockex.cast(&1, :close))
 
 # handshake validation closes the client with 1008
-{public_key, _} = :crypto.generate_key(:ecdh, :x25519)
+public_key = :binary.copy(<<7>>, 32)
 hello = fn type, key -> Jason.encode!(%{type: type, key: key, capabilities: %{}}) end
 v1_daemon = Live.connect("serverId=live_v1&role=server")
 v1_client = Live.connect("serverId=live_v1&role=client")
 WebSockex.send_frame(v1_client, {:text, hello.("hello", Base.encode64(public_key))})
-emit.("handshake_valid_forwarded\t" <> (Live.show(Live.recv(v1_daemon)) |> String.replace(Base.encode64(public_key), "<key>")))
+emit.("handshake_valid_forwarded\t" <> Live.show(Live.recv(v1_daemon)))
 WebSockex.send_frame(v1_client, {:text, hello.("hello", Base.encode64(<<0::256>>))})
 emit.("handshake_invalid_close\t" <> Live.show(Live.recv(v1_client)))
 
