@@ -27,9 +27,9 @@ cargo fmt --package spocky-message-receipts -- --check
 ```
 
 Test counts: 4 unit, 5 ported (`tests/receipts.rs`, including call-order
-queueing when futures are polled out of order), 4 differential
-(`tests/receipts_differential.rs`), 0 doc tests. 13 passed, 0 failed, 0
-ignored. Clippy and fmt are clean. The differential first fails unless node
+queueing when futures are polled out of order), 6 differential
+(`tests/receipts_differential.rs`; the 2 old-home cross-read tests were added
+by lane `p3_contracts`), 0 doc tests. 15 passed, 0 failed, 0 ignored. Clippy and fmt are clean. The differential first fails unless node
 reports `v22.20.0` and both dist modules match the digests below.
 
 The runner's own failure handling is proven by:
@@ -50,14 +50,14 @@ runner each made one case fail.
 The two-instance race step passed 20 consecutive gated runs of
 `receipts_match_pinned_build` at `4128f37`.
 
-## Recorded run `receipts-20261001T220759Z`
+## Recorded run `receipts-20261003T011633Z`
 
-Raw evidence lives under `evidence/raw/phase3/receipts-20261001T220759Z/`
+Raw evidence lives under `evidence/raw/phase3/receipts-20261003T011633Z/`
 (untracked).
 
 | Input | Value |
 |---|---|
-| Commit | `94207e04debb6d4779623cc09d8ef4ffe785779a` |
+| Commit | `0ed049f53cb8a326853f3c9235af18bd282f4118` |
 | Node | `v22.20.0` |
 | Pinned dist | `paseo-original-5de45e208690b0efc51c59a585ae9729325a9204/packages/server/dist/server` |
 | `server/message-receipts/index.js` SHA-256 | `e99ca1a266f038efbceaf398b45ccb2e904a58ca46e4422546dc22ea498c4559` |
@@ -67,11 +67,11 @@ Raw evidence lives under `evidence/raw/phase3/receipts-20261001T220759Z/`
 |---|---|
 | `receipts-node-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
 | `receipts-rust-normalized.json` | `bd7d6e5734284c4bb8ddf82b0ded8c8beaa27c638078143eab06e2fadc738c63` |
-| `receipts-node-raw.json` | `81061b168e9a612258d151907f01c28da92b917df1592ca042b78b9faa15508a` |
-| `receipts-rust-raw.json` | `bfda5fd1d0f4970043d2e52bd7215900e4dba6e37f302dcd0c355eb918f3ed96` |
-| `inputs.txt` | `ec5a347ee7b35ce63a094a23204fea618dac0f5ebfbe6ec196e21bef179921ea` |
-| `test.log` | `b3584c42aa9486395747c7284524361ff1cec3d07ce50e3a305b262bf36e6536` |
-| `clippy.log` | `4921509b62fafc7fa00cd4bd8ac3927cbc70dacf2a6b9eccf90d9ccd4b87fec1` |
+| `receipts-node-raw.json` | `c7f3167d5c1e816740674c05ff3164873dc430014c60371b5dd04f85126b36d4` |
+| `receipts-rust-raw.json` | `b949c1c7a2bce048d39013e765d3910bdafb277eaee63ffeacd266f6b1ae1677` |
+| `inputs.txt` | `7a629ef550adbbbdac8435f7e0c32ee7f093a5e956c82e2fa562d72bd703f0b0` |
+| `test.log` | `13fe56990ce5af377744f934a2d5616ad8f32de04274c4f2e1058e1471a6d9c7` |
+| `clippy.log` | `6a81f119d29a3ac9f57fb3eafe4abb242e49574cb892c525ca92bee3dc842a9c` |
 | `fmt.log` (empty) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 | `git-status.txt` (only `logs/` entries) | `e2a2110fea7d4e3178c32260751f4a1a1fd79c4df695769f5d2addbb096c7fe3` |
 
@@ -126,6 +126,19 @@ provider send leaves the receipt `pending`, so the delivered message reports
 `agent_request_outcome_unknown` on every retry and can never be confirmed.
 Covered by the differential and by
 `completed_write_failure_leaves_a_delivered_message_unknown`.
+
+## Send-retry wire probe
+
+`scripts/phase3/receipts-retry-probe.mjs` drives the pinned `DaemonClient`
+against a daemon: one agent, a send with a fixed `messageId`, the same send
+retried on the same and on a second connection (accepted, no new turn), the
+same `messageId` with other text (rejected as a key conflict), and two
+concurrent sends of a fresh `messageId` (one turn). It prints each step's
+outcome and the recording client's raw wire text. The stub script must hold
+exactly three turns: the initial prompt, the first send, and the concurrent
+pair. The probe is syntax-checked only: no gate fixture runs it yet, since
+`gates.rs` and `gate.sh` belong to `p3_slice_harness`, so wire parity of the
+daemon's retry handling is not claimed here.
 
 ## Gaps
 
