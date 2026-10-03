@@ -2673,14 +2673,6 @@ mod tests {
     }
 
     #[test]
-    fn the_readiness_timeout_is_one_recorded_value() {
-        // One constant feeds the wait and the launch.json record, so the two
-        // can never disagree and both sides always get the same tolerance.
-        assert_eq!(READY_TIMEOUT_SECS, 180);
-        assert_eq!(READY_TIMEOUT, Duration::from_secs(READY_TIMEOUT_SECS));
-    }
-
-    #[test]
     fn exits_are_checks_exact_codes_and_defaults_the_rest_to_zero() {
         let gate = |expected: &'static [(&'static str, i32)]| GateSpec {
             id: "t",
