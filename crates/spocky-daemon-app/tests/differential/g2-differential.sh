@@ -187,6 +187,7 @@ mask() {
   { echo "FAIL: mask misses a base64url server id"; exit 1; }
 
 echo "commit: $(git -C "$here" rev-parse HEAD)"
+echo "binary: sha256 $(shasum -a 256 "$target/debug/spocky-daemon" | cut -d' ' -f1)  $target/debug/spocky-daemon"
 original_runs=${ORIGINAL_RUNS:-5}
 status=0
 run_side original "$top/original"
