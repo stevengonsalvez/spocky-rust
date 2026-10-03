@@ -55,6 +55,9 @@ const ENV_BINARY: &str = "/usr/bin/env";
 
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
+/// node-pty's `ioctl(2)` error text for a closed terminal (`pty.cc`).
+pub const CLOSED_ERROR: &str = "ioctl(2) failed, EBADF";
+
 /// node-pty's resize error text.
 pub const RESIZE_ERROR: &str = "resizing must be done using positive cols and rows";
 
@@ -92,6 +95,9 @@ pub enum PtyEvent {
 pub enum PtyError {
     Io(std::io::Error),
     Resize,
+    /// The terminal's descriptor is closed: node-pty's `ioctl(2)` fails with
+    /// `EBADF` once the stream has closed.
+    Closed,
 }
 
 impl std::fmt::Display for PtyError {
@@ -99,6 +105,7 @@ impl std::fmt::Display for PtyError {
         match self {
             Self::Io(error) => error.fmt(f),
             Self::Resize => f.write_str(RESIZE_ERROR),
+            Self::Closed => f.write_str(CLOSED_ERROR),
         }
     }
 }
@@ -210,10 +217,18 @@ impl Pty {
     ///
     /// # Errors
     ///
-    /// [`PtyError::Resize`] for a zero dimension; the ioctl error otherwise.
+    /// [`PtyError::Resize`] for a zero dimension, [`PtyError::Closed`] after
+    /// the stream closed; the ioctl error otherwise.
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), PtyError> {
         if cols == 0 || rows == 0 {
             return Err(PtyError::Resize);
+        }
+        {
+            let (lock, _) = &*self.shared;
+            let state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.closed || state.destroyed {
+                return Err(PtyError::Closed);
+            }
         }
         rustix::termios::tcsetwinsize(&self.master, winsize(cols, rows))?;
         Ok(())
@@ -238,8 +253,14 @@ impl Pty {
 /// The environment node-pty hands the child: `env`, then `PWD` and `TERM`.
 fn child_env(options: &PtySpawnOptions) -> Vec<(String, String)> {
     let mut env = options.env.clone();
+    // `opt.cwd || process.cwd()`.
+    let cwd = if options.cwd.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_default()
+    } else {
+        options.cwd.clone()
+    };
     for (key, value) in [
-        ("PWD", options.cwd.to_string_lossy().into_owned()),
+        ("PWD", cwd.to_string_lossy().into_owned()),
         ("TERM", options.name.clone()),
     ] {
         match env.iter_mut().find(|(existing, _)| existing == key) {
@@ -404,10 +425,9 @@ fn spawn_waiter(mut child: Child, events: Sender<PtyEvent>, shared: Shared) {
 fn spawn_writer(mut master: File) -> Sender<Vec<u8>> {
     let (input, queue) = mpsc::channel::<Vec<u8>>();
     thread::spawn(move || {
+        // node-pty logs a failed write and carries on with the next one.
         for data in queue {
-            if master.write_all(&data).is_err() {
-                return;
-            }
+            let _ = master.write_all(&data);
         }
     });
     input
