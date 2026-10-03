@@ -103,7 +103,7 @@ fn zsh_gets_a_private_runtime_zdotdir() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-const NODE_SCRIPT: &str = r"
+const NODE_SCRIPT: &str = r#"
 const [terminalDir, casesJson] = process.argv.slice(1);
 const { buildTerminalEnvironment } = await import(`${terminalDir}/terminal.js`);
 const out = JSON.parse(casesJson).map((input) => {
@@ -115,8 +115,9 @@ const out = JSON.parse(casesJson).map((input) => {
   });
   return Object.entries(env);
 });
-process.stdout.write(JSON.stringify([Object.entries(process.env), out]));
-";
+const { userInfo } = await import("node:os");
+process.stdout.write(JSON.stringify([Object.entries(process.env), out, process.pid, userInfo().username]));
+"#;
 
 struct Case {
     shell: &'static str,
@@ -147,6 +148,27 @@ const CASES: &[Case] = &[
         env: &[("PASEO_WORKSPACE_ID", "ws"), ("ZED", "over"), ("10", "ten")],
         bin_dir: Some("/opt/bin"),
         hook_cli: Some("/App/Resources/app.asar/node_modules/cli/bin/paseo"),
+    },
+    // `__proto__` is dropped by Object.assign's setter; empty strings are
+    // falsy, so neither prepends a PATH entry nor sets PASEO_HOOK_CLI.
+    Case {
+        shell: "/bin/sh",
+        env: &[("__proto__", "x"), ("EMPTY", "")],
+        bin_dir: Some(""),
+        hook_cli: Some(""),
+    },
+    // zsh gets a private ZDOTDIR; the original is kept, or empty when unset.
+    Case {
+        shell: "/bin/zsh",
+        env: &[],
+        bin_dir: Some("/opt/bin"),
+        hook_cli: Some("/cli/paseo"),
+    },
+    Case {
+        shell: "/opt/homebrew/bin/zsh",
+        env: &[("ZDOTDIR", "/home/z")],
+        bin_dir: None,
+        hook_cli: None,
     },
     Case {
         shell: "/usr/local/bin/fish",
@@ -203,6 +225,7 @@ fn terminal_environment_matches_pinned_builder() {
     for (key, value) in BASE_ENV {
         command.env(key, value);
     }
+    command.env("TMPDIR", &cwd);
     let output = command.output().expect("run pinned node");
     assert!(
         output.status.success(),
@@ -212,6 +235,11 @@ fn terminal_environment_matches_pinned_builder() {
     let reported = parse(&String::from_utf8(output.stdout).expect("utf8")).expect("node json");
     let reported = reported.as_array().expect("pair");
     let expected = stringify(&reported[1]);
+    let node_pid = format!("{}", reported[2].as_f64().expect("pid"))
+        .parse::<u32>()
+        .expect("pid");
+    let username = reported[3].as_str().expect("username").to_owned();
+    let zsh_source = pinned.terminal_dir.join("shell-integration/zsh");
 
     // The builder reads `process.env` as Node exposes it, which is not the
     // environment passed in (macOS adds `__CF_USER_TEXT_ENCODING`), so the
@@ -222,6 +250,8 @@ fn terminal_environment_matches_pinned_builder() {
         process_env.insert(pair[0].as_str().expect("key"), pair[1].clone());
     }
     let cwd_text = cwd.to_string_lossy().into_owned();
+    // The pinned run wrote its zsh runtime directory under this TMPDIR.
+    let tmp = cwd.clone();
     let actual = stringify(&JsValue::Array(
         CASES
             .iter()
@@ -239,7 +269,7 @@ fn terminal_environment_matches_pinned_builder() {
                         paseo_hook_cli_path: case.hook_cli,
                         cwd: &cwd_text,
                     },
-                    || unreachable!("no zsh case"),
+                    || prepare_zsh_runtime_dir(&zsh_source, &tmp, &username, node_pid),
                 )
                 .expect("env");
                 JsValue::Array(
