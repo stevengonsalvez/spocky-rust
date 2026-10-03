@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use spocky_contracts::frame::{FrameError, parse_frame};
-use spocky_contracts::js::truthy;
+use spocky_contracts::js::{date_parse, truthy};
 use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_contracts::json::{JsonValue, js_wire_text};
 use spocky_contracts::number::PositiveInt;
@@ -49,7 +49,6 @@ use spocky_store::registry::{
     PersistedProjectRecord, PersistedWorkspaceRecord, resolve_project_display_name,
     resolve_workspace_display_name,
 };
-use spocky_store::time::parse_iso_millis;
 
 use crate::agent_control::{agent_permission_response, cancel_agent};
 use crate::agent_create::agent_create;
@@ -665,6 +664,32 @@ async fn placements(context: &RequestContext, active_only: bool) -> Vec<(String,
         .collect()
 }
 
+/// `snapshotUpdatedAtByAgentId`: each listed agent's `Date.parse(updatedAt)`,
+/// skipping a `NaN` (`fetch_agents_request`, `session.ts:6143`).
+fn snapshot_updated_at(listing: &JsObject) -> HashMap<String, i64> {
+    let mut snapshot = HashMap::new();
+    for entry in listing
+        .get("entries")
+        .and_then(JsValue::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let agent = entry.get("agent");
+        if let (Some(id), Some(updated_at)) = (
+            agent
+                .and_then(|agent| agent.get("id"))
+                .and_then(JsValue::as_str),
+            agent
+                .and_then(|agent| agent.get("updatedAt"))
+                .and_then(JsValue::as_str)
+                .and_then(date_parse),
+        ) {
+            snapshot.insert(id.to_owned(), updated_at);
+        }
+    }
+    snapshot
+}
+
 /// `listFetchAgentsEntries` for `fetch_agents_request` (no history search).
 async fn list_fetch_agents_entries(
     context: &RequestContext,
@@ -774,26 +799,7 @@ async fn fetch_agents(
             if let Some(owner) = &owner {
                 payload.insert("subscriptionId", JsValue::String(owner.response_id.clone()));
             }
-            let mut snapshot_updated_at = HashMap::new();
-            for entry in listing
-                .get("entries")
-                .and_then(JsValue::as_array)
-                .into_iter()
-                .flatten()
-            {
-                let agent = entry.get("agent");
-                if let (Some(id), Some(updated_at)) = (
-                    agent
-                        .and_then(|agent| agent.get("id"))
-                        .and_then(JsValue::as_str),
-                    agent
-                        .and_then(|agent| agent.get("updatedAt"))
-                        .and_then(JsValue::as_str)
-                        .and_then(parse_iso_millis),
-                ) {
-                    snapshot_updated_at.insert(id.to_owned(), updated_at);
-                }
-            }
+            let snapshot_updated_at = snapshot_updated_at(&listing);
             for (key, value) in listing.iter() {
                 payload.insert(key, value.clone());
             }
@@ -1349,7 +1355,8 @@ async fn fetch_agent_timeline(
 #[cfg(test)]
 mod tests {
     use super::{
-        MIN_VERSION_ALL_PROVIDERS, app_version_at_least, truthy_text, wait_for_finish_error,
+        MIN_VERSION_ALL_PROVIDERS, app_version_at_least, snapshot_updated_at, truthy_text,
+        wait_for_finish_error,
     };
     use spocky_contracts::js_value::{JsValue, parse};
 
@@ -1389,5 +1396,21 @@ mod tests {
             wait_for_finish_error("error", Some(&parse(r#"{"lastError":"  "}"#).unwrap())),
             JsValue::String("Agent failed".to_owned())
         );
+    }
+
+    #[test]
+    fn the_snapshot_reads_timestamps_as_date_parse_does() {
+        // Printed by node 22: Date.parse("Fri, 02 Oct 2026 12:00:00 GMT"),
+        // Date.parse("not a date").
+        let listing = parse(
+            r#"{"entries":[
+                {"agent":{"id":"a","updatedAt":"Fri, 02 Oct 2026 12:00:00 GMT"}},
+                {"agent":{"id":"b","updatedAt":"not a date"}}
+            ]}"#,
+        )
+        .unwrap();
+        let snapshot = snapshot_updated_at(listing.as_object().unwrap());
+        assert_eq!(snapshot.get("a"), Some(&1_790_942_400_000));
+        assert_eq!(snapshot.get("b"), None);
     }
 }
