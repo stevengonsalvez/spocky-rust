@@ -298,6 +298,16 @@ function run(op) {
       log({ t: "json", ok: true, summary });
       break;
     }
+    case "probe-json-error": {
+      let message = null;
+      try {
+        JSON.parse(op.text);
+      } catch (error) {
+        if (error.message.startsWith("Unexpected token '")) message = error.message;
+      }
+      log({ t: "json-error", message });
+      break;
+    }
     case "probe-decode": {
       const input = bytes(op.binary);
       let fatal = null;
