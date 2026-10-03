@@ -204,7 +204,11 @@ impl AgentManager {
 
     /// `cancelRunningProviderSubagents(parentAgentId)`: marks each running
     /// provider child canceled and publishes the update.
-    fn cancel_running_provider_subagents(&self, state: &mut State, parent_agent_id: &str) {
+    pub(super) fn cancel_running_provider_subagents(
+        &self,
+        state: &mut State,
+        parent_agent_id: &str,
+    ) {
         for subagent in state.provider_subagents.list(parent_agent_id) {
             if subagent.get("status").and_then(JsValue::as_str) != Some("running") {
                 continue;
@@ -268,7 +272,11 @@ impl AgentManager {
     }
 
     /// `emitState` for an agent no longer in the map (`emitClosedAgent`).
-    fn emit_detached_state_locked(&self, state: &mut State, snapshot: ManagedAgentSnapshot) {
+    pub(super) fn emit_detached_state_locked(
+        &self,
+        state: &mut State,
+        snapshot: ManagedAgentSnapshot,
+    ) {
         let previous = state
             .previous_statuses
             .insert(snapshot.id.clone(), snapshot.lifecycle);
