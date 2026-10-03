@@ -1,0 +1,10 @@
+{
+  "name": "spocky-renderer-platform-electron",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned Electron 44.2.0 host and Playwright CDP driver for renderer parity captures",
+  "dependencies": {
+    "electron": "44.2.0",
+    "playwright-core": "1.58.2"
+  }
+}
