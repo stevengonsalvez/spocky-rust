@@ -47,6 +47,13 @@ const list = [
   [1, 2, 3, "x"],
 ];
 list[3].extra = 1;
+// A double that holds an integer is written with tag N, not as a Smi; a
+// Latin-1 string held in two-byte form (a slice of a longer two-byte string)
+// is written with tag c.
+let integral = 0.5;
+integral += 0.5;
+const twoByteHeld = ("\u00e9".repeat(20) + "\u0100").slice(0, 20);
+list.push(integral, twoByteHeld, [integral, twoByteHeld]);
 "#;
 
 const NODE_SCRIPT: &str = r#"
