@@ -956,10 +956,9 @@ impl AgentManager {
             .provider_subagents
             .fetch_timeline(parent_agent_id, subagent_id, direction, cursor, limit)
             .map_err(|error| match error {
-                crate::timeline::TimelineError::Type(error) => AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.0,
-                },
+                crate::timeline::TimelineError::Type(error) => {
+                    AgentError::named("TypeError".to_owned(), error.0)
+                }
                 crate::timeline::TimelineError::UnknownAgent(error) => {
                     AgentError::new(error.to_string())
                 }
@@ -985,10 +984,9 @@ impl AgentManager {
             .timeline
             .fetch(agent_id, direction, cursor, limit)
             .map_err(|error| match error {
-                crate::timeline::TimelineError::Type(error) => AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.0,
-                },
+                crate::timeline::TimelineError::Type(error) => {
+                    AgentError::named("TypeError".to_owned(), error.0)
+                }
                 crate::timeline::TimelineError::UnknownAgent(error) => {
                     AgentError::new(error.to_string())
                 }
