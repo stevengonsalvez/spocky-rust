@@ -175,9 +175,15 @@ impl ClaudeSession {
             }
             return Ok(vec![item(kind, content)]);
         }
+        let Some(blocks) = content.as_array() else {
+            return Err(AgentError {
+                name: "TypeError".to_owned(),
+                message: "content is not iterable".to_owned(),
+            });
+        };
         let mut items = Vec::new();
         let mut user_text_parts: Vec<String> = Vec::new();
-        for block in content.as_array().unwrap_or_default() {
+        for block in blocks {
             if !is_content_chunk(block) {
                 continue;
             }
@@ -642,7 +648,7 @@ impl ClaudeSession {
                         .iter()
                         .map(|(path, kind)| {
                             let relative = self.relativize_path(path);
-                            file_change(if relative.is_empty() { path } else { &relative }, kind)
+                            file_change(&relative, kind)
                         })
                         .collect(),
                 );
@@ -655,10 +661,7 @@ impl ClaudeSession {
                 .filter(|path| !path.is_empty())
                 .map(|path| {
                     let relative = self.relativize_path(path);
-                    file_change(
-                        if relative.is_empty() { path } else { &relative },
-                        &detect_file_kind(path),
-                    )
+                    file_change(&relative, &detect_file_kind(path))
                 })
                 .collect();
             if !files.is_empty() {
