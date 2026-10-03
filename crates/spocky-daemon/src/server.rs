@@ -6,8 +6,8 @@
 //! socket go through its queue so that a send, a rejection frame and the close
 //! that follows it keep their order.
 //!
-//! Not ported (outside the vertical slice): relay, hub and plugin sockets, the
-//! binary-frame fast path, runtime metrics, and the slow-request log.
+//! Not ported (outside the vertical slice): relay, hub and plugin sockets,
+//! runtime metrics, and the slow-request log.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
@@ -43,6 +43,7 @@ use crate::admission::{
 use crate::bearer::{
     extract_http_bearer_token, extract_ws_bearer_protocol, extract_ws_bearer_token,
 };
+use crate::binary_frames::{BinaryFrame, decode_binary_frame};
 use crate::hostnames::{Hostnames, is_hostname_allowed};
 use crate::http::{
     HttpContext, HttpResponse, KEEP_ALIVE_TIMEOUT_SECS, ParsedHead, current_ms, handle_request,
@@ -1302,8 +1303,8 @@ impl SocketTask {
     /// What one read from the socket means. `false` ends the connection.
     fn handle_read(&mut self, result: Result<Message, WsError>) -> bool {
         match result {
-            Ok(Message::Text(text)) => self.on_data(text.as_str()),
-            Ok(Message::Binary(bytes)) => self.on_data(&String::from_utf8_lossy(&bytes)),
+            Ok(Message::Text(text)) => self.on_data(text.as_bytes()),
+            Ok(Message::Binary(bytes)) => self.on_data(&bytes),
             Ok(Message::Close(frame)) => {
                 self.close_details = (
                     frame.as_ref().map(|frame| u16::from(frame.code)),
@@ -1416,7 +1417,7 @@ impl SocketTask {
     }
 
     /// `handleRawMessage`.
-    fn on_data(&mut self, text: &str) {
+    fn on_data(&mut self, data: &[u8]) {
         if self.shared.lifecycle() != ConnectionLifecycle::Accepting {
             return;
         }
@@ -1424,14 +1425,21 @@ impl SocketTask {
             self.lease_deadline =
                 Some(Instant::now() + self.shared.config.timeouts.application_lease);
         }
+        // `maybeHandleBinaryFrame` runs first, on text frames as well: a message
+        // whose bytes decode as a binary frame never reaches the JSON parser.
+        if let Some(frame) = decode_binary_frame(data) {
+            self.on_binary_frame(frame);
+            return;
+        }
         // `JSON.parse(buffer.toString())` throws a V8 `SyntaxError`; the wire text
         // is "Invalid message: " + err.message. The message comes from the
         // contracts parser, never from a Display of the error, which adds text the
         // baseline does not have.
-        let parsed = match parse_js(text) {
+        let text = String::from_utf8_lossy(data);
+        let parsed = match parse_js(&text) {
             Ok(parsed) => parsed,
             Err(error) => {
-                self.on_raw_error(text_of(&error.message));
+                self.on_raw_error("SyntaxError", text_of(&error.message));
                 return;
             }
         };
@@ -1549,11 +1557,9 @@ impl SocketTask {
     }
 
     /// `handleRawMessageError`.
-    fn on_raw_error(&mut self, message: &str) {
-        self.logger().error(
-            &[("errorName", "SyntaxError")],
-            "Failed to parse/handle message",
-        );
+    fn on_raw_error(&mut self, name: &str, message: &str) {
+        self.logger()
+            .error(&[("errorName", name)], "Failed to parse/handle message");
         if matches!(self.phase, Phase::Pending(_)) {
             self.phase = Phase::Done;
             self.close(WS_CLOSE_INVALID_HELLO, "Invalid hello");
@@ -1569,6 +1575,22 @@ impl SocketTask {
                     code: "invalid_message",
                 },
             );
+        }
+    }
+
+    /// `maybeHandleBinaryFrame` for a frame that decoded: before a hello the
+    /// socket is closed, after it the session gets the frame.
+    fn on_binary_frame(&mut self, frame: BinaryFrame) {
+        let Phase::Active(connection) = &self.phase else {
+            self.logger()
+                .warn(&[], "Rejected binary frame before hello");
+            self.phase = Phase::Done;
+            self.close(WS_CLOSE_INVALID_HELLO, "Session message before hello");
+            return;
+        };
+        let connection = Arc::clone(connection);
+        if let Err(message) = connection.session.binary_frame(frame, self.id) {
+            self.on_raw_error("Error", &message);
         }
     }
 
