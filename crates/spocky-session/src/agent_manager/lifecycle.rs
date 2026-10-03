@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spocky_contracts::js::js_string;
+use spocky_contracts::js::{js_string, spread};
 use spocky_store::js_value::{JsObject, JsValue};
 use tokio::sync::OnceCell;
 
@@ -199,6 +199,201 @@ impl AgentManager {
         )
         .await?;
         self.emit_state(&id, false);
+        Ok(())
+    }
+
+    /// The agent and its session for a setter that needs a live provider
+    /// session (`requireSessionAgent`).
+    fn require_live_session(
+        &self,
+        agent_id: &str,
+    ) -> Result<(String, Arc<dyn AgentSession>), AgentError> {
+        let state = self.lock();
+        let agent = Self::require_agent(&state, agent_id)?;
+        let Some(session) = agent.session.clone() else {
+            return Err(AgentError::new(format!(
+                "Agent '{}' has no managed session",
+                agent.snapshot.id
+            )));
+        };
+        Ok((agent.snapshot.id.clone(), session))
+    }
+
+    /// Sets `key` on the agent's config object, as `agent.config.key = value`
+    /// does: an existing key keeps its place.
+    fn set_config_value(state: &mut State, agent_id: &str, key: &str, value: JsValue) {
+        if let Some(agent) = state.agent_mut(agent_id)
+            && let JsValue::Object(config) = &mut agent.snapshot.config
+        {
+            config.insert(key, value);
+        }
+    }
+
+    /// `agent.runtimeInfo = { ...agent.runtimeInfo, key: value }` when the
+    /// agent has runtime info.
+    fn set_runtime_info_value(state: &mut State, agent_id: &str, key: &str, value: JsValue) {
+        if let Some(agent) = state.agent_mut(agent_id)
+            && let Some(info) = &agent.snapshot.runtime_info
+        {
+            let mut next = spread(Some(info));
+            next.insert(key, value);
+            agent.snapshot.runtime_info = Some(JsValue::Object(next));
+        }
+    }
+
+    /// `touchUpdatedAt` then `emitState(agent)`.
+    fn touch_and_emit(&self, agent_id: &str) {
+        let mut state = self.lock();
+        if let Some(agent) = state.agent_mut(agent_id) {
+            touch_updated_at(&mut agent.snapshot);
+        }
+        self.emit_state_locked(&mut state, agent_id, true);
+    }
+
+    /// `setAgentMode(agentId, modeId)`: the provider's notice, if any.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, or the session's.
+    pub async fn set_agent_mode(
+        &self,
+        agent_id: &str,
+        mode_id: &str,
+    ) -> Result<Option<JsValue>, AgentError> {
+        let (id, session) = self.require_live_session(agent_id)?;
+        let notice = session.set_mode(mode_id).await?;
+        self.drain_session_events_async(&id).await;
+        let current = session
+            .get_current_mode()
+            .await?
+            .unwrap_or_else(|| mode_id.to_owned());
+        {
+            let mut state = self.lock();
+            Self::set_config_value(&mut state, &id, "modeId", JsValue::String(current.clone()));
+            if let Some(agent) = state.agent_mut(&id) {
+                agent.snapshot.current_mode_id = Some(current.clone());
+            }
+            Self::set_runtime_info_value(&mut state, &id, "modeId", JsValue::String(current));
+        }
+        self.touch_and_emit(&id);
+        Ok(notice)
+    }
+
+    /// `setAgentModel(agentId, modelId)`: a blank id clears the model.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, or the session's.
+    pub async fn set_agent_model(
+        &self,
+        agent_id: &str,
+        model_id: Option<&str>,
+    ) -> Result<(), AgentError> {
+        let (id, session) = self.require_live_session(agent_id)?;
+        let normalized = model_id.filter(|model| !crate::text::js_trim(model).is_empty());
+        if let Some(set_model) = session.set_model(normalized) {
+            set_model.await?;
+        }
+        self.drain_session_events_async(&id).await;
+        let value = normalized.map_or(JsValue::Undefined, |model| {
+            JsValue::String(model.to_owned())
+        });
+        {
+            let mut state = self.lock();
+            Self::set_config_value(&mut state, &id, "model", value.clone());
+            let runtime = if matches!(value, JsValue::Undefined) {
+                JsValue::Null
+            } else {
+                value
+            };
+            Self::set_runtime_info_value(&mut state, &id, "model", runtime);
+            Self::refresh_session_persistence_locked(&mut state, &id);
+        }
+        self.touch_and_emit(&id);
+        Ok(())
+    }
+
+    /// `setAgentThinkingOption(agentId, thinkingOptionId)`: the provider's
+    /// notice, if any; a blank id clears the option, and the session's own
+    /// answer wins when it gives one.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent and no-session errors, or the session's.
+    pub async fn set_agent_thinking_option(
+        &self,
+        agent_id: &str,
+        thinking_option_id: Option<&str>,
+    ) -> Result<Option<JsValue>, AgentError> {
+        let (id, session) = self.require_live_session(agent_id)?;
+        let normalized =
+            thinking_option_id.filter(|option| !crate::text::js_trim(option).is_empty());
+        let mut notice = None;
+        if let Some(set_option) = session.set_thinking_option(normalized) {
+            notice = set_option.await?;
+        }
+        self.drain_session_events_async(&id).await;
+        let mut effective =
+            normalized.map_or(JsValue::Null, |option| JsValue::String(option.to_owned()));
+        let runtime_info = session.get_runtime_info().await?;
+        if let Some(reported) = runtime_info
+            .get("thinkingOptionId")
+            .filter(|reported| !matches!(reported, JsValue::Undefined))
+        {
+            effective = reported.clone();
+        }
+        {
+            let mut state = self.lock();
+            let config_value = if matches!(effective, JsValue::Null) {
+                JsValue::Undefined
+            } else {
+                effective.clone()
+            };
+            Self::set_config_value(&mut state, &id, "thinkingOptionId", config_value);
+            Self::set_runtime_info_value(&mut state, &id, "thinkingOptionId", effective);
+        }
+        self.touch_and_emit(&id);
+        Ok(notice)
+    }
+
+    /// `setAgentFeature(agentId, featureId, value)`.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent error, `Agent session does not support setting
+    /// features`, or the session's.
+    pub async fn set_agent_feature(
+        &self,
+        agent_id: &str,
+        feature_id: &str,
+        value: JsValue,
+    ) -> Result<(), AgentError> {
+        let (id, session) = {
+            let state = self.lock();
+            let agent = Self::require_agent(&state, agent_id)?;
+            (agent.snapshot.id.clone(), agent.session.clone())
+        };
+        let Some(set_feature) = session
+            .as_ref()
+            .and_then(|session| session.set_feature(feature_id, value.clone()))
+        else {
+            return Err(AgentError::new(
+                "Agent session does not support setting features",
+            ));
+        };
+        set_feature.await?;
+        self.drain_session_events_async(&id).await;
+        {
+            let mut state = self.lock();
+            if let Some(agent) = state.agent_mut(&id)
+                && let JsValue::Object(config) = &mut agent.snapshot.config
+            {
+                let mut features = spread(config.get("featureValues"));
+                features.insert(feature_id, value);
+                config.insert("featureValues", JsValue::Object(features));
+            }
+        }
+        self.touch_and_emit(&id);
         Ok(())
     }
 
