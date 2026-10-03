@@ -166,8 +166,9 @@ impl SessionBackend for ListeningBackend {
     fn validate_inbound(&self, message: &Value) -> Result<(), String> {
         NoSessionBackend.validate_inbound(message)
     }
-    fn listening(&self, bound: &ListenTarget) {
+    fn listening(&self, bound: &ListenTarget) -> Result<(), String> {
         self.told.lock().unwrap().push(bound.clone());
+        Ok(())
     }
 }
 

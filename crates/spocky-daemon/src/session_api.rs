@@ -116,5 +116,14 @@ pub trait SessionBackend: Send + Sync {
     /// after the server knows its address and before the lock is published. A
     /// backend that derives URLs from the address (the agent MCP base url)
     /// records it; any other has nothing to do.
-    fn listening(&self, _bound: &ListenTarget) {}
+    ///
+    /// # Errors
+    ///
+    /// The message of a failure in the handler. The daemon then undoes its
+    /// start (deletes the local credential, stops the heartbeat, closes the
+    /// server) and the start fails with that message, as a throw from
+    /// `onListening` rejects `createPaseoDaemon`'s `start()` in the baseline.
+    fn listening(&self, _bound: &ListenTarget) -> Result<(), String> {
+        Ok(())
+    }
 }

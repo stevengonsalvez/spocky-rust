@@ -524,9 +524,6 @@ fn start_after_lock(
     };
     let listen = format_listen_target(&bound_target);
     server.set_listen(&listen, matches!(bound_target, ListenTarget::Tcp { .. }));
-    backend.listening(&bound_target);
-    logger.info(&[("listen", &listen)], "Server listening");
-
     let patch = PidLockPatch::Listening {
         listen: listen.clone(),
         server_id: server_id.as_str().to_owned(),
@@ -543,6 +540,14 @@ fn start_after_lock(
         logger: Arc::clone(logger),
         backend,
     };
+    if let Err(message) = daemon.backend.listening(&bound_target) {
+        // `daemon-worker.ts` logs the failure, and the start is undone as for a
+        // lock that cannot be published.
+        logger.error(&[("err", &message)], "Daemon failed to start listening");
+        daemon.stop();
+        return Err(fail(message));
+    }
+    logger.info(&[("listen", &daemon.listen)], "Server listening");
     if let Err(error) = publish(paseo_home, &patch) {
         // Listening but unpublished: undo everything that was started.
         daemon.stop();
