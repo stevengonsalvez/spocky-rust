@@ -5,7 +5,12 @@
 //! as `JSON.stringify` text per scenario. Nothing is normalized.
 //!
 //! `SPOCKY_XTERM_FUZZ_SEEDS` (default 400) and `SPOCKY_XTERM_FUZZ_START`
-//! (default 0) choose the seeds. See `common/mod.rs` for the environment.
+//! (default 0) choose the seeds. A second, biased mode aims at xterm's
+//! exception paths: it puts the cursor at the bottom right of a fresh
+//! screen, erases above it with `CSI 1 J` (which throws there), and then
+//! writes and resizes against the wedged terminal; `SPOCKY_XTERM_BIASED_SEEDS`
+//! (default 200) and `SPOCKY_XTERM_BIASED_START` (default 0) choose its seeds.
+//! See `common/mod.rs` for the environment.
 
 mod common;
 
@@ -366,6 +371,31 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
+/// Cuts `stream` into random chunks with resizes between some of them.
+fn chunk_ops(rng: &mut Rng, stream: &[u8], resize_percent: u64) -> Vec<JsValue> {
+    let mut ops = Vec::new();
+    let mut position = 0;
+    while position < stream.len() {
+        if rng.chance(resize_percent) {
+            let size = vec![number(rng.range(1, 30)), number(rng.range(1, 12))];
+            let mut op = JsObject::new();
+            op.insert("resize", JsValue::Array(size));
+            ops.push(JsValue::Object(op));
+        }
+        let length = if rng.chance(70) {
+            rng.range(1, 24)
+        } else {
+            rng.range(25, 400)
+        };
+        let end = (position + usize::try_from(length).unwrap_or(1)).min(stream.len());
+        let mut op = JsObject::new();
+        op.insert("hex", JsValue::String(hex(&stream[position..end])));
+        ops.push(JsValue::Object(op));
+        position = end;
+    }
+    ops
+}
+
 fn scenario(seed: u64) -> JsValue {
     let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5EED);
     let (cols, rows) = if rng.chance(5) {
@@ -386,28 +416,58 @@ fn scenario(seed: u64) -> JsValue {
             }
         }
     }
-    let mut ops = Vec::new();
-    let mut position = 0;
-    while position < stream.len() {
-        if rng.chance(10) {
-            let size = vec![number(rng.range(1, 30)), number(rng.range(1, 12))];
-            let mut op = JsObject::new();
-            op.insert("resize", JsValue::Array(size));
-            ops.push(JsValue::Object(op));
-        }
-        let length = if rng.chance(70) {
-            rng.range(1, 24)
-        } else {
-            rng.range(25, 400)
-        };
-        let end = (position + usize::try_from(length).unwrap_or(1)).min(stream.len());
-        let mut op = JsObject::new();
-        op.insert("hex", JsValue::String(hex(&stream[position..end])));
-        ops.push(JsValue::Object(op));
-        position = end;
-    }
+    let ops = chunk_ops(&mut rng, &stream, 10);
     let mut object = JsObject::new();
     object.insert("name", JsValue::String(format!("seed-{seed}")));
+    object.insert("rows", number(rows));
+    object.insert("cols", number(cols));
+    object.insert("ops", JsValue::Array(ops));
+    JsValue::Object(object)
+}
+
+/// A scenario aimed at the exception paths: a cursor at the bottom right of
+/// a screen with no scrollback, `CSI 1 J` or `CSI ? 1 J` (which indexes the
+/// line below the cursor and throws when none exists), then random writes
+/// and many resizes against whatever state that left.
+fn biased_scenario(seed: u64) -> JsValue {
+    let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x00B1_A5ED);
+    let cols = rng.range(2, 24);
+    let rows = rng.range(1, 10);
+    let mut stream = Vec::new();
+    let mode = rng.below(6);
+    if mode == 3 {
+        stream.extend_from_slice(b"\x1b[?1049h");
+    }
+    if mode == 2 {
+        // Scroll first: with scrollback the line below exists, no throw.
+        for index in 0..rows + rng.range(1, 6) {
+            stream.extend_from_slice(format!("{index}\r\n").as_bytes());
+        }
+    }
+    let column = match mode {
+        1 => rng.range(1, cols),
+        _ => cols + rng.below(3),
+    };
+    let row = if mode == 4 {
+        rows.saturating_sub(1).max(1)
+    } else {
+        rows
+    };
+    stream.extend_from_slice(format!("\x1b[{row};{column}H").as_bytes());
+    if rng.chance(30) {
+        stream.extend_from_slice(b"x");
+    }
+    stream.extend_from_slice(if rng.chance(25) {
+        b"\x1b[?1J"
+    } else {
+        b"\x1b[1J"
+    });
+    for _ in 0..rng.range(2, 24) {
+        token(&mut rng, &mut stream);
+    }
+    let ops = chunk_ops(&mut rng, &stream, 30);
+    let mut object = JsObject::new();
+    object.insert("name", JsValue::String(format!("biased-{seed}")));
     object.insert("rows", number(rows));
     object.insert("cols", number(cols));
     object.insert("ops", JsValue::Array(ops));
@@ -420,20 +480,20 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .map_or(default, |value| value.parse().expect(name))
 }
 
-#[test]
-fn seeded_byte_fuzz_matches_pinned_xterm() {
+/// Runs seeds `start..start + count` of `make` through both emulators and
+/// returns how many scenarios wedged xterm.
+fn run_differential(label: &str, start: u64, count: u64, make: fn(u64) -> JsValue) -> usize {
     let Some((node, paseo_root)) = common::pinned() else {
-        return;
+        return 0;
     };
-    let start = env_u64("SPOCKY_XTERM_FUZZ_START", 0);
-    let count = env_u64("SPOCKY_XTERM_FUZZ_SEEDS", 400);
-    let scenarios: Vec<JsValue> = (start..start + count).map(scenario).collect();
+    let scenarios: Vec<JsValue> = (start..start + count).map(make).collect();
     let mut corpus = JsObject::new();
     corpus.insert("scenarios", JsValue::Array(scenarios.clone()));
     let corpus_text = stringify(&JsValue::Object(corpus));
     let directory = std::env::temp_dir();
-    let corpus_path = directory.join(format!("spocky-xterm-fuzz-{}.json", std::process::id()));
-    let out = directory.join(format!("spocky-xterm-fuzz-{}.jsonl", std::process::id()));
+    let tag = format!("{}-{}", label.replace(' ', "-"), std::process::id());
+    let corpus_path = directory.join(format!("spocky-xterm-{tag}.json"));
+    let out = directory.join(format!("spocky-xterm-{tag}.jsonl"));
     std::fs::write(&corpus_path, &corpus_text).expect("write fuzz corpus");
     let timeout = u32::try_from(120 + count / 2).unwrap_or(u32::MAX);
     let captured = common::capture(&node, &paseo_root, &corpus_path, &out, timeout);
@@ -466,7 +526,7 @@ fn seeded_byte_fuzz_matches_pinned_xterm() {
         }
     }
     eprintln!(
-        "fuzz seeds {start}..{}: {} of {count} full matches, corpus sha256 {}, {wedged} wedged, {resize_errors} with resize errors",
+        "{label} seeds {start}..{}: {} of {count} full matches, corpus sha256 {}, {wedged} wedged, {resize_errors} with resize errors",
         start + count,
         count - failures.len() as u64,
         common::sha256_hex(corpus_text.as_bytes()),
@@ -482,4 +542,23 @@ fn seeded_byte_fuzz_matches_pinned_xterm() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+    wedged
+}
+
+#[test]
+fn seeded_byte_fuzz_matches_pinned_xterm() {
+    let start = env_u64("SPOCKY_XTERM_FUZZ_START", 0);
+    let count = env_u64("SPOCKY_XTERM_FUZZ_SEEDS", 400);
+    run_differential("fuzz", start, count, scenario);
+}
+
+#[test]
+fn biased_exception_fuzz_matches_pinned_xterm() {
+    let start = env_u64("SPOCKY_XTERM_BIASED_START", 0);
+    let count = env_u64("SPOCKY_XTERM_BIASED_SEEDS", 200);
+    let wedged = run_differential("biased fuzz", start, count, biased_scenario);
+    // Skipped runs return 0; a real run of this size must reach the throw.
+    if count >= 20 && std::env::var_os("SPOCKY_PINNED_NODE").is_some() {
+        assert!(wedged > 0, "the biased mode never wedged xterm");
+    }
 }
