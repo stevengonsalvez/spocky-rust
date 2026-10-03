@@ -3572,6 +3572,41 @@ impl std::fmt::Display for Aborted {
     }
 }
 
+/// The native archive state `updateNativeThreadArchiveState` applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeArchiveState {
+    Archive,
+    Restore,
+}
+
+/// The requests of `updateNativeThreadArchiveState` after `initialized`.
+fn archive_state_requests(
+    client: &AppServerClient,
+    thread_id: &str,
+    state: NativeArchiveState,
+) -> Result<(), String> {
+    let params = || Some(json!({"threadId": thread_id}));
+    if state == NativeArchiveState::Archive {
+        return client
+            .request("thread/archive", params(), DEFAULT_REQUEST_TIMEOUT)
+            .map(|_| ())
+            .map_err(|error| error.message);
+    }
+    let Err(error) = client.request("thread/unarchive", params(), DEFAULT_REQUEST_TIMEOUT) else {
+        return Ok(());
+    };
+    // `isCodexAlreadyUnarchivedError(error, threadId)`.
+    if !error.message.contains(&format!(
+        "no archived rollout found for thread id {thread_id}"
+    )) {
+        return Err(error.message);
+    }
+    client
+        .request("thread/read", params(), DEFAULT_REQUEST_TIMEOUT)
+        .map(|_| ())
+        .map_err(|_| error.message)
+}
+
 /// `CodexAppServerAgentClient`: owns launch settings and the version gates,
 /// and creates sessions.
 pub struct CodexProvider {
@@ -3767,6 +3802,45 @@ impl CodexProvider {
         let models = models?;
         disposed?;
         Ok(models)
+    }
+
+    /// `updateNativeThreadArchiveState(handle, state)`: a short-lived
+    /// app-server (as `spawnAppServer()` with no launch env and no goals),
+    /// `initialize`, then `thread/archive`, or `thread/unarchive`. A restore
+    /// of a thread that is not archived (`isCodexAlreadyUnarchivedError`)
+    /// is settled by a `thread/read` of it: when that succeeds the first
+    /// error is swallowed, else the first error is the result. The client is
+    /// always disposed. An empty `thread_id` (`nativeHandle ?? sessionId`
+    /// found none) returns without spawning.
+    ///
+    /// # Errors
+    /// Returns launch, initialize, or request failures.
+    pub fn update_native_thread_archive_state(
+        &self,
+        thread_id: &str,
+        state: NativeArchiveState,
+    ) -> Result<(), String> {
+        if thread_id.is_empty() {
+            return Ok(());
+        }
+        let prefix = launch::resolve_launch_prefix(self.runtime_settings.as_ref(), &self.base_env)?;
+        let env = launch::provider_env(&self.base_env, self.runtime_settings.as_ref(), None);
+        let child = launch::spawn_app_server(&prefix, false, &env)?;
+        let client = AppServerClient::new(child).map_err(|error| error.message)?;
+        let outcome = client
+            .request(
+                "initialize",
+                Some(launch::initialize_params()),
+                DEFAULT_REQUEST_TIMEOUT,
+            )
+            .map_err(|error| error.message)
+            .and_then(|_| {
+                client.notify("initialized", Some(json!({})));
+                archive_state_requests(&client, thread_id, state)
+            });
+        let disposed = client.dispose().map_err(|error| error.message);
+        outcome?;
+        disposed
     }
 
     fn spawner(
