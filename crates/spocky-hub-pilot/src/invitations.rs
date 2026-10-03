@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use spocky_contracts::text::js_trim;
 
 use crate::{
     Account, AccountId, DurableHubStore, HubError, HubPilot, OrganizationId, Role, fingerprint,
@@ -353,7 +354,7 @@ pub(crate) fn pending_summaries(
 }
 
 fn normalize_email(email: &str) -> Option<String> {
-    let email = email.trim().to_ascii_lowercase();
+    let email = js_trim(email).to_lowercase();
     let (local, domain) = email.split_once('@')?;
     (!local.is_empty() && domain.contains('.') && !domain.starts_with('.')).then_some(email)
 }
