@@ -386,13 +386,26 @@ impl AgentManager {
     }
 
     /// `notifyForegroundTurnWaiters(agentId, event)`: non-terminal.
-    fn notify_foreground_turn_waiters_locked(state: &mut State, agent_id: &str, event: &JsValue) {
+    fn notify_foreground_turn_waiters_locked(
+        &self,
+        state: &mut State,
+        agent_id: &str,
+        event: &JsValue,
+    ) {
         let Some(turn_id) = raw_turn_id(event).filter(|turn| !turn.is_null()) else {
             return;
         };
-        if let Some(agent) = state.agent_mut(agent_id) {
-            Self::notify_waiters(agent, &turn_id, event, false);
-        }
+        let Some(agent) = state.agent_mut(agent_id) else {
+            return;
+        };
+        Self::notify_waiters(agent, &turn_id, event, false);
+        self.trace_event_locked(
+            state,
+            agent_id,
+            event,
+            turn_id,
+            "agent.manager.notify_waiters.coalesced",
+        );
     }
 
     /// `notifyWaiters` for the waiters whose turn is `turn_id`.
@@ -429,7 +442,7 @@ impl AgentManager {
                 flush.turn_id,
                 None,
             )?;
-            Self::notify_foreground_turn_waiters_locked(state, &flush.agent_id, &event);
+            self.notify_foreground_turn_waiters_locked(state, &flush.agent_id, &event);
         }
         Ok(())
     }
@@ -761,6 +774,94 @@ impl AgentManager {
         );
     }
 
+    /// `traceHandleStreamEventStart`.
+    fn trace_handle_stream_event_start(
+        &self,
+        state: &State,
+        agent_id: &str,
+        event: &JsValue,
+        turn_id: Option<&JsValue>,
+        is_foreground_event: bool,
+    ) {
+        self.emit_trace(
+            || {
+                Self::stream_event_bindings(
+                    state,
+                    agent_id,
+                    event,
+                    turn_id,
+                    vec![("isForegroundEvent", JsValue::Bool(is_foreground_event))],
+                )
+            },
+            "agent.manager.handle_stream_event.start",
+        );
+    }
+
+    /// `traceHandleStreamEventEnd`.
+    fn trace_handle_stream_event_end(
+        &self,
+        state: &State,
+        agent_id: &str,
+        event: &JsValue,
+        turn_id: Option<&JsValue>,
+        flags: &StreamEventFlags,
+    ) {
+        self.emit_trace(
+            || {
+                Self::stream_event_bindings(
+                    state,
+                    agent_id,
+                    event,
+                    turn_id,
+                    vec![
+                        (
+                            "shouldDispatchEvent",
+                            JsValue::Bool(flags.should_dispatch_event),
+                        ),
+                        (
+                            "shouldNotifyWaiters",
+                            JsValue::Bool(flags.should_notify_waiters),
+                        ),
+                    ],
+                )
+            },
+            "agent.manager.handle_stream_event.end",
+        );
+    }
+
+    /// The bindings of the `handleStreamEvent` traces: the agent's identity
+    /// and status, the call's own `extra` keys, then the event.
+    fn stream_event_bindings(
+        state: &State,
+        agent_id: &str,
+        event: &JsValue,
+        turn_id: Option<&JsValue>,
+        extra: Vec<(&str, JsValue)>,
+    ) -> JsValue {
+        let snapshot = state.agent(agent_id).map(|agent| &agent.snapshot);
+        let mut object = JsObject::new();
+        object.insert("agentId", trace::text(agent_id));
+        object.insert("provider", event_provider(event));
+        object.insert(
+            "sessionId",
+            snapshot.map_or(JsValue::Undefined, trace::session_id),
+        );
+        object.insert("turnId", turn_id.cloned().unwrap_or(JsValue::Undefined));
+        object.insert(
+            "lifecycle",
+            snapshot.map_or(JsValue::Undefined, trace::lifecycle),
+        );
+        object.insert(
+            "activeForegroundTurnId",
+            snapshot.map_or(JsValue::Undefined, trace::foreground_turn_id),
+        );
+        for (key, value) in extra {
+            object.insert(key, value);
+        }
+        object.insert("event", event.clone());
+        JsValue::Object(object)
+    }
+
     /// The agent's drain task: one event at a time, in arrival order.
     pub(crate) fn drain_session_events(&self, agent_id: &str) {
         loop {
@@ -961,6 +1062,13 @@ impl AgentManager {
             .clone()
             .map_or(JsValue::Null, JsValue::String);
         let is_foreground_event = strict_equals(Some(&active_foreground), event_turn_id.as_ref());
+        self.trace_handle_stream_event_start(
+            state,
+            agent_id,
+            &event,
+            event_turn_id.as_ref(),
+            is_foreground_event,
+        );
         let terminal = is_turn_terminal_event(&event);
         if terminal
             && let Some(turn_id) = event_turn_id.as_ref().filter(|turn| truthy(Some(turn)))
@@ -983,6 +1091,13 @@ impl AgentManager {
             }
             self.apply_coalescer_flushes(state, outcome.flushes)?;
             if outcome.coalesced {
+                self.trace_event_locked(
+                    state,
+                    agent_id,
+                    &event,
+                    event_turn_id.clone().unwrap_or(JsValue::Undefined),
+                    "agent.manager.coalescer.buffer",
+                );
                 return Ok(false);
             }
             let flushes = state.coalescer.flush_for(agent_id, now);
@@ -1033,6 +1148,7 @@ impl AgentManager {
                 )?;
             }
         }
+        self.trace_handle_stream_event_end(state, agent_id, &event, event_turn_id.as_ref(), &flags);
         Ok(flags.should_notify_waiters)
     }
 
