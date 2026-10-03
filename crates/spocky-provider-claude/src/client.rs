@@ -9,10 +9,13 @@ use spocky_contracts::js_value::{JsObject, JsValue};
 use spocky_session::agent_sdk::{
     AbortSignal, AgentClient, AgentCreateSessionOptions, AgentError, AgentLaunchContext,
     AgentProvider, AgentResult, AgentResumeSessionOptions, AgentSession, BoxFuture,
-    FetchCatalogOptions, ProviderRefreshContext, ResolveAgentDefaultModeInput, run_activity,
+    FetchCatalogOptions, ImportProviderSessionContext, ImportProviderSessionInput,
+    ImportableProviderSession, ImportedProviderSession, ListImportableSessionsOptions,
+    ProviderRefreshContext, ResolveAgentDefaultModeInput, run_activity,
 };
 
 use crate::actor::{ClaudeActor, ClaudeSessionHandle};
+use crate::diagnostic::get_diagnostic;
 use crate::launch::{
     ClaudeRuntimeSettings, is_available, process_env, provider_env, resolve_claude_binary,
     resolve_claude_code_version,
@@ -27,6 +30,9 @@ use crate::sdk_query::QueryFactory;
 use crate::session::{
     ClaudeSession, ResolveBinary, RewindSdk, SessionOptions, claude_capabilities,
     claude_mode_catalog,
+};
+use crate::session_import::{
+    drain_history, imported_session, list_importable_sessions, plan_import,
 };
 use crate::transcript::is_mcp_servers_record;
 
@@ -379,6 +385,44 @@ impl AgentClient for ClaudeClient {
         Some(Box::pin(async move {
             let env = self.build_provider_env(input.env.as_ref());
             Ok(Some(claude_mode_catalog(&env).1.to_owned()))
+        }))
+    }
+
+    fn list_importable_sessions(
+        &self,
+        options: Option<ListImportableSessionsOptions>,
+    ) -> Option<BoxFuture<'_, AgentResult<Vec<ImportableProviderSession>>>> {
+        Some(Box::pin(async move {
+            Ok(list_importable_sessions(
+                &self.build_provider_env(None),
+                options.as_ref(),
+            ))
+        }))
+    }
+
+    fn import_session(
+        &self,
+        input: ImportProviderSessionInput,
+        context: ImportProviderSessionContext,
+    ) -> Option<BoxFuture<'_, AgentResult<ImportedProviderSession>>> {
+        Some(Box::pin(async move {
+            let plan = plan_import(&input, &context);
+            let session = self
+                .resume_session(
+                    plan.persistence.clone(),
+                    Some(plan.config.clone()),
+                    context.launch_context.clone(),
+                    None,
+                )
+                .await?;
+            let history = drain_history(session.stream_history()).await?;
+            Ok(imported_session(session, plan, history))
+        }))
+    }
+
+    fn get_diagnostic(&self) -> Option<BoxFuture<'_, AgentResult<String>>> {
+        Some(Box::pin(async move {
+            Ok(get_diagnostic(self.options.runtime_settings.as_ref()).await)
         }))
     }
 
