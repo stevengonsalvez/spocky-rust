@@ -145,7 +145,7 @@ run corpus cargo test --locked --offline -p spocky-xterm --test xterm_corpus -- 
 run fuzz env "SPOCKY_XTERM_FUZZ_SEEDS=${SPOCKY_XTERM_FUZZ_SEEDS:-5000}" \
   cargo test --locked --offline -p spocky-xterm --test xterm_fuzz seeded -- --nocapture
 run biased env "SPOCKY_XTERM_BIASED_SEEDS=${SPOCKY_XTERM_BIASED_SEEDS:-1000}" \
-  cargo test --locked --offline -p spocky-xterm --test xterm_fuzz biased -- --nocapture
+  cargo test --locked --offline -p spocky-xterm --test xterm_fuzz biased_exception_fuzz -- --nocapture
 
 echo "== reached sites (union)"
 cat "$work"/corpus.err "$work"/fuzz.err "$work"/biased.err \
