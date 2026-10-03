@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use spocky_contracts::js_value::js_text_from_utf16;
 use spocky_contracts::ws::{DaemonPermission, ServerId};
 use spocky_daemon::admission::PasswordVerifier;
+use spocky_daemon::binary_frames::{BinaryFrame, TerminalOpcode};
 use spocky_daemon::hostnames::Hostnames;
 use spocky_daemon::log::{Logger, NullLogger};
 use spocky_daemon::server::{ListenHandle, Server, ServerConfig, ServerDeps, Timeouts};
@@ -39,6 +40,7 @@ struct Calls {
     opens: Mutex<Vec<(String, Option<Value>)>>,
     capability_updates: AtomicUsize,
     messages: Mutex<Vec<(SocketId, Value)>>,
+    binary_frames: Mutex<Vec<(SocketId, BinaryFrame)>>,
     failures: Mutex<Vec<(SocketId, ProtocolFailure)>>,
     detached: Mutex<Vec<SocketId>>,
     cleanups: AtomicUsize,
@@ -85,6 +87,21 @@ impl SessionHandle for Handle {
     fn handle_message(&self, message: Value, source: SocketId) {
         self.used();
         self.calls.messages.lock().unwrap().push((source, message));
+    }
+    fn binary_frame(&self, frame: BinaryFrame, source: SocketId) -> Result<(), String> {
+        self.used();
+        let rejected =
+            matches!(&frame, BinaryFrame::Terminal(terminal) if terminal.payload == b"fail");
+        self.calls
+            .binary_frames
+            .lock()
+            .unwrap()
+            .push((source, frame));
+        if rejected {
+            Err("hook failed".to_owned())
+        } else {
+            Ok(())
+        }
     }
     fn protocol_failure(&self, source: SocketId, failure: ProtocolFailure) {
         self.calls.failures.lock().unwrap().push((source, failure));
@@ -588,6 +605,52 @@ fn a_frame_with_no_known_type_reports_the_zod_issue_list() {
         assert_eq!(&failure.error, expected, "{text}");
         assert_eq!(failure.code, "invalid_message", "{text}");
     }
+    harness.finish();
+}
+
+/// `maybeHandleBinaryFrame`: after the hello a message that decodes as a binary
+/// frame goes to the session, whether the WebSocket frame was binary or text,
+/// and a hook error becomes a protocol failure; the JSON path is not taken.
+#[test]
+fn a_decoded_binary_frame_reaches_the_session_hook() {
+    let harness = start(config());
+    let mut ws = harness.connect(&[]);
+    send(&mut ws, &hello("c"));
+    next_json(&mut ws);
+    ws.send(Message::Binary(vec![0x02, 7, b'h', b'i'].into()))
+        .unwrap();
+    ws.send(Message::Text("\u{3}\u{1}x".into())).unwrap();
+    ws.send(Message::Binary(
+        vec![0x02, 0, b'f', b'a', b'i', b'l'].into(),
+    ))
+    .unwrap();
+    ws.send(Message::Binary(vec![0xff, 0xee].into())).unwrap();
+    wait_for("failures", || {
+        harness.calls.failures.lock().unwrap().len() == 2
+    });
+    let frames = harness.calls.binary_frames.lock().unwrap().clone();
+    let opcodes_and_slots: Vec<_> = frames
+        .iter()
+        .map(|(_, frame)| match frame {
+            BinaryFrame::Terminal(terminal) => (terminal.opcode, terminal.slot),
+            BinaryFrame::FileTransfer(_) => unreachable!("no file frame was sent"),
+        })
+        .collect();
+    assert_eq!(
+        opcodes_and_slots,
+        vec![
+            (TerminalOpcode::Input, 7),
+            (TerminalOpcode::Resize, 1),
+            (TerminalOpcode::Input, 0),
+        ]
+    );
+    let failures = harness.calls.failures.lock().unwrap().clone();
+    assert_eq!(failures[0].1.error, "Invalid message: hook failed");
+    assert_eq!(failures[0].1.code, "invalid_message");
+    assert_eq!(failures[0].1.request_id, None);
+    // 0xff 0xee does not decode and falls to the JSON path: lossy text, not JSON.
+    assert!(failures[1].1.error.starts_with("Invalid message: "));
+    assert!(harness.calls.messages.lock().unwrap().is_empty());
     harness.finish();
 }
 
