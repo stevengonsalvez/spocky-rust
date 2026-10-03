@@ -1378,6 +1378,14 @@
           "followUp": "coordinator reruns G1 and G2 on 472177ee because this changes the G1 and G2 paths"
         },
         {
+          "lane": "p3_session",
+          "date": "2026-10-03",
+          "sourceRange": "c7aa9600..20bdba87 (8 commits; reviewer 1 PASS, verdicts/p3_session-20bdba87.txt): mask policy, TypeError paths, rewind groundwork",
+          "integrationHead": "abc29187",
+          "leadVerification": "gated after cargo clean -p: spocky-session 71 passed --test-threads=1 --include-ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "followUps": ["P3 provider_snapshot_differential.rs:697 is flaky", "P3 four copies of WallClock across the session crate"]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1668,7 +1676,8 @@
           "rules": "generated_id, temporary_path and wall_clock only",
           "verification": "coordinator verified both runs; lead recomputed both parity verdict.json SHA-256s from the evidence (match, pass true, empty differing.txt)",
           "status": "G1 and G2 REGRESSION-VERIFIED on f0e2645b",
-          "g3": "self-check passed; parity hit the 1800 s cap under load and wrote no verdict; rerunning with a 3600 s cap"
+          "g3": "G3 REGRESSION PASS on f0e2645b (run g3-20261002T233509Z): the first parity hit the 1800 s cap under load and wrote no verdict; the rerun with a 3600 s cap passed, 108 rules (generated_id 78, temporary_path 18, wall_clock 12), 0 differences, 0 inversions, parity verdict.json SHA-256 474a6855337576d51063aad2c0b27f7ebcdb1b2c8eb7bbec30c27abb6ec100fa; lead recomputed the hash from the evidence (match, pass true, empty differing.txt)",
+          "overall": "G1, G2 and G3 regression-verified on main f0e2645b; later landings through 472177ee are re-run by the coordinator separately"
         }
       ],
       "reviews": [], "repairs": [], "trackedGaps": [
