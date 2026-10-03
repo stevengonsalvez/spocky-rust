@@ -102,6 +102,11 @@ and logging.
   boundaries). Some seeds scroll first, or use the alternate screen, where
   the line below the cursor exists and nothing throws. The default seeds
   generate the same streams as before the mode was added (digest unchanged).
+  A fixed test (`biased_branches_wedge_only_on_a_fresh_screen`) runs one 4 by
+  6 scenario per branch against the pinned xterm and the port: `CSI 1 J` at
+  the bottom right wedges xterm on a fresh screen and does not after
+  scrolling first or on the alternate screen. The random biased run also
+  asserts that not every seed wedges.
 - A mutation check (charset mapping disabled in `print`) made the corpus
   test fail on `insert-and-charset`, so the comparison is live.
 
@@ -138,6 +143,7 @@ SPOCKY_XTERM_FUZZ_SEEDS=5000 SPOCKY_PINNED_NODE=$node $gate \
   cargo test --locked -p spocky-xterm --test xterm_fuzz seeded -- --nocapture
 SPOCKY_XTERM_BIASED_SEEDS=1000 SPOCKY_PINNED_NODE=$node $gate \
   cargo test --locked -p spocky-xterm --test xterm_fuzz biased -- --nocapture
+SPOCKY_PINNED_NODE=$node $gate scripts/phase4/xterm-throw-probe.sh
 $gate cargo clippy --locked -p spocky-xterm --all-targets -- -D warnings
 $gate cargo fmt --package spocky-xterm -- --check
 $node scripts/phase4/xterm-capture.mjs \
@@ -147,7 +153,8 @@ $node scripts/phase4/xterm-capture.mjs \
 ```
 
 Acceptance on rustc 1.94.0: 18 unit tests, the corpus test, the 400-seed
-fuzz test and the 200-seed biased test pass; clippy with `-D warnings` and the format check are clean.
+fuzz test, the 200-seed biased test and the fixed branch test pass; clippy
+with `-D warnings` and the format check are clean.
 
 ## Evidence digests (SHA-256)
 
@@ -157,7 +164,8 @@ fuzz test and the 200-seed biased test pass; clippy with `-D warnings` and the f
 | `scripts/phase4/xterm-corpus.json` | `70e706aa58d994c5c877eaff783d273cef8e0f7595cfbf10897264192c861f26` |
 | `crates/spocky-xterm/tests/common/mod.rs` | `2fc992e1f0db464d1403245aa10ddaf415f0fe91194c77c08ea1365a18f6b499` |
 | `crates/spocky-xterm/tests/xterm_corpus.rs` | `2b677d62bdd158fd6b1ee0503c67032955c8c32161274a4a0dca75bcb3168929` |
-| `crates/spocky-xterm/tests/xterm_fuzz.rs` | `1d844471f9438a8ca6fd8c167a57ad9b6f36a9ca67b9952b206c13276200330a` |
+| `scripts/phase4/xterm-throw-probe.sh` | `610921f7cc8202d80e5d90fce1ac1976fda06dafe9b1ee1c1b3c945b961684aa` |
+| `crates/spocky-xterm/tests/xterm_fuzz.rs` | `9f4b0893e286e87eaef76fc04eca1dbccbbabdac754de214921ac9e155ea248a` |
 | `evidence/raw/phase4/xterm-corpus-capture.jsonl` (untracked, two runs identical) | `773f864b0d43de2c8a48c004deaee16489c83eb2983aabc06951b14da855d7e1` |
 
 ## Gaps
@@ -170,26 +178,31 @@ fuzz test and the 200-seed biased test pass; clippy with `-D warnings` and the f
   Paseo's ordering of writes, callbacks and resizes.
 - Exceptions (`Throw`). The port reproduces xterm's thrown exceptions where a
   read of an `undefined` line or a range check fails, at the same statement.
-  A temporary build that printed every `Throw` site (not committed) ran the
-  62 corpus scenarios, the 5000 default fuzz seeds and the 1000 biased seeds.
-  Every run reached exactly one site: `input_handler.rs:469` in
+  `scripts/phase4/xterm-throw-probe.sh` reproduces the site counts: it embeds
+  a probe patch (a `THROW-SITE` line to stderr at every throw, via
+  `#[track_caller]`), applies it, runs the corpus, the default fuzz and the
+  biased fuzz with `--nocapture`, counts the lines per run, and reverses the
+  patch. Command:
+  `CARGO_TARGET_DIR=/private/tmp/spocky-targets/p4_xterm_core CARGO_BUILD_JOBS=3
+  SPOCKY_PINNED_NODE=$node /private/tmp/spocky-targets/build-gate.sh
+  scripts/phase4/xterm-throw-probe.sh`. It ran the 62 corpus scenarios, the
+  5000 default fuzz seeds and the 1000 biased seeds against 37 candidate
+  sites. Every run reached exactly one: `input_handler.rs:469` in
   `erase_in_display` (case 1, last column: `lines.get(y + 1)` without
-  `ybase`, 1 of 62 corpus scenarios, 1 of 5000 default seeds, 277 of 1000
+  `ybase`; 1 line for the corpus, 1 for the default seeds, 277 for the
   biased seeds). The biased mode raised how often that site is hit but found
-  no second one. These sites stay unreached, by function:
-  `Buffer::resize` (two `Buffer::line` reads), `reflow_smaller` (four),
-  `get_wrapped_line_trimmed_length` and `wrapped_line` (their line reads),
-  `reflow_larger_get_lines_to_remove` (eight), `reflow_smaller_get_new_line_lengths`
-  (one), `BufferSet::scroll` (the recycled line and the `shiftElements` call),
-  `CircularList::shift_elements` (the range check), and in `input_handler.rs`
-  `print` (seven), `line_feed`, `backspace` (two), `erase_in_buffer_line`,
-  `edit_region_columns`, `repeat_preceding_character` (the `getString` read),
-  `reverse_index` (`shiftElements`). They guard invariants the buffer keeps
-  (every line from `0` to `length - 1` exists), so reaching one needs a state
-  this port and xterm both avoid; a resize that throws (`resizeErrors` stayed
-  0) is one of them. Also unreached: payloads above the 10,000,000 unit OSC
-  limit, and REP or loop counts in the billions (the fuzz bounds loop counts
-  to keep node within its time limit).
+  no second one. The other 36 stay unreached, by function: `Buffer::resize`
+  (2), `reflow_smaller` (4), `get_wrapped_line_trimmed_length` (3),
+  `reflow_larger_get_lines_to_remove` (8), `reflow_smaller_get_new_line_lengths`
+  (1), `BufferSet::scroll` (2), `CircularList::shift_elements` (the range
+  check, 1), and in `input_handler.rs` `print` (7), `line_feed` (1),
+  `backspace` (2), `erase_in_buffer_line` (1), `edit_region_columns` (1),
+  `repeat_preceding_character` (2), `reverse_index` (1). They guard
+  invariants the buffer keeps (every line from `0` to `length - 1` exists),
+  so reaching one needs a state this port and xterm both avoid; a resize that
+  throws (`resizeErrors` stayed 0) is one of them. Also unreached: payloads
+  above the 10,000,000 unit OSC limit, and REP or loop counts in the
+  billions (the fuzz bounds loop counts to keep node within its time limit).
 - What a wedge does in Paseo, which the integrating lane must reproduce
   because `spocky-xterm` only reports `Exception` and stops parsing:
   - The exception escapes xterm's write timer to the worker's
