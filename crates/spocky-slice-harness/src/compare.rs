@@ -84,6 +84,128 @@ pub fn canonical_client_metadata(record: &str) -> String {
     Value::Object(entry).to_string()
 }
 
+/// The `workspaces` entry of a stub request's `client_metadata` when it is
+/// exactly codex's git probe: one workspace path mapped to an object that has
+/// a string `latest_git_commit_hash`, an optional boolean `has_changes`, and
+/// nothing else.
+fn git_probe(record: &str) -> Option<Value> {
+    let Value::Object(entry) = serde_json::from_str::<Value>(record).ok()? else {
+        return None;
+    };
+    let Value::Object(body) = serde_json::from_str::<Value>(entry.get("body")?.as_str()?).ok()?
+    else {
+        return None;
+    };
+    let workspaces = body.get("client_metadata")?.get("workspaces")?;
+    let Value::Object(by_path) = workspaces else {
+        return None;
+    };
+    let mut entries = by_path.values();
+    let (Some(Value::Object(probe)), None) = (entries.next(), entries.next()) else {
+        return None;
+    };
+    let hash = matches!(probe.get("latest_git_commit_hash"), Some(Value::String(_)));
+    let changes = probe.get("has_changes").is_none_or(Value::is_boolean);
+    let known = probe
+        .keys()
+        .all(|key| key == "latest_git_commit_hash" || key == "has_changes");
+    (hash && changes && known).then(|| workspaces.clone())
+}
+
+/// Removes codex's git probe from one stub request record: the
+/// `client_metadata.workspaces` member, and nothing else. Removing it makes
+/// the body shorter, so the record's own `content-length` header is lowered by
+/// the same amount, and only when it equalled the raw body length. A record
+/// that is not exactly the probe shape, or whose `client_metadata` does not
+/// occur once in the body, is returned unchanged.
+#[must_use]
+pub fn strip_git_probe(record: &str) -> String {
+    if git_probe(record).is_none() {
+        return record.to_owned();
+    }
+    let Ok(Value::Object(mut entry)) = serde_json::from_str::<Value>(record) else {
+        return record.to_owned();
+    };
+    let Some(Value::String(body)) = entry.get("body").cloned() else {
+        return record.to_owned();
+    };
+    let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(&body) else {
+        return record.to_owned();
+    };
+    let Some(Value::Object(metadata)) = parsed.get("client_metadata") else {
+        return record.to_owned();
+    };
+    let original = Value::Object(metadata.clone()).to_string();
+    if body.matches(original.as_str()).count() != 1 {
+        return record.to_owned();
+    }
+    let mut kept = metadata.clone();
+    kept.shift_remove("workspaces");
+    let stripped = body.replacen(&original, &Value::Object(kept).to_string(), 1);
+    if let Some(Value::Array(headers)) = entry.get_mut("headers") {
+        for header in headers {
+            let declared = header.as_array().filter(|pair| {
+                pair.len() == 2
+                    && pair[0] == "content-length"
+                    && pair[1].as_str() == Some(body.len().to_string().as_str())
+            });
+            if declared.is_some() {
+                *header = serde_json::json!(["content-length", stripped.len().to_string()]);
+            }
+        }
+    }
+    entry.insert("body".into(), Value::String(stripped));
+    Value::Object(entry).to_string()
+}
+
+/// Id of the codex git probe transform.
+pub const GIT_PROBE_TRANSFORM: &str = "codex-workspace-git-probe";
+
+/// Stub request records where exactly one side carries codex's git probe, as
+/// (left records, right records) to strip. A record that has it on both sides
+/// is compared as is, so a different commit hash or `has_changes` still
+/// fails; records are paired by position, and a different record count
+/// strips nothing.
+fn git_probe_strips(left: &SideRun, right: &SideRun) -> (Vec<usize>, Vec<usize>) {
+    let (mut on_left, mut on_right) = (Vec::new(), Vec::new());
+    if left.stub_records.len() != right.stub_records.len() {
+        return (on_left, on_right);
+    }
+    for (index, (l, r)) in left
+        .stub_records
+        .iter()
+        .zip(&right.stub_records)
+        .enumerate()
+    {
+        match (git_probe(l).is_some(), git_probe(r).is_some()) {
+            (true, false) => on_left.push(index),
+            (false, true) => on_right.push(index),
+            _ => {}
+        }
+    }
+    (on_left, on_right)
+}
+
+/// Describes the git probe transform; `None` when it changed no record.
+fn git_probe_transform(left: &[usize], right: &[usize]) -> Option<Transform> {
+    if left.is_empty() && right.is_empty() {
+        return None;
+    }
+    let mut removed: Vec<String> = left
+        .iter()
+        .map(|index| format!("left:stub/{index:03}"))
+        .collect();
+    removed.extend(right.iter().map(|index| format!("right:stub/{index:03}")));
+    Some(Transform {
+        id: GIT_PROBE_TRANSFORM.into(),
+        target: "stub request records: client_metadata.workspaces.<root>.{latest_git_commit_hash,has_changes} only, and only where exactly one side carries it; the record's content-length header is lowered by the removed bytes".into(),
+        reason: "codex 0.159.0 collects the workspace git probe asynchronously and sometimes sends its first request without it (original-vs-original runs g4-http500 and g4-retry); no daemon controls it. Where both sides carry it, the values are compared raw".into(),
+        owner: "p3_slice_harness".into(),
+        raw_retained: "left-*/side.json and right-*/side.json stub_records, and files/stub".into(),
+        reordered: removed,
+    })
+}
+
 /// The single named non-normalization transform the gate applies.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,6 +253,12 @@ pub fn client_metadata_transform(left: &SideRun, right: &SideRun) -> Transform {
 /// Compared artifacts of one side, in canonical order.
 #[must_use]
 pub fn side_artifacts(side: &SideRun) -> Vec<Artifact> {
+    side_artifacts_without_probe(side, &[])
+}
+
+/// [`side_artifacts`], with the codex git probe removed from the stub request
+/// records at `probe_records` (see [`strip_git_probe`]).
+fn side_artifacts_without_probe(side: &SideRun, probe_records: &[usize]) -> Vec<Artifact> {
     let mut artifacts = Vec::new();
     step_artifacts("ready", &side.readiness, &mut artifacts);
     for (index, step) in side.steps.iter().enumerate() {
@@ -149,9 +277,14 @@ pub fn side_artifacts(side: &SideRun) -> Vec<Artifact> {
         side.force_killed.len().to_string().into_bytes(),
     ));
     for (index, record) in side.stub_records.iter().enumerate() {
+        let record = if probe_records.contains(&index) {
+            strip_git_probe(record)
+        } else {
+            record.clone()
+        };
         artifacts.push(Artifact::new(
             format!("stub/{index:03}"),
-            canonical_client_metadata(record).into_bytes(),
+            canonical_client_metadata(&record).into_bytes(),
         ));
     }
     artifacts.push(Artifact::new(
@@ -415,8 +548,9 @@ fn labelled(
 fn prepare_side(
     gate: &GateSpec,
     side: &SideRun,
+    probe_records: &[usize],
 ) -> (Vec<Artifact>, Vec<Artifact>, ExecutionCounts) {
-    let artifacts = side_artifacts(side);
+    let artifacts = side_artifacts_without_probe(side, probe_records);
     let raw_texts: Vec<String> = artifacts
         .iter()
         .map(|artifact| String::from_utf8_lossy(&artifact.bytes).into_owned())
@@ -456,8 +590,9 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
             .collect()
     });
     let harness_errors = labelled(left, right, |side| side.harness_errors.clone());
-    let (left_artifacts, left_state, left_counts) = prepare_side(gate, left);
-    let (right_artifacts, right_state, right_counts) = prepare_side(gate, right);
+    let (left_probe, right_probe) = git_probe_strips(left, right);
+    let (left_artifacts, left_state, left_counts) = prepare_side(gate, left, &left_probe);
+    let (right_artifacts, right_state, right_counts) = prepare_side(gate, right, &right_probe);
     let left_texts = texts(&left_artifacts, &left_state);
     let right_texts = texts(&right_artifacts, &right_state);
     let (left_facts, right_facts) = (facts(left), facts(right));
@@ -509,7 +644,8 @@ pub fn compare_sides(gate: &GateSpec, left: &SideRun, right: &SideRun) -> Outcom
         && check_failures.is_empty()
         && survivors.is_empty()
         && harness_errors.is_empty();
-    let transforms = vec![client_metadata_transform(left, right)];
+    let mut transforms = vec![client_metadata_transform(left, right)];
+    transforms.extend(git_probe_transform(&left_probe, &right_probe));
     let compared = manifest.is_some();
     let comparison = match (&discovery_error, &comparison_error) {
         (Some(error), _) => format!("skipped: rule discovery failed: {error}"),
@@ -1102,5 +1238,125 @@ mod tests {
         verdict.apply_order_check(&[&original, &original], &original);
         assert!(!verdict.pass);
         assert!(verdict.harness_errors[0].contains("needs 3 original observations"));
+    }
+
+    const PROBE: &str =
+        r#","workspaces":{"/r/project":{"latest_git_commit_hash":"600188d7","has_changes":false}}"#;
+
+    fn probe_body(workspaces: &str) -> String {
+        format!(r#"{{"model":"m","client_metadata":{{"a":"1"{workspaces},"z":"9"}},"tail":1}}"#)
+    }
+
+    /// A stub record whose content-length header equals its raw body length.
+    fn probe_record(side: SideRun, workspaces: &str, declared: Option<usize>) -> SideRun {
+        let mut side = side;
+        let body = probe_body(workspaces);
+        let length = declared.unwrap_or(body.len());
+        side.stub_records.push(
+            serde_json::json!({"seq": 0, "method": "POST", "path": "/v1/responses", "headers": [["content-length", length.to_string()]], "body": body, "scripted": 0})
+                .to_string(),
+        );
+        side.stub_scripted = 1;
+        side.script_len = 1;
+        side
+    }
+
+    #[test]
+    fn a_git_probe_on_one_side_only_is_removed_and_named() {
+        let (left, right) = pair();
+        let left = probe_record(left, PROBE, None);
+        let right = probe_record(right, "", None);
+        let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
+        assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
+        let ids: Vec<&str> = outcome
+            .verdict
+            .transforms
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(ids, [CLIENT_METADATA_TRANSFORM, GIT_PROBE_TRANSFORM]);
+        assert_eq!(outcome.verdict.transforms[1].reordered, ["left:stub/000"]);
+        // Either side may be the one carrying it.
+        let (left, right) = pair();
+        let outcome = compare_sides(
+            &gate_with(Vec::new()),
+            &probe_record(left, "", None),
+            &probe_record(right, PROBE, None),
+        );
+        assert!(outcome.verdict.pass);
+        assert_eq!(outcome.verdict.transforms[1].reordered, ["right:stub/000"]);
+    }
+
+    #[test]
+    fn a_git_probe_on_both_sides_is_compared_and_a_different_value_fails() {
+        let other = PROBE.replace("600188d7", "deadbeef");
+        let (left, right) = pair();
+        let outcome = compare_sides(
+            &gate_with(Vec::new()),
+            &probe_record(left, PROBE, None),
+            &probe_record(right, &other, None),
+        );
+        assert!(!outcome.verdict.pass);
+        assert_eq!(outcome.verdict.transforms.len(), 1);
+        // The same value on both sides passes with no probe transform.
+        let (left, right) = pair();
+        let outcome = compare_sides(
+            &gate_with(Vec::new()),
+            &probe_record(left, PROBE, None),
+            &probe_record(right, PROBE, None),
+        );
+        assert!(outcome.verdict.pass);
+        assert_eq!(outcome.verdict.transforms.len(), 1);
+        // has_changes is compared too.
+        let changed = PROBE.replace("false", "true");
+        let (left, right) = pair();
+        let outcome = compare_sides(
+            &gate_with(Vec::new()),
+            &probe_record(left, PROBE, None),
+            &probe_record(right, &changed, None),
+        );
+        assert!(!outcome.verdict.pass);
+    }
+
+    #[test]
+    fn only_the_exact_probe_shape_is_removed() {
+        for odd in [
+            r#","workspaces":{"/r/project":{"latest_git_commit_hash":"600188d7","has_changes":false,"extra":1}}"#,
+            r#","workspaces":{"/r/a":{"latest_git_commit_hash":"1"},"/r/b":{"latest_git_commit_hash":"2"}}"#,
+            r#","workspaces":{"/r/project":{"has_changes":false}}"#,
+            r#","workspaces":{"/r/project":{"latest_git_commit_hash":7}}"#,
+            r#","workspaces":"x""#,
+        ] {
+            let record = probe_record(pair().0, odd, None).stub_records.remove(0);
+            assert_eq!(strip_git_probe(&record), record, "{odd}");
+            let (left, right) = pair();
+            let outcome = compare_sides(
+                &gate_with(Vec::new()),
+                &probe_record(left, odd, None),
+                &probe_record(right, "", None),
+            );
+            assert!(!outcome.verdict.pass, "{odd}");
+        }
+    }
+
+    #[test]
+    fn removing_the_probe_lowers_a_matching_content_length_only() {
+        let record = probe_record(pair().0, PROBE, None).stub_records.remove(0);
+        let stripped = strip_git_probe(&record);
+        let value: Value = serde_json::from_str(&stripped).unwrap();
+        let body = value["body"].as_str().unwrap();
+        assert_eq!(body, probe_body(""));
+        assert_eq!(
+            value["headers"][0][1].as_str().unwrap(),
+            body.len().to_string()
+        );
+        // Nothing but the probe member changed in the body.
+        assert_eq!(body.len(), probe_body(PROBE).len() - PROBE.len());
+        // A header that did not match the raw body length is left alone.
+        let odd = probe_record(pair().0, PROBE, Some(7))
+            .stub_records
+            .remove(0);
+        let value: Value = serde_json::from_str(&strip_git_probe(&odd)).unwrap();
+        assert_eq!(value["headers"][0][1].as_str().unwrap(), "7");
     }
 }
