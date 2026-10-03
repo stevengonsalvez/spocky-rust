@@ -5495,6 +5495,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
+ "spocky-contracts",
  "spocky-ui-renderer-pilot",
  "tao",
  "url",
