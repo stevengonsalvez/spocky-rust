@@ -12,8 +12,10 @@
 // next recorded line was that response; when the client went on with a
 // request instead (`turn/interrupt` while an approval is pending), the next
 // recorded response already waits for it. Notifications are sent as soon as
-// everything before them was. A client request the recording
-// cannot answer gets a JSON-RPC error at once, so no client hangs on it.
+// everything before them was; `serverRequest/resolved` also waits for the
+// client's response to that request when the recording has one. A client
+// request the recording cannot answer gets a JSON-RPC error at once, so no
+// client hangs on it.
 import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -48,7 +50,13 @@ const steps = recorded.out.map((raw) => {
     const awaits = next !== undefined && next.method === undefined && next.id === message.id;
     return { kind: "request", line, id: message.id, awaits };
   }
-  return { kind: "notify", line };
+  // `serverRequest/resolved` follows the client's answer to that request, so
+  // it waits for it when the recorded client sent one.
+  const requestId = message.method === "serverRequest/resolved" ? message.params?.requestId : undefined;
+  const answeredByClient =
+    requestId !== undefined &&
+    clientLines.some((line) => line.method === undefined && line.id === requestId);
+  return { kind: "notify", line, awaitsClientResponse: answeredByClient ? requestId : undefined };
 });
 
 const queued = [];
@@ -69,6 +77,7 @@ function pump() {
       awaiting = null;
     }
     const step = steps[next];
+    if (step.awaitsClientResponse !== undefined && !answered.has(step.awaitsClientResponse)) return;
     if (step.kind === "respond") {
       const index = queued.findIndex((request) => request.method === step.method);
       if (index < 0) return;
