@@ -5,6 +5,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
 use serde::{Deserialize, Serialize};
+use spocky_contracts::text::js_length;
 
 use crate::{
     AccountEmailMessage, AccountId, AuthorityError, BrowserAccountStatus, DurableHubStore,
@@ -138,10 +139,11 @@ impl<S: DurableHubStore> HubHttpService<S> {
             .headers
             .get("content-type")
             .is_none_or(|content_type| {
-                !content_type
-                    .split(';')
-                    .next()
-                    .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
+                !content_type.split(';').next().is_some_and(|value| {
+                    value
+                        .trim_matches(is_ows)
+                        .eq_ignore_ascii_case("application/json")
+                })
             })
         {
             return json_response(
@@ -159,14 +161,6 @@ impl<S: DurableHubStore> HubHttpService<S> {
                 },
             );
         };
-        if input.name.trim().is_empty() {
-            return json_response(
-                400,
-                &ErrorBody {
-                    error: "invalid_signup",
-                },
-            );
-        }
         if self.registration == RegistrationMode::OpenVerified {
             return self.open_sign_up(input);
         }
@@ -859,13 +853,92 @@ struct ErrorBody {
 }
 
 fn session_token(request: &HttpRequest) -> Option<SessionToken> {
-    request.headers.get("cookie").and_then(|cookies| {
-        cookies.split(';').find_map(|cookie| {
-            let (name, value) = cookie.trim().split_once('=')?;
-            (name == SESSION_COOKIE || name == "better-auth.session_token")
-                .then(|| SessionToken::from(value))
+    let cookies = parse_cookies(request.headers.get("cookie")?);
+    cookies
+        .get(SESSION_COOKIE)
+        .or_else(|| cookies.get("better-auth.session_token"))
+        .map(|value| SessionToken::from(value.as_str()))
+}
+
+/// Optional whitespace of RFC 7230: space and horizontal tab only, narrower than
+/// `String.prototype.trim`.
+fn is_ows(character: char) -> bool {
+    matches!(character, ' ' | '\t')
+}
+
+/// better-auth's `parseCookies` (`cookies/cookie-utils.mjs`): `;` separated chunks, names and
+/// values trimmed of OWS, a surrounding pair of double quotes removed, entries whose name is not an
+/// RFC 7230 token or whose value is not RFC 6265 cookie octets (plus space and comma) dropped, and
+/// the value percent-decoded when that is valid. A repeated name keeps its last value.
+fn parse_cookies(header: &str) -> BTreeMap<String, String> {
+    let mut cookies = BTreeMap::new();
+    if js_length(header) < 2 {
+        return cookies;
+    }
+    for chunk in header.split(';') {
+        let Some((name, value)) = chunk.split_once('=') else {
+            continue;
+        };
+        let name = name.trim_matches(is_ows);
+        let value = value.trim_matches(is_ows);
+        let value = value
+            .strip_prefix('"')
+            .and_then(|inner| inner.strip_suffix('"'))
+            .filter(|_| value.len() >= 2)
+            .unwrap_or(value);
+        if cookie_name(name) && cookie_value(value) {
+            cookies.insert(name.to_owned(), decode_uri_component(value));
+        }
+    }
+    cookies
+}
+
+/// `[\x21\x23-\x27\x2A\x2B\x2D\x2E\x30-\x39\x41-\x5A\x5E\x5F\x60\x61-\x7A\x7C\x7E]+`.
+fn cookie_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            matches!(
+                byte,
+                0x21 | 0x23..=0x27 | 0x2A | 0x2B | 0x2D | 0x2E | 0x30..=0x39 | 0x41..=0x5A
+                    | 0x5E | 0x5F | 0x60 | 0x61..=0x7A | 0x7C | 0x7E
+            )
         })
-    })
+}
+
+/// `[\x20\x21\x23-\x3A\x3C-\x5B\x5D-\x7E]*`.
+fn cookie_value(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| matches!(byte, 0x20 | 0x21 | 0x23..=0x3A | 0x3C..=0x5B | 0x5D..=0x7E))
+}
+
+/// `decodeURIComponent`, or the text as it is when the escapes are not valid UTF-8.
+fn decode_uri_component(text: &str) -> String {
+    if !text.contains('%') {
+        return text.to_owned();
+    }
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            // Two hexadecimal digits exactly; `from_str_radix` alone would also take `+1`.
+            let digits = bytes
+                .get(index + 1..index + 3)
+                .filter(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+                .and_then(|pair| std::str::from_utf8(pair).ok())
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+            let Some(byte) = digits else {
+                return text.to_owned();
+            };
+            decoded.push(byte);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| text.to_owned())
 }
 
 fn request_path(uri: &str) -> &str {
@@ -1020,7 +1093,10 @@ fn read_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
     let mut headers = BTreeMap::new();
     for line in lines.filter(|line| !line.is_empty()) {
         if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
+            headers.insert(
+                name.trim_matches(is_ows).to_ascii_lowercase(),
+                value.trim_matches(is_ows).to_owned(),
+            );
         }
     }
     let body_length = headers
@@ -1069,4 +1145,46 @@ fn write_response(stream: &mut TcpStream, response: &HttpResponse) -> io::Result
     }
     write!(stream, "connection: close\r\n\r\n")?;
     stream.write_all(&response.body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_uri_component, parse_cookies};
+
+    #[test]
+    fn cookies_follow_better_auth_parse_cookies() {
+        let cookies = parse_cookies("a=1;b=2; c = \"3\" ;\td=%E2%82%AC;e=%zz;f=%+1;a=last");
+        assert_eq!(cookies.get("a").map(String::as_str), Some("last"));
+        assert_eq!(cookies.get("b").map(String::as_str), Some("2"));
+        assert_eq!(cookies.get("c").map(String::as_str), Some("3"));
+        assert_eq!(cookies.get("d").map(String::as_str), Some("\u{20ac}"));
+        assert_eq!(cookies.get("e").map(String::as_str), Some("%zz"));
+        assert_eq!(cookies.get("f").map(String::as_str), Some("%+1"));
+    }
+
+    #[test]
+    fn cookies_with_a_bad_name_or_value_are_dropped() {
+        for header in [
+            "x",
+            "=1",
+            "a b=1",
+            "a=1\u{b}",
+            "a=\"x\"y\"",
+            "a=b\\c",
+            "a=\u{e9}",
+            "\u{a0}a=1",
+            "a=\u{a0}1",
+        ] {
+            assert!(parse_cookies(header).is_empty(), "{header:?}");
+        }
+        // Only SP and HTAB are trimmed, so a vertical tab keeps the name invalid.
+        assert!(parse_cookies("\u{b}a=1").is_empty());
+        assert_eq!(parse_cookies(" a=1").len(), 1);
+    }
+
+    #[test]
+    fn invalid_utf8_escapes_stay_as_written() {
+        assert_eq!(decode_uri_component("%E2%82"), "%E2%82");
+        assert_eq!(decode_uri_component("a%20b"), "a b");
+    }
 }
