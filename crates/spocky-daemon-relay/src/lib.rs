@@ -5,5 +5,6 @@
 //! the same code runs under a real network runtime and under the differential harness
 //! that replays recorded events against the pinned TypeScript.
 
+pub mod control;
 pub mod endpoint;
 pub mod js_json;
