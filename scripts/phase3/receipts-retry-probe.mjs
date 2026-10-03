@@ -1,0 +1,93 @@
+// G4 send-retry probe, run by the slice harness under the egress sandbox with
+// the pinned node against a daemon on a disposable home. One client creates an
+// agent, sends a message with a fixed messageId, then retries it. Every retry
+// of the same messageId must reuse the stored receipt and start no second turn,
+// so the scripted stub is consumed by exactly three turns: the initial prompt,
+// the first send, and the concurrent pair of fresh-messageId sends.
+//
+// argv: <paseoRoot> --host <host:port> <project> <initialPrompt> <sendPrompt>
+//       <otherPrompt> <racePrompt>
+//
+// Steps, each with the pinned client's own accepted/error outcome:
+//   created        createAgent(initialPrompt), waitForFinish
+//   first          sendAgentMessage(sendPrompt, { messageId: "retry-1" }), waitForFinish
+//   retry          the same call again: accepted, no new turn
+//   retry-other    a second connection repeats it: accepted, no new turn
+//   conflict       same messageId, otherPrompt: rejected (request key conflict)
+//   race           two concurrent sends of racePrompt with messageId "retry-2":
+//                  both accepted, one turn
+//
+// stdout line 1 is {"outcomes": [{"step", "ok", "error"}...], "workspaceId"};
+// the remaining lines are the recording client's raw wire text, unmodified
+// except that pings, pongs and the server_info status are left out. Wire text
+// is taken by hooking DaemonClient.prototype.handleJsonPayload, so key order
+// and unknown keys are preserved.
+const [, , paseoRoot, hostFlag, host, project, initialPrompt, sendPrompt, otherPrompt, racePrompt] =
+  process.argv;
+if (hostFlag !== "--host" || !host || !project || !initialPrompt || !sendPrompt || !otherPrompt || !racePrompt) {
+  console.error(
+    "usage: receipts-retry-probe.mjs <paseoRoot> --host <host> <project> <initial> <send> <other> <race>",
+  );
+  process.exit(2);
+}
+const { connectToDaemon } = await import(`${paseoRoot}/packages/cli/dist/utils/client.js`);
+const target = { kind: "endpoint", host };
+const probe = await connectToDaemon({ target });
+const prototype = Object.getPrototypeOf(probe);
+await probe.close();
+const raw = [];
+let recorder = null;
+const handleJsonPayload = prototype.handleJsonPayload;
+prototype.handleJsonPayload = function (payload, length) {
+  if (this === recorder) raw.push(payload);
+  return handleJsonPayload.call(this, payload, length);
+};
+const outcomes = [];
+const attempt = async (step, run) => {
+  try {
+    await run();
+    outcomes.push({ step, ok: true, error: null });
+  } catch (error) {
+    outcomes.push({ step, ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+};
+const client = await connectToDaemon({ target });
+recorder = client;
+const created = await client.createWorkspace({ source: { kind: "directory", path: project } });
+const agent = await client.createAgent({
+  provider: "codex",
+  cwd: project,
+  workspaceId: created.workspace.id,
+  modeId: "full-access",
+  initialPrompt,
+});
+await attempt("created", () => client.waitForFinish(agent.id, 120000));
+await attempt("first", async () => {
+  await client.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" });
+  await client.waitForFinish(agent.id, 120000);
+});
+await attempt("retry", () => client.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
+const other = await connectToDaemon({ target });
+await attempt("retry-other", () => other.sendAgentMessage(agent.id, sendPrompt, { messageId: "retry-1" }));
+await other.close();
+await attempt("conflict", () => client.sendAgentMessage(agent.id, otherPrompt, { messageId: "retry-1" }));
+await attempt("race", async () => {
+  const sends = await Promise.allSettled([
+    client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
+    client.sendAgentMessage(agent.id, racePrompt, { messageId: "retry-2" }),
+  ]);
+  const failed = sends.find((send) => send.status === "rejected");
+  if (failed) throw failed.reason;
+  await client.waitForFinish(agent.id, 120000);
+});
+await new Promise((resolve) => setTimeout(resolve, 1500));
+console.log(JSON.stringify({ outcomes, workspaceId: created.workspace.id }));
+for (const text of raw) {
+  const frame = JSON.parse(text);
+  const message = frame.type === "session" ? frame.message : frame;
+  if (message.type !== "pong" && !(message.type === "status" && message.payload?.status === "server_info")) {
+    console.log(text);
+  }
+}
+await client.close();
+process.exit(0);
