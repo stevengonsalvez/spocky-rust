@@ -1,0 +1,683 @@
+{
+ "cwd": "/tmp/spocky-import-cwd",
+ "files": [
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000001.jsonl",
+   "mtime": 1700000100,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000001",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0001",
+     "message": {
+      "role": "user",
+      "content": "first prompt here"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000001",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0001",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000001",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0001",
+     "message": {
+      "role": "user",
+      "content": "second   prompt\twith   spaces"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000002.jsonl",
+   "mtime": 1700000200,
+   "lines": [
+    {
+     "type": "custom-title",
+     "customTitle": "  Custom One  ",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000002"
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000002",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0002",
+     "message": {
+      "role": "user",
+      "content": "ignored for title"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000002",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0002",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000003.jsonl",
+   "mtime": 1700000300,
+   "lines": [
+    {
+     "type": "ai-title",
+     "aiTitle": "AI named",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000003"
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000003",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0003",
+     "message": {
+      "role": "user",
+      "content": "hello"
+     }
+    },
+    {
+     "type": "custom-title",
+     "customTitle": "   ",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000003"
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000004.jsonl",
+   "mtime": 1700000400,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000004",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0004",
+     "message": {
+      "role": "user",
+      "content": "<command-name>/review</command-name><command-message>review</command-message><command-args>the diff</command-args>"
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000004",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0004",
+     "message": {
+      "role": "user",
+      "content": "[Request interrupted by user]"
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000004",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0004",
+     "message": {
+      "role": "user",
+      "content": "real one"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000005.jsonl",
+   "mtime": 1700000500,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000005",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0005",
+     "message": {
+      "role": "user",
+      "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000005",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0005",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000006.jsonl",
+   "mtime": 1700000600,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000006",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0006",
+     "message": {
+      "role": "user",
+      "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d\ude00tail more text"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000006",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0006",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000007.jsonl",
+   "mtime": 1700000700,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000007",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0007",
+     "message": {
+      "role": "user",
+      "content": "only synthetic"
+     },
+     "isMeta": true
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000007",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0007",
+     "message": {
+      "role": "user",
+      "content": "tool"
+     },
+     "toolUseResult": {
+      "a": 1
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000007",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0007",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "no user prompt"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000008.jsonl",
+   "mtime": 1700000800,
+   "lines": [
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000008",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0008",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "assistant first"
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000008",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0008",
+     "message": {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "from blocks"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000009.jsonl",
+   "mtime": 1700000900,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000009",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0009",
+     "message": {
+      "role": "user",
+      "content": "sidechain?"
+     },
+     "isSidechain": true
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000009",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0009",
+     "message": {
+      "role": "user",
+      "content": "main prompt"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000010.jsonl",
+   "mtime": 1700001000,
+   "lines": [
+    {
+     "type": "user",
+     "message": {
+      "role": "user",
+      "content": "no ids"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000011.jsonl",
+   "mtime": 1700001100,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000011",
+     "message": {
+      "role": "user",
+      "content": "no cwd"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000012.jsonl",
+   "mtime": 1700001200,
+   "text": "{\"type\" : \"user\", \"sessionId\" : \"aaaaaaaa-0000-4000-8000-000000000012\", \"cwd\" : \"/tmp/spocky-import-cwd\", \"message\":{\"role\":\"user\",\"content\":\"crlf one\"}}\r\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"crlf two\"}}\r\nnot json\r\n{\"type\":\"ai-title\",\"aiTitle\":\"CRLF title\"}\n"
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000013.jsonl",
+   "mtime": 1700001300,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000013",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0013",
+     "message": {
+      "role": "user",
+      "content": "same mtime a"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000013",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0013",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000014.jsonl",
+   "mtime": 1700001300,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000014",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0014",
+     "message": {
+      "role": "user",
+      "content": "same mtime b"
+     }
+    },
+    {
+     "type": "assistant",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000014",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:01.000Z",
+     "uuid": "a-0014",
+     "message": {
+      "id": "m",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-other-project/aaaaaaaa-0000-4000-8000-000000000015.jsonl",
+   "mtime": 1700001400,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000015",
+     "cwd": "/other/project",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "message": {
+      "role": "user",
+      "content": "other project prompt"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-other-project/aaaaaaaa-0000-4000-8000-000000000016.jsonl",
+   "mtime": 1700001500,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000016",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0016",
+     "message": {
+      "role": "user",
+      "content": "elsewhere cwd field only"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000017.jsonl",
+   "mtime": 1700001600,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000017",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0017",
+     "message": {
+      "role": "user",
+      "content": {
+       "not": "text"
+      }
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000017",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0017",
+     "message": {
+      "role": "user",
+      "content": "fallback text"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000018.jsonl",
+   "mtime": 1700001700,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "",
+     "cwd": "",
+     "message": {
+      "role": "user",
+      "content": "empty ids"
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000018",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0018",
+     "message": {
+      "role": "user",
+      "content": "then real"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000019.jsonl",
+   "mtime": 1700001800,
+   "lines": [
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000019",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0019",
+     "message": {
+      "role": "user",
+      "content": "<local-command-stdout>noise</local-command-stdout>"
+     }
+    },
+    {
+     "type": "user",
+     "sessionId": "aaaaaaaa-0000-4000-8000-000000000019",
+     "cwd": "/tmp/spocky-import-cwd",
+     "timestamp": "2001-01-01T00:00:00.000Z",
+     "uuid": "u-0019",
+     "message": {
+      "role": "user",
+      "content": "after noise"
+     }
+    }
+   ]
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000020.jsonl",
+   "mtime": 1700001900,
+   "hex": "7b2274797065223a2275736572222c2273657373696f6e4964223a22626164222c22637764223a222f78222c226d657373616765223a7b22726f6c65223a2275736572222c22636f6e74656e74223a22636166e920ff227d7d0a"
+  },
+  {
+   "path": "projects/-other-project/notes.txt",
+   "text": "not a session",
+   "mtime": 1700000000
+  },
+  {
+   "path": "projects/loose-file.jsonl",
+   "text": "{}",
+   "mtime": 1700000000
+  },
+  {
+   "path": "projects/-tmp-spocky-import-cwd/aaaaaaaa-0000-4000-8000-000000000021.jsonl/dir-named-like-file/x",
+   "text": "x",
+   "mtime": 1700000000
+  }
+ ],
+ "calls": [
+  {
+   "name": "default",
+   "options": null
+  },
+  {
+   "name": "limit_3",
+   "options": {
+    "limit": 3
+   }
+  },
+  {
+   "name": "limit_0",
+   "options": {
+    "limit": 0
+   }
+  },
+  {
+   "name": "limit_negative",
+   "options": {
+    "limit": -2
+   }
+  },
+  {
+   "name": "limit_fraction",
+   "options": {
+    "limit": 2.7
+   }
+  },
+  {
+   "name": "scan_limit_2",
+   "options": {
+    "limit": 50,
+    "scanLimit": 2
+   }
+  },
+  {
+   "name": "scan_limit_big",
+   "options": {
+    "limit": 10,
+    "scanLimit": 9999
+   }
+  },
+  {
+   "name": "cwd",
+   "options": {
+    "cwd": "/tmp/spocky-import-cwd"
+   }
+  },
+  {
+   "name": "cwd_limit",
+   "options": {
+    "cwd": "/tmp/spocky-import-cwd",
+    "limit": 4
+   }
+  },
+  {
+   "name": "cwd_missing",
+   "options": {
+    "cwd": "/no/such/place"
+   }
+  },
+  {
+   "name": "empty_cwd",
+   "options": {
+    "cwd": ""
+   }
+  },
+  {
+   "name": "query_ignored",
+   "options": {
+    "query": "zzz",
+    "limit": 2
+   }
+  }
+ ],
+ "imports": [
+  {
+   "name": "import_basic",
+   "providerHandleId": "aaaaaaaa-0000-4000-8000-000000000001",
+   "cwd": "/tmp/spocky-import-cwd",
+   "config": {
+    "provider": "claude",
+    "cwd": "/ignored",
+    "model": "claude-opus-4-8",
+    "modeId": "plan"
+   },
+   "storedConfig": {
+    "provider": "claude",
+    "cwd": "/ignored2",
+    "extra": {
+     "a": 1
+    }
+   }
+  },
+  {
+   "name": "import_missing",
+   "providerHandleId": "aaaaaaaa-0000-4000-8000-000000000099",
+   "cwd": "/tmp/spocky-import-cwd",
+   "config": {
+    "provider": "claude",
+    "cwd": "/x"
+   },
+   "storedConfig": {}
+  }
+ ]
+}
