@@ -7,6 +7,7 @@
 
 pub mod close;
 pub mod connection;
+pub mod erlang_map;
 pub mod handshake;
 pub mod json;
 pub mod limits;
