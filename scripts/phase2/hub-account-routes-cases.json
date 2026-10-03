@@ -1,0 +1,2600 @@
+{
+  "schemaVersion": 1,
+  "appUrl": "http://localhost:3000",
+  "scenarios": [
+    {
+      "id": "open",
+      "env": {
+        "registration": "open",
+        "organizationCreation": "open"
+      },
+      "steps": [
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "owner",
+          "name": "Olive Owner",
+          "email": "owner@example.test",
+          "password": "owner-password-1"
+        },
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "admin",
+          "name": "Adam Admin",
+          "email": "admin@example.test",
+          "password": "admin-password-1"
+        },
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "member",
+          "name": "Mia Member",
+          "email": "member@example.test",
+          "password": "member-password-1"
+        },
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "outsider",
+          "name": "Otto Outsider",
+          "email": "outsider@example.test",
+          "password": "outsider-password-1"
+        },
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "rival",
+          "name": "Rita Rival",
+          "email": "rival@example.test",
+          "password": "rival-password-1"
+        },
+        {
+          "kind": "request",
+          "id": "open/001-anon-state-anonymous",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/002-anon-unknown-get",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/nope",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/003-anon-unknown-post",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/nope",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/004-owner-unknown-post-cookie",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/nope",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/005-owner-unknown-post-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/nope",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/006-anon-state-post",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/007-anon-trailing-slash",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys/",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/008-anon-case",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/State",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/009-anon-empty-route",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/010-anon-put",
+          "actor": "anon",
+          "method": "PUT",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"x\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/011-anon-delete",
+          "actor": "anon",
+          "method": "DELETE",
+          "path": "/api/auth/paseo/remove-member",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/012-anon-get-on-post-route",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/create-organization",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/013-anon-outside-allowlist",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/other",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/014-anon-recovery-path-not-served",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/request-password-reset",
+          "body": "{\"email\":\"a@example.test\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/015-anon-reset-path-not-served",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/reset-password",
+          "body": "{\"token\":\"t\",\"newPassword\":\"x\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/016-anon-get-session-anonymous",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/get-session",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/017-anon-create-organization-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"Anon\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/018-anon-create-organization-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/019-anon-select-organization-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/020-anon-create-invitation-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/021-anon-cancel-invitation-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/022-anon-accept-invitation-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/023-anon-change-member-role-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/024-anon-remove-member-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/025-anon-api-keys-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/026-anon-revoke-api-key-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/027-anon-revoke-cli-credential-anonymous",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/028-anon-api-keys-anonymous",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/029-outsider-create-organization-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/030-outsider-select-organization-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/031-outsider-create-invitation-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/032-outsider-cancel-invitation-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/033-outsider-accept-invitation-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/034-outsider-change-member-role-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/035-outsider-remove-member-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/036-outsider-api-keys-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/037-outsider-revoke-api-key-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/038-outsider-revoke-cli-credential-outsider-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/039-outsider-api-keys-outsider",
+          "actor": "outsider",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/040-outsider-state-outsider",
+          "actor": "outsider",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/041-owner-create-organization-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/042-owner-create-organization-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/043-owner-create-organization-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/044-owner-create-organization-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/045-owner-create-organization-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/046-owner-create-organization-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/047-owner-create-organization-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/048-owner-select-organization-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/049-owner-select-organization-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/050-owner-select-organization-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/051-owner-select-organization-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/052-owner-select-organization-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/053-owner-select-organization-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/054-owner-select-organization-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/055-owner-create-invitation-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/056-owner-create-invitation-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/057-owner-create-invitation-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/058-owner-create-invitation-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/059-owner-create-invitation-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/060-owner-create-invitation-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/061-owner-create-invitation-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/062-owner-cancel-invitation-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/063-owner-cancel-invitation-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/064-owner-cancel-invitation-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/065-owner-cancel-invitation-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/066-owner-cancel-invitation-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/067-owner-cancel-invitation-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/068-owner-cancel-invitation-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/069-owner-accept-invitation-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/070-owner-accept-invitation-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/071-owner-accept-invitation-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/072-owner-accept-invitation-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/073-owner-accept-invitation-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/074-owner-accept-invitation-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/075-owner-accept-invitation-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/076-owner-change-member-role-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/077-owner-change-member-role-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/078-owner-change-member-role-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/079-owner-change-member-role-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/080-owner-change-member-role-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/081-owner-change-member-role-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/082-owner-change-member-role-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/083-owner-remove-member-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/084-owner-remove-member-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/085-owner-remove-member-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/086-owner-remove-member-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/087-owner-remove-member-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/088-owner-remove-member-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/089-owner-remove-member-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/090-owner-api-keys-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/091-owner-api-keys-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/092-owner-api-keys-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/093-owner-api-keys-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/094-owner-api-keys-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/095-owner-api-keys-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/096-owner-api-keys-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/097-owner-revoke-api-key-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/098-owner-revoke-api-key-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/099-owner-revoke-api-key-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/100-owner-revoke-api-key-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/101-owner-revoke-api-key-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/102-owner-revoke-api-key-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/103-owner-revoke-api-key-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/104-owner-revoke-cli-credential-guard-no-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": null
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/105-owner-revoke-cli-credential-guard-null-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": "null"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/106-owner-revoke-cli-credential-guard-foreign-origin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/107-owner-revoke-cli-credential-guard-cross-site",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "sec-fetch-site": "cross-site"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/108-owner-revoke-cli-credential-guard-bad-origin-text",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": "not a url"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/109-owner-revoke-cli-credential-guard-referer-only-ok",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": null,
+            "referer": "http://localhost:3000/settings"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/110-owner-revoke-cli-credential-guard-referer-foreign",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "headers": {
+            "origin": null,
+            "referer": "https://evil.example/x"
+          },
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/111-anon-guard-skipped-no-cookie",
+          "actor": "anon",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": "{\"name\":\"Skip\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/112-owner-state-guard-skipped-get",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "headers": {
+            "origin": "https://evil.example"
+          },
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/113-outsider-create-organization-invalid-json",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/114-outsider-create-organization-empty-body",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": ""
+        },
+        {
+          "kind": "request",
+          "id": "open/115-outsider-create-organization-null",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "null"
+        },
+        {
+          "kind": "request",
+          "id": "open/116-outsider-create-organization-array",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "[]"
+        },
+        {
+          "kind": "request",
+          "id": "open/117-outsider-create-organization-empty-object",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/118-outsider-create-organization-empty-name",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/119-outsider-create-organization-blank-name",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"   \"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/120-outsider-create-organization-number-name",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":5}"
+        },
+        {
+          "kind": "request",
+          "id": "open/121-outsider-create-organization-extra-key",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"Valid\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/122-outsider-create-organization-name-101",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/123-outsider-create-organization-name-padded-101",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\" nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn \"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/124-outsider-create-organization-proto-key",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"Valid\",\"__proto__\":{\"a\":1}}"
+        },
+        {
+          "kind": "request",
+          "id": "open/125-outsider-create-organization-duplicate-key",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"\",\"name\":\"Valid\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/126-outsider-create-organization-bom",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "﻿{\"name\":\"Valid\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/127-outsider-create-organization-name-100",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "outsiderOrg": "organizationId",
+            "outsiderOrgSlug": "organizationSlug"
+          },
+          "body": "{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/128-owner-create-organization-created",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "org": "organizationId",
+            "orgSlug": "organizationSlug"
+          },
+          "body": "{\"name\":\"  Acme Robotics  \"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/129-rival-create-organization-rival",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "capture": {
+            "rivalOrg": "organizationId"
+          },
+          "body": "{\"name\":\"Zeta Labs\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/130-outsider-create-organization-second",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"Otto &  Co!\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/131-owner-create-invitation-admin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invAdmin": "id"
+          },
+          "body": "{\"email\":\"admin@example.test\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/132-owner-create-invitation-member",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invMember": "id"
+          },
+          "body": "{\"email\":\"member@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/133-owner-create-invitation-replay-normalized",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"  ADMIN@Example.Test \",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/134-owner-create-invitation-already-member",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"owner@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/135-owner-create-invitation-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "not json"
+        },
+        {
+          "kind": "request",
+          "id": "open/136-owner-create-invitation-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/137-owner-create-invitation-role-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"x@example.test\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/138-owner-create-invitation-role-missing",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"x@example.test\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/139-owner-create-invitation-email-missing",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/140-owner-create-invitation-email-invalid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"nope\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/141-owner-create-invitation-email-space",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"a b@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/142-owner-create-invitation-email-no-tld",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"a@b\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/143-owner-create-invitation-email-plus",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"a+tag@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/144-owner-create-invitation-email-unicode",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"üser@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/145-owner-create-invitation-email-trailing-dot",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"a@example.test.\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/146-owner-create-invitation-email-quoted",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"\\\"a b\\\"@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/147-owner-create-invitation-email-long-local",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/148-owner-create-invitation-email-number",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":5,\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/149-owner-create-invitation-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{\"email\":\"x@example.test\",\"role\":\"member\",\"extra\":true}"
+        },
+        {
+          "kind": "request",
+          "id": "open/150-owner-create-invitation-valid-plus",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invPlus": "id"
+          },
+          "body": "{\"email\":\"plus+tag@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/151-owner-state-owner-with-invitations",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/152-outsider-state-outsider-unrelated-invitation",
+          "actor": "outsider",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation={{invAdmin}}",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/153-anon-state-anonymous-with-invitation",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation={{invAdmin}}",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/154-anon-state-anonymous-unknown-invitation",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation=00000000-0000-4000-8000-000000000001",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/155-outsider-accept-invitation-wrong-email",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"{{invAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/156-outsider-accept-invitation-unknown",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/157-outsider-accept-invitation-empty",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/158-outsider-accept-invitation-empty-id",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/159-outsider-accept-invitation-extra",
+          "actor": "outsider",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"x\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/160-admin-accept-invitation-admin",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"{{invAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/161-admin-accept-invitation-replay",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"{{invAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/162-member-accept-invitation-member",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"{{invMember}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/163-admin-state-admin",
+          "actor": "admin",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/164-member-state-member",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/165-owner-state-owner-after-accept",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/166-member-state-member-selected-invitation",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation={{invPlus}}",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/167-member-select-organization-foreign",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"{{rivalOrg}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/168-member-select-organization-own",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"{{org}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/169-member-select-organization-unknown",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/170-member-select-organization-invalid-json",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/171-member-select-organization-empty-id",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/172-member-select-organization-number-id",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/173-member-select-organization-extra-key",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"{{org}}\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/174-member-select-organization-empty-object",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/175-owner-api-keys-owner-empty",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/176-admin-api-keys-admin-empty",
+          "actor": "admin",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/177-member-api-keys-member-forbidden",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/178-member-api-keys-member-forbidden-create",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"m\",\"scopes\":[\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/179-owner-api-keys-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/180-owner-api-keys-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/181-owner-api-keys-empty-name",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"\",\"scopes\":[\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/182-owner-api-keys-blank-name",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"  \",\"scopes\":[\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/183-owner-api-keys-name-101",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"scopes\":[\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/184-owner-api-keys-scopes-empty",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/185-owner-api-keys-scopes-missing",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/186-owner-api-keys-scopes-not-array",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":\"projects:read\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/187-owner-api-keys-scopes-number",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[1]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/188-owner-api-keys-scopes-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[\"projects:read\",\"nope\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/189-owner-api-keys-scopes-duplicate",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[\"projects:read\",\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/190-owner-api-keys-scopes-case",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[\"Projects:Read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/191-owner-api-keys-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{\"name\":\"k\",\"scopes\":[\"projects:read\"],\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/192-admin-api-keys-created-admin",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "capture": {
+            "keyAdmin": "key.id",
+            "secretAdmin": "secret",
+            "prefixAdmin": "key.prefix"
+          },
+          "body": "{\"name\":\" Deploy key \",\"scopes\":[\"runs:dispatch\",\"projects:read\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/193-owner-api-keys-created-all-scopes",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "capture": {
+            "keyOwner": "key.id"
+          },
+          "body": "{\"name\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"scopes\":[\"projects:read\",\"configuration:validate\",\"configuration:install\",\"runs:dispatch\",\"daemons:enroll\"]}"
+        },
+        {
+          "kind": "request",
+          "id": "open/194-owner-api-keys-owner-listed",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/195-rival-api-keys-rival-isolated",
+          "actor": "rival",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/196-rival-revoke-api-key-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"{{keyOwner}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/197-owner-revoke-api-key-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/198-owner-revoke-api-key-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/199-owner-revoke-api-key-not-uuid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"abc\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/200-owner-revoke-api-key-uppercase-uuid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/201-owner-revoke-api-key-nil-uuid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"00000000-0000-0000-0000-000000000000\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/202-owner-revoke-api-key-max-uuid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"ffffffff-ffff-ffff-ffff-ffffffffffff\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/203-owner-revoke-api-key-version-zero",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"00000000-0000-0000-8000-000000000000\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/204-owner-revoke-api-key-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/205-owner-revoke-api-key-number",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/206-owner-revoke-api-key-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/207-member-revoke-api-key-member-forbidden",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"{{keyOwner}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/208-admin-revoke-api-key-admin",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"{{keyAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/209-admin-revoke-api-key-replay",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{\"id\":\"{{keyAdmin}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/210-owner-api-keys-owner-after-revoke",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/211-owner-revoke-cli-credential-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/212-owner-revoke-cli-credential-api-key-id",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{\"id\":\"{{keyOwner}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/213-member-revoke-cli-credential-member-forbidden",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/214-owner-revoke-cli-credential-not-uuid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{\"id\":\"x\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/215-member-change-member-role-member-forbidden",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{admin.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/216-admin-change-member-role-admin-demotes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/217-admin-change-member-role-admin-promotes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/218-owner-change-member-role-unknown-member",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/219-rival-change-member-role-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/220-owner-change-member-role-sole-owner-demote",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/221-owner-change-member-role-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/222-owner-change-member-role-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/223-owner-change-member-role-role-invalid",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"root\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/224-owner-change-member-role-role-missing",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/225-owner-change-member-role-member-empty",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/226-owner-change-member-role-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/227-admin-change-member-role-admin-promotes-member",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/228-owner-change-member-role-demote",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/229-owner-change-member-role-promote-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{member.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/230-owner-change-member-role-two-owners-demote-self",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/231-member-change-member-role-new-owner-restores",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/232-member-state-after-role-changes",
+          "actor": "member",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/233-owner-change-member-role-owner-to-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"owner\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/234-admin-remove-member-admin-removes-owner",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{owner.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/235-owner-remove-member-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/236-rival-remove-member-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/237-owner-remove-member-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/238-owner-remove-member-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/239-owner-remove-member-member-empty",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/240-owner-remove-member-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/241-owner-remove-member-owner-removes-other-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{owner.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/242-owner-remove-member-admin",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{admin.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/243-admin-state-removed-admin",
+          "actor": "admin",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/244-admin-select-organization-removed",
+          "actor": "admin",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{\"organizationId\":\"{{org}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/245-owner-state-owner-final",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "open/246-member-cancel-invitation-member-forbidden",
+          "actor": "member",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invPlus}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/247-owner-cancel-invitation-unknown",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"00000000-0000-4000-8000-000000000001\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/248-rival-cancel-invitation-other-org",
+          "actor": "rival",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invPlus}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/249-owner-cancel-invitation-invalid-json",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "open/250-owner-cancel-invitation-empty-object",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "open/251-owner-cancel-invitation-empty-id",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/252-owner-cancel-invitation-extra-key",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invPlus}}\",\"extra\":1}"
+        },
+        {
+          "kind": "request",
+          "id": "open/253-owner-cancel-invitation-canceled",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invPlus}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/254-owner-cancel-invitation-replay",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invPlus}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "open/255-owner-cancel-invitation-accepted",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{\"invitationId\":\"{{invAdmin}}\"}"
+        }
+      ]
+    },
+    {
+      "id": "bootstrap",
+      "env": {
+        "registration": "invite_only",
+        "organizationCreation": "disabled",
+        "bootstrap": true
+      },
+      "steps": [
+        {
+          "kind": "setup",
+          "op": "bootstrapOwnerSignIn",
+          "actor": "owner"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/001-owner-state-password-change-required",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/002-owner-create-organization-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/003-owner-select-organization-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/select-organization",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/004-owner-create-invitation-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/005-owner-cancel-invitation-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/cancel-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/006-owner-accept-invitation-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/007-owner-change-member-role-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/008-owner-remove-member-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/009-owner-api-keys-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/api-keys",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/010-owner-revoke-api-key-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-api-key",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/011-owner-revoke-cli-credential-password-change-required",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/revoke-cli-credential",
+          "body": "{}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/012-owner-api-keys-password-change-required",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/api-keys",
+          "body": null
+        },
+        {
+          "kind": "setup",
+          "op": "bootstrapOwnerReady",
+          "actor": "owner"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/013-owner-state-active",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/014-owner-create-organization-disabled",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{\"name\":\"Second\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/015-owner-create-organization-disabled-bad-body",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-organization",
+          "body": "{"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/016-owner-change-member-role-sole-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/change-member-role",
+          "body": "{\"memberId\":\"{{owner.member}}\",\"role\":\"admin\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/017-owner-remove-member-sole-owner",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{owner.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/018-owner-create-invitation-guest",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/create-invitation",
+          "capture": {
+            "invGuest": "id"
+          },
+          "body": "{\"email\":\"guest@example.test\",\"role\":\"member\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/019-anon-state-anonymous-invitation",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation={{invGuest}}",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/020-anon-state-anonymous-no-invitation",
+          "actor": "anon",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "setup",
+          "op": "createAccount",
+          "actor": "guest",
+          "name": "Gus Guest",
+          "email": "guest@example.test",
+          "password": "guest-password-1",
+          "invitation": "{{invGuest}}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/021-guest-state-guest-invited",
+          "actor": "guest",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "query": "?invitation={{invGuest}}",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/022-guest-accept-invitation-guest",
+          "actor": "guest",
+          "method": "POST",
+          "path": "/api/auth/paseo/accept-invitation",
+          "body": "{\"invitationId\":\"{{invGuest}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/023-owner-state-owner-with-guest",
+          "actor": "owner",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/024-owner-remove-member-guest",
+          "actor": "owner",
+          "method": "POST",
+          "path": "/api/auth/paseo/remove-member",
+          "body": "{\"memberId\":\"{{guest.member}}\"}"
+        },
+        {
+          "kind": "request",
+          "id": "bootstrap/025-guest-state-guest-removed",
+          "actor": "guest",
+          "method": "GET",
+          "path": "/api/auth/paseo/state",
+          "body": null
+        }
+      ]
+    }
+  ]
+}
