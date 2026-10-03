@@ -8,6 +8,8 @@ use std::path::Path;
 use spocky_store::js_value::js_text_to_utf8;
 use spocky_store::path_compare::posix_normalize;
 
+use crate::text::path_text;
+
 /// node `path.posix.resolve(base, path)` for an absolute `base`.
 #[must_use]
 pub fn resolve(base: &str, path: &str) -> String {
@@ -27,10 +29,7 @@ pub fn resolve_from_cwd(path: &str) -> String {
     if path.starts_with('/') {
         return resolve("/", path);
     }
-    let cwd = std::env::current_dir().map_or_else(
-        |_| "/".to_owned(),
-        |directory| directory.to_string_lossy().into_owned(),
-    );
+    let cwd = std::env::current_dir().map_or_else(|_| "/".to_owned(), |dir| path_text(&dir));
     resolve(&cwd, path)
 }
 
@@ -96,7 +95,7 @@ pub fn expand_tilde(path: &str, home: &str) -> String {
 pub fn realpath_native(path: &str) -> Option<String> {
     std::fs::canonicalize(Path::new(&js_text_to_utf8(path)))
         .ok()
-        .map(|resolved| resolved.to_string_lossy().into_owned())
+        .map(|resolved| path_text(&resolved))
 }
 
 /// node's JavaScript `fs.realpathSync`; `None` where it throws. It walks the
@@ -133,7 +132,7 @@ pub fn realpath_js(path: &str) -> Option<String> {
             } else {
                 prefix.as_str()
             };
-            let resolved_link = resolve(previous, &target.to_string_lossy());
+            let resolved_link = resolve(previous, &path_text(&target));
             current = resolve(&resolved_link, &parts[index + 1..].join("/"));
             continue 'restart;
         }
