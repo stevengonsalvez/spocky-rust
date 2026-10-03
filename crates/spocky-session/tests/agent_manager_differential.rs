@@ -92,10 +92,10 @@ use std::time::Duration;
 use spocky_contracts::js::{date_parse, js_string, spread, spread_into};
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
-    AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, CreateAgentOptions,
-    HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition,
-    ReloadAgentOptions, ResumeAgentOptions, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
-    WaitForAgentOptions,
+    AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, AgentSteerOptions,
+    CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest,
+    ProviderDefinition, ReloadAgentOptions, ResumeAgentOptions, SteerDispatch, SubscribeOptions,
+    TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -104,7 +104,7 @@ use spocky_session::agent_sdk::{
     AgentResumeSessionOptions, AgentRunOptions, AgentSession, AgentStreamEvent, BoxFuture,
     FetchCatalogOptions, ImportProviderSessionContext, ImportProviderSessionInput,
     ImportedProviderSession, ImportedTimelineEntry, OutOfBandHandler, ProviderRefreshContext,
-    StreamCallback, Unsubscribe,
+    SteerResult, StreamCallback, Unsubscribe,
 };
 use spocky_session::agent_storage::AgentStorage;
 use spocky_session::rewind::RewindMode;
@@ -254,6 +254,14 @@ const SCENARIO_TURNS: &str = r#"{
     {"name":"runtimenull","spec":{"settable":true,"runtimeInfoExtra":{"thinkingOptionId":null}},"ops":[["thinking","high"]]},
     {"name":"plain","spec":{},"ops":[["mode","auto"],["model","m"],["thinking","t"],["feature","f",1]]}
   ],
+  "steerCases": [
+    {"name":"idle","turns":[],"spec":{"steer":{"result":"accepted"}},"running":false,"ops":[["steer","hello",null],["steerOrReplace","hello",null]]},
+    {"name":"accepted","turns":["long"],"spec":{"steer":{"result":"accepted","emit":[{"type":"timeline","provider":"fake","turnId":"turn-8","item":{"type":"tool_call","callId":"s1","name":"shell","status":"completed","error":null,"detail":{"type":"shell","command":"ls","output":"a"}}}]}},"running":true,"ops":[["steer","steer me",{"clientMessageId":"steer-1","clearPendingPermissions":true}],["steerOrReplace","again",null]]},
+    {"name":"unavailable","turns":["long","rpAfter"],"spec":{"steer":{"result":"unavailable"}},"running":true,"ops":[["steer","nope",null],["steerOrReplace","replace",null]]},
+    {"name":"unsupported","turns":["long","rpAfter"],"spec":{},"running":true,"ops":[["steer","nope",null],["steerOrReplace","replace",null]]},
+    {"name":"changed","turns":["long"],"spec":{"steer":{"result":"unavailable","emit":[{"type":"turn_canceled","provider":"fake","turnId":"turn-8","reason":"interrupted by user"},{"type":"turn_started","provider":"fake","turnId":"turn-30"}]}},"running":true,"cancel":false,"ops":[["steer","too late",null]]},
+    {"name":"race","turns":["long","rpAfter"],"spec":{"steer":{"result":"unavailable"}},"running":true,"hookRace":true,"ops":[["steerOrReplace","replace",null]]}
+  ],
   "spontaneousPermission": [
     {"type":"permission_requested","provider":"fake","request":{"id":"perm-9","provider":"fake","name":"shell","kind":"tool","input":{"command":"ls"},"actions":[{"id":"allow","label":"Allow","behavior":"allow"}]}}
   ],
@@ -365,6 +373,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const turnIdOf = (events) => events.find((event) => event.type === "turn_started")?.turnId ?? "turn-1";
 class FakeSession {
   constructor(spec, calls) { this.provider = spec.provider; this.id = "sess-1"; this.capabilities = spec.capabilities; this.spec = spec; this.calls = calls; this.listeners = []; if (spec.initialTimeline) this.initialTimeline = spec.initialTimeline;
+    if (spec.steer) {
+      this.steerActiveTurn = async (prompt, options) => {
+        this.calls.push(["steerActiveTurn", prompt, options]);
+        for (const event of spec.steer.emit ?? []) for (const listener of this.listeners) listener(event);
+        await sleep(20);
+        return { status: spec.steer.result };
+      };
+    }
     if (spec.settable) {
       this.setModel = async (modelId) => { this.calls.push(["setModel", modelId]); this.model = modelId; };
       this.setThinkingOption = async (optionId) => { this.calls.push(["setThinkingOption", optionId]); return this.spec.thinkingNotice; };
@@ -1283,6 +1299,64 @@ const metadataScenario = async () => {
   return { results, storedLive: await registry.get(agentId), storedOther: await registry.get(otherId), storedFixtures, pending, pendingFeed, feed, calls, noStorage };
 };
 
+const steerScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const out = {};
+  for (const item of scripted.steerCases) {
+    const calls = [];
+    const hookCalls = [];
+    const raceEvents = [];
+    let manager;
+    const registry = new AgentStorage(`${home}/steer-${item.name}`, logger);
+    let raceStream;
+    manager = new AgentManager({
+      logger,
+      registry,
+      clients: { fake: fakeClient(calls, spec("fake", { turns: item.turns.map((name) => scripted[name]), interrupt: scripted.interrupt, ...item.spec })) },
+      providerDefinitions: { fake: { enabled: true } },
+      beforeSteerUnavailableFallback: async (input) => {
+        hookCalls.push(input);
+        if (item.hookRace) {
+          await manager.cancelAgentRun(input.agentId);
+          raceStream = manager.streamAgent(input.agentId, "race");
+          raceEvents.push((await raceStream.next()).value);
+        }
+      },
+    });
+    const feed = recordFeed(manager);
+    await manager.createAgent({ provider: "fake", cwd }, agentId, {});
+    let held;
+    const heldEvents = [];
+    if (item.running) {
+      held = manager.streamAgent(agentId, "hold");
+      heldEvents.push((await held.next()).value);
+      await sleep(50);
+    }
+    const results = [];
+    for (const [kind, prompt, options] of item.ops) {
+      results.push(await outcome(async () => {
+        if (kind === "steer") return await manager.steerAgentRun(agentId, prompt, options ?? undefined);
+        const dispatch = await manager.steerOrReplaceActiveTurn(agentId, prompt, options ?? undefined);
+        if (dispatch.status !== "replaced") return { status: dispatch.status };
+        const events = [];
+        await collect(dispatch.iterator, events);
+        return { status: "replaced", events };
+      }));
+    }
+    if (held) {
+      if (item.cancel !== false) await outcome(async () => await manager.cancelAgentRun(agentId));
+      await collect(held, heldEvents);
+    }
+    if (raceStream) await collect(raceStream, raceEvents);
+    await sleep(100);
+    await manager.flush();
+    await registry.flush();
+    out[item.name] = { results, heldEvents, raceEvents, hookCalls, calls, feed, agent: toAgentPayload(manager.getAgent(agentId)), rows: await manager.getTimelineRows(agentId) };
+  }
+  return out;
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1391,7 +1465,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -1439,6 +1513,8 @@ struct Spec {
     import: Option<JsValue>,
     /// The `revert*` methods the session has: `conversation`, `files`, `both`.
     revert: Vec<&'static str>,
+    /// The session has `steerActiveTurn`: `{ result, emit }`.
+    steer: Option<JsValue>,
     /// The session has `setModel`, `setThinkingOption` and `setFeature`.
     settable: bool,
     /// What `setMode` resolves.
@@ -1480,6 +1556,7 @@ fn spec(provider: &str) -> Spec {
         interrupt_hang: false,
         import: None,
         revert: Vec::new(),
+        steer: None,
         settable: false,
         mode_notice: None,
         thinking_notice: None,
@@ -1731,6 +1808,48 @@ impl AgentSession for FakeSession {
         self.record(vec![text("setMode"), text(mode_id)]);
         let notice = self.spec.mode_notice.clone();
         Box::pin(async move { Ok(notice) })
+    }
+    fn supports_steer_active_turn(&self) -> bool {
+        self.spec.steer.is_some()
+    }
+    fn steer_active_turn(
+        &self,
+        prompt: &AgentPromptInput,
+        options: &spocky_session::agent_sdk::SteerActiveTurnOptions,
+    ) -> Option<BoxFuture<'_, AgentResult<SteerResult>>> {
+        let steer = self.spec.steer.clone()?;
+        let mut seen = JsObject::new();
+        if let Some(id) = &options.run.client_message_id {
+            seen.insert("clientMessageId", text(id));
+        }
+        if let Some(clear) = options.clear_pending_permissions {
+            seen.insert("clearPendingPermissions", JsValue::Bool(clear));
+        }
+        seen.insert("expectedTurnId", text(&options.expected_turn_id));
+        self.record(vec![
+            text("steerActiveTurn"),
+            prompt_value(prompt),
+            JsValue::Object(seen),
+        ]);
+        let callbacks = self.listeners.lock().expect("listeners").clone();
+        for event in steer
+            .get("emit")
+            .and_then(JsValue::as_array)
+            .unwrap_or_default()
+        {
+            for callback in &callbacks {
+                callback(event.clone());
+            }
+        }
+        let accepted = steer.get("result").and_then(JsValue::as_str) == Some("accepted");
+        Some(Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok(if accepted {
+                SteerResult::Accepted
+            } else {
+                SteerResult::Unavailable
+            })
+        }))
     }
     fn set_model(&self, model_id: Option<&str>) -> Option<BoxFuture<'_, AgentResult<()>>> {
         if !self.spec.settable {
@@ -3211,6 +3330,7 @@ async fn scenarios_match_pinned_manager() {
         ("loading", loading_scenario(&cwd, &rust_home.0).await),
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
+        ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
         ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
@@ -4860,6 +4980,198 @@ async fn metadata_scenario(cwd: &str, home: &Path) -> JsValue {
         ),
         ("noStorage", JsValue::Array(no_storage)),
     ])
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn steer_scenario(cwd: &str, home: &Path) -> JsValue {
+    let table = json(SCENARIO_TURNS);
+    let mut out = JsObject::new();
+    for item in table
+        .get("steerCases")
+        .and_then(JsValue::as_array)
+        .expect("cases")
+    {
+        let name = js_string(item.get("name"));
+        let calls = Calls::default();
+        let registry = AgentStorage::new(home.join(format!("steer-{name}")));
+        let mut fake = spec("fake");
+        let turns: Vec<String> = item
+            .get("turns")
+            .and_then(JsValue::as_array)
+            .expect("turns")
+            .iter()
+            .map(|turn| js_string(Some(turn)))
+            .collect();
+        scripted(&fake, &turns.iter().map(String::as_str).collect::<Vec<_>>());
+        fake.interrupt = table.get("interrupt").cloned();
+        fake.steer = item
+            .get("spec")
+            .and_then(|knobs| knobs.get("steer"))
+            .cloned();
+        let hook_calls: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+        let race_events: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+        let race_stream: Arc<tokio::sync::Mutex<Option<TurnEventStream>>> = Arc::default();
+        let cell: Arc<Mutex<Option<AgentManager>>> = Arc::default();
+        let race = item.get("hookRace").and_then(JsValue::as_bool) == Some(true);
+        let hook: spocky_session::agent_manager::SteerFallbackHook = {
+            let (hook_calls, race_events, race_stream, cell) = (
+                Arc::clone(&hook_calls),
+                Arc::clone(&race_events),
+                Arc::clone(&race_stream),
+                Arc::clone(&cell),
+            );
+            Arc::new(move |agent_id, expected| {
+                let (hook_calls, race_events, race_stream, cell) = (
+                    Arc::clone(&hook_calls),
+                    Arc::clone(&race_events),
+                    Arc::clone(&race_stream),
+                    Arc::clone(&cell),
+                );
+                Box::pin(async move {
+                    hook_calls.lock().expect("hook").push(object(vec![
+                        ("agentId", text(&agent_id)),
+                        ("expectedTurnId", text(&expected)),
+                    ]));
+                    if race {
+                        let manager = cell.lock().expect("cell").clone().expect("manager");
+                        manager.cancel_agent_run(&agent_id).await.expect("cancel");
+                        let mut stream = manager
+                            .stream_agent(
+                                &agent_id,
+                                AgentPromptInput::Text("race".to_owned()),
+                                None,
+                            )
+                            .expect("race stream");
+                        let first = stream.next().await.expect("first").expect("event");
+                        race_events.lock().expect("race").push(first);
+                        *race_stream.lock().await = Some(stream);
+                    }
+                })
+            })
+        };
+        let manager = AgentManager::new(AgentManagerOptions {
+            clients: vec![("fake".to_owned(), rewind_client(fake, &calls))],
+            provider_definitions: vec![("fake".to_owned(), enabled())],
+            registry: Some(registry.clone()),
+            before_steer_unavailable_fallback: Some(hook),
+            ..AgentManagerOptions::default()
+        });
+        *cell.lock().expect("cell") = Some(manager.clone());
+        let feed = record_feed(&manager);
+        manager
+            .create_agent(
+                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+                Some(AGENT_ID.to_owned()),
+                CreateAgentOptions::default(),
+            )
+            .await
+            .expect("create");
+        let mut held = None;
+        let mut held_events = Vec::new();
+        if item.get("running").and_then(JsValue::as_bool) == Some(true) {
+            let mut stream = manager
+                .stream_agent(AGENT_ID, AgentPromptInput::Text("hold".to_owned()), None)
+                .expect("held stream");
+            held_events.push(stream.next().await.expect("first").expect("event"));
+            held = Some(stream);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let mut results = Vec::new();
+        for op in item.get("ops").and_then(JsValue::as_array).expect("ops") {
+            let op = op.as_array().expect("op");
+            let kind = js_string(op.first());
+            let prompt = AgentPromptInput::Text(js_string(op.get(1)));
+            let options = op
+                .get(2)
+                .filter(|options| !matches!(options, JsValue::Null))
+                .map(|options| AgentSteerOptions {
+                    run: AgentRunOptions {
+                        client_message_id: options
+                            .get("clientMessageId")
+                            .and_then(JsValue::as_str)
+                            .map(str::to_owned),
+                        ..AgentRunOptions::default()
+                    },
+                    clear_pending_permissions: options
+                        .get("clearPendingPermissions")
+                        .and_then(JsValue::as_bool),
+                });
+            let status = |status: &str| object(vec![("status", text(status))]);
+            if kind == "steer" {
+                results.push(outcome(
+                    manager
+                        .steer_agent_run(AGENT_ID, prompt, options)
+                        .await
+                        .map(|result| {
+                            status(match result {
+                                SteerResult::Accepted => "accepted",
+                                SteerResult::Unavailable => "unavailable",
+                            })
+                        }),
+                ));
+                continue;
+            }
+            let dispatch = manager
+                .steer_or_replace_active_turn(AGENT_ID, prompt, options)
+                .await;
+            results.push(match dispatch {
+                Err(error) => outcome(Err(error)),
+                Ok(SteerDispatch::Inactive) => outcome(Ok(status("inactive"))),
+                Ok(SteerDispatch::Steered) => outcome(Ok(status("steered"))),
+                Ok(SteerDispatch::Replaced(stream)) => {
+                    let mut events = Vec::new();
+                    collect_stream(*stream, &mut events).await;
+                    outcome(Ok(object(vec![
+                        ("status", text("replaced")),
+                        ("events", JsValue::Array(events)),
+                    ])))
+                }
+            });
+        }
+        if let Some(held) = held {
+            if item.get("cancel").and_then(JsValue::as_bool) != Some(false) {
+                let _ = manager.cancel_agent_run(AGENT_ID).await;
+            }
+            collect_stream(held, &mut held_events).await;
+        }
+        let raced = race_stream.lock().await.take();
+        if let Some(stream) = raced {
+            let mut events = race_events.lock().expect("race").clone();
+            collect_stream(stream, &mut events).await;
+            *race_events.lock().expect("race") = events;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        manager.flush().await;
+        registry.flush().await;
+        let agent = to_agent_payload(
+            &manager.get_agent(AGENT_ID).expect("agent").payload_view(),
+            None,
+        )
+        .expect("payload");
+        let rows = JsValue::Array(manager.get_timeline_rows(AGENT_ID).expect("rows"));
+        let race_events = JsValue::Array(race_events.lock().expect("race").clone());
+        let hook_calls = JsValue::Array(hook_calls.lock().expect("hook").clone());
+        out.insert(
+            name.as_str(),
+            object(vec![
+                ("results", JsValue::Array(results)),
+                ("heldEvents", JsValue::Array(held_events)),
+                ("raceEvents", race_events),
+                ("hookCalls", hook_calls),
+                (
+                    "calls",
+                    JsValue::Array(calls.lock().expect("calls").clone()),
+                ),
+                ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+                ("agent", agent),
+                ("rows", rows),
+            ]),
+        );
+    }
+    JsValue::Object(out)
 }
 
 #[allow(
