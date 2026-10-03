@@ -32,7 +32,9 @@
 //! - a daemon re-hello whose key import, key derivation, close, or ready
 //!   send fails falls through to ciphertext decoding of the hello text,
 //!   unless the error message contains `plaintext frame`, which closes the
-//!   transport with 1011 and that message instead; a `{` frame whose
+//!   transport with 1011 and that message instead, but only when the failure
+//!   is an `Error` instance (a send rejected with a string is
+//!   [`SendStatus::FailedNonError`] and falls through); a `{` frame whose
 //!   `JSON.parse` error quotes `plaintext frame` closes the same way;
 //! - a daemon hello whose key is rejected leaves every later frame
 //!   buffered and never delivered.
@@ -157,8 +159,13 @@ pub struct SendId(pub u64);
 pub enum SendStatus {
     /// The send completed (the original returned `undefined` or resolved).
     Sent,
-    /// The send threw or rejected.
+    /// The send threw or rejected with an `Error`.
     Failed(TransportError),
+    /// The send rejected with a value that is not an `Error`, such as a
+    /// string. It carries `String(value)`. Everywhere but one place the
+    /// original treats it like [`SendStatus::Failed`]; the exception is the
+    /// daemon re-hello, which rethrows only `Error` instances.
+    FailedNonError(String),
     /// The send settles later through `EncryptedChannel::settle_send`.
     Pending(SendId),
 }
@@ -337,9 +344,22 @@ enum SendStep {
 
 enum RehelloStep {
     Done,
-    /// The re-hello threw; carries the error message.
-    Failed(String),
+    /// The re-hello threw. `is_error` is false for a rejection value that is
+    /// not an `Error`, which the original never rethrows.
+    Failed {
+        message: String,
+        is_error: bool,
+    },
     Pending(SendId),
+}
+
+impl RehelloStep {
+    fn error(message: String) -> Self {
+        Self::Failed {
+            message,
+            is_error: true,
+        }
+    }
 }
 
 /// The `createClientChannel` closure state.
@@ -390,6 +410,9 @@ impl<T: Transport> Core<T> {
                 match self.transport.send(frame) {
                     SendStatus::Sent => SendStep::Done,
                     SendStatus::Failed(error) => SendStep::Failed(ChannelError::Transport(error)),
+                    SendStatus::FailedNonError(message) => {
+                        SendStep::Failed(ChannelError::Transport(TransportError(message)))
+                    }
                     SendStatus::Pending(id) => SendStep::Pending(id),
                 }
             }
@@ -470,7 +493,7 @@ impl<T: Transport> Core<T> {
             derive_shared_key(&daemon_key_pair.secret_key, &client_public_key)
         }) {
             Ok(retry_key) => retry_key,
-            Err(error) => return RehelloStep::Failed(error.to_string()),
+            Err(error) => return RehelloStep::error(error.to_string()),
         };
         if !keys_equal(&retry_key, &self.shared_key) {
             self.state = ChannelState::Closed;
@@ -479,13 +502,17 @@ impl<T: Transport> Core<T> {
                 REHANDSHAKE_KEY_MISMATCH_CLOSE_REASON,
             ) {
                 Ok(()) => RehelloStep::Done,
-                Err(error) => RehelloStep::Failed(error.0),
+                Err(error) => RehelloStep::error(error.0),
             };
         }
         let ready = ready_frame(self.options.binary_ciphertext);
         match self.transport.send(Data::Text(ready)) {
             SendStatus::Sent => RehelloStep::Done,
-            SendStatus::Failed(error) => RehelloStep::Failed(error.0),
+            SendStatus::Failed(error) => RehelloStep::error(error.0),
+            SendStatus::FailedNonError(message) => RehelloStep::Failed {
+                message,
+                is_error: false,
+            },
             SendStatus::Pending(id) => RehelloStep::Pending(id),
         }
     }
@@ -768,6 +795,25 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
         id: SendId,
         result: Result<(), TransportError>,
     ) -> Option<Result<(), ChannelError>> {
+        self.settle(id, result, true)
+    }
+
+    /// Settles a pending send that rejected with a value that is not an
+    /// `Error` (see [`SendStatus::FailedNonError`]).
+    pub fn settle_send_non_error(
+        &mut self,
+        id: SendId,
+        message: String,
+    ) -> Option<Result<(), ChannelError>> {
+        self.settle(id, Err(TransportError(message)), false)
+    }
+
+    fn settle(
+        &mut self,
+        id: SendId,
+        result: Result<(), TransportError>,
+        is_error: bool,
+    ) -> Option<Result<(), ChannelError>> {
         match self.core.continuations.remove(&id)? {
             Continuation::AppSend => return Some(result.map_err(ChannelError::Transport)),
             Continuation::ClientHello => {
@@ -782,7 +828,7 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
             },
             Continuation::Rehello(message) => {
                 if let Err(error) = result
-                    && !self.core.rethrow_closes(&utf16(&error.0))
+                    && !(is_error && self.core.rethrow_closes(&utf16(&error.0)))
                 {
                     self.deliver_ciphertext(&message);
                 }
@@ -835,6 +881,13 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
             SendStatus::Failed(error) => {
                 self.events
                     .on_error(&mut self.core, &ChannelError::Transport(error));
+            }
+            // `emitSendError` wraps any rejection value in an `Error`.
+            SendStatus::FailedNonError(message) => {
+                self.events.on_error(
+                    &mut self.core,
+                    &ChannelError::Transport(TransportError(message)),
+                );
             }
             SendStatus::Pending(id) => {
                 self.core
@@ -893,6 +946,13 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
                 };
                 self.core
                     .settle_handshake(Err(ChannelError::Transport(error)));
+            }
+            SendStatus::FailedNonError(message) => {
+                self.core.phase = Phase::Buffering {
+                    buffered: Vec::new(),
+                };
+                self.core
+                    .settle_handshake(Err(ChannelError::Transport(TransportError(message))));
             }
             SendStatus::Pending(id) => {
                 self.core.phase = Phase::ReadyPending {
@@ -1014,8 +1074,8 @@ impl<T: Transport, E: ChannelEvents> EncryptedChannel<T, E> {
                             .insert(id, Continuation::Rehello(message));
                         return;
                     }
-                    RehelloStep::Failed(reason) => {
-                        if self.core.rethrow_closes(&utf16(&reason)) {
+                    RehelloStep::Failed { message, is_error } => {
+                        if is_error && self.core.rethrow_closes(&utf16(&message)) {
                             return;
                         }
                         // Otherwise a failed re-hello falls through to
