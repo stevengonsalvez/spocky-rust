@@ -13,19 +13,17 @@ const [dist, scenarioFile] = process.argv.slice(1);
 const scenario = JSON.parse(readFileSync(scenarioFile, "utf8"));
 const { ClaudeAgentClient } = await import(`${dist}/server/agent/providers/claude/agent.js`);
 
-const SETTLE_MS = 60;
-const REACTION_GAP_MS = 5;
+const SETTLE_MS = 120;
+const REACTION_GAP_MS = 25;
+// A canUseTool resolution is logged this long after it settles: how many
+// promise ticks the baseline takes to deliver it is not a contract, and the
+// session thread of the Rust side cannot count them.
+const CAN_USE_TOOL_LOG_DELAY_MS = 20;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const log = [];
-// RESULT lines are flushed, sorted, at the end of each `wait` step and of the
-// scenario: the Rust session lives on its own thread, so the order of a reply
-// against the session's own events, and of replies among themselves, is not a
-// contract and is not compared. EVENT and CALL order is.
-const results = [];
-const flushResults = () => log.push(...results.splice(0).sort());
 const normalize = (text) => text.replace(UUID, "<uuid>");
 const put = (kind, value) =>
-  (kind === "RESULT" ? results : log).push(`${kind} ${normalize(typeof value === "string" ? value : JSON.stringify(value))}`);
+  log.push(`${kind} ${normalize(typeof value === "string" ? value : JSON.stringify(value))}`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const quietLogger = () => {
@@ -104,11 +102,7 @@ function makeQuery(input) {
     },
   };
   queries.push(query);
-  put("CALL", `query#${index} ${JSON.stringify({
-    resume: input.options.resume,
-    model: input.options.model,
-    permissionMode: input.options.permissionMode,
-  })}`);
+  put("CALL", `query#${index} ${JSON.stringify(input.options)}`);
   (async () => {
     for await (const message of input.prompt) {
       put("CALL", `prompt#${index} ${promptText(message)}`);
@@ -150,6 +144,15 @@ for (const step of scenario.steps) {
         }),
       );
       break;
+    case "resume":
+      await stepResult(
+        client.resumeSession(step.handle, step.overrides).then((resumed) => {
+          session = resumed;
+          session.subscribe((event) => put("EVENT", event));
+          return { id: session.id };
+        }),
+      );
+      break;
     case "startTurn":
       await stepResult(session.startTurn(step.prompt, step.options));
       break;
@@ -158,6 +161,11 @@ for (const step of scenario.steps) {
       break;
     case "emit":
       queries.at(-1).frames.push(step.message);
+      break;
+    case "emitInterrupt":
+      // The frames are buffered when the interrupt is requested.
+      for (const message of step.messages) queries.at(-1).frames.push(message);
+      await stepResult(session.interrupt());
       break;
     case "emitEnd":
       queries.at(-1).frames.end();
@@ -192,9 +200,10 @@ for (const step of scenario.steps) {
         suggestions: step.suggestions,
         toolUseID: step.toolUseID,
       });
+      const later = (text) => setTimeout(() => put("RESULT", text), CAN_USE_TOOL_LOG_DELAY_MS);
       call.then(
-        (value) => put("RESULT", `canUseTool ${JSON.stringify(value)}`),
-        (error) => put("RESULT", `canUseTool ERROR ${error.message}`),
+        (value) => later(`canUseTool ${JSON.stringify(value)}`),
+        (error) => later(`canUseTool ERROR ${error.message}`),
       );
       break;
     }
@@ -204,6 +213,14 @@ for (const step of scenario.steps) {
     case "respondPermission": {
       const pending = session.getPendingPermissions();
       await stepResult(session.respondToPermission(pending[step.index].id, step.response));
+      break;
+    }
+    case "respondPermissionAbort": {
+      // The abort fires while the response is still being handled.
+      const pending = session.getPendingPermissions();
+      const responding = session.respondToPermission(pending[step.index].id, step.response);
+      pendingCalls[step.abortIndex].abort();
+      await stepResult(responding);
       break;
     }
     case "pending":
@@ -241,8 +258,6 @@ for (const step of scenario.steps) {
       throw new Error(`unknown op ${step.op}`);
   }
   await sleep(SETTLE_MS);
-  if (step.op === "wait") flushResults();
 }
-flushResults();
 process.stdout.write(log.join("\n") + "\n");
 process.exit(0);
