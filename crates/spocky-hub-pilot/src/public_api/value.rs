@@ -17,7 +17,13 @@ pub trait JsValueExt: Sized {
     fn object<const N: usize>(fields: [(&str, Self); N]) -> Self;
     /// An object from pairs built at run time; a repeated key keeps its first position.
     fn from_pairs(fields: Vec<(String, Self)>) -> Self;
+    /// Text that is already JavaScript text: a string that came out of a request or an
+    /// operation result. It is kept as is, because re-encoding would double the escape character
+    /// that starts an encoded lone surrogate.
     fn string(value: &str) -> Self;
+    /// Text that is Rust-native (a generated id, a URL, a constant) and enters the value domain
+    /// here, once, through `js_text`.
+    fn rust_text(value: &str) -> Self;
     /// Hub numbers are JavaScript doubles, so integers above 2^53 lose precision there too.
     fn integer(value: i64) -> Self;
     /// The `typeof`-style name zod prints in `received` clauses.
@@ -45,8 +51,11 @@ impl JsValueExt for JsValue {
     }
 
     fn string(value: &str) -> Self {
-        // Rust text enters the value domain through `js_text`, which doubles a literal U+10FFFF so
-        // it cannot read as the lone surrogate escape.
+        Self::String(value.to_owned())
+    }
+
+    fn rust_text(value: &str) -> Self {
+        // `js_text` doubles a literal U+10FFFF so it cannot read as the lone surrogate escape.
         Self::String(js_text(value))
     }
 
@@ -98,11 +107,21 @@ mod tests {
     #[test]
     fn rust_text_with_the_escape_character_stays_text() {
         // Read raw, U+10FFFF followed by U+F0000 would decode as one lone surrogate.
-        let value = Json::string("\u{10FFFF}\u{F0000}");
+        let value = Json::rust_text("\u{10FFFF}\u{F0000}");
         let Json::String(text) = &value else {
             unreachable!("string builds a string");
         };
         assert_eq!(spocky_contracts::text::js_length(text), 4);
+    }
+
+    #[test]
+    fn a_lone_surrogate_in_request_text_survives_the_round_trip() {
+        // The baseline echoes `"a\ud800b"` unchanged: request text is already JavaScript text and
+        // must not be encoded a second time on its way back out.
+        let body = br#"{"yaml":"a\ud800b"}"#;
+        let root = decode_request_json(body).expect("parses");
+        let input = crate::public_api::parse_trigger_yaml(&root).expect("valid input");
+        assert_eq!(input.to_json().stringify(), r#"{"yaml":"a\ud800b"}"#);
     }
 
     #[test]
