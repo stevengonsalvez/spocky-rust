@@ -19,11 +19,11 @@ use std::future::Future;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use sha2::{Digest, Sha256};
+use spocky_contracts::js::locale_compare;
 use spocky_contracts::js_value::{
     JsObject, JsValue, JsonSyntaxError, parse, stringify, stringify_pretty,
 };
 use spocky_contracts::zod::{Schema, UnknownKeys, Verdict, verdict};
-use spocky_store::collate::locale_compare;
 
 use crate::node_fs::FsError;
 
