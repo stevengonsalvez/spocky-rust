@@ -1627,7 +1627,7 @@ const callbacksScenario = async () => {
   const calls = [];
   const log = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([bindings, message]); } };
+  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const client = (provider, turns) => fakeClient(calls, spec(provider, { turns: turns.map((name) => scripted[name]) }));
   const clients = { p1: client("p1", ["coalesce"]), p2: client("p2", ["failed"]), p3: client("p3", ["permission"]), p4: client("p4", ["coalesce"]) };
   const manager = new AgentManager({

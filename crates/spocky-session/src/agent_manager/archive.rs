@@ -15,6 +15,7 @@ use spocky_contracts::js::{date_parse, js_string, spread, truthy};
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::create::touch_updated_at;
+use super::log_error::err_binding;
 use super::{AgentLifecycle, AgentManager, AgentManagerEvent, ManagedAgentSnapshot};
 use crate::agent_labels::{
     PARENT_AGENT_ID_LABEL, has_open_agent_tab, is_open_agent_tab_label, parent_agent_id_from_labels,
@@ -401,11 +402,10 @@ impl AgentManager {
     async fn fire_agent_archived(&self, agent_id: &str) {
         let callback = self.lock().on_agent_archived.clone();
         if let Some(callback) = callback
-            && callback(agent_id.to_owned()).await.is_err()
+            && let Err(error) = callback(agent_id.to_owned()).await
         {
-            // pino prints the `err` binding, an `Error`, as `{}`.
             let mut bindings = JsObject::new();
-            bindings.insert("err", JsValue::Object(JsObject::new()));
+            bindings.insert("err", err_binding(&error));
             bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
             self.emit_warn(JsValue::Object(bindings), "onAgentArchived callback failed");
         }
