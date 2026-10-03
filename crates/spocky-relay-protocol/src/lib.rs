@@ -6,6 +6,7 @@
 //! Cowboy 2.17, Cowlib and Jason 1.4 behavior the relay inherits.
 
 pub mod close;
+pub mod connection;
 pub mod limits;
 pub mod query;
 pub mod rejection;
