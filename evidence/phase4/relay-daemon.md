@@ -12,6 +12,8 @@ differential harness and a later network runner implement it.
   (compiled by the pinned TypeScript 5.9.3 because Node's strip-only mode rejects its
   constructor parameter property), `packages/protocol/src/daemon-endpoints.ts`, and the pinned
   `ws` wrapper. The test checks the SHA-256 of every loaded file.
+- URL: `spocky_contracts::url` (the ada 2.9.2 port) builds the relay URL; the `url` crate differed
+  from ada on 7 of the IDNA vectors (bidi, joiners, newer Unicode) and is no longer a dependency.
 - Replaced: `@getpaseo/relay/e2ee` by a recording stand-in for `createDaemonChannel`. The channel
   is covered by the spocky-crypto differential.
 - Time is virtual (`setTimeout`, `setInterval`, `Date.now`); sockets are fakes. Every operation
@@ -37,8 +39,8 @@ channel receives, every encrypted socket state.
 | Control messages | 116 frames: types, whitespace ids (U+00A0, U+2028, U+FEFF, U+0085, U+180E), lone surrogates, duplicate keys, non-objects, BOM, invalid UTF-8 (truncated and overlong sequences), nesting to 100,000 levels, `Buffer`, `ArrayBuffer`, fragment arrays |
 
 Result: endpoint 4,424 operations and 13,272 transcript lines; relay client 131 scenarios (15 named,
-116 control message), 1,247 operations, 3,909 transcript lines. No difference apart from the host
-list below. Tests assert these counts. Run:
+116 control message), 1,247 operations, 3,909 transcript lines. No difference. Tests assert these
+counts. Run:
 `SPOCKY_PINNED_NODE=$HOME/.nvm/versions/node/v22.20.0/bin/node cargo test -p spocky-daemon-relay`
 (`SPOCKY_RELAY_DAEMON_EVIDENCE=<dir>` keeps the raw transcripts).
 
@@ -85,10 +87,5 @@ no callback of it can run again.
 
 ## Known gaps
 
-- IDNA hosts: Node 22 uses ada; the `url` crate's idna differs on bidi, joiner and newer-Unicode
-  cases. `endpoint_differential` lists the divergent hosts (`KNOWN_DIVERGENT_HOSTS`: U+0661 `.com`,
-  `1.` U+05D0, U+1FAE9 `.test`, `xn--9hb.com`, `a` U+05D0 `.com`, U+0661 U+0627 `.com`, U+1E9E
-  `.com`). The test fails on any other difference and on a listed host that stops diverging. The
-  switch to `spocky_contracts::url` (ada 2.9.2 port) removes the list.
 - The network runner (real client sockets, TLS, timers, the end-to-end channel) is the next
   commit range.
