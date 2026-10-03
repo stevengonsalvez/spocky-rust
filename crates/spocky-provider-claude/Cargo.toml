@@ -8,7 +8,6 @@ rust-version = "1.94"
 [dependencies]
 sha1 = "0.10.7"
 spocky-contracts = { path = "../spocky-contracts" }
-spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 
 [dev-dependencies]
