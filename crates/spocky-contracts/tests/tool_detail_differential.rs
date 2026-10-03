@@ -12,13 +12,98 @@ use spocky_contracts::js_value::{JsValue, parse, stringify};
 use spocky_contracts::tool_detail::{
     Parse, Thrown, edit_detail, edit_input, edit_output, extract_codex_shell_output, fetch_detail,
     fetch_input, fetch_output, glob_output, infallible, non_empty_string, parse_pair, read_detail,
-    read_input, read_output, search_detail, search_input, shell_detail, shell_input, shell_output,
-    strip_read_line_number_gutter, truncate_diff_text, web_search_output, write_detail,
-    write_input, write_output,
+    read_input, read_output, read_output_with_path, search_detail, search_input, shell_detail,
+    shell_input, shell_output, strip_read_line_number_gutter, truncate_diff_text,
+    web_search_output, write_detail, write_input, write_output,
 };
 
 /// `(family, input, output)`: the schema pair and mapper under test.
 const DETAIL_CASES: &[(&str, &str, &str)] = &[
+    ("read_path", r#"{"path":"/a"}"#, r#"{"path":"/a"}"#),
+    ("read_path", r#"{"path":"/in"}"#, r#"{"path":"/out"}"#),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"file_path":"/out","text":"t"}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"filePath":"/out","output":[{"text":"a"},{"output":"b"}]}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","file_path":"/q","filePath":"/r"}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":5,"file_path":"/q"}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","content":5}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","content":null}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","content":"c"}"#,
+    ),
+    ("read_path", r#"{"path":"/in"}"#, r#"{"path":"","extra":1}"#),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","text":[]}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"path":"/p","output":{"text":1}}"#,
+    ),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#"{"data":{"path":"/p"}}"#,
+    ),
+    ("read_path", r#"{"path":"/in"}"#, r#"["x"]"#),
+    (
+        "read_path",
+        r#"{"path":"/in"}"#,
+        r#""<path>/x</path><content>c</content>""#,
+    ),
+    ("read_path", r#"{"path":"/in"}"#, r#""plain""#),
+    ("read_path", r#"{"path":"/in"}"#, r"7"),
+    ("read_path", r#"{"path":"/in"}"#, r"[]"),
+    ("read_path", r#"{"path":"/in"}"#, r"null"),
+    // With no input path the output's path is the detail path.
+    ("read_path", r"null", r#"{"path":"/a"}"#),
+    (
+        "read_path",
+        r"null",
+        r#"{"path":"/p","file_path":"/q","filePath":"/r"}"#,
+    ),
+    (
+        "read_path",
+        r"null",
+        r#"{"file_path":"/q","filePath":"/r"}"#,
+    ),
+    ("read_path", r"null", r#"{"filePath":"/r","path":5}"#),
+    ("read_path", r"null", r#"{"path":"/p","content":5}"#),
+    (
+        "read_path",
+        r"null",
+        r#"{"path":"/p","text":"t","output":null}"#,
+    ),
+    ("read_path", r"null", r#"{"path":" /p ","extra":true}"#),
+    ("read_path", r"null", r#"{"path":"","file_path":"/q"}"#),
+    ("read_path", r#"{"file":"x"}"#, r#"{"path":"/a"}"#),
     (
         "shell",
         r#"{"command":["  git ","","status "],"directory":"/d","cwd":""}"#,
@@ -223,6 +308,13 @@ const run = (fn) => {
   }
 };
 const detail = (family, input, output) => {
+  if (family === "read_path") {
+    // The Codex read branch: the content schema, then the path-keyed object.
+    const parsedInput = p.ToolReadInputSchema.nullable().safeParse(input);
+    if (!parsedInput.success) return "REJECT";
+    const parsedOutput = p.ToolReadOutputWithPathSchema.safeParse(output);
+    return fmt(p.toReadToolDetail(parsedInput.data, parsedOutput.success ? parsedOutput.data : null));
+  }
   if (family === "read") {
     // The read branch parses its output separately, as the Claude parser does.
     const parsedInput = p.ToolReadInputSchema.nullable().safeParse(input);
@@ -301,6 +393,19 @@ fn detail(family: &str, input: &JsValue, output: &JsValue) -> Parse<Option<JsVal
                     None
                 } else {
                     read_output(output)?
+                };
+                Some(read_detail(parsed_input, parsed_output))
+            }
+            None => None,
+        },
+        "read_path" => match parse_pair(input, output, infallible(read_input), |_: &JsValue| {
+            Ok(Some(()))
+        })? {
+            Some((parsed_input, _)) => {
+                let parsed_output = if output.is_null() {
+                    None
+                } else {
+                    read_output_with_path(output)?
                 };
                 Some(read_detail(parsed_input, parsed_output))
             }
