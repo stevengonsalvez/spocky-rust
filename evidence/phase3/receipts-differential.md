@@ -35,11 +35,16 @@ failed, 0 ignored. Clippy and fmt are clean. The Rust side of every
 differential is bounded to 120 s, like node's. The differential first fails
 unless node reports `v22.20.0` and both dist modules match the digests below.
 One earlier run of this suite exited nonzero while the check helper was
-sending its output to `/dev/null`, so the failing test was not recorded; the
-helper now keeps the output of any failing run. Since then the suite passed
-12 runs with output kept, and all three test binaries passed 50 runs in a row
-under 12 busy loops (one per CPU), 150 executions with no failure. The cause
-of that one run is not known.
+sending its output to `/dev/null`, so the failing test was not recorded. That
+run was made while the shared disk was nearly full (the coordinator reported
+19G free and falling soon after), and the suite writes disposable roots under
+the temp directory, so a transient `ENOSPC` is the one hypothesis that fits;
+it is an inference and was not verified. It did not recur:
+`scripts/phase3/receipts-flake-hunt.sh` keeps the full output of every run,
+and it ran the whole suite (lib, ported, differential and doc tests) 150 times
+under 24 busy loops (twice the CPU count) with no failure, on top of 12 earlier
+runs with output kept and 50 runs of the three test binaries under 12 busy
+loops. Any new failure leaves its log and its failing test in `failures.txt`.
 
 The runner's own failure handling is proven by:
 
