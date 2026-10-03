@@ -27,12 +27,12 @@ pub const PLUGIN_TIMELINE_DATA_MAX_BYTES: usize = 64 * 1024;
 /// returns no string).
 pub fn assert_plugin_timeline_data_size(data: &JsValue) -> Result<(), AgentError> {
     if matches!(data, JsValue::Undefined) {
-        return Err(AgentError {
-            name: "TypeError".to_owned(),
-            message: "The \"string\" argument must be of type string or an instance of \
+        return Err(AgentError::named(
+            "TypeError".to_owned(),
+            "The \"string\" argument must be of type string or an instance of \
                       Buffer or ArrayBuffer. Received undefined"
                 .to_owned(),
-        });
+        ));
     }
     if stringify(data).len() > PLUGIN_TIMELINE_DATA_MAX_BYTES {
         return Err(AgentError::new(format!(
