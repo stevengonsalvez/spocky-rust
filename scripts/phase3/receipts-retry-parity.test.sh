@@ -14,12 +14,14 @@
 #   send receipt pending, count 3, count 1, fingerprints differ, and both sides
 #     alike pending or alike holding three receipts
 #   the probe's three wire blocks ("# recording client", "# retry-other
-#     connection", "# race second connection") missing, or out of order
+#     connection", "# race second connection") missing, out of order, or a
+#     fourth block after them (its server_info lands in the race block)
 #   a block's server_info frame missing, twice (recording client), not first
 #     on both sides, differing in any of the three blocks, in another key
-#     order, the original lacking features.workspaceLabels, or spocky
-#     advertising it as false; and spocky advertising it as true (the gap
-#     closed) or sending extra pongs is accepted
+#     order, or differing in features.workspaceLabels (the original lacking
+#     it, spocky lacking it, as in open gap DWLABEL-001, or false); the clean
+#     case has bare heartbeat pongs in every block, and extra pongs are
+#     accepted
 #   dirty worktree
 #
 # Every case runs the committed runner from a throwaway detached worktree at
@@ -76,15 +78,13 @@ def compact(value):
 
 
 def server_info(kind, block="client"):
-    """The handshake frame: spocky omits features.workspaceLabels (DWLABEL-001)."""
+    """The handshake frame: both daemons advertise features.workspaceLabels."""
     features = {"workspaceLabels": True, "voice": False}
-    if kind == "spocky":
-        del features["workspaceLabels"]
     frame = {"type": "status", "payload": {
         "status": "server_info", "serverId": "srv_" + ("aB-_cD0123xy" if kind == "original" else "zZ9_-Y876543"),
         "hostname": "host", "version": "1.2.3", "features": features}}
-    if case == "server-info-gap-closed" and kind == "spocky":
-        frame["payload"]["features"] = {"workspaceLabels": True, "voice": False}
+    if case == "server-info-spocky-no-labels" and kind == "spocky":
+        frame["payload"]["features"] = {"voice": False}
     if case == "server-info-spocky-false" and kind == "spocky":
         frame["payload"]["features"] = {"workspaceLabels": False, "voice": False}
     if case == "server-info-original-no-labels" and kind == "original":
@@ -106,29 +106,32 @@ def side(kind, mutate_outcomes=None):
     if mutate_outcomes:
         mutate_outcomes(shown)
     pong = '{"type":"pong"}'
-    # The probe leaves out the bare heartbeat pong, so a clean side has none.
-    client = [server_info(kind, "client"), '{"type":"session","message":{"type":"fetch_agent_response"}}']
-    other = [server_info(kind, "other")]
-    race = [server_info(kind, "race")]
+    # The probe prints bare heartbeat pongs again; the gate strips them.
+    client = [server_info(kind, "client"), pong, '{"type":"session","message":{"type":"fetch_agent_response"}}', pong]
+    other = [server_info(kind, "other"), pong]
+    race = [server_info(kind, "race"), pong]
     if case == "server-info-both-late":
-        client = [client[1], client[0]]
+        client = [client[2], client[0], client[1], client[3]]
     if kind == "spocky":
         if case == "server-info-missing":
             client = client[1:]
         if case == "server-info-twice":
-            client = [client[0], client[0], client[1]]
+            client = [client[0], client[0]] + client[1:]
         if case == "other-info-missing":
-            other = []
+            other = other[1:]
         if case == "race-info-missing":
-            race = []
+            race = race[1:]
         if case == "pongs-differ":
-            client = [client[0], pong, pong, client[1]]
+            client = [client[0], pong, pong, pong] + client[2:]
     lines = [compact({"outcomes": shown, "workspaceId": "wks_0123456789abcdef"})]
     blocks = [("# recording client", client), ("# retry-other connection", other), ("# race second connection", race)]
     if kind == "spocky" and case == "no-blocks":
         lines += client + other + race
     elif kind == "spocky" and case == "blocks-reversed":
         lines += [line for label, frames in reversed(blocks) for line in [label] + frames]
+    elif kind == "spocky" and case == "extra-block":
+        lines += [line for label, frames in blocks for line in [label] + frames]
+        lines += ["# extra connection", server_info(kind, "race")]
     elif kind == "spocky" and case == "race-block-missing":
         lines += [line for label, frames in blocks[:2] for line in [label] + frames]
     else:
@@ -242,15 +245,14 @@ run_case() {
 run_case good 0
 grep -F 'passed' "$work/good.log" >/dev/null
 run_case allow-skip 0 SPOCKY_ALLOW_SKIP=1
-run_case server-info-gap-closed 0
 run_case pongs-differ 0
 for label in gate-exit unsupported no-evidence-line selfcheck-fail parity-fail parity-missing \
   parity-diff parity-check parity-discovery wrong-kind probe-exit turns-4 turns-2 \
   outcome-diff conflict-text receipt-pending receipt-3 receipt-1 receipt-fp \
   receipts-both-pending receipts-both-3 server-info-missing server-info-twice \
   server-info-differs server-info-key-order server-info-original-no-labels \
-  server-info-both-late server-info-spocky-false other-info-missing other-info-differs \
-  no-blocks blocks-reversed race-block-missing race-info-missing race-info-differs; do
+  server-info-both-late server-info-spocky-false server-info-spocky-no-labels other-info-missing other-info-differs \
+  no-blocks blocks-reversed race-block-missing race-info-missing race-info-differs extra-block; do
   run_case "$label" nonzero
 done
 grep -F 'expected 3' "$work/turns-4.log" >/dev/null
@@ -262,4 +264,4 @@ run_case dirty-tree nonzero
 grep -F 'worktree is not clean' "$work/dirty-tree.log" >/dev/null
 rm "$tree/retry-dirty-probe"
 
-printf 'receipts-retry-parity.test.sh: 41 cases passed\n'
+printf 'receipts-retry-parity.test.sh: 42 cases passed\n'

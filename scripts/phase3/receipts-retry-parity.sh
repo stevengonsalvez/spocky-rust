@@ -13,15 +13,15 @@
 #     exited 0 and the stub recorded exactly 3 turns (a retry that started a
 #     second turn makes it 4);
 #   - both sides' probe outcomes equal the expected outcomes below, in order;
-#   - the probe's stdout is the outcomes line, then two labelled wire blocks,
-#     "# recording client", "# retry-other connection" and "# race second
-#     connection", every frame in arrival order (the probe leaves out the
-#     bare heartbeat pong; the gate's compare covers every other frame). Each
-#     block starts with exactly one server_info frame, and the two sides'
-#     frames are byte-identical in key order after masking generated values
-#     (as g2-differential.sh does), except features.workspaceLabels: the
-#     original must advertise it, and spocky may omit it (open gap
-#     DWLABEL-001) or advertise it too;
+#   - the probe's stdout is the outcomes line, then three labelled wire
+#     blocks, "# recording client", "# retry-other connection" and "# race
+#     second connection", every frame in arrival order. Bare heartbeat pong
+#     lines may appear anywhere in a block; the gate strips them before its
+#     compare, and this runner ignores them. Each block starts with exactly
+#     one server_info frame, and the two sides' frames are byte-identical in
+#     key order after masking generated values (as g2-differential.sh does),
+#     with no exemption: a difference in features.workspaceLabels (open gap
+#     DWLABEL-001) fails the run;
 #   - both sides hold exactly two send receipts, both `completed`, with the
 #     same fingerprints.
 # The probe is scripts/phase3/receipts-retry-probe.mjs. Everything is compared
@@ -64,10 +64,6 @@ mask() {
 }
 # jq is only a predicate here: is this line a server_info status frame?
 server_info='if .message then .message else . end'
-# Textual removal of features.workspaceLabels, wherever it sits in the frame.
-strip_labels() {
-  sed -E -e 's/,"workspaceLabels":(true|false)//' -e 's/"workspaceLabels":(true|false),//'
-}
 expected_turns=3
 expected_receipts=2
 
@@ -201,16 +197,10 @@ sys.stdout.buffer.write(bytes([step for s in steps if s["name"] == "probe" for s
       fail "send receipts differ between the original and spocky daemons"
     for block in client other race; do
       for side_dir in left-original right-spocky; do
-        mask "$evidence/$side_dir-$block-server-info.txt" | strip_labels >"$evidence/$side_dir-$block-server-info-compared.txt"
+        mask "$evidence/$side_dir-$block-server-info.txt" >"$evidence/$side_dir-$block-server-info-compared.txt"
       done
       cmp -s "$evidence/left-original-$block-server-info-compared.txt" "$evidence/right-spocky-$block-server-info-compared.txt" ||
-        fail "$block block server_info frames differ between the original and spocky daemons beyond features.workspaceLabels"
-      grep -q '"workspaceLabels":true' "$evidence/left-original-$block-server-info.txt" ||
-        fail "the original $block block server_info frame does not advertise features.workspaceLabels"
-      if grep -q '"workspaceLabels":' "$evidence/right-spocky-$block-server-info.txt" &&
-        ! grep -q '"workspaceLabels":true' "$evidence/right-spocky-$block-server-info.txt"; then
-        fail "the spocky $block block server_info frame has features.workspaceLabels other than absent or true"
-      fi
+        fail "$block block server_info frames differ between the original and spocky daemons"
     done
   fi
 fi
