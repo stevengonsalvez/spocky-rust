@@ -497,7 +497,33 @@ fn listing(root: &str) -> JsValue {
     JsValue::Array(out)
 }
 
+/// Longest the Rust side may take, the same bound `run_node` gives node. A
+/// racing step waits in `prepare` for every racer, so a racer that never
+/// reaches it would otherwise hang the test.
+const RUST_BOUND: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Fails, instead of hanging, when `work` outlives `bound`.
+async fn bounded<T>(bound: std::time::Duration, work: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(bound, work)
+        .await
+        .unwrap_or_else(|_| panic!("the Rust side did not finish within {bound:?}"))
+}
+
 async fn run_rust(root: &str, steps: &JsValue) -> String {
+    bounded(RUST_BOUND, run_rust_steps(root, steps)).await
+}
+
+#[tokio::test]
+#[should_panic(expected = "did not finish within")]
+async fn a_hung_rust_side_fails_instead_of_hanging() {
+    bounded(
+        std::time::Duration::from_millis(50),
+        std::future::pending::<()>(),
+    )
+    .await;
+}
+
+async fn run_rust_steps(root: &str, steps: &JsValue) -> String {
     let prepares = Arc::new(AtomicUsize::new(0));
     let deliveries = Arc::new(AtomicUsize::new(0));
     let mut instances: HashMap<String, MessageReceipts> = HashMap::new();
