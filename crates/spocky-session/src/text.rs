@@ -2,7 +2,9 @@
 //! (`String.prototype.trim`, `/\s/`) and UTF-16 slicing over JavaScript text
 //! ([`spocky_store::js_value`] encoding, which keeps lone surrogates).
 
-use spocky_store::js_value::{js_text_from_utf16, js_text_utf16};
+use std::path::Path;
+
+use spocky_store::js_value::{js_text, js_text_from_utf16, js_text_utf16};
 
 /// ECMAScript `WhiteSpace` and `LineTerminator`: what `trim` removes and
 /// `/\s/` matches. Unlike Rust's `char::is_whitespace`, it includes U+FEFF and
@@ -61,9 +63,80 @@ pub fn utf16_len(value: &str) -> usize {
     js_text_utf16(value).count()
 }
 
+/// A path from the operating system (the working directory, a resolved path,
+/// a link target) as JavaScript text: node decodes the name bytes as UTF-8
+/// with U+FFFD for the invalid ones, and a literal U+10FFFF is doubled.
+#[must_use]
+pub fn path_text(path: &Path) -> String {
+    js_text(&path.to_string_lossy())
+}
+
+/// Bytes from outside (process output, file contents) as JavaScript text:
+/// UTF-8 decoded with U+FFFD for the invalid sequences, as node does.
+#[must_use]
+pub fn bytes_text(bytes: &[u8]) -> String {
+    js_text(&String::from_utf8_lossy(bytes))
+}
+
+/// `readFileSync(path, "utf8")` as JavaScript text.
+///
+/// # Errors
+///
+/// The error of reading the file.
+pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
+    std::fs::read(path).map(|bytes| bytes_text(&bytes))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{collapse_js_whitespace, js_trim, slice_utf16, utf16_len};
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    use spocky_store::js_value::{JsTextUnit, js_text_units};
+
+    use super::{
+        bytes_text, collapse_js_whitespace, js_trim, path_text, read_text, slice_utf16, utf16_len,
+    };
+
+    /// The escape U+10FFFF followed by U+F0000 would read as an encoded lone
+    /// surrogate unless the escape is doubled on the way in.
+    const COLLIDING: &str = "a\u{10FFFF}\u{F0000}b";
+
+    fn is_plain_text(text: &str) -> bool {
+        js_text_units(text).all(|unit| matches!(unit, JsTextUnit::Char(_)))
+    }
+
+    #[test]
+    fn outside_bytes_become_javascript_text() {
+        let text = bytes_text(COLLIDING.as_bytes());
+        assert_eq!(text, "a\u{10FFFF}\u{10FFFF}\u{F0000}b");
+        assert!(is_plain_text(&text));
+        assert_eq!(bytes_text(b"a\xffb"), "a\u{FFFD}b");
+    }
+
+    #[test]
+    fn outside_paths_become_javascript_text() {
+        let path = Path::new(OsStr::from_bytes(COLLIDING.as_bytes()));
+        assert_eq!(path_text(path), bytes_text(COLLIDING.as_bytes()));
+        assert_eq!(
+            path_text(Path::new(OsStr::from_bytes(b"/a/\xffb"))),
+            "/a/\u{FFFD}b"
+        );
+    }
+
+    #[test]
+    fn file_contents_become_javascript_text() {
+        let home = std::env::temp_dir().join(format!("spocky-read-text-{}", std::process::id()));
+        std::fs::create_dir_all(&home).expect("home");
+        let file = home.join("f");
+        std::fs::write(&file, [COLLIDING.as_bytes(), b"\xff"].concat()).expect("write");
+        let text = read_text(&file).expect("read");
+        assert_eq!(text, "a\u{10FFFF}\u{10FFFF}\u{F0000}b\u{FFFD}");
+        assert!(is_plain_text(&text));
+        assert!(read_text(home.join("missing")).is_err());
+        std::fs::remove_dir_all(&home).expect("clean");
+    }
 
     #[test]
     fn whitespace_matches_ecmascript() {
