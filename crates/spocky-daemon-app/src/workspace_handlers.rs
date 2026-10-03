@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock, Weak};
 
 use spocky_contracts::frame::frame_text;
+use spocky_contracts::js::date_parse;
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_contracts::json::js_wire_text;
 use spocky_contracts::request::{
@@ -28,7 +29,6 @@ use spocky_session::workspace_descriptor::describe_workspace;
 use spocky_store::registry::{
     PersistedProjectRecord, PersistedWorkspaceRecord, resolve_project_display_name,
 };
-use spocky_store::time::parse_iso_millis;
 
 use crate::agent_directory::{
     CursorError, Pager, SortSpec, SortValue, compare, compare_with_cursor, decode_cursor,
@@ -55,7 +55,7 @@ fn workspace_sort_value(workspace: &JsValue, key: &str) -> SortValue {
         // `workspace.activityAt ? Date.parse(workspace.activityAt) : null`.
         #[allow(clippy::cast_precision_loss)]
         "activity_at" => match text("activityAt").filter(|at| !at.is_empty()) {
-            Some(at) => SortValue::Number(parse_iso_millis(at).map_or(f64::NAN, |ms| ms as f64)),
+            Some(at) => SortValue::Number(date_parse(at).map_or(f64::NAN, |ms| ms as f64)),
             None => SortValue::Null,
         },
         // ponytail: ASCII-lowercase stands in for toLocaleLowerCase.
@@ -570,5 +570,20 @@ mod tests {
             workspace_sort_value(&parse(r#"{"status":"done"}"#).unwrap(), "status_priority"),
             SortValue::Number(4.0)
         );
+    }
+
+    #[test]
+    fn activity_parses_as_date_parse_does() {
+        // Printed by node 22: Date.parse("Fri, 02 Oct 2026 12:00:00 GMT"),
+        // Date.parse("not a date").
+        let sort_value = |text: &str| {
+            let workspace = parse(&format!(r#"{{"activityAt":"{text}"}}"#)).unwrap();
+            workspace_sort_value(&workspace, "activity_at")
+        };
+        assert_eq!(
+            sort_value("Fri, 02 Oct 2026 12:00:00 GMT"),
+            SortValue::Number(1_790_942_400_000.0)
+        );
+        assert!(matches!(sort_value("not a date"), SortValue::Number(value) if value.is_nan()));
     }
 }
