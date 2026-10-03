@@ -1,1 +1,1 @@
-{"Status":"exited","Running":false,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":0,"ExitCode":0,"Error":"","StartedAt":"2026-10-01T16:50:37.549091811Z","FinishedAt":"2026-10-01T16:51:22.248510041Z"}
+{"State":{"Status":"exited","Running":false,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":0,"ExitCode":0,"Error":"","StartedAt":"2026-10-03T11:58:43.474397864Z","FinishedAt":"2026-10-03T11:59:24.023838538Z"},"HostConfig":{"NetworkMode":"none","Memory":3221225472,"MemorySwap":3221225472,"NanoCpus":2000000000}}
