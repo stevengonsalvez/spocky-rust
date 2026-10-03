@@ -27,10 +27,10 @@ impl RewindMode {
 
 /// `RewindCapabilityError`.
 fn capability_error(mode: RewindMode) -> AgentError {
-    AgentError {
-        name: "RewindCapabilityError".to_owned(),
-        message: format!("Provider does not support rewinding {}", mode.as_str()),
-    }
+    AgentError::named(
+        "RewindCapabilityError".to_owned(),
+        format!("Provider does not support rewinding {}", mode.as_str()),
+    )
 }
 
 /// `invokeRewindCapability(session, { messageId, mode })`.
