@@ -16,6 +16,7 @@ use super::create::{attach_persistence_cwd, touch_updated_at};
 use super::log_error::err_binding;
 use super::plugin_lifecycle::{describe_hook_agent_of, publish_agent_stream};
 use super::run::TrackedRun;
+use super::trace;
 use super::{AgentAttentionNotice, AgentLifecycle, AgentManager, AgentManagerEvent, State};
 use crate::agent_labels::is_delegated_agent;
 use crate::agent_projection::{AgentAttention, SnapshotOverrides};
@@ -81,6 +82,28 @@ pub(crate) fn raw_turn_id(event: &JsValue) -> Option<JsValue> {
         .get("turnId")
         .filter(|turn| !matches!(turn, JsValue::Undefined))
         .cloned()
+}
+
+/// `event.provider`, as the trace bindings read it.
+fn event_provider(event: &JsValue) -> JsValue {
+    event.get("provider").cloned().unwrap_or(JsValue::Undefined)
+}
+
+/// `getAgentStreamEventTurnId(event)`, as the trace bindings read it.
+fn event_turn_value(event: &JsValue) -> JsValue {
+    raw_turn_id(event).unwrap_or(JsValue::Undefined)
+}
+
+/// `getMatchingWaiters(agent, turnId).length`.
+fn matching_waiter_count(agent: &super::ManagedAgent, turn_id: Option<&JsValue>) -> usize {
+    let Some(turn_id) = turn_id.filter(|turn| !turn.is_null()) else {
+        return 0;
+    };
+    agent
+        .foreground_turn_waiters
+        .iter()
+        .filter(|waiter| turn_id.as_str() == Some(waiter.turn_id.as_str()) && waiter.tx.is_some())
+        .count()
 }
 
 fn type_error(error: &crate::timeline::JsTypeError) -> AgentError {
@@ -678,6 +701,13 @@ impl AgentManager {
     /// turn is starting, otherwise queued for the agent's drain task.
     pub(crate) fn enqueue_session_event(&self, agent_id: &str, event: JsValue) {
         let mut state = self.lock();
+        self.trace_event_locked(
+            &state,
+            agent_id,
+            &event,
+            event_turn_value(&event),
+            "agent.manager.enqueue",
+        );
         if let Some(barrier) = state.steer_event_barriers.get_mut(agent_id) {
             barrier.push(event);
             return;
@@ -703,6 +733,34 @@ impl AgentManager {
         self.track_background_task(async move { manager.drain_session_events(&agent_id) });
     }
 
+    /// `logger.trace({ agentId, provider, sessionId, turnId, event }, message)`.
+    pub(crate) fn trace_event_locked(
+        &self,
+        state: &State,
+        agent_id: &str,
+        event: &JsValue,
+        turn_id: JsValue,
+        message: &str,
+    ) {
+        self.emit_trace(
+            || {
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", event_provider(event)),
+                    (
+                        "sessionId",
+                        state.agent(agent_id).map_or(JsValue::Undefined, |agent| {
+                            trace::session_id(&agent.snapshot)
+                        }),
+                    ),
+                    ("turnId", turn_id),
+                    ("event", event.clone()),
+                ])
+            },
+            message,
+        );
+    }
+
     /// The agent's drain task: one event at a time, in arrival order.
     pub(crate) fn drain_session_events(&self, agent_id: &str) {
         loop {
@@ -719,6 +777,15 @@ impl AgentManager {
             let live = state
                 .agent(agent_id)
                 .is_some_and(|agent| agent.session.is_some());
+            if live {
+                self.trace_event_locked(
+                    &state,
+                    agent_id,
+                    &event,
+                    event_turn_value(&event),
+                    "agent.manager.dequeue",
+                );
+            }
             if live
                 && let Err(error) = self.dispatch_session_event_locked(&mut state, agent_id, &event)
             {
@@ -758,14 +825,55 @@ impl AgentManager {
             self.dispatch(state, AgentManagerEvent::ProviderSubagent(update));
             return Ok(());
         }
-        let turn_id = raw_turn_id(event).filter(|turn| !turn.is_null());
+        let raw_turn = raw_turn_id(event);
+        let turn_id = raw_turn.clone().filter(|turn| !turn.is_null());
+        let matching = state
+            .agent(agent_id)
+            .map_or(0, |agent| matching_waiter_count(agent, raw_turn.as_ref()));
+        self.emit_trace(
+            || {
+                let snapshot = state.agent(agent_id).map(|agent| &agent.snapshot);
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", event_provider(event)),
+                    (
+                        "sessionId",
+                        snapshot.map_or(JsValue::Undefined, trace::session_id),
+                    ),
+                    ("turnId", event_turn_value(event)),
+                    ("matchingWaiterCount", trace::count(matching)),
+                    ("event", event.clone()),
+                ])
+            },
+            "agent.manager.dispatch_session_event",
+        );
         let should_notify = self.handle_stream_event_locked(state, agent_id, event, false)?;
-        if should_notify
-            && let Some(turn_id) = turn_id
+        if !should_notify {
+            return Ok(());
+        }
+        if let Some(turn_id) = turn_id
             && let Some(agent) = state.agent_mut(agent_id)
         {
             Self::notify_waiters(agent, &turn_id, event, is_turn_terminal_event(event));
         }
+        self.emit_trace(
+            || {
+                let snapshot = state.agent(agent_id).map(|agent| &agent.snapshot);
+                trace::bindings([
+                    ("agentId", trace::text(agent_id)),
+                    ("provider", event_provider(event)),
+                    (
+                        "sessionId",
+                        snapshot.map_or(JsValue::Undefined, trace::session_id),
+                    ),
+                    ("turnId", event_turn_value(event)),
+                    ("notifiedWaiterCount", trace::count(matching)),
+                    ("terminal", JsValue::Bool(is_turn_terminal_event(event))),
+                    ("event", event.clone()),
+                ])
+            },
+            "agent.manager.notify_waiters",
+        );
         Ok(())
     }
 
