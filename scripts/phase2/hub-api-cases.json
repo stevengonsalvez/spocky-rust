@@ -9165,6 +9165,160 @@
       }
     },
     {
+      "name": "body/validateTrigger/lone-surrogate-yaml",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "text": "{\"yaml\":\"a\\ud800b\"}"
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/validateTrigger/lone-low-surrogate-yaml",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/triggers/validate",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "text": "{\"yaml\":\"a\\udc00b\"}"
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "valid",
+          "name": "mention",
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "body/dispatchManualRun/lone-surrogate-actor",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/manual-runs",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "text": "{\"projectSlug\":\"p\",\"trigger\":\"t\",\"actor\":\"a\\ud800b\",\"deliveryKey\":\"d\",\"input\":{}}"
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "dispatched",
+          "deliveryKey": "deploy-1",
+          "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
+          "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
+          "configuredTriggerName": "deploy",
+          "workflowStatus": "running"
+        }
+      }
+    },
+    {
+      "name": "body/dispatchManualRun/lone-surrogate-input",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/manual-runs",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "text": "{\"projectSlug\":\"p\",\"trigger\":\"t\",\"actor\":\"a\",\"deliveryKey\":\"d\",\"input\":{\"k\":\"a\\ud800b\"}}"
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "dispatched",
+          "deliveryKey": "deploy-1",
+          "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
+          "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
+          "configuredTriggerName": "deploy",
+          "workflowStatus": "running"
+        }
+      }
+    },
+    {
+      "name": "body/dispatchManualRun/lone-surrogate-project-slug",
+      "via": "handle",
+      "request": {
+        "method": "POST",
+        "url": "https://hub.test/api/v1/manual-runs",
+        "headers": [
+          [
+            "authorization",
+            "Bearer valid"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": {
+          "text": "{\"projectSlug\":\"p\\ud800q\",\"trigger\":\"t\",\"actor\":\"a\",\"deliveryKey\":\"d\",\"input\":{}}"
+        }
+      },
+      "auth": "authorized",
+      "operation": {
+        "result": {
+          "status": "dispatched",
+          "deliveryKey": "deploy-1",
+          "providerEventReceiptId": "845e9d26-7977-45e1-bc69-d80a7b55a9cc",
+          "triggerRunId": "f83dc934-02a0-4849-8de7-699110be24ed",
+          "configuredTriggerName": "deploy",
+          "workflowStatus": "running"
+        }
+      }
+    },
+    {
       "name": "body/validateTrigger/deep-array-1mb",
       "via": "handle",
       "request": {

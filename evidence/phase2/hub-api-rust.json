@@ -5279,6 +5279,131 @@
       ],
       "operationCalls": []
     },
+    "body/validateTrigger/lone-surrogate-yaml": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"name\":\"mention\",\"valid\":true}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": [
+        {
+          "operation": "validateTrigger",
+          "authorization": {
+            "kind": "apiKey",
+            "credentialId": "key-1",
+            "organizationId": "organization-1",
+            "scopes": [
+              "configuration:validate"
+            ]
+          },
+          "input": "{\"yaml\":\"a\\ud800b\"}"
+        }
+      ]
+    },
+    "body/validateTrigger/lone-low-surrogate-yaml": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"name\":\"mention\",\"valid\":true}",
+      "authorizeCalls": [
+        "configuration:validate"
+      ],
+      "operationCalls": [
+        {
+          "operation": "validateTrigger",
+          "authorization": {
+            "kind": "apiKey",
+            "credentialId": "key-1",
+            "organizationId": "organization-1",
+            "scopes": [
+              "configuration:validate"
+            ]
+          },
+          "input": "{\"yaml\":\"a\\udc00b\"}"
+        }
+      ]
+    },
+    "body/dispatchManualRun/lone-surrogate-actor": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"deliveryKey\":\"deploy-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}",
+      "authorizeCalls": [
+        "runs:dispatch"
+      ],
+      "operationCalls": [
+        {
+          "operation": "dispatchManualRun",
+          "authorization": {
+            "kind": "apiKey",
+            "credentialId": "key-1",
+            "organizationId": "organization-1",
+            "scopes": [
+              "runs:dispatch"
+            ]
+          },
+          "input": "{\"projectSlug\":\"p\",\"trigger\":\"t\",\"actor\":\"a\\ud800b\",\"deliveryKey\":\"d\",\"input\":{}}"
+        }
+      ]
+    },
+    "body/dispatchManualRun/lone-surrogate-input": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"deliveryKey\":\"deploy-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}",
+      "authorizeCalls": [
+        "runs:dispatch"
+      ],
+      "operationCalls": [
+        {
+          "operation": "dispatchManualRun",
+          "authorization": {
+            "kind": "apiKey",
+            "credentialId": "key-1",
+            "organizationId": "organization-1",
+            "scopes": [
+              "runs:dispatch"
+            ]
+          },
+          "input": "{\"projectSlug\":\"p\",\"trigger\":\"t\",\"actor\":\"a\",\"deliveryKey\":\"d\",\"input\":{\"k\":\"a\\ud800b\"}}"
+        }
+      ]
+    },
+    "body/dispatchManualRun/lone-surrogate-project-slug": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "00000000-0000-4000-8000-000000000001"
+      },
+      "body": "{\"deliveryKey\":\"deploy-1\",\"providerEventReceiptId\":\"845e9d26-7977-45e1-bc69-d80a7b55a9cc\",\"triggerRunId\":\"f83dc934-02a0-4849-8de7-699110be24ed\",\"configuredTriggerName\":\"deploy\",\"workflowStatus\":\"running\"}",
+      "authorizeCalls": [
+        "runs:dispatch"
+      ],
+      "operationCalls": [
+        {
+          "operation": "dispatchManualRun",
+          "authorization": {
+            "kind": "apiKey",
+            "credentialId": "key-1",
+            "organizationId": "organization-1",
+            "scopes": [
+              "runs:dispatch"
+            ]
+          },
+          "input": "{\"projectSlug\":\"p\\ud800q\",\"trigger\":\"t\",\"actor\":\"a\",\"deliveryKey\":\"d\",\"input\":{}}"
+        }
+      ]
+    },
     "body/validateTrigger/deep-array-1mb": {
       "status": 400,
       "headers": {
