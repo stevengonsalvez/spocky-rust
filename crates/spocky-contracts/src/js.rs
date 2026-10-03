@@ -7,9 +7,11 @@ use crate::js_value::{
     JsObject, JsValue, js_number, js_text_eq, js_text_from_utf16, js_text_utf16,
 };
 
+pub mod collate;
 pub mod date_parse;
 pub mod sort;
 
+pub use collate::locale_compare;
 pub use date_parse::{date_parse, date_parse_in};
 pub use sort::js_sort_by;
 
