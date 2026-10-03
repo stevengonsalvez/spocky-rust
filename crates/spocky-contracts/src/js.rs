@@ -8,8 +8,10 @@ use crate::js_value::{
 };
 
 pub mod date_parse;
+pub mod sort;
 
 pub use date_parse::{date_parse, date_parse_in};
+pub use sort::js_sort_by;
 
 /// A JavaScript `TypeError` carrying V8's exact message, such as
 /// `Cannot read properties of undefined (reading 'type')`.
