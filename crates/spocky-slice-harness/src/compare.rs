@@ -239,8 +239,9 @@ const PROBE_FLAKE_RECORD: usize = 0;
 /// session is eligible; a record that has it on both sides is compared as is,
 /// so a different commit hash or `has_changes` still fails. Nothing is
 /// stripped when the record counts differ, or when the side without it
-/// carries it in no record while the other side carries it in two or more
-/// (a systematic absence, not the first-request flake).
+/// carries it in no other record: a side that never has it is a systematic
+/// absence, not the first-request flake, and with a single request the two
+/// cannot be told apart, so that run fails and is repeated.
 fn git_probe_strips(left: &SideRun, right: &SideRun) -> (Vec<usize>, Vec<usize>) {
     let none = (Vec::new(), Vec::new());
     if left.stub_records.len() != right.stub_records.len() {
@@ -252,12 +253,15 @@ fn git_probe_strips(left: &SideRun, right: &SideRun) -> (Vec<usize>, Vec<usize>)
     ) else {
         return none;
     };
-    let carried = |side: &SideRun| side.stub_records.iter().filter(|r| git_probe(r)).count();
-    let systematic =
-        |lacking: &SideRun, other: &SideRun| carried(lacking) == 0 && carried(other) >= 2;
+    let later = |side: &SideRun| {
+        side.stub_records
+            .iter()
+            .skip(PROBE_FLAKE_RECORD + 1)
+            .any(|record| git_probe(record))
+    };
     match (git_probe(l), git_probe(r)) {
-        (true, false) if !systematic(right, left) => (vec![PROBE_FLAKE_RECORD], Vec::new()),
-        (false, true) if !systematic(left, right) => (Vec::new(), vec![PROBE_FLAKE_RECORD]),
+        (true, false) if later(right) => (vec![PROBE_FLAKE_RECORD], Vec::new()),
+        (false, true) if later(left) => (Vec::new(), vec![PROBE_FLAKE_RECORD]),
         _ => none,
     }
 }
@@ -1347,11 +1351,21 @@ mod tests {
         side
     }
 
+    /// Two stub requests whose probes are `first` and `second`.
+    fn two_records(side: SideRun, first: &str, second: &str) -> SideRun {
+        let mut side = probe_record(side, first, None);
+        side.stub_records
+            .push(probe_record(pair().0, second, None).stub_records.remove(0));
+        side.stub_scripted = 2;
+        side.script_len = 2;
+        side
+    }
+
     #[test]
     fn a_git_probe_on_one_side_only_is_removed_and_named() {
         let (left, right) = pair();
-        let left = probe_record(left, PROBE, None);
-        let right = probe_record(right, "", None);
+        let left = two_records(left, PROBE, PROBE);
+        let right = two_records(right, "", PROBE);
         let outcome = compare_sides(&gate_with(Vec::new()), &left, &right);
         assert!(outcome.verdict.pass, "{:?}", outcome.verdict.differences);
         let ids: Vec<&str> = outcome
@@ -1366,8 +1380,8 @@ mod tests {
         let (left, right) = pair();
         let outcome = compare_sides(
             &gate_with(Vec::new()),
-            &probe_record(left, "", None),
-            &probe_record(right, PROBE, None),
+            &two_records(left, "", PROBE),
+            &two_records(right, PROBE, PROBE),
         );
         assert!(outcome.verdict.pass);
         assert_eq!(outcome.verdict.transforms[1].reordered, ["right:stub/000"]);
@@ -1418,8 +1432,8 @@ mod tests {
             let (left, right) = pair();
             let outcome = compare_sides(
                 &gate_with(Vec::new()),
-                &probe_record(left, odd, None),
-                &probe_record(right, "", None),
+                &two_records(left, odd, PROBE),
+                &two_records(right, "", PROBE),
             );
             assert!(!outcome.verdict.pass, "{odd}");
         }
@@ -1457,12 +1471,7 @@ mod tests {
 
     #[test]
     fn only_the_first_request_may_lack_the_probe() {
-        let records = |first: &str, second: &str| {
-            let mut side = probe_record(pair().0, first, None);
-            side.stub_records
-                .push(probe_record(pair().0, second, None).stub_records.remove(0));
-            side
-        };
+        let records = |first: &str, second: &str| two_records(pair().0, first, second);
         // The first-request flake: only record 0 differs.
         let (strips_left, strips_right) =
             git_probe_strips(&records(PROBE, PROBE), &records("", PROBE));
@@ -1472,19 +1481,26 @@ mod tests {
             git_probe_strips(&records(PROBE, PROBE), &records(PROBE, "")),
             (vec![], vec![])
         );
-        // A side that never carries it while the other carries it twice is
-        // a systematic absence, not the flake.
+        // A side that never carries it is a systematic absence, not the flake.
         assert_eq!(
             git_probe_strips(&records(PROBE, PROBE), &records("", "")),
             (vec![], vec![])
         );
-        // A single request has no later record to tell the two apart.
+        // A single request has no later record to tell the flake from a
+        // systematic absence, so nothing is stripped either way.
         assert_eq!(
             git_probe_strips(
                 &probe_record(pair().0, PROBE, None),
                 &probe_record(pair().1, "", None)
             ),
-            (vec![0], vec![])
+            (vec![], vec![])
+        );
+        assert_eq!(
+            git_probe_strips(
+                &probe_record(pair().0, "", None),
+                &probe_record(pair().1, PROBE, None)
+            ),
+            (vec![], vec![])
         );
     }
 
