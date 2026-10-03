@@ -115,12 +115,22 @@ impl TerminalOutputCoalescer {
             return None;
         }
         self.timer = None;
-        self.flush(now)
+        self.drain(now)
     }
 
     /// `flush()`: clears the trailing timer and drains pending output.
     pub fn flush(&mut self, now: f64) -> Option<CoalescerFlush> {
-        self.timer = None;
+        self.flush_clearing(now).0
+    }
+
+    /// `flush()`, also reporting whether it cleared an armed trailing timer,
+    /// which is when the baseline calls `clearTimeout`.
+    pub fn flush_clearing(&mut self, now: f64) -> (Option<CoalescerFlush>, bool) {
+        let cleared = self.timer.take().is_some();
+        (self.drain(now), cleared)
+    }
+
+    fn drain(&mut self, now: f64) -> Option<CoalescerFlush> {
         if self.chunks.is_empty() {
             return None;
         }
@@ -141,12 +151,14 @@ impl TerminalOutputCoalescer {
         self.last_flush_at = Some(now);
     }
 
-    /// `dispose()`: clears the timer and drops pending output.
-    pub fn dispose(&mut self) {
-        self.timer = None;
+    /// `dispose()`: clears the timer and drops pending output. Returns
+    /// whether it cleared an armed timer (a baseline `clearTimeout` call).
+    pub fn dispose(&mut self) -> bool {
+        let cleared = self.timer.take().is_some();
         self.chunks.clear();
         self.bytes = 0;
         self.chars = 0;
+        cleared
     }
 
     /// Whether a trailing timer is armed (the baseline's `flushTimer`).
