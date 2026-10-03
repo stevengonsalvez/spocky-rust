@@ -58,10 +58,18 @@ pub struct ProtocolFailure {
 /// An error a session threw, as `handleRawMessageError` reads it: `err.name` goes
 /// to the log, `err.message` into the protocol failure. A rejection that is not
 /// an `Error` becomes `new Error(String(value))`, named `Error`.
+///
+/// `properties` are the error's own enumerable properties in the order the
+/// runtime defined them (`code` and `input` on the `TypeError` of an invalid
+/// URL), which pino's error serializer writes after `type`, `message` and
+/// `stack`. `stack` is the whole `error.stack` when the session has it; without
+/// one the stack is the header line, `<name>: <message>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionError {
     pub name: String,
     pub message: String,
+    pub properties: Vec<(String, Value)>,
+    pub stack: Option<String>,
 }
 
 impl SessionError {
@@ -70,7 +78,23 @@ impl SessionError {
         Self {
             name: name.into(),
             message: message.into(),
+            properties: Vec::new(),
+            stack: None,
         }
+    }
+
+    /// Adds an own property after the ones already set.
+    #[must_use]
+    pub fn with_property(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.properties.push((key.into(), value.into()));
+        self
+    }
+
+    /// Sets `error.stack`.
+    #[must_use]
+    pub fn with_stack(mut self, stack: impl Into<String>) -> Self {
+        self.stack = Some(stack.into());
+        self
     }
 }
 
@@ -159,5 +183,20 @@ pub trait SessionBackend: Send + Sync {
     /// `onListening` rejects `createPaseoDaemon`'s `start()` in the baseline.
     fn listening(&self, _bound: &ListenTarget) -> Result<(), String> {
         Ok(())
+    }
+
+    /// [`Self::listening`] with the whole Error the handler threw: its name,
+    /// message and own properties, which the fatal record "Daemon failed to start
+    /// listening" writes as pino's `err` object. This is the method the daemon
+    /// calls; the default forwards to [`Self::listening`] and names a message-only
+    /// failure `Error`. A backend whose failure has a name or properties (the
+    /// `TypeError` of `new URL(...)`) overrides this instead.
+    ///
+    /// # Errors
+    ///
+    /// The error the handler threw; the start is undone as for [`Self::listening`].
+    fn listening_error(&self, bound: &ListenTarget) -> Result<(), SessionError> {
+        self.listening(bound)
+            .map_err(|message| SessionError::new("Error", message))
     }
 }
