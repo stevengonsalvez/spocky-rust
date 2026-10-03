@@ -25,6 +25,7 @@ members = [
   "crates/spocky-ui-pilot",
   "crates/spocky-ui-renderer-pilot",
   "crates/spocky-wire",
+  "crates/spocky-workspace-labels",
   "crates/spocky-xterm",
 ]
 resolver = "3"
