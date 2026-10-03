@@ -15,6 +15,7 @@ spocky-message-receipts = { path = "../spocky-message-receipts" }
 spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 spocky-store = { path = "../spocky-store" }
+spocky-workspace-labels = { path = "../spocky-workspace-labels" }
 tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync"] }
 
 [dev-dependencies]

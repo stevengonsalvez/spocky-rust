@@ -5568,6 +5568,7 @@ dependencies = [
  "spocky-session",
  "spocky-slice-harness",
  "spocky-store",
+ "spocky-workspace-labels",
  "tokio",
 ]
 
