@@ -6,5 +6,6 @@
 //! that replays recorded events against the pinned TypeScript.
 
 pub mod control;
+pub mod encrypted_socket;
 pub mod endpoint;
 pub mod js_json;
