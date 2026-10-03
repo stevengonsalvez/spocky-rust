@@ -840,14 +840,17 @@ impl AgentManager {
                     disposition,
                 );
             }
-            Some("turn_failed") => self.on_stream_turn_failed(
-                state,
-                agent_id,
-                event,
-                is_foreground_event,
-                disposition,
-                from_history,
-            )?,
+            Some("turn_failed") => {
+                self.warn_turn_failed(state, agent_id, event, event_turn_id);
+                self.on_stream_turn_failed(
+                    state,
+                    agent_id,
+                    event,
+                    is_foreground_event,
+                    disposition,
+                    from_history,
+                )?;
+            }
             Some("turn_canceled") => self.on_stream_turn_canceled(
                 state,
                 agent_id,
@@ -1302,6 +1305,69 @@ impl AgentManager {
             self.emit_state_locked(state, agent_id, true);
         }
         Ok(())
+    }
+
+    /// `logger.warn({ agentId, provider, sessionId, turnId, lifecycle,
+    /// activeForegroundTurnId, eventTurnId, error, code, diagnostic },
+    /// "handleStreamEvent: turn_failed")`; an undefined value is left out,
+    /// as `JSON.stringify` leaves it out.
+    fn warn_turn_failed(
+        &self,
+        state: &State,
+        agent_id: &str,
+        event: &JsValue,
+        event_turn_id: Option<&JsValue>,
+    ) {
+        let Some(agent) = state.agent(agent_id) else {
+            return;
+        };
+        let defined = |value: Option<&JsValue>| {
+            value
+                .filter(|value| !matches!(value, JsValue::Undefined))
+                .cloned()
+        };
+        let turn_id = defined(event_turn_id);
+        let session_id = defined(
+            agent
+                .snapshot
+                .persistence
+                .as_ref()
+                .and_then(|handle| handle.get("sessionId"))
+                .filter(|id| !matches!(id, JsValue::Null)),
+        );
+        let mut bindings = JsObject::new();
+        bindings.insert("agentId", JsValue::String(agent_id.to_owned()));
+        bindings.insert("provider", JsValue::String(agent.snapshot.provider.clone()));
+        let optional = [("sessionId", session_id), ("turnId", turn_id.clone())];
+        for (key, value) in optional {
+            if let Some(value) = value {
+                bindings.insert(key, value);
+            }
+        }
+        bindings.insert(
+            "lifecycle",
+            JsValue::String(agent.snapshot.lifecycle.as_str().to_owned()),
+        );
+        bindings.insert(
+            "activeForegroundTurnId",
+            agent
+                .snapshot
+                .active_foreground_turn_id
+                .clone()
+                .map_or(JsValue::Null, JsValue::String),
+        );
+        let rest = [
+            ("eventTurnId", turn_id),
+            ("error", defined(event.get("error"))),
+            ("code", defined(event.get("code"))),
+            ("diagnostic", defined(event.get("diagnostic"))),
+        ];
+        for (key, value) in rest {
+            if let Some(value) = value {
+                bindings.insert(key, value);
+            }
+        }
+        self.emit_warn(JsValue::Object(bindings), "handleStreamEvent: turn_failed");
     }
 
     fn on_stream_turn_canceled(
