@@ -58,9 +58,9 @@ fn workspace_sort_value(workspace: &JsValue, key: &str) -> SortValue {
             Some(at) => SortValue::Number(date_parse(at).map_or(f64::NAN, |ms| ms as f64)),
             None => SortValue::Null,
         },
-        // ponytail: ASCII-lowercase stands in for toLocaleLowerCase.
-        "name" => SortValue::Text(text("name").unwrap_or_default().to_ascii_lowercase()),
-        _ => SortValue::Text(text("projectId").unwrap_or_default().to_ascii_lowercase()),
+        // `toLocaleLowerCase()`: Unicode lowercasing in the default locale.
+        "name" => SortValue::Text(text("name").unwrap_or_default().to_lowercase()),
+        _ => SortValue::Text(text("projectId").unwrap_or_default().to_lowercase()),
     }
 }
 
@@ -169,10 +169,10 @@ fn matches_filter(workspace: &JsValue, request: &FetchWorkspacesRequest) -> bool
     if let Some(query) = filter.query.as_ref().map(|query| js_trim(query.as_str()))
         && !query.is_empty()
     {
-        let query = query.to_ascii_lowercase();
+        let query = query.to_lowercase();
         let hit = ["name", "projectId", "id"]
             .iter()
-            .any(|field| text(field).to_ascii_lowercase().contains(&query));
+            .any(|field| text(field).to_lowercase().contains(&query));
         if !hit {
             return false;
         }
@@ -552,7 +552,7 @@ pub(crate) async fn workspace_create(
 mod tests {
     use spocky_contracts::js_value::parse;
 
-    use super::{WORKSPACES, workspace_sort_value};
+    use super::{FetchWorkspacesRequest, WORKSPACES, matches_filter, workspace_sort_value};
     use crate::agent_directory::{SortValue, compare};
 
     #[test]
@@ -585,5 +585,27 @@ mod tests {
             SortValue::Number(1_790_942_400_000.0)
         );
         assert!(matches!(sort_value("not a date"), SortValue::Number(value) if value.is_nan()));
+    }
+
+    #[test]
+    fn names_lowercase_as_to_locale_lower_case_does() {
+        // Printed by node 22: "\u{c9}COLE".toLocaleLowerCase() is "\u{e9}cole", and
+        // "\u{c9}cole Polytechnique".toLocaleLowerCase().includes("\u{e9}cole") is true.
+        let workspace = parse(r#"{"id":"wks_a","name":"\u00c9COLE","projectId":"P"}"#).unwrap();
+        assert_eq!(
+            workspace_sort_value(&workspace, "name"),
+            SortValue::Text("\u{e9}cole".to_owned())
+        );
+        assert_eq!(
+            workspace_sort_value(&workspace, "project_id"),
+            SortValue::Text("p".to_owned())
+        );
+        let request: FetchWorkspacesRequest = serde_json::from_str(
+            r#"{"type":"fetch_workspaces_request","requestId":"r","filter":{"query":"\u00e9cole"}}"#,
+        )
+        .unwrap();
+        let polytechnique =
+            parse(r#"{"id":"wks_b","name":"\u00c9cole Polytechnique","projectId":"p"}"#).unwrap();
+        assert!(matches_filter(&polytechnique, &request));
     }
 }
