@@ -54,6 +54,20 @@ done
 sh -n "$runner"
 count=$((count + 1))
 
+# Failure path: a reference that is not the pinned commit is refused before any work.
+if [ "$(uname -s)" = Darwin ]; then
+  wrong=$(mktemp -d "${TMPDIR:-/tmp}/spocky-electron-test.XXXXXX")
+  git init -q "$wrong"
+  git -C "$wrong" -c user.name=t -c user.email=t@t commit -q --allow-empty -m wrong
+  if PASEO_REFERENCE_ROOT="$wrong" "$runner" >"$wrong/out" 2>&1; then
+    rm -rf "$wrong"
+    fail 'runner accepted a wrong reference commit'
+  fi
+  grep -F -q 'Paseo reference mismatch' "$wrong/out" || { rm -rf "$wrong"; fail 'runner gave no reference mismatch message'; }
+  rm -rf "$wrong"
+  count=$((count + 2))
+fi
+
 if rg -n '\x{2014}' "$scripts"/renderer-platform-electron* "$scripts"/renderer-platform-cdp-capture.cjs; then
   fail 'renderer Electron scripts contain forbidden em dash'
 fi
