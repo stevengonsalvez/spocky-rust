@@ -5,5 +5,6 @@
 pub mod compare;
 pub mod gates;
 pub mod normalize;
+pub mod persistence;
 pub mod side;
 pub mod stub;
