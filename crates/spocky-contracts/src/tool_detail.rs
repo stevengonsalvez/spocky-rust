@@ -644,6 +644,36 @@ pub fn read_output(value: &JsValue) -> Parse<ReadOutput> {
     Ok(None)
 }
 
+/// `ToolReadOutputPathSchema`: an object with a string `path`, `file_path`,
+/// or `filePath` (tried in that order) and optional read content under
+/// `content`, `text`, and `output`.
+fn read_output_path(value: &JsValue) -> Option<ReadOutput> {
+    let record = object(value)?;
+    let keys = ["content", "text", "output"];
+    ["path", "file_path", "filePath"].iter().find_map(|key| {
+        let file_path = field(record, key).and_then(string)?;
+        keys.iter()
+            .all(|key| field(record, key).is_none_or(is_read_content))
+            .then(|| ReadOutput {
+                file_path: Some(file_path.to_owned()),
+                content: payload_content(record),
+            })
+    })
+}
+
+/// `ToolReadOutputWithPathSchema`: [`read_output`], then the path-keyed
+/// object the Codex parser also accepts.
+///
+/// # Errors
+///
+/// The baseline's throws described in the module documentation.
+pub fn read_output_with_path(value: &JsValue) -> Parse<ReadOutput> {
+    Ok(match read_output(value)? {
+        Some(output) => Some(output),
+        None => read_output_path(value),
+    })
+}
+
 fn normalize_detail_path(file_path: Option<String>) -> Option<String> {
     let path = file_path?;
     let trimmed = js_trim(&path);
