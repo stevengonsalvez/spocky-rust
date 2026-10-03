@@ -83,10 +83,7 @@ pub(crate) fn raw_turn_id(event: &JsValue) -> Option<JsValue> {
 }
 
 fn type_error(error: &crate::timeline::JsTypeError) -> AgentError {
-    AgentError {
-        name: "TypeError".to_owned(),
-        message: error.0.clone(),
-    }
+    AgentError::named("TypeError".to_owned(), error.0.clone())
 }
 
 fn timeline_error(error: TimelineError) -> AgentError {
@@ -209,10 +206,7 @@ impl AgentManager {
             let epoch = state
                 .timeline
                 .epoch(agent_id)
-                .map_err(|error| AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.to_string(),
-                })?
+                .map_err(|error| AgentError::named("TypeError".to_owned(), error.to_string()))?
                 .to_owned();
             let mut event = JsObject::new();
             event.insert("type", JsValue::String("timeline".to_owned()));
