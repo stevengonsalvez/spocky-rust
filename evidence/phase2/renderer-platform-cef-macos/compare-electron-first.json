@@ -1,0 +1,287 @@
+{
+  "method": {
+    "membership": "complete PNG SHA-256 equality",
+    "rmse": "sqrt(mean squared RGBA byte difference) / 255",
+    "normalization": "none",
+    "mask": "none",
+    "threshold": "none"
+  },
+  "baseline": {
+    "name": "original-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Paseo/0.10.0 Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "candidate": {
+    "name": "candidate-electron-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "visual": {
+    "baselineSha256": "4475943215a36a9ce5471ad4eefe8d929781cc9c30ccf92a5ad7d8f003577c39",
+    "candidateSha256": "72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe",
+    "exactMembership": false,
+    "baselineSize": [
+      1280,
+      800
+    ],
+    "candidateSize": [
+      1280,
+      800
+    ],
+    "comparable": true,
+    "normalizedRmse": 0.036286320406058135,
+    "differentPixels": 51738,
+    "differenceBoundingBox": [
+      0,
+      11,
+      1026,
+      781
+    ]
+  },
+  "focusWalk": {
+    "baselineEntries": 21,
+    "candidateEntries": 20,
+    "baselineCompleted": true,
+    "candidateCompleted": true,
+    "equal": false,
+    "firstDifferentIndex": 13
+  },
+  "activations": {
+    "addProjectActivation": {
+      "baselineChanged": true,
+      "candidateChanged": true,
+      "baselineDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project Stevens-MacBook-Pro-5.local Search for directory Find a directory on Stevens-MacBook-Pro-5.local Browse Choose or create a directory in Finder Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on Stevens-MacBook-Pro-5.local \u2191\u2193 Navigate \u23ce Select Esc Close",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory Find a directory on Stevens-MacBook-Pro-5.local",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Browse Choose or create a directory in Finder",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory Create an empty directory on Stevens-MacBook-Pro-5.local",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "candidateDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline \u2191\u2193 Navigate \u23ce Select Esc Close",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory Find a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory Create an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "dialogsEqual": false,
+      "baselinePathAfter": "open-project",
+      "candidatePathAfter": ""
+    },
+    "plusActivation": {
+      "baselineChanged": true,
+      "candidateChanged": false,
+      "baselineDialogs": [],
+      "candidateDialogs": [],
+      "dialogsEqual": true,
+      "baselinePathAfter": "new",
+      "candidatePathAfter": ""
+    }
+  },
+  "accessibilityTree": {
+    "baselineNodes": 189,
+    "candidateNodes": 124,
+    "equal": false,
+    "rolesAndNamesEqual": false,
+    "differences": [
+      {
+        "path": "/",
+        "field": "name",
+        "baseline": "Paseo",
+        "candidate": "dioxus | \u26fa"
+      },
+      {
+        "path": "/",
+        "field": "properties",
+        "changed": {
+          "url": [
+            "paseo://app/open-project",
+            "http://127.0.0.1:64342/"
+          ]
+        }
+      },
+      {
+        "path": "/0/0",
+        "field": "childCount",
+        "baseline": 2,
+        "candidate": 1
+      },
+      {
+        "path": "/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "main"
+      },
+      {
+        "path": "/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 4
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "navigation"
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": "Primary navigation"
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 3
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "none"
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": null
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "ignored",
+        "baseline": false,
+        "candidate": true
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 4
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "button"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": "New workspace"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "properties",
+        "changed": {
+          "focusable": [
+            null,
+            true
+          ],
+          "invalid": [
+            null,
+            "false"
+          ]
+        }
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 2
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "none"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": null
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "ignored",
+        "baseline": false,
+        "candidate": true
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 2,
+        "candidate": 1
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "image"
+      }
+    ]
+  },
+  "inExactMembership": false
+}
