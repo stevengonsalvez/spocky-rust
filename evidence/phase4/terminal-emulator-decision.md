@@ -36,10 +36,17 @@ pending-wrap cursor, reflow on resize, charsets, and invalid UTF-8 handling.
    invalid bytes, titles and PTY queries, cursor style, autowrap edges, insert
    mode and DEC line drawing, and erase in display.
 2. `scripts/phase4/terminal-emulator-capture.mjs` replays the corpus through the
-   pinned `@xterm/headless` resolved from `packages/server`, decoding bytes with
-   a utf8 `StringDecoder` exactly as node-pty's `socket.setEncoding("utf8")`
-   does, with the pinned handlers and extraction code copied from
-   `terminal.ts`. Two runs produce the same digest.
+   pinned `packages/server/dist/server/terminal/terminal.js` itself, so the
+   handlers, the state and last-output-line extraction, the input-mode replies
+   and the exit info are the pinned code. Two loader substitutions
+   (`terminal-emulator-hooks.mjs`) give it a PTY with no process behind it
+   (`terminal-emulator-fake-pty.mjs`) and the pinned `@xterm/headless` with its
+   `Terminal` remembered (`terminal-emulator-xterm-recorder.mjs`) so the raw
+   title events can be read. Bytes are decoded with a utf8 `StringDecoder`
+   exactly as node-pty's `socket.setEncoding("utf8")` does before `onData`.
+   An earlier version transcribed the handlers and extractors from
+   `terminal.ts`; its capture and this one agree on all 16 scenarios. Two runs
+   produce the same digest.
 3. `scripts/phase4/terminal-emulator-eval` (its own Cargo workspace, so no
    candidate crate enters the Spocky lockfile) replays the same bytes through a
    candidate, maps its screen to the same JSON shape, and compares
@@ -151,10 +158,13 @@ rarely used sequences. The fuzz differential bounds that risk.
 | artifact | digest |
 |---|---|
 | `scripts/phase4/terminal-emulator-corpus.json` | `f5504c7e8d933ca60cf32b1d61898c64688e1cbc89bfbe04b041ce6b0275faf8` |
-| `scripts/phase4/terminal-emulator-capture.mjs` | `42b61e3e83860ff5e5ab4484e84f24f34f873b12af045937c861d76dc7b0da54` |
+| `scripts/phase4/terminal-emulator-capture.mjs` | `d91071aff9898b95cb9d7509b41118390aa2f39b92f04e58eefa32689bcac189` |
+| `scripts/phase4/terminal-emulator-hooks.mjs` | `3c13ce694d2e57a839874cdf195a1dc14f4fa8ed21dc1c2653d4ff8af03b6fb0` |
+| `scripts/phase4/terminal-emulator-fake-pty.mjs` | `6f5a5949c50a754d02df16c209ef80157ff94ba0287a8c0aedda6d366a17ff95` |
+| `scripts/phase4/terminal-emulator-xterm-recorder.mjs` | `9c625bf926a9d580c2b71065fe5e8ebfd4e327cd18ba718cbb6661b66389708c` |
 | `scripts/phase4/terminal-emulator-eval/Cargo.toml` | `8a190a28efee41ff6cbc544063cf3c26b0b3cd2d30e9bca2415d2cd1d5677bd9` |
 | `scripts/phase4/terminal-emulator-eval/src/main.rs` | `c036e4b3b3cb6b5f173e3a08e3b73017263d51d1e75a6e21f7877c0891396791` |
-| `evidence/raw/phase4/terminal-emulator-xterm.json` (untracked) | `bf163d53283d959bb39e3786f1e468edcdfc685b2beb72a3275899192417eb77` |
+| `evidence/raw/phase4/terminal-emulator-xterm.json` (untracked) | `a300da69cb913f0e2df8ac6cd6517a983f304c362340b4da29a2db33a2824a60` |
 | `evidence/raw/phase4/terminal-emulator-vt100-report.json` (untracked) | `f6dc81aabe046fef76bd015ac5bc2a20a5461577e5f4e8975535d602e08ba094` |
 | pinned `@xterm/headless/lib-headless/xterm-headless.js` | `17a90b650cf6b77cce2b98c4063884d43545e4ce177a54b76ccfc906f1aacaed` |
 | Node v22.20.0 binary | `1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931` |
