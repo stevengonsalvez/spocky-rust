@@ -3,6 +3,7 @@
 
 use spocky_contracts::js::js_string;
 use spocky_contracts::js_value::JsObject;
+use spocky_contracts::number::js_to_number;
 use spocky_contracts::text::{js_length, js_trim};
 
 use super::value::{JsValueExt as _, Json};
@@ -171,8 +172,8 @@ fn to_number(value: &Json) -> Option<f64> {
         Json::Null => 0.0,
         Json::Bool(flag) => f64::from(u8::from(*flag)),
         Json::Number(number) => *number,
-        Json::String(text) => string_to_number(text),
-        Json::Array(items) => string_to_number(&array_to_string(items)?),
+        Json::String(text) => js_to_number(text),
+        Json::Array(items) => js_to_number(&array_to_string(items)?),
         Json::Undefined | Json::Object(_) => f64::NAN,
     })
 }
@@ -207,51 +208,6 @@ fn array_to_string(items: &[Json]) -> Option<String> {
         }
     }
     Some(out)
-}
-
-/// `StringToNumber`; `spocky_contracts` has no `ToNumber`, so it stays here. Trimmed decimal literals, `Infinity` and the `0x`, `0o` and `0b` forms.
-fn string_to_number(text: &str) -> f64 {
-    let text = js_trim(text);
-    if text.is_empty() {
-        return 0.0;
-    }
-    for (prefix, radix) in [
-        ("0x", 16),
-        ("0X", 16),
-        ("0o", 8),
-        ("0O", 8),
-        ("0b", 2),
-        ("0B", 2),
-    ] {
-        if let Some(digits) = text.strip_prefix(prefix) {
-            return if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) {
-                f64::NAN
-            } else {
-                digits.chars().fold(0.0, |total, ch| {
-                    total * f64::from(radix) + f64::from(ch.to_digit(radix).unwrap_or(0))
-                })
-            };
-        }
-    }
-    let (sign, body) = match text.as_bytes()[0] {
-        b'-' => (-1.0, &text[1..]),
-        b'+' => (1.0, &text[1..]),
-        _ => (1.0, text),
-    };
-    if body == "Infinity" {
-        return sign * f64::INFINITY;
-    }
-    let digits = body.bytes().filter(u8::is_ascii_digit).count();
-    let valid = digits > 0
-        && body
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-'))
-        && !body.starts_with(['e', 'E', '+', '-'])
-        && body.matches('.').count() <= 1;
-    if !valid {
-        return f64::NAN;
-    }
-    body.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
