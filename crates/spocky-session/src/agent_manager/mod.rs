@@ -17,11 +17,11 @@
 //! permission responses, the per-field setters, the session event pipeline
 //! with stream coalescing, `streamAgent`, `runAgent`, `waitForAgentEvent`,
 //! `subscribe`, the timeline queries and appends, provider sub-agents, the
-//! importable and draft listings, and the metrics snapshot. Not ported yet
+//! importable and draft listings, the Paseo tool catalog factory, and the
+//! metrics snapshot. Not ported yet
 //! (each is absent here, not stubbed): the durable timeline store with its
-//! `deleteCommittedTimeline` and four error logs, the Paseo tool catalog
-//! factory with `setPaseoToolCatalogFactory`, and plugin lifecycle hooks
-//! beyond validating a request.
+//! `deleteCommittedTimeline` and three error logs, and plugin lifecycle
+//! hooks beyond validating a request.
 
 mod archive;
 mod create;
