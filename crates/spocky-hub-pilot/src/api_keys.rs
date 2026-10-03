@@ -37,7 +37,8 @@ pub struct ApiKeySummary {
     pub id: String,
     pub name: String,
     pub prefix: String,
-    pub scopes: BTreeSet<ApiKeyScope>,
+    /// In creation order, as the baseline's `[...new Set(scopes)]` keeps them.
+    pub scopes: Vec<ApiKeyScope>,
     pub created_at_epoch_seconds: u64,
     pub last_used_at_epoch_seconds: Option<u64>,
     pub revoked_at_epoch_seconds: Option<u64>,
@@ -206,17 +207,7 @@ impl<S: DurableHubStore> HubPilot<S> {
     /// expose them the way the baseline does. `None` when no such key exists.
     #[must_use]
     pub fn api_key_scope_order(&self, id: &str) -> Option<Vec<ApiKeyScope>> {
-        let key = self.state.api_keys.get(id)?;
-        let stored_order_is_current = key.scope_order.len() == key.scopes.len()
-            && key
-                .scope_order
-                .iter()
-                .all(|scope| key.scopes.contains(scope));
-        Some(if stored_order_is_current {
-            key.scope_order.clone()
-        } else {
-            key.scopes.iter().copied().collect()
-        })
+        self.state.api_keys.get(id).map(ordered_scopes)
     }
 
     pub fn revoke_api_key(
@@ -247,12 +238,27 @@ impl<S: DurableHubStore> HubPilot<S> {
     }
 }
 
+/// The creation order when the stored order still describes the stored set, declaration order for
+/// keys stored before the order existed.
+fn ordered_scopes(key: &StoredApiKey) -> Vec<ApiKeyScope> {
+    let stored_order_is_current = key.scope_order.len() == key.scopes.len()
+        && key
+            .scope_order
+            .iter()
+            .all(|scope| key.scopes.contains(scope));
+    if stored_order_is_current {
+        key.scope_order.clone()
+    } else {
+        key.scopes.iter().copied().collect()
+    }
+}
+
 fn summary(id: &str, key: &StoredApiKey) -> ApiKeySummary {
     ApiKeySummary {
         id: id.to_owned(),
         name: key.name.clone(),
         prefix: key.prefix.clone(),
-        scopes: key.scopes.clone(),
+        scopes: ordered_scopes(key),
         created_at_epoch_seconds: key.created_at_epoch_seconds,
         last_used_at_epoch_seconds: key.last_used_at_epoch_seconds,
         revoked_at_epoch_seconds: key.revoked_at_epoch_seconds,

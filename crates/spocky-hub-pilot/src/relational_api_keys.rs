@@ -110,8 +110,14 @@ impl PostgresApiKeyStore {
         scopes: &[ApiKeyScope],
     ) -> Result<CreatedApiKey, HubError> {
         let name = js_trim(name);
-        let scopes = scopes.iter().copied().collect::<BTreeSet<_>>();
-        if name.is_empty() || js_length(name) > 100 || scopes.is_empty() || scopes.len() > 5 {
+        // `[...new Set(scopes)]`: first-seen order, stored as given.
+        let mut ordered = Vec::new();
+        for scope in scopes {
+            if !ordered.contains(scope) {
+                ordered.push(*scope);
+            }
+        }
+        if name.is_empty() || js_length(name) > 100 || ordered.is_empty() || ordered.len() > 5 {
             return Err(HubError::InvalidApiKeyInput);
         }
         let mut prefix_bytes = [0_u8; PREFIX_RANDOM_BYTES];
@@ -122,7 +128,7 @@ impl PostgresApiKeyStore {
         let secret = format!("{prefix}_{}", URL_SAFE_NO_PAD.encode(secret_bytes));
         let id = Uuid::new_v4().to_string();
         let verifier = URL_SAFE_NO_PAD.encode(Sha256::digest(secret.as_bytes()));
-        let scope_names = scopes
+        let scope_names = ordered
             .iter()
             .map(|scope| scope_name(*scope))
             .collect::<Vec<_>>();
@@ -219,7 +225,7 @@ impl PostgresApiKeyStore {
         Ok(ApiKeyAuthorization::Authorized(ApiKeyAccess {
             credential_id: id,
             organization: OrganizationId::from(row.get::<_, &str>("organization_id")),
-            scopes,
+            scopes: scopes.into_iter().collect::<BTreeSet<_>>(),
         }))
     }
 
@@ -356,7 +362,8 @@ fn scope_name(scope: ApiKeyScope) -> &'static str {
     }
 }
 
-fn parse_scopes(scopes: Vec<String>) -> Result<BTreeSet<ApiKeyScope>, HubError> {
+/// The stored array in its stored (creation) order.
+fn parse_scopes(scopes: Vec<String>) -> Result<Vec<ApiKeyScope>, HubError> {
     scopes
         .into_iter()
         .map(|scope| match scope.as_str() {
