@@ -14,6 +14,17 @@ use tokio::sync::Notify;
 /// A boxed future that stays on the session thread.
 pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
+/// Calls an async function the way JavaScript does: its body runs inline up to
+/// the first `await`, and the rest continues on the local set. Needs a
+/// `LocalSet` context.
+pub fn run_inline(future: impl Future<Output = ()> + 'static) {
+    let mut future: LocalBoxFuture<'static, ()> = Box::pin(future);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    if future.as_mut().poll(&mut context).is_pending() {
+        tokio::task::spawn_local(future);
+    }
+}
+
 /// A settle-once value many tasks may await, like a shared `Promise`.
 pub struct Deferred<T: Clone> {
     value: RefCell<Option<T>>,
