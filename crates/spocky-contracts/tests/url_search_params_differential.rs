@@ -8,7 +8,7 @@
 #[path = "support/pinned_node.rs"]
 mod support;
 
-use spocky_contracts::js_value::{JsValue, stringify};
+use spocky_contracts::js_value::{JsValue, parse, stringify};
 use spocky_contracts::url::{Url, UrlSearchParams};
 
 const NODE_SCRIPT: &str = r#"
@@ -24,6 +24,8 @@ const out = cases.map(([kind, source, ops]) => {
       params = url.searchParams;
     } else if (kind === "query") {
       params = new URLSearchParams(source);
+    } else if (kind === "record") {
+      params = new URLSearchParams(JSON.parse(source));
     } else if (kind === "pairs") {
       params = new URLSearchParams(source);
     } else {
@@ -156,6 +158,71 @@ const VALUES: &[&str] = &[
     "#",
 ];
 
+/// Own keys for record cases: array-index keys, which JavaScript enumerates
+/// first in ascending order, near-misses that are ordinary names, and the
+/// names above.
+const RECORD_KEYS: &[&str] = &[
+    "b",
+    "a",
+    "2",
+    "10",
+    "1",
+    "0",
+    "-1",
+    "01",
+    "1.5",
+    "4294967294",
+    "4294967295",
+    "",
+    "a b",
+    "\\u00e9",
+    "\\ud83d\\ude00",
+    "\\ud800",
+    "x=y",
+    "&",
+    "%41",
+    "__proto__",
+    "length",
+];
+/// JSON texts for record values: every type `String(value)` converts.
+const RECORD_VALUES: &[&str] = &[
+    "\"v\"",
+    "\"\"",
+    "\"a b\"",
+    "\"\\ud800\"",
+    "\"\\u00e9\"",
+    "\"\\ud83d\\ude00\"",
+    "1",
+    "-0",
+    "0.1",
+    "1e21",
+    "1e-7",
+    "123456789012345680000",
+    "true",
+    "false",
+    "null",
+    "[]",
+    "[1,2]",
+    "[null,\"a\"]",
+    "[[1,[2]],3]",
+    "{}",
+    "{\"a\":1}",
+];
+
+/// Records whose order or conversion is easy to get wrong.
+const FIXED_RECORDS: &[&str] = &[
+    "{}",
+    r#"{"b":"1","a":"2"}"#,
+    r#"{"b":"1","2":"x","a":"2","1":"y"}"#,
+    r#"{"10":"a","9":"b","a":"c","0":"d","-1":"e","01":"f"}"#,
+    r#"{"4294967295":"a","4294967294":"b","1":"c"}"#,
+    r#"{"a":"1","b":"2","a":"3"}"#,
+    r#"{"a":1,"b":true,"c":null,"d":[1,[2,3]],"e":{"x":1},"f":1e21,"g":-0}"#,
+    r#"{"a b":"c d","&":"=","\u00e9":"\ud83d\ude00"}"#,
+    r#"{"\ud800":"\udc00","a":"\ud800"}"#,
+    r#"{"__proto__":"p","length":"3"}"#,
+];
+
 /// xorshift64*, so every run builds the same cases.
 struct Random(u64);
 
@@ -246,6 +313,25 @@ fn generated_cases() -> Vec<(&'static str, String, Vec<Op>)> {
             .collect();
         cases.push(("pairs", pairs.join("\u{2}"), random_ops(&mut random)));
     }
+    for record in FIXED_RECORDS {
+        cases.push(("record", (*record).to_owned(), Vec::new()));
+    }
+    for _ in 0..600 {
+        let members: Vec<String> = (0..random.below(6))
+            .map(|_| {
+                format!(
+                    "\"{}\":{}",
+                    random.pick(RECORD_KEYS),
+                    random.pick(RECORD_VALUES)
+                )
+            })
+            .collect();
+        cases.push((
+            "record",
+            format!("{{{}}}", members.join(",")),
+            random_ops(&mut random),
+        ));
+    }
     cases
 }
 
@@ -294,6 +380,12 @@ fn run(kind: &str, source: &str, ops: &[Op]) -> String {
     let mut params = match kind {
         "url" => url.as_ref().expect("url").search_params(),
         "query" => UrlSearchParams::parse(source),
+        "record" => UrlSearchParams::from_record(
+            parse(source)
+                .expect("record JSON")
+                .as_object()
+                .expect("record"),
+        ),
         "pairs" => {
             let pairs: Vec<(&str, &str)> = source
                 .split('\u{2}')
