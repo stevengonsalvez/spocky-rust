@@ -436,9 +436,27 @@ pub fn run_helper(args: &[OsString]) -> i32 {
         helper_failure("chdir(2) failed.", &error);
         return 1;
     }
+    reset_signal_dispositions();
     let error = Command::new(file).args(&args[2..]).exec();
     helper_failure("execvp(3) failed.", &error);
     1
+}
+
+/// Starts the target with default signal dispositions, as node-pty's child
+/// does (`POSIX_SPAWN_SETSIGDEF` on macOS, a `SIG_DFL` loop on Linux). A
+/// signal ignored in the parent stays ignored across `exec`, which would
+/// make `^C` or `SIGHUP` do nothing; one with a handler goes back to its
+/// default. Installing a flag handler for each signal replaces any inherited
+/// `SIG_IGN`, and `exec` then resets it. Signals that cannot be caught are
+/// skipped, and `exec` through `Command` already unblocks the signal mask.
+fn reset_signal_dispositions() {
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for signal in 1..=31 {
+        // `register` panics for the signals no handler may take.
+        if !signal_hook::consts::FORBIDDEN.contains(&signal) {
+            let _ = signal_hook::flag::register(signal, std::sync::Arc::clone(&flag));
+        }
+    }
 }
 
 /// node-pty's helper exits silently on macOS; its Linux fork path reports
