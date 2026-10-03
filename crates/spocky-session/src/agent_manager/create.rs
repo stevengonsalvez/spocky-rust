@@ -51,10 +51,8 @@ fn build_imported_timeline_rows(
         {
             continue;
         }
-        let item = limit_agent_timeline_item_content(item.clone()).map_err(|error| AgentError {
-            name: "TypeError".to_owned(),
-            message: error.0,
-        })?;
+        let item = limit_agent_timeline_item_content(item.clone())
+            .map_err(|error| AgentError::named("TypeError".to_owned(), error.0))?;
         rows.push(TimelineRow {
             seq: i64::try_from(rows.len()).unwrap_or(i64::MAX) + 1,
             timestamp: entry
@@ -487,10 +485,7 @@ impl AgentManager {
             let update = state
                 .provider_subagents
                 .apply(agent_id, &provider, &inner)
-                .map_err(|error| AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.to_string(),
-                })?;
+                .map_err(|error| AgentError::named("TypeError".to_owned(), error.to_string()))?;
             self.dispatch(&state, AgentManagerEvent::ProviderSubagent(update));
         }
         Ok(())
@@ -1412,10 +1407,7 @@ impl AgentManager {
             state
                 .timeline
                 .initialize_with(agent_id, seed)
-                .map_err(|error| AgentError {
-                    name: "TypeError".to_owned(),
-                    message: error.0,
-                })?;
+                .map_err(|error| AgentError::named("TypeError".to_owned(), error.0))?;
         }
         Ok(already_primed)
     }
@@ -1600,10 +1592,7 @@ fn resolve_provider_launch_config(
 /// discriminated option reports the same issues as the picked schema, under
 /// the session envelope's `message` key, which each issue path drops.
 fn before_agent_create(config: &JsValue, env: Option<&JsObject>) -> Result<JsValue, AgentError> {
-    let parse_error = |message: String| AgentError {
-        name: "ZodError".to_owned(),
-        message,
-    };
+    let parse_error = |message: String| AgentError::named("ZodError", message);
     let mut request = JsObject::new();
     request.insert("type", JsValue::String("create_agent_request".to_owned()));
     request.insert("config", config.clone());
@@ -1617,10 +1606,10 @@ fn before_agent_create(config: &JsValue, env: Option<&JsObject>) -> Result<JsVal
     match spocky_contracts::zod_schemas::check_inbound(&JsValue::Object(envelope)) {
         Outcome::Invalid(issues) => return Err(parse_error(without_envelope_path(&issues))),
         Outcome::TooDeep => {
-            return Err(AgentError {
-                name: "RangeError".to_owned(),
-                message: "Maximum call stack size exceeded".to_owned(),
-            });
+            return Err(AgentError::named(
+                "RangeError".to_owned(),
+                "Maximum call stack size exceeded".to_owned(),
+            ));
         }
         Outcome::Valid | Outcome::Unmodeled => {}
     }
@@ -1738,10 +1727,10 @@ pub(crate) fn touch_updated_at(agent: &mut ManagedAgentSnapshot) -> i64 {
 
 /// `AgentManagerShuttingDownError`.
 pub(crate) fn shutting_down() -> AgentError {
-    AgentError {
-        name: "AgentManagerShuttingDownError".to_owned(),
-        message: "Agent manager is shutting down".to_owned(),
-    }
+    AgentError::named(
+        "AgentManagerShuttingDownError".to_owned(),
+        "Agent manager is shutting down".to_owned(),
+    )
 }
 
 /// `applyDaemonAppendSystemPrompt(config)`.
@@ -1784,19 +1773,19 @@ fn validate_tool_policy_servers(config: &JsValue) -> Result<(), AgentError> {
             .map(|character| JsValue::String(character.to_string()))
             .collect(),
         _ => {
-            return Err(AgentError {
-                name: "TypeError".to_owned(),
-                message: "config.toolPolicy.preapproved is not iterable".to_owned(),
-            });
+            return Err(AgentError::named(
+                "TypeError".to_owned(),
+                "config.toolPolicy.preapproved is not iterable".to_owned(),
+            ));
         }
     };
     for grant in grants {
         if let JsValue::Undefined | JsValue::Null = grant {
             let receiver = if grant.is_null() { "null" } else { "undefined" };
-            return Err(AgentError {
-                name: "TypeError".to_owned(),
-                message: format!("Cannot read properties of {receiver} (reading 'server')"),
-            });
+            return Err(AgentError::named(
+                "TypeError".to_owned(),
+                format!("Cannot read properties of {receiver} (reading 'server')"),
+            ));
         }
         let server = grant.get("server");
         let known = server
