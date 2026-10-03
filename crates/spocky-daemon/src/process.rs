@@ -1,4 +1,4 @@
-//! The daemon as a process: logging to stderr, signal handling, and the forced
+//! The daemon as a process: logging to stdout, signal handling, and the forced
 //! exit when a graceful stop takes too long.
 //!
 //! Sources at Paseo `5de45e2`: `daemon-worker.ts` (`beginShutdown`, SIGTERM and
@@ -48,7 +48,7 @@ pub fn failure_text(error: &StartupError) -> String {
 /// the baseline's force-exit timer does.
 #[must_use]
 pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
-    let logger: Arc<dyn Logger> = Arc::new(daemon_logger(io::stderr()));
+    let logger: Arc<dyn Logger> = Arc::new(daemon_logger(io::stdout()));
     // Registered before startup, so a signal that arrives while starting is
     // held for the wait loop instead of killing the process mid-startup.
     let signalled = Arc::new(AtomicBool::new(false));
@@ -71,11 +71,12 @@ pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
     }
 
     // The timer starts when shutdown begins and covers the whole stop.
+    let force_logger = Arc::clone(&logger);
     let timer = thread::Builder::new()
         .name("force-exit".to_owned())
-        .spawn(|| {
+        .spawn(move || {
             thread::sleep(FORCE_EXIT_AFTER);
-            eprintln!("Forcing shutdown - HTTP server didn't close in time");
+            force_logger.warn(&[], "Forcing shutdown - HTTP server didn't close in time");
             std::process::exit(1);
         });
     if let Err(error) = timer {

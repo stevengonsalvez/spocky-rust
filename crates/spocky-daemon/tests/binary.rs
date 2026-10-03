@@ -43,7 +43,7 @@ fn spawn(root: &Path, listen: &str) -> Daemon {
         .env("HOME", root)
         .env("PASEO_HOME", &home)
         .env("TZ", "UTC")
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -110,11 +110,13 @@ fn hello(listen: &str) -> tungstenite::WebSocket<TcpStream> {
     ws
 }
 
-fn stderr_of(daemon: &mut Daemon) -> String {
+/// Everything the daemon wrote to stdout, where `createRootLogger` writes the
+/// records when no log file is configured.
+fn stdout_of(daemon: &mut Daemon) -> String {
     use std::io::Read;
     let mut text = String::new();
-    if let Some(stderr) = daemon.child.stderr.as_mut() {
-        let _ = stderr.read_to_string(&mut text);
+    if let Some(stdout) = daemon.child.stdout.as_mut() {
+        let _ = stdout.read_to_string(&mut text);
     }
     text
 }
@@ -143,7 +145,7 @@ fn sigterm_stops_an_idle_daemon_with_exit_0_and_cleans_the_home() {
     assert!(!daemon.home.join("local-credential").exists());
     assert!(!daemon.home.join("paseo.pid").exists());
     assert!(daemon.home.join("server-id").exists());
-    assert!(stderr_of(&mut daemon).contains("Server closed"));
+    assert!(stdout_of(&mut daemon).contains("\"msg\":\"Server closed\""));
     assert!(TcpStream::connect(&listen).is_err(), "the port is released");
 }
 
@@ -187,5 +189,46 @@ fn a_client_that_ignores_the_close_hits_the_ten_second_force_exit_with_code_1() 
         took >= Duration::from_secs(9) && took < Duration::from_secs(15),
         "forced exit after {took:?}"
     );
-    assert!(stderr_of(&mut daemon).contains("Forcing shutdown"));
+    assert!(
+        stdout_of(&mut daemon)
+            .contains("\"msg\":\"Forcing shutdown - HTTP server didn't close in time\"")
+    );
+}
+
+/// A start that cannot listen: the fatal record goes to stdout as a JSON line
+/// with the error as an object, the error's stack goes to stderr, exit code 1.
+#[test]
+fn a_taken_port_logs_the_fatal_record_to_stdout_and_the_stack_to_stderr() {
+    use std::io::Read;
+    let holder = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = holder.local_addr().unwrap().port();
+    let listen = format!("127.0.0.1:{port}");
+    let root = tempfile::tempdir().unwrap();
+    let mut daemon = spawn(root.path(), &listen);
+    let (code, _) = wait_exit(&mut daemon, Duration::from_secs(20));
+    assert_eq!(code, 1);
+    let stdout = stdout_of(&mut daemon);
+    let fatal: Value = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|record| record["level"] == 60)
+        .unwrap_or_else(|| panic!("no fatal record in {stdout}"));
+    assert_eq!(fatal["msg"], "Daemon failed to start listening");
+    assert_eq!(fatal["err"]["code"], "EADDRINUSE");
+    let mut stderr = String::new();
+    daemon
+        .child
+        .stderr
+        .as_mut()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    assert_eq!(
+        stderr,
+        format!("{}\n", fatal["err"]["stack"].as_str().unwrap())
+    );
+    assert!(stderr.starts_with(&format!(
+        "Error: listen EADDRINUSE: address already in use 127.0.0.1:{port}\n    at Server.setupListenHandle"
+    )));
+    drop(holder);
 }
