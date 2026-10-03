@@ -25,7 +25,10 @@ use spocky_terminal::worker_protocol::{
     Frame, FrameDecoder, WorkerMessage, WorkerRequest, encode_frame, parse_frame,
 };
 
-const READ_DEADLINE: Duration = Duration::from_secs(20);
+/// Bound on every wait for the pinned worker. The worker takes about 6 s for
+/// the whole file on an idle machine, and a build gate shared by many lanes has
+/// stretched one wait past 20 s.
+const READ_DEADLINE: Duration = Duration::from_secs(60);
 
 #[test]
 fn requests_put_type_first_and_request_id_last() {
