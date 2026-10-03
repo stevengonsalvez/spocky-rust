@@ -11,10 +11,36 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{Map, Value};
 
 /// Pino level numbers.
+const TRACE: u8 = 10;
 const INFO: u8 = 30;
 const WARN: u8 = 40;
 const ERROR: u8 = 50;
 const FATAL: u8 = 60;
+
+/// A pino level name, for the threshold a destination writes at
+/// (`level` in the pino options; the daemon's default is `info`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+impl Level {
+    const fn number(self) -> u8 {
+        match self {
+            Self::Trace => TRACE,
+            Self::Debug => 20,
+            Self::Info => INFO,
+            Self::Warn => WARN,
+            Self::Error => ERROR,
+            Self::Fatal => FATAL,
+        }
+    }
+}
 
 /// An error as pino's standard `err` serializer writes it: `type` (the
 /// constructor name), `message`, `stack`, then the error's other enumerable
@@ -45,6 +71,9 @@ impl LogError {
 
 /// A log destination. `fields` are the first pino argument, `message` the second.
 pub trait Logger: Send + Sync {
+    /// `logger.trace(...)`. Dropped by a destination that does not write at
+    /// trace, which is every one by default (the daemon's level is `info`).
+    fn trace(&self, _fields: &[(&str, &str)], _message: &str) {}
     fn info(&self, fields: &[(&str, &str)], message: &str);
     fn warn(&self, fields: &[(&str, &str)], message: &str);
     fn error(&self, fields: &[(&str, &str)], message: &str);
@@ -75,6 +104,7 @@ pub struct JsonLineLogger<W: Write + Send> {
     sink: Mutex<W>,
     hostname: String,
     bindings: Vec<(String, String)>,
+    min_level: u8,
 }
 
 impl<W: Write + Send> JsonLineLogger<W> {
@@ -84,10 +114,22 @@ impl<W: Write + Send> JsonLineLogger<W> {
             sink: Mutex::new(sink),
             hostname: gethostname::gethostname().to_string_lossy().into_owned(),
             bindings,
+            min_level: INFO,
         }
     }
 
+    /// The lowest level written; records below it are dropped, as pino's
+    /// `level` option does.
+    #[must_use]
+    pub fn with_level(mut self, level: Level) -> Self {
+        self.min_level = level.number();
+        self
+    }
+
     fn write(&self, level: u8, err: Option<&LogError>, fields: &[(&str, &str)], message: &str) {
+        if level < self.min_level {
+            return;
+        }
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis());
@@ -113,6 +155,9 @@ impl<W: Write + Send> JsonLineLogger<W> {
 }
 
 impl<W: Write + Send> Logger for JsonLineLogger<W> {
+    fn trace(&self, fields: &[(&str, &str)], message: &str) {
+        self.write(TRACE, None, fields, message);
+    }
     fn info(&self, fields: &[(&str, &str)], message: &str) {
         self.write(INFO, None, fields, message);
     }
@@ -169,6 +214,9 @@ pub mod testing {
     }
 
     impl Logger for RecordingLogger {
+        fn trace(&self, fields: &[(&str, &str)], message: &str) {
+            self.push("trace", fields, message);
+        }
         fn info(&self, fields: &[(&str, &str)], message: &str) {
             self.push("info", fields, message);
         }
@@ -289,6 +337,47 @@ mod tests {
         assert_eq!(
             record_keys,
             ["level", "time", "pid", "hostname", "err", "msg"]
+        );
+    }
+
+    fn lines_of(logger_level: Option<Level>, emit: impl Fn(&JsonLineLogger<Shared>)) -> Vec<Value> {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let mut logger = JsonLineLogger::new(Shared(Arc::clone(&bytes)), vec![]);
+        if let Some(level) = logger_level {
+            logger = logger.with_level(level);
+        }
+        emit(&logger);
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        text.lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn trace_is_below_the_default_level_and_written_when_asked_for() {
+        let emit = |logger: &JsonLineLogger<Shared>| {
+            logger.trace(&[("a", "1")], "trace");
+            logger.info(&[], "info");
+            logger.warn(&[], "warn");
+        };
+        let default = lines_of(None, emit);
+        assert_eq!(
+            default
+                .iter()
+                .map(|r| r["msg"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["info", "warn"]
+        );
+        let trace = lines_of(Some(Level::Trace), emit);
+        assert_eq!(trace[0]["level"], 10);
+        assert_eq!(trace[0]["msg"], "trace");
+        assert_eq!(trace.len(), 3);
+        let warn = lines_of(Some(Level::Warn), emit);
+        assert_eq!(
+            warn.iter()
+                .map(|r| r["msg"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["warn"]
         );
     }
 
