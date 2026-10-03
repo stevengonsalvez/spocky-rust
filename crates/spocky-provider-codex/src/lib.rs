@@ -24,4 +24,7 @@ pub mod tools;
 pub mod transport;
 
 pub use launch::{CodexGates, CustomProvider, ProviderCommand, ProviderRuntimeSettings};
-pub use session::{CodexProvider, CodexSession, Prompt, ResumeHandle, RunOptions, SessionConfig};
+pub use session::{
+    CodexProvider, CodexSession, NativeArchiveState, Prompt, ResumeHandle, RunOptions,
+    SessionConfig,
+};
