@@ -13,8 +13,7 @@
 # - each side's stub answered exactly the script's requests, with nothing
 #   left loopback;
 # - the persisted agent record after SIGTERM matches;
-# - the server_info frame is byte-identical, key order included, except
-#   features.workspaceLabels, the tracked OPEN gap DWLABEL-001;
+# - the server_info frame is byte-identical, key order included;
 # - the agent_update stream and the stream of every other frame must each
 #   be byte-identical to that stream in at least one pinned run (the pinned
 #   daemon itself varies between runs in a few update frames, so no single
@@ -214,21 +213,14 @@ else
   status=1
 fi
 # The server_info frame must be byte-identical, wire key order included,
-# except one tracked key: features.workspaceLabels (OPEN gap DWLABEL-001: the
-# workspace-labels service is not ported, so spocky-daemon does not
-# advertise it). jq -c keeps key order; any other difference fails.
-info_path='if .message then .message.payload.features else .payload.features end'
+# features.workspaceLabels with it (jq -c keeps key order).
 for side in original spocky; do
-  mask "$top/$side/server-info.json" |
-    jq -c 'if .message then del(.message.payload.features.workspaceLabels) else del(.payload.features.workspaceLabels) end' \
-    >"$top/$side/server-info-compared.json"
+  mask "$top/$side/server-info.json" | jq -c . >"$top/$side/server-info-compared.json"
 done
-if cmp -s "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json" &&
-  [ "$(jq "$info_path | .workspaceLabels" "$top/original/server-info.json")" = true ] &&
-  [ "$(jq "$info_path | .workspaceLabels" "$top/spocky/server-info.json")" = null ]; then
-  echo "PASS: server_info frame byte-identical except features.workspaceLabels (DWLABEL-001)"
+if cmp -s "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json"; then
+  echo "PASS: server_info frame byte-identical"
 else
-  echo "FAIL: server_info frame differs beyond the tracked workspaceLabels gap"
+  echo "FAIL: server_info frame differs"
   diff "$top/original/server-info-compared.json" "$top/spocky/server-info-compared.json"
   status=1
 fi
