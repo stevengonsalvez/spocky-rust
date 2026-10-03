@@ -9,14 +9,16 @@
 // and CEF refuse Target.createBrowserContext.
 //
 // usage: node renderer-platform-cdp-capture.cjs CDP_PORT URL OUT_DIR NAME MODE [DAEMON_PORT]
-//   MODE is "original" (seeds the isolated daemon registry) or "candidate".
+//   MODE is "desktop" (the packaged original app: no seeded storage, the page the
+//   app opened is the start page), "original" (a Metro web build in a bare window;
+//   seeds the isolated daemon registry; not the desktop product), or "candidate".
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const [cdpPort, url, outDir, name, mode, daemonPort] = process.argv.slice(2);
-if (!cdpPort || !url || !outDir || !name || !["original", "candidate"].includes(mode)) {
-  process.stderr.write("usage: renderer-platform-cdp-capture.cjs CDP_PORT URL OUT_DIR NAME original|candidate [DAEMON_PORT]\n");
+const [cdpPort, urlArgument, outDir, name, mode, daemonPort] = process.argv.slice(2);
+if (!cdpPort || !urlArgument || !outDir || !name || !["desktop", "original", "candidate"].includes(mode)) {
+  process.stderr.write("usage: renderer-platform-cdp-capture.cjs CDP_PORT URL|- OUT_DIR NAME desktop|original|candidate [DAEMON_PORT]\n");
   process.exit(2);
 }
 if (mode === "original" && !daemonPort) {
@@ -28,6 +30,7 @@ if ([cdpPort, daemonPort].includes("6767")) {
   process.exit(2);
 }
 const candidate = mode === "candidate";
+let url = urlArgument;
 const viewport = { width: 1280, height: 800 };
 
 // The first load of the original app waits for Metro to bundle, so the bound is
@@ -46,6 +49,14 @@ async function waitForProductState(page) {
   } catch (error) {
     const text = await page.locator("body").innerText().catch(() => "");
     throw new Error(`product state not reached at ${page.url()}: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
+  }
+  if (mode === "desktop") {
+    // The desktop app renders the Pair device tile only after it has resolved its local
+    // daemon id (open-project-screen.tsx). Capturing earlier is a race in the original.
+    await page.locator('[data-testid="open-project-pair-device"]').waitFor({
+      state: "attached",
+      timeout: productStateTimeoutMs,
+    });
   }
   const first = await page.locator("body").innerText();
   await page.waitForTimeout(250);
@@ -195,7 +206,9 @@ function simplifyAxTree(nodes) {
     await page.routeWebSocket(/:(6767)\b/, async (socket) => {
       await socket.close({ code: 1008, reason: "Blocked connection to port 6767 during parity capture." });
     });
-    await page.addInitScript(
+    // Only the web-in-bare-window baseline seeds storage. The desktop app and the
+    // candidate run with no seeded storage on either side.
+    if (mode === "original") await page.addInitScript(
       ({ port }) => {
         localStorage.clear();
         if (!port) return;
@@ -217,11 +230,19 @@ function simplifyAxTree(nodes) {
           ]),
         );
       },
-      { port: candidate ? null : daemonPort },
+      { port: daemonPort },
     );
     const version = await session.send("Browser.getVersion");
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120_000 });
-    await waitForProductState(page);
+    if (mode === "desktop") {
+      // The packaged app opens its own page. Wait for it to be the app, then reuse its URL.
+      const deadline = Date.now() + 120_000;
+      while (!page.url().startsWith("paseo://") && Date.now() < deadline) await page.waitForTimeout(500);
+      await waitForProductState(page);
+      url = page.url();
+    } else {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120_000 });
+      await waitForProductState(page);
+    }
     const environment = await page.evaluate(() => ({
       innerWidth,
       innerHeight,
@@ -260,6 +281,10 @@ function simplifyAxTree(nodes) {
       url,
       browser: { product: version.product, userAgent: version.userAgent },
       viewport,
+      storageSeeding: mode === "original" ? "@paseo:e2e flag and isolated daemon registry" : "none",
+      // Fixed gate conditions, shared by every runtime. The shipped app runs with the
+      // user's own settings, so these are pins of the gate, not masking.
+      gateConditions: { colorScheme: "light", reducedMotion: "reduce", viewport, deviceScaleFactor: 1 },
       environment,
       readiness,
       screenshot: {
