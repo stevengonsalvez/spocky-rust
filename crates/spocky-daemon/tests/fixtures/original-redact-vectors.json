@@ -1,0 +1,342 @@
+{
+ "node": "v22.20.0",
+ "original": "paseo-original-5de45e208690b0efc51c59a585ae9729325a9204",
+ "provenance": {
+  "node": "v22.20.0",
+  "nodeSha256": "1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931",
+  "buildMarker": "commit=5de45e208690b0efc51c59a585ae9729325a9204\nlock=844e8e2e4d3af3407fa8b54534888a4bf6c155a91f4d7121ae64d8f995863cd6\nnode=1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931\ninstall=lifecycle-scripts\n",
+  "dist": {
+   "packages/cli/dist/index.js": "8620d03c3e7e6776c3bfc4d22a8875f92209a563612fe7cda63dea7512f83c09",
+   "packages/server/dist/server/server/bootstrap.js": "f754e62120d3a708d535d287e57f5e7718d2f06447c6f1dbd6438427ac7e8b87",
+   "packages/server/dist/server/server/websocket-server.js": "1c9ca8468f364b2c98de283b61a467d9de54229962b753e74ddeaeafd1386d7b",
+   "packages/server/dist/server/server/logger.js": "132649f4769d47a0d6208f8f72b1ad00a8f3bb30d7681d8bd8ae97ea67dd805d"
+  }
+ },
+ "cases": [
+  {
+   "bindings": [],
+   "msg": "case top_level_keys_are_removed",
+   "name": "top_level_keys_are_removed",
+   "level": "info",
+   "fields": {
+    "authorization": "a",
+    "Authorization": "b",
+    "sec-websocket-protocol": "c",
+    "Sec-WebSocket-Protocol": "d",
+    "keep": 1
+   },
+   "line": "{\"level\":30,\"time\":1791052905063,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"keep\":1,\"msg\":\"case top_level_keys_are_removed\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case other_spellings_are_kept",
+   "name": "other_spellings_are_kept",
+   "level": "info",
+   "fields": {
+    "AUTHORIZATION": "a",
+    "authorizationX": "b",
+    "Sec-Websocket-Protocol": "c",
+    "Xauthorization": "d"
+   },
+   "line": "{\"level\":30,\"time\":1791052905064,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"AUTHORIZATION\":\"a\",\"authorizationX\":\"b\",\"Sec-Websocket-Protocol\":\"c\",\"Xauthorization\":\"d\",\"msg\":\"case other_spellings_are_kept\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case headers_paths",
+   "name": "headers_paths",
+   "level": "info",
+   "fields": {
+    "headers": {
+     "authorization": "a",
+     "Authorization": "b",
+     "sec-websocket-protocol": "c",
+     "Sec-WebSocket-Protocol": "d",
+     "x-keep": "k"
+    }
+   },
+   "line": "{\"level\":30,\"time\":1791052905064,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":{\"x-keep\":\"k\"},\"msg\":\"case headers_paths\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case req_headers_paths",
+   "name": "req_headers_paths",
+   "level": "info",
+   "fields": {
+    "req": {
+     "headers": {
+      "authorization": "a",
+      "Authorization": "b",
+      "sec-websocket-protocol": "c",
+      "Sec-WebSocket-Protocol": "d",
+      "x-keep": "k"
+     },
+     "method": "GET"
+    }
+   },
+   "line": "{\"level\":30,\"time\":1791052905064,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"req\":{\"headers\":{\"x-keep\":\"k\"},\"method\":\"GET\"},\"msg\":\"case req_headers_paths\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case headers_that_are_not_objects",
+   "name": "headers_that_are_not_objects",
+   "level": "info",
+   "fields": {
+    "headers": "str"
+   },
+   "line": "{\"level\":30,\"time\":1791052905064,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":\"str\",\"msg\":\"case headers_that_are_not_objects\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case headers_null",
+   "name": "headers_null",
+   "level": "info",
+   "fields": {
+    "headers": null
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":null,\"msg\":\"case headers_null\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case headers_array",
+   "name": "headers_array",
+   "level": "info",
+   "fields": {
+    "headers": [
+     {
+      "authorization": "a"
+     },
+     1
+    ]
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":[{\"authorization\":\"a\"},1],\"msg\":\"case headers_array\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case req_not_an_object",
+   "name": "req_not_an_object",
+   "level": "info",
+   "fields": {
+    "req": "str",
+    "other": true
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"req\":\"str\",\"other\":true,\"msg\":\"case req_not_an_object\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case req_headers_null",
+   "name": "req_headers_null",
+   "level": "info",
+   "fields": {
+    "req": {
+     "headers": null
+    }
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"req\":{\"headers\":null},\"msg\":\"case req_headers_null\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case null_value_is_removed",
+   "name": "null_value_is_removed",
+   "level": "info",
+   "fields": {
+    "authorization": null,
+    "keep": 1
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"keep\":1,\"msg\":\"case null_value_is_removed\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case object_value_is_removed",
+   "name": "object_value_is_removed",
+   "level": "info",
+   "fields": {
+    "authorization": {
+     "a": 1
+    },
+    "keep": [
+     1,
+     2
+    ]
+   },
+   "line": "{\"level\":30,\"time\":1791052905065,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"keep\":[1,2],\"msg\":\"case object_value_is_removed\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case deeper_levels_are_kept",
+   "name": "deeper_levels_are_kept",
+   "level": "info",
+   "fields": {
+    "headers": {
+     "authorization": "a",
+     "nested": {
+      "authorization": "keep"
+     }
+    },
+    "other": {
+     "authorization": "keep2"
+    }
+   },
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":{\"nested\":{\"authorization\":\"keep\"}},\"other\":{\"authorization\":\"keep2\"},\"msg\":\"case deeper_levels_are_kept\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case unrelated_nested_headers_kept",
+   "name": "unrelated_nested_headers_kept",
+   "level": "info",
+   "fields": {
+    "res": {
+     "headers": {
+      "authorization": "keep"
+     }
+    },
+    "headers2": {
+     "authorization": "keep"
+    }
+   },
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"res\":{\"headers\":{\"authorization\":\"keep\"}},\"headers2\":{\"authorization\":\"keep\"},\"msg\":\"case unrelated_nested_headers_kept\"}"
+  },
+  {
+   "bindings": [
+    {
+     "authorization": "b",
+     "name": "x"
+    }
+   ],
+   "msg": "case child_top_level_binding",
+   "name": "child_top_level_binding",
+   "level": "info",
+   "fields": {
+    "k": 1
+   },
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"name\":\"x\",\"k\":1,\"msg\":\"case child_top_level_binding\"}"
+  },
+  {
+   "bindings": [
+    {
+     "headers": {
+      "authorization": "b",
+      "k": 1
+     }
+    }
+   ],
+   "msg": "case child_nested_binding",
+   "name": "child_nested_binding",
+   "level": "info",
+   "fields": {},
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":{\"k\":1},\"msg\":\"case child_nested_binding\"}"
+  },
+  {
+   "bindings": [
+    {
+     "req": {
+      "headers": {
+       "Authorization": "b"
+      }
+     }
+    }
+   ],
+   "msg": "case child_req_binding",
+   "name": "child_req_binding",
+   "level": "info",
+   "fields": {
+    "n": 2
+   },
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"req\":{\"headers\":{}},\"n\":2,\"msg\":\"case child_req_binding\"}"
+  },
+  {
+   "bindings": [
+    {
+     "module": "bootstrap"
+    },
+    {
+     "module": "speech-runtime",
+     "sec-websocket-protocol": "p"
+    }
+   ],
+   "msg": "case chained_children_in_order",
+   "name": "chained_children_in_order",
+   "level": "warn",
+   "fields": {
+    "module": "field",
+    "keep": "yes"
+   },
+   "line": "{\"level\":40,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"module\":\"bootstrap\",\"module\":\"speech-runtime\",\"module\":\"field\",\"keep\":\"yes\",\"msg\":\"case chained_children_in_order\"}"
+  },
+  {
+   "bindings": [
+    {
+     "name": "a"
+    }
+   ],
+   "msg": "case binding_and_field_with_one_name",
+   "name": "binding_and_field_with_one_name",
+   "level": "info",
+   "fields": {
+    "name": "b"
+   },
+   "line": "{\"level\":30,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"name\":\"a\",\"name\":\"b\",\"msg\":\"case binding_and_field_with_one_name\"}"
+  },
+  {
+   "bindings": [
+    {
+     "Sec-WebSocket-Protocol": "x",
+     "id": 1
+    }
+   ],
+   "msg": "case bindings_and_fields_both_redacted",
+   "name": "bindings_and_fields_both_redacted",
+   "level": "error",
+   "fields": {
+    "authorization": "y",
+    "headers": {
+     "sec-websocket-protocol": "z",
+     "ok": false
+    }
+   },
+   "line": "{\"level\":50,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"id\":1,\"headers\":{\"ok\":false},\"msg\":\"case bindings_and_fields_both_redacted\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case trace_level",
+   "name": "trace_level",
+   "level": "trace",
+   "fields": {
+    "a": 1
+   },
+   "line": "{\"level\":10,\"time\":1791052905066,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"a\":1,\"msg\":\"case trace_level\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case warn_level",
+   "name": "warn_level",
+   "level": "warn",
+   "fields": {
+    "a": [
+     1,
+     {
+      "authorization": "kept in array"
+     }
+    ]
+   },
+   "line": "{\"level\":40,\"time\":1791052905067,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"a\":[1,{\"authorization\":\"kept in array\"}],\"msg\":\"case warn_level\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case error_level",
+   "name": "error_level",
+   "level": "error",
+   "fields": {},
+   "line": "{\"level\":50,\"time\":1791052905067,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"msg\":\"case error_level\"}"
+  },
+  {
+   "bindings": [],
+   "msg": "case fatal_level",
+   "name": "fatal_level",
+   "level": "fatal",
+   "fields": {
+    "headers": {}
+   },
+   "line": "{\"level\":60,\"time\":1791052905067,\"pid\":58443,\"hostname\":\"Stevens-MacBook-Pro-5.local\",\"daemonVersion\":\"0.10.0\",\"headers\":{},\"msg\":\"case fatal_level\"}"
+  }
+ ]
+}
