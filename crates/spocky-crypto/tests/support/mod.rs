@@ -278,6 +278,7 @@ impl RngCore for XorShift {
 enum Mode {
     Sync,
     Fail(String),
+    FailNonError(String),
     Pending,
 }
 
@@ -285,6 +286,7 @@ fn mode(value: &Value) -> Mode {
     match value["kind"].as_str().expect("mode kind") {
         "sync" => Mode::Sync,
         "throw" | "reject" => Mode::Fail(value["message"].as_str().unwrap().to_owned()),
+        "reject-value" => Mode::FailNonError(value["message"].as_str().unwrap().to_owned()),
         "pending" => Mode::Pending,
         other => panic!("unknown send mode {other}"),
     }
@@ -357,6 +359,7 @@ impl Transport for LogTransport {
                 None => SendStatus::Sent,
             },
             Mode::Fail(message) => SendStatus::Failed(TransportError(message)),
+            Mode::FailNonError(message) => SendStatus::FailedNonError(message),
             Mode::Pending => SendStatus::Pending(SendId(id)),
         }
     }
@@ -608,10 +611,15 @@ impl RustEndpoint {
             }
             "settle" => {
                 let id = SendId(op["id"].as_u64().unwrap());
-                let result = op["error"]
-                    .as_str()
-                    .map_or(Ok(()), |message| Err(TransportError(message.to_owned())));
-                if let Some(result) = self.channel().settle_send(id, result) {
+                let settled = if let Some(value) = op["errorValue"].as_str() {
+                    self.channel().settle_send_non_error(id, value.to_owned())
+                } else {
+                    let result = op["error"]
+                        .as_str()
+                        .map_or(Ok(()), |message| Err(TransportError(message.to_owned())));
+                    self.channel().settle_send(id, result)
+                };
+                if let Some(result) = settled {
                     let handle = self.handles.remove(&id).expect("application send");
                     self.log_send(handle, result);
                 }
