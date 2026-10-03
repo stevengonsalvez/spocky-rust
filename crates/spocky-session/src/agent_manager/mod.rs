@@ -24,6 +24,7 @@
 mod archive;
 mod create;
 mod events;
+mod importable;
 mod lifecycle;
 mod run;
 
@@ -44,6 +45,10 @@ pub use create::{
     CreateAgentOptions, ImportProviderSessionRequest, ReloadAgentOptions, ResumeAgentOptions,
 };
 pub use events::{AppendedTimelineItem, HydrateBroadcast, HydrateTimelineOptions};
+pub use importable::{
+    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError,
+    ManagedImportableProviderSession, ManagedImportableSessionsResult,
+};
 pub use lifecycle::AgentRunCancellationResult;
 pub use run::{
     AgentRunResult, AgentSteerOptions, SteerDispatch, TurnEventStream, WaitForAgentOptions,
