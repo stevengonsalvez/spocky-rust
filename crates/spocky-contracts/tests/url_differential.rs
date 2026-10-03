@@ -6,6 +6,25 @@
 //! `pathname`, `search`, and `hash`, or `null` where it throws, and every
 //! line must match.
 
+//!
+//! # Mutants that survive, and why each is equivalent
+//!
+//! Mutation runs against this test (default port, IDNA mapping and validity,
+//! IPv4 and IPv6 rules, normalization order, the `ContextJ` early returns)
+//! all fail it, except three that cannot change any output:
+//!
+//! - `parse_prepared_path` with its fast path disabled: ada's fast path (a
+//!   special, non-file path with nothing to encode and no backslash or `%`)
+//!   is a speed-up of the same segment loop the general path runs, so both
+//!   build the same path for every input.
+//! - `is_label_valid` without the `index == 0` test in the ZWNJ rule: with a
+//!   ZWNJ first, the characters before it are an empty slice, no joining
+//!   character is found there, and the rule returns false anyway; a lone ZWNJ
+//!   is caught by the `index + 1 >= len` test that follows.
+//! - `utf32_to_punycode` with the surrogate bound `0xd880` moved to `0xd800`:
+//!   no surrogate reaches the encoder, because the UTS 46 mapping disallows
+//!   surrogate code points and the input is UTF-8.
+
 #[path = "support/pinned_node.rs"]
 mod support;
 
