@@ -270,8 +270,6 @@ pub struct AgentManagerOptions {
     pub id_factory: Option<IdFactory>,
     pub registry: Option<AgentStorage>,
     pub on_agent_attention: Option<AttentionCallback>,
-    /// `onAgentArchived`.
-    pub on_agent_archived: Option<AgentArchivedCallback>,
     /// `logger.warn(bindings, message)`; warnings are dropped without it.
     pub log_warn: Option<LogWarn>,
     /// `logger.error(bindings, message)`; errors are dropped without it.
@@ -330,7 +328,8 @@ pub(crate) struct SessionEventQueue {
 pub(crate) struct State {
     /// `onAgentAttention`, replaceable through `setAgentAttentionCallback`.
     pub(crate) on_agent_attention: Option<AttentionCallback>,
-    /// `onAgentArchived`, replaceable through `setAgentArchivedCallback`.
+    /// `onAgentArchived`, set through `setAgentArchivedCallback` (the pinned
+    /// build has no constructor option for it).
     pub(crate) on_agent_archived: Option<AgentArchivedCallback>,
     pub(crate) clients: Vec<(String, Arc<dyn AgentClient>)>,
     pub(crate) provider_enabled: Vec<(String, bool)>,
@@ -502,7 +501,7 @@ impl AgentManager {
         }
         let state = State {
             on_agent_attention: options.on_agent_attention,
-            on_agent_archived: options.on_agent_archived,
+            on_agent_archived: None,
             clients: options.clients,
             provider_enabled,
             provider_definitions: options.provider_definitions,
