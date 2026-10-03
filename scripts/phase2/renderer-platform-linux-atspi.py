@@ -145,6 +145,8 @@ for _ in range(MAX_TABS):
     focus_order.append(entry)
 
 plus_focus = focused_entry(application)
+# Compare from the same focus state: snapshot right before Return, not before the walk.
+tree_before_plus = snapshot(application)
 press("Return")
 time.sleep(0.6)
 tree_after_plus = snapshot(application)
@@ -159,6 +161,7 @@ for _ in range(MAX_TABS):
         break
     press("Tab")
 focused_before_add = focused_entry(application)
+tree_before_add = snapshot(application)
 if add_project_found:
     press("Return")
     time.sleep(0.8)
@@ -191,7 +194,7 @@ report = {
         "input": ["Tab walk", "Return"],
         "focusedBeforeActivation": plus_focus,
         "focusedAfterActivation": focused_after_plus,
-        "treeChanged": tree_before != tree_after_plus,
+        "treeChanged": tree_before_plus != tree_after_plus,
         "dialogObserved": tree_helpers.contains_role(tree_after_plus, "dialog"),
     },
     "addProjectInteraction": {
@@ -199,7 +202,7 @@ report = {
         "controlFound": add_project_found,
         "activated": add_project_found,
         "focusedBeforeActivation": focused_before_add,
-        "treeChanged": tree_after_plus != tree_after_add,
+        "treeChanged": tree_before_add != tree_after_add if add_project_found else None,
         "dialogObserved": bool(dialog_after_add),
         "dialogNames": dialog_after_add,
         "baselineDialogText": [item["text"] for item in baseline_dialog],
