@@ -10,12 +10,12 @@ use std::cmp::Ordering;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use spocky_contracts::js::date_parse;
 use spocky_contracts::js_value::{self, JsObject, JsValue};
 use spocky_contracts::request::{AgentDirectoryFilter, AgentSort, AgentSortKey, SortDirection};
 use spocky_contracts::text::{JsText, js_trim};
 use spocky_store::collate::locale_compare;
 use spocky_store::registry::{PersistedWorkspaceRecord, WorkspaceKind};
-use spocky_store::time::parse_iso_millis;
 
 /// A `SortablePager` configuration: the cursor label, the valid sort keys,
 /// the default sort, and `getSortValue`. Items are keyed by their `id`.
@@ -126,7 +126,7 @@ pub fn status_priority(agent: &JsValue) -> u8 {
 fn date_value(agent: &JsValue, key: &str) -> f64 {
     #[allow(clippy::cast_precision_loss)]
     text_field(agent, key)
-        .and_then(parse_iso_millis)
+        .and_then(date_parse)
         .map_or(f64::NAN, |millis| millis as f64)
 }
 
@@ -595,5 +595,26 @@ mod tests {
             &project,
             Some(&filter)
         ));
+    }
+
+    #[test]
+    fn timestamps_parse_as_date_parse_does() {
+        // Printed by node 22: Date.parse("Fri, 02 Oct 2026 12:00:00 GMT"),
+        // Date.parse("Oct 2 2026 12:00:00 GMT+0100"), Date.parse("not a date").
+        let value = |text: &str| {
+            date_value(
+                &parse(&format!(r#"{{"updatedAt":"{text}"}}"#)).unwrap(),
+                "updatedAt",
+            )
+        };
+        assert_eq!(
+            value("Fri, 02 Oct 2026 12:00:00 GMT").to_bits(),
+            1_790_942_400_000.0_f64.to_bits()
+        );
+        assert_eq!(
+            value("Oct 2 2026 12:00:00 GMT+0100").to_bits(),
+            1_790_938_800_000.0_f64.to_bits()
+        );
+        assert!(value("not a date").is_nan());
     }
 }
