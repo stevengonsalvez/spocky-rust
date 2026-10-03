@@ -43,7 +43,7 @@ pub type LogInfo = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
 pub use create::{
     CreateAgentOptions, ImportProviderSessionRequest, ReloadAgentOptions, ResumeAgentOptions,
 };
-pub use events::{HydrateBroadcast, HydrateTimelineOptions};
+pub use events::{AppendedTimelineItem, HydrateBroadcast, HydrateTimelineOptions};
 pub use lifecycle::AgentRunCancellationResult;
 pub use run::{
     AgentRunResult, AgentSteerOptions, SteerDispatch, TurnEventStream, WaitForAgentOptions,

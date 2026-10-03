@@ -47,6 +47,13 @@ pub(crate) struct SubmittedPrompt {
     pub(crate) turn_id: Option<JsValue>,
 }
 
+/// What `appendTimelineItem` resolves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppendedTimelineItem {
+    pub seq: i64,
+    pub epoch: String,
+}
+
 /// `StreamEventFlags`.
 struct StreamEventFlags {
     should_dispatch_event: bool,
@@ -168,6 +175,87 @@ impl AgentManager {
             provider_message_id,
             turn_id,
         )
+    }
+
+    /// `appendTimelineItem(agentId, item)`: records the item in the agent's
+    /// timeline, publishes it as a stream event and persists the agent.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent error, a `TypeError` from the item's content limit
+    /// or the timeline, or the snapshot's persist error.
+    pub async fn append_timeline_item(
+        &self,
+        agent_id: &str,
+        item: JsValue,
+    ) -> Result<AppendedTimelineItem, AgentError> {
+        let item = {
+            let state = self.lock();
+            Self::require_agent(&state, agent_id)?;
+            limit_agent_timeline_item_content(item).map_err(|error| type_error(&error))?
+        };
+        let appended = {
+            let mut state = self.lock();
+            if let Some(agent) = state.agent_mut(agent_id) {
+                touch_updated_at(&mut agent.snapshot);
+            }
+            let provider = state
+                .agent(agent_id)
+                .map(|agent| agent.snapshot.provider.clone())
+                .unwrap_or_default();
+            let row =
+                Self::record_timeline_locked(&mut state, agent_id, item.clone(), None, None, None)?;
+            let epoch = state
+                .timeline
+                .epoch(agent_id)
+                .map_err(|error| AgentError {
+                    name: "TypeError".to_owned(),
+                    message: error.to_string(),
+                })?
+                .to_owned();
+            let mut event = JsObject::new();
+            event.insert("type", JsValue::String("timeline".to_owned()));
+            event.insert("item", item);
+            event.insert("provider", JsValue::String(provider));
+            self.dispatch_stream_locked(
+                &state,
+                agent_id,
+                &JsValue::Object(event),
+                Some(row.seq),
+                Some(epoch.clone()),
+                Some(row.timestamp),
+            )?;
+            AppendedTimelineItem {
+                seq: row.seq,
+                epoch,
+            }
+        };
+        self.persist_snapshot(agent_id, SnapshotOverrides::default())
+            .await?;
+        Ok(appended)
+    }
+
+    /// `emitLiveTimelineItem(agentId, item)`: publishes the item as a stream
+    /// event without recording it.
+    ///
+    /// # Errors
+    ///
+    /// The unknown-agent error.
+    pub fn emit_live_timeline_item(&self, agent_id: &str, item: JsValue) -> Result<(), AgentError> {
+        let mut state = self.lock();
+        Self::require_agent(&state, agent_id)?;
+        let provider = state
+            .agent_mut(agent_id)
+            .map(|agent| {
+                touch_updated_at(&mut agent.snapshot);
+                agent.snapshot.provider.clone()
+            })
+            .unwrap_or_default();
+        let mut event = JsObject::new();
+        event.insert("type", JsValue::String("timeline".to_owned()));
+        event.insert("item", item);
+        event.insert("provider", JsValue::String(provider));
+        self.dispatch_stream_locked(&state, agent_id, &JsValue::Object(event), None, None, None)
     }
 
     /// `dispatchStream(agentId, event, metadata)`.
