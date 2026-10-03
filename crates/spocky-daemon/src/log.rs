@@ -17,6 +17,76 @@ const WARN: u8 = 40;
 const ERROR: u8 = 50;
 const FATAL: u8 = 60;
 
+/// `REDACT_PATHS` of the daemon's `logger.ts`, in pino's path syntax. The
+/// logger is created with `redact: { paths, remove: true }`: a matching key is
+/// left out of the record.
+pub const REDACT_PATHS: [&str; 12] = [
+    "authorization",
+    "Authorization",
+    "headers.authorization",
+    "headers.Authorization",
+    "req.headers.authorization",
+    "req.headers.Authorization",
+    "[\"sec-websocket-protocol\"]",
+    "Sec-WebSocket-Protocol",
+    "headers[\"sec-websocket-protocol\"]",
+    "headers.Sec-WebSocket-Protocol",
+    "req.headers[\"sec-websocket-protocol\"]",
+    "req.headers.Sec-WebSocket-Protocol",
+];
+
+/// The keys of a pino redact path: names separated by dots, and quoted names
+/// in square brackets (`headers["sec-websocket-protocol"]`).
+fn path_keys(path: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut rest = path;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix('[') {
+            let quote = after.chars().next().filter(|c| matches!(c, '"' | '\''));
+            let quote = quote.expect("a bracket in a redact path holds a quoted key");
+            let inner = &after[1..];
+            let end = inner.find(quote).expect("the quoted key is closed");
+            keys.push(inner[..end].to_owned());
+            rest = inner[end + 1..]
+                .strip_prefix(']')
+                .expect("the bracket is closed");
+        } else {
+            let end = rest.find(['.', '[']).unwrap_or(rest.len());
+            keys.push(rest[..end].to_owned());
+            rest = &rest[end..];
+        }
+        rest = rest.strip_prefix('.').unwrap_or(rest);
+    }
+    keys
+}
+
+/// Removes the keys `REDACT_PATHS` names from a list of record pairs. A path
+/// goes through objects only: an array, a string or null on the way ends it,
+/// and a key matches by exact spelling.
+fn redact(pairs: &mut Vec<(String, Value)>) {
+    let paths: Vec<Vec<String>> = REDACT_PATHS.iter().map(|path| path_keys(path)).collect();
+    redact_pairs(pairs, &paths.iter().map(Vec::as_slice).collect::<Vec<_>>());
+}
+
+fn redact_pairs(pairs: &mut Vec<(String, Value)>, paths: &[&[String]]) {
+    pairs.retain(|(key, _)| !paths.iter().any(|path| path.len() == 1 && path[0] == *key));
+    for (key, value) in pairs.iter_mut() {
+        let deeper: Vec<&[String]> = paths
+            .iter()
+            .filter(|path| path.len() > 1 && path[0] == *key)
+            .map(|path| &path[1..])
+            .collect();
+        if deeper.is_empty() {
+            continue;
+        }
+        if let Value::Object(object) = value {
+            let mut inner: Vec<(String, Value)> = std::mem::take(object).into_iter().collect();
+            redact_pairs(&mut inner, &deeper);
+            *object = inner.into_iter().collect();
+        }
+    }
+}
+
 /// A pino level name, for the threshold a destination writes at
 /// (`level` in the pino options; the daemon's default is `info`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,13 +245,21 @@ impl<W: Write + Send> JsonLineLogger<W> {
             ("pid".to_owned(), Value::from(std::process::id())),
             ("hostname".to_owned(), Value::from(self.hostname.as_str())),
         ];
-        for (key, value) in &self.bindings {
-            pairs.push((key.clone(), Value::from(value.as_str())));
-        }
-        pairs.extend(self.value_bindings.iter().cloned());
+        // Redaction runs on the bindings (when pino creates the child) and on
+        // the fields of each call, separately.
+        let mut bindings: Vec<(String, Value)> = self
+            .bindings
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::from(value.as_str())))
+            .collect();
+        bindings.extend(self.value_bindings.iter().cloned());
+        redact(&mut bindings);
+        pairs.extend(bindings);
+        let mut fields = fields;
         if let Some(err) = err {
-            pairs.push(("err".to_owned(), err.to_value()));
+            fields.insert(0, ("err".to_owned(), err.to_value()));
         }
+        redact(&mut fields);
         pairs.extend(fields);
         pairs.push(("msg".to_owned(), Value::from(message)));
         let mut line = String::from("{");
@@ -460,6 +538,65 @@ mod tests {
         let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
         assert!(
             text.contains(r#""z":{"b":1,"a":[true,null]},"a":2.5,"msg":"typed""#),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn redact_paths_parse_like_pinos() {
+        let keys: Vec<Vec<String>> = REDACT_PATHS.iter().map(|path| path_keys(path)).collect();
+        let text: Vec<String> = keys.iter().map(|keys| keys.join("/")).collect();
+        assert_eq!(
+            text,
+            [
+                "authorization",
+                "Authorization",
+                "headers/authorization",
+                "headers/Authorization",
+                "req/headers/authorization",
+                "req/headers/Authorization",
+                "sec-websocket-protocol",
+                "Sec-WebSocket-Protocol",
+                "headers/sec-websocket-protocol",
+                "headers/Sec-WebSocket-Protocol",
+                "req/headers/sec-websocket-protocol",
+                "req/headers/Sec-WebSocket-Protocol",
+            ]
+        );
+    }
+
+    #[test]
+    fn redaction_removes_keys_from_fields_and_bindings() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let logger = JsonLineLogger::new(
+            Shared(Arc::clone(&bytes)),
+            vec![
+                ("authorization".to_owned(), "b".to_owned()),
+                ("name".to_owned(), "x".to_owned()),
+            ],
+        )
+        .with_value_bindings(vec![(
+            "headers".to_owned(),
+            serde_json::json!({"authorization": "c", "keep": 1}),
+        )]);
+        logger.log_values(
+            Level::Info,
+            &[
+                ("Authorization".to_owned(), serde_json::json!("d")),
+                (
+                    "req".to_owned(),
+                    serde_json::json!({"headers": {"sec-websocket-protocol": "p", "k": 2}}),
+                ),
+                (
+                    "headers".to_owned(),
+                    serde_json::json!([{"authorization": "kept"}]),
+                ),
+            ],
+            "m",
+        );
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(
+            text.contains(r#""name":"x","headers":{"keep":1},"req":{"headers":{"k":2}},"headers":[{"authorization":"kept"}],"msg":"m""#),
             "{text}"
         );
     }
