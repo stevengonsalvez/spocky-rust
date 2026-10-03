@@ -707,7 +707,8 @@ const G4_WIRE: &str = include_str!("../../../scripts/phase3/g4-wire.mjs");
 /// G4 socket level: after an accepted hello the probe sends a valid request,
 /// an invalid message, an unknown request, non-JSON text, and binary frames,
 /// then a ping. The reply to each must keep the pinned code and the
-/// `requestId` echo, and its raw frame is compared across daemons. This
+/// `requestId` echo, and every inbound frame, the hello's `server_info` and
+/// anything sent unprompted included, is compared raw across daemons. This
 /// covers the real session backend, not a stand-in.
 #[must_use]
 pub fn g4_wire() -> GateSpec {
@@ -729,7 +730,13 @@ pub fn g4_wire() -> GateSpec {
         expected: "true",
     }));
     checks.extend([
-        // The daemon keeps the socket open through all of it.
+        // The daemon sends nothing on its own after the hello, and keeps the
+        // socket open through all of it.
+        Check::FirstLineField {
+            step: "probe",
+            pointer: "/idleFrames",
+            expected: "0",
+        },
         Check::FirstLineField {
             step: "probe",
             pointer: "/closed",
