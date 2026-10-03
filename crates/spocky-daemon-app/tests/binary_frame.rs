@@ -13,6 +13,7 @@ use spocky_daemon::binary_frames::{BinaryFrame, decode_binary_frame};
 use spocky_daemon::session_api::{SessionBackend, SessionOpen, SessionSink, SocketId};
 use spocky_daemon_app::session::{DaemonBackend, Services};
 use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
+use spocky_daemon_app::workspace_label_handlers::WorkspaceLabels;
 use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions};
 use spocky_session::agent_storage::AgentStorage;
@@ -48,21 +49,23 @@ fn services(home: &Path, runtime: tokio::runtime::Handle) -> Arc<Services> {
     workspaces.initialize();
     let slot: ServicesSlot = Arc::new(std::sync::OnceLock::new());
     let creation = CreationService::new(home, Some(validate_completed(Arc::clone(&slot))));
+    let provisioning = Arc::new(WorkspaceProvisioning {
+        projects: tokio::sync::Mutex::new(projects),
+        workspaces: tokio::sync::Mutex::new(workspaces),
+        server_id: None,
+        checkout: CheckoutContext {
+            paseo_home: home.to_string_lossy().into_owned(),
+            worktrees_root: Some(home.join("worktrees").to_string_lossy().into_owned()),
+            home: home.to_string_lossy().into_owned(),
+        },
+        on_workspace_created: None,
+    });
+    let labels = WorkspaceLabels::new(Arc::clone(&provisioning), home);
     Arc::new(Services {
         runtime,
         manager: Arc::new(AgentManager::new(AgentManagerOptions::default())),
         storage,
-        provisioning: Arc::new(WorkspaceProvisioning {
-            projects: tokio::sync::Mutex::new(projects),
-            workspaces: tokio::sync::Mutex::new(workspaces),
-            server_id: None,
-            checkout: CheckoutContext {
-                paseo_home: home.to_string_lossy().into_owned(),
-                worktrees_root: Some(home.join("worktrees").to_string_lossy().into_owned()),
-                home: home.to_string_lossy().into_owned(),
-            },
-            on_workspace_created: None,
-        }),
+        provisioning,
         creation,
         snapshots: ProviderSnapshotManager::new(ProviderSnapshotManagerOptions {
             definitions: Vec::new(),
@@ -70,6 +73,7 @@ fn services(home: &Path, runtime: tokio::runtime::Handle) -> Arc<Services> {
             home: None,
         }),
         receipts: MessageReceipts::new(home.join("agent-requests").to_string_lossy()),
+        labels,
         paseo_home: home.to_path_buf(),
         home: home.to_string_lossy().into_owned(),
     })

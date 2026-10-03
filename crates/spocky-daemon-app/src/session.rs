@@ -64,6 +64,7 @@ use crate::events::EventDelivery;
 use crate::inline_task::start_inline;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
 use crate::workspace_handlers::{fetch_workspaces, workspace_create};
+use crate::workspace_label_handlers::{WorkspaceLabels, invalid_message, workspace_label};
 
 /// `LEGACY_PROVIDER_IDS`: providers every client may see.
 const LEGACY_PROVIDER_IDS: [&str; 3] = ["claude", "codex", "opencode"];
@@ -76,6 +77,8 @@ pub struct Services {
     pub storage: Arc<AgentStorage>,
     pub provisioning: Arc<WorkspaceProvisioning>,
     pub creation: CreationService,
+    /// `workspaceLabelService` and the subscriptions open on it.
+    pub labels: WorkspaceLabels,
     /// `providerSnapshotManager`.
     pub snapshots: ProviderSnapshotManager,
     /// `messageReceipts` (`<paseoHome>/agent-requests`).
@@ -196,6 +199,9 @@ impl SessionBackend for DaemonBackend {
     }
 
     fn validate_inbound(&self, message: &Value) -> Result<(), String> {
+        if let Some(text) = invalid_message(message) {
+            return Err(text);
+        }
         inbound(message)
             .map(drop)
             .map_err(|error| error.to_string())
@@ -337,6 +343,7 @@ impl SessionHandle for DaemonSession {
     }
 
     fn socket_detached(&self, source: SocketId) {
+        self.services.labels.detach(source);
         self.updates.detach(source);
         self.events.detach(source);
     }
@@ -458,6 +465,7 @@ async fn route(
             Ok(())
         }
         SessionInbound::WaitForFinish(request) => wait_for_finish(&context, request, &emit).await,
+        SessionInbound::WorkspaceLabel(request) => workspace_label(&context, request, &emit).await,
         SessionInbound::FetchAgentTimeline(request) => {
             fetch_agent_timeline(&context, request, &emit).await;
             Ok(())

@@ -19,3 +19,4 @@ pub mod request;
 pub mod session;
 pub mod shutdown;
 pub mod workspace_handlers;
+pub mod workspace_label_handlers;

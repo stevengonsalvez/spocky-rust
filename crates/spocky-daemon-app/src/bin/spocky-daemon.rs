@@ -20,6 +20,7 @@ use spocky_daemon_app::provider::{
 };
 use spocky_daemon_app::session::{DaemonBackend, Services};
 use spocky_daemon_app::workspace_handlers::{ServicesSlot, validate_completed};
+use spocky_daemon_app::workspace_label_handlers::WorkspaceLabels;
 use spocky_message_receipts::MessageReceipts;
 use spocky_session::agent_manager::{AgentManager, AgentManagerOptions, ProviderDefinition};
 use spocky_session::agent_sdk::AgentClient;
@@ -155,6 +156,13 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
+    // `workspaceLabelService.initialize()`, before listening.
+    let labels = WorkspaceLabels::new(Arc::clone(&provisioning), &paseo_home);
+    if let Err(error) = labels.initialize() {
+        eprintln!("Failed to initialize workspace labels: {error}");
+        return ExitCode::from(1);
+    }
+
     let slot: ServicesSlot = Arc::new(OnceLock::new());
     let creation = CreationService::new(&paseo_home, Some(validate_completed(Arc::clone(&slot))));
     let services = Arc::new(Services {
@@ -163,6 +171,7 @@ fn main() -> ExitCode {
         storage,
         provisioning,
         creation,
+        labels,
         snapshots,
         receipts: MessageReceipts::new(paseo_home.join("agent-requests").to_string_lossy()),
         paseo_home,
