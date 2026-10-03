@@ -58,7 +58,7 @@ plus 16 lowercase hex digits) and `wall_clock` (`ts` in pong). The Rust corpus r
 
 ```text
 scripts/phase4/relay-protocol-differential.sh regenerate
-relay protocol differential: 3091 corpus cases and 54 live wire cases: pinned relay identical
+relay protocol differential: 3751 corpus cases and 54 live wire cases: pinned relay identical
 to the fixtures, Rust identical to the pinned relay
 ```
 
@@ -68,7 +68,7 @@ the Rust render of both corpora against the fresh pinned output, and the live-wi
 against the fresh capture. The last step is the cargo test output below.
 
 ```text
-running 9 tests
+running 10 tests
 test an_identifier_jason_cannot_encode_has_no_frame ... ok
 test late_control_frames_are_disconnect_notices ... ok
 test every_close_the_relay_sent_is_in_the_table ... ok
@@ -77,8 +77,9 @@ test http_rejections_match_the_pinned_relay ... ok
 test escaped_identifiers_encode_like_jason ... ok
 test generated_connection_ids_have_the_relay_shape_and_sync_in_its_order ... ok
 test a_map_that_shrinks_back_to_32_keys_lists_ids_sorted_again ... ok
+test percent_encoded_route_parameters_decode_before_validation ... ok
 test sync_frames_list_ids_in_the_pinned_relay_order_for_every_id_class ... ok
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 Fixtures replay without Docker: `cargo test -p spocky-relay-protocol`.
@@ -99,6 +100,12 @@ Fixtures replay without Docker: `cargo test -p spocky-relay-protocol`.
     deep in the trie.
   - 35 `syncdel` rows: a map built past 32 keys, then keys deleted down to 39, 33, 32, 31,
     20, 1 and 0 keys, as the Owner removes disconnected clients.
+- Percent corpus (660 cases): `v`, `connectionId`, `serverId`, `role` and parameter names
+  written with `%XX`, `+`, invalid escapes (`%zz`, `%`), invalid UTF-8, NUL, NBSP, BOM and
+  NEL, for both roles. `cow_qs` decodes names and values before `Connection.from_query/1`,
+  so `v=%32` is v2 and `connectionId=%63%31` is `c1`, as `URLSearchParams.get` decodes;
+  `+` becomes a space and `%2B` stays a plus. A live capture (`relay-protocol-live-percent.tsv`)
+  connects eight such clients and records the `connected` frames the real relay sends.
 - Live wire (54 cases): eleven HTTP rejections, control sync, connected, disconnected, pong,
   replaced, data and client closes, handshake close, oversize close, JSON escaping of ids, an
   id Jason cannot encode, `sync` for eight id classes (including 33 clients), the same
