@@ -1,34 +1,34 @@
 #!/usr/bin/env node
 // Captures pinned Paseo terminal emulator output for every scenario in
-// terminal-emulator-corpus.json. Read-only against the pinned build.
+// terminal-emulator-corpus.json by running the pinned
+// packages/server/dist/server/terminal/terminal.js, so the CSI and OSC
+// handlers, the cell, scrollback, wrap, cursor and last-output-line
+// extraction, the input-mode replies and the exit info are the pinned code.
+// Read-only against the pinned build.
 //
 // Usage (Node 22.20.0):
 //   ~/.nvm/versions/node/v22.20.0/bin/node scripts/phase4/terminal-emulator-capture.mjs \
 //     --paseo-root <built paseo checkout at 5de45e2> --out <capture.json>
 //
-// The emulator is the @xterm/headless package that packages/server resolves,
-// constructed with the options createTerminal uses (scrollback 1000,
-// allowProposedApi). PTY bytes are decoded with a utf8 StringDecoder, which is
-// what node-pty's socket.setEncoding("utf8") does before onData. The custom
-// CSI and OSC handlers and the cell, scrollback, wrap, cursor, and last output
-// line extraction are copied from packages/server/src/terminal/terminal.ts at
-// 5de45e2, so the captured state is what getState({ includeWrapFlags: true })
-// returns. Handler responses are the bytes createTerminal writes to the PTY.
+// terminal.js is loaded with two loader substitutions (see
+// terminal-emulator-hooks.mjs): node-pty becomes a PTY with no process behind
+// it, which this script feeds with the scenario bytes decoded with a utf8
+// StringDecoder (what node-pty's socket.setEncoding("utf8") does before
+// onData), and @xterm/headless is the pinned package with its Terminal
+// remembered so the raw title events can be read. Everything a scenario
+// reports comes from terminal.js: getState({ includeWrapFlags: true }), the
+// exit info's lastOutputLines, onCommandFinished, and the bytes it writes to
+// the PTY (handler replies and input-mode replies).
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { createRequire, register } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PASEO_COMMIT = "5de45e208690b0efc51c59a585ae9729325a9204";
-const TERMINAL_EXIT_OUTPUT_LINE_LIMIT = 12;
-const TERMINAL_OSC_COLOR_QUERY_RESPONSES = new Map([
-  [10, "rgb:e6e6/e6e6/e6e6"],
-  [11, "rgb:0b0b/0b0b/0b0b"],
-  [12, "rgb:e6e6/e6e6/e6e6"],
-]);
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -48,108 +48,6 @@ function parseArgs(argv) {
   return args;
 }
 
-function cellOf(cell) {
-  const fgMode = cell.getFgColorMode() >> 24;
-  const bgMode = cell.getBgColorMode() >> 24;
-  return {
-    char: cell.getChars() || " ",
-    fg: fgMode !== 0 ? cell.getFgColor() : undefined,
-    bg: bgMode !== 0 ? cell.getBgColor() : undefined,
-    fgMode: fgMode !== 0 ? fgMode : undefined,
-    bgMode: bgMode !== 0 ? bgMode : undefined,
-    bold: cell.isBold() !== 0,
-    italic: cell.isItalic() !== 0,
-    underline: cell.isUnderline() !== 0,
-    dim: cell.isDim() !== 0,
-    inverse: cell.isInverse() !== 0,
-    strikethrough: cell.isStrikethrough() !== 0,
-  };
-}
-
-function extractRow(terminal, row) {
-  const cells = [];
-  const line = terminal.buffer.active.getLine(row);
-  for (let col = 0; col < terminal.cols; col++) {
-    const cell = line?.getCell(col);
-    cells.push(cell ? cellOf(cell) : { char: " ", fg: undefined, bg: undefined });
-  }
-  return cells;
-}
-
-function continuesToNext(terminal, row) {
-  return terminal.buffer.active.getLine(row + 1)?.isWrapped === true;
-}
-
-function extractCursor(terminal) {
-  const coreService = terminal._core?.coreService;
-  const cursorStyle = coreService?.decPrivateModes?.cursorStyle;
-  const style =
-    cursorStyle === "block" || cursorStyle === "underline" || cursorStyle === "bar"
-      ? cursorStyle
-      : undefined;
-  const blink =
-    typeof coreService?.decPrivateModes?.cursorBlink === "boolean"
-      ? coreService.decPrivateModes.cursorBlink
-      : undefined;
-  const hidden = Boolean(coreService?.isCursorHidden);
-  return {
-    row: terminal.buffer.active.cursorY,
-    col: terminal.buffer.active.cursorX,
-    ...(hidden ? { hidden: true } : {}),
-    ...(style ? { style } : {}),
-    ...(typeof blink === "boolean" ? { blink } : {}),
-  };
-}
-
-function extractState(terminal) {
-  const baseY = terminal.buffer.active.baseY;
-  const grid = [];
-  const gridWrapped = [];
-  for (let row = 0; row < terminal.rows; row++) {
-    grid.push(extractRow(terminal, baseY + row));
-    gridWrapped.push(continuesToNext(terminal, baseY + row));
-  }
-  const scrollback = [];
-  const scrollbackWrapped = [];
-  for (let row = 0; row < baseY; row++) {
-    scrollback.push(extractRow(terminal, row));
-    scrollbackWrapped.push(continuesToNext(terminal, row));
-  }
-  return {
-    rows: terminal.rows,
-    cols: terminal.cols,
-    grid,
-    scrollback,
-    cursor: extractCursor(terminal),
-    gridWrapped,
-    scrollbackWrapped,
-  };
-}
-
-function extractLastOutputLines(terminal, limit) {
-  const buffer = terminal.buffer.active;
-  const merged = [];
-  for (let row = 0; row < buffer.length; row++) {
-    const line = buffer.getLine(row);
-    if (!line) {
-      continue;
-    }
-    const text = line.translateToString(true);
-    if (line.isWrapped === true && merged.length > 0) {
-      merged[merged.length - 1] += text;
-      continue;
-    }
-    merged.push(text);
-  }
-  while (merged.length > 0 && merged[0]?.trim().length === 0) {
-    merged.shift();
-  }
-  while (merged.length > 0 && merged[merged.length - 1]?.trim().length === 0) {
-    merged.pop();
-  }
-  return merged.slice(-limit);
-}
-
 function chunksOf(op) {
   if (op.text !== undefined) {
     return Buffer.from(op.text, "utf8");
@@ -167,76 +65,32 @@ function chunksOf(op) {
   return null;
 }
 
-function writeAsync(terminal, data) {
-  return new Promise((resolveWrite) => terminal.write(data, resolveWrite));
+function flushed(terminal) {
+  return new Promise((resolveWrite) => terminal.write("", resolveWrite));
 }
 
-async function runScenario(Terminal, scenario) {
-  const terminal = new Terminal({
+async function runScenario(createTerminal, scenario) {
+  const session = await createTerminal({
+    cwd: tmpdir(),
+    workspaceId: "capture",
     rows: scenario.rows,
     cols: scenario.cols,
-    scrollback: 1000,
-    allowProposedApi: true,
   });
-  const responses = [];
+  const pty = globalThis.__spockyFakePtys.at(-1);
+  const terminal = globalThis.__spockyTerminals.at(-1);
   const titles = [];
   const commandFinished = [];
-  const write = (data) => responses.push(data);
-
-  terminal.parser.registerCsiHandler({ final: "c" }, (params) => {
-    if (params.length === 0 || (params.length === 1 && params[0] === 0)) {
-      write("\x1b[?62;4;22c");
-      return true;
-    }
-    return false;
-  });
-  terminal.parser.registerCsiHandler({ final: "n" }, (params) => {
-    if (params.length !== 1) {
-      return false;
-    }
-    if (params[0] === 5) {
-      write("\x1b[0n");
-      return true;
-    }
-    if (params[0] === 6) {
-      const buffer = terminal.buffer.active;
-      write(`\x1b[${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
-      return true;
-    }
-    return false;
-  });
-  terminal.parser.registerCsiHandler({ prefix: "?", final: "n" }, (params) => {
-    if (params.length !== 1 || params[0] !== 6) {
-      return false;
-    }
-    const buffer = terminal.buffer.active;
-    write(`\x1b[?${buffer.cursorY + 1};${buffer.cursorX + 1}R`);
-    return true;
-  });
-  for (const [code, response] of TERMINAL_OSC_COLOR_QUERY_RESPONSES) {
-    terminal.parser.registerOscHandler(code, (data) => {
-      if (data.trim() !== "?") {
-        return false;
-      }
-      write(`\x1b]${code};${response}\x1b\\`);
-      return true;
-    });
-  }
+  let exitInfo = null;
   terminal.onTitleChange((title) => titles.push(title));
-  terminal.parser.registerOscHandler(633, (data) => {
-    const parts = data.split(";");
-    if (parts[0] === "D" && parts.length === 1) {
-      commandFinished.push({ exitCode: null });
-    } else if (parts[0] === "D" && parts.length === 2 && /^-?\d+$/.test(parts[1])) {
-      commandFinished.push({ exitCode: Number(parts[1]) });
-    }
-    return true;
+  session.onCommandFinished((info) => commandFinished.push(info));
+  session.onExit((info) => {
+    exitInfo = info;
   });
 
   const decoder = new StringDecoder("utf8");
   for (const op of scenario.ops) {
     if (op.resize !== undefined) {
-      terminal.resize(op.resize[0], op.resize[1]);
+      session.send({ type: "resize", cols: op.resize[0], rows: op.resize[1] });
       continue;
     }
     const bytes = chunksOf(op);
@@ -245,42 +99,63 @@ async function runScenario(Terminal, scenario) {
     }
     const text = decoder.write(bytes);
     if (text.length > 0) {
-      await writeAsync(terminal, text);
+      pty.emitData(text);
+      await flushed(terminal);
     }
   }
-  await writeAsync(terminal, "");
+  await flushed(terminal);
 
+  const state = session.getState({ includeWrapFlags: true });
+  if (state.title !== undefined) {
+    // The session title follows the emulator's after a debounce; a state read
+    // that already carries it would differ from the corpus expectation.
+    throw new Error(`scenario ${scenario.name}: state read after the title debounce`);
+  }
+  pty.emitExit({ exitCode: 0, signal: 0 });
   const result = {
     name: scenario.name,
-    state: extractState(terminal),
-    lastOutputLines: extractLastOutputLines(terminal, TERMINAL_EXIT_OUTPUT_LINE_LIMIT),
+    state,
+    lastOutputLines: exitInfo.lastOutputLines,
     titles,
-    responses,
+    responses: pty.written,
     commandFinished,
   };
-  terminal.dispose();
   return result;
 }
 
 const args = parseArgs(process.argv.slice(2));
 const paseoRoot = resolve(args["paseo-root"]);
+process.env.SPOCKY_CAPTURE_PASEO_ROOT = paseoRoot;
+globalThis.__spockyFakePtys = [];
+globalThis.__spockyTerminals = [];
+register(pathToFileURL(join(here, "terminal-emulator-hooks.mjs")), {
+  data: {
+    fakePty: pathToFileURL(join(here, "terminal-emulator-fake-pty.mjs")).href,
+    recorder: pathToFileURL(join(here, "terminal-emulator-xterm-recorder.mjs")).href,
+  },
+});
+const terminalModule = join(paseoRoot, "packages/server/dist/server/terminal/terminal.js");
+const { createTerminal } = await import(pathToFileURL(terminalModule).href);
 const serverRequire = createRequire(join(paseoRoot, "packages/server/package.json"));
-const xtermPackagePath = serverRequire.resolve("@xterm/headless/package.json");
-const xtermVersion = JSON.parse(readFileSync(xtermPackagePath, "utf8")).version;
-const { Terminal } = serverRequire("@xterm/headless");
+const xtermVersion = JSON.parse(
+  readFileSync(serverRequire.resolve("@xterm/headless/package.json"), "utf8"),
+).version;
 
 const corpusText = readFileSync(join(here, "terminal-emulator-corpus.json"), "utf8");
 const corpus = JSON.parse(corpusText);
 const scenarios = [];
 for (const scenario of corpus.scenarios) {
-  scenarios.push(await runScenario(Terminal, scenario));
+  scenarios.push(await runScenario(createTerminal, scenario));
 }
 
 const capture = {
   paseoCommit: PASEO_COMMIT,
   node: process.version,
   xtermHeadless: xtermVersion,
+  terminalJsSha256: createHash("sha256").update(readFileSync(terminalModule)).digest("hex"),
   corpusSha256: createHash("sha256").update(corpusText).digest("hex"),
   scenarios,
 };
 writeFileSync(args.out, `${JSON.stringify(capture)}\n`);
+// The pinned session keeps timers alive; the capture is finished.
+process.exit(0);
