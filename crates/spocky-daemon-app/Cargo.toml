@@ -16,6 +16,7 @@ spocky-provider-codex = { path = "../spocky-provider-codex" }
 spocky-session = { path = "../spocky-session" }
 spocky-store = { path = "../spocky-store" }
 tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync"] }
+url = "2.5.8"
 
 [dev-dependencies]
 spocky-provider-codex = { path = "../spocky-provider-codex", features = ["test-hooks"] }

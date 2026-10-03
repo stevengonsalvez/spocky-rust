@@ -5569,6 +5569,7 @@ dependencies = [
  "spocky-slice-harness",
  "spocky-store",
  "tokio",
+ "url",
 ]
 
 [[package]]
