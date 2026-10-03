@@ -110,7 +110,23 @@ pub(crate) fn convert_claude_history_entry(
     if entry_type == Some("user") && is_synthetic_history_user_entry(entry) {
         return Ok(Vec::new());
     }
-    let Some(message) = entry.get("message").filter(|message| {
+    let candidate = entry.get("message");
+    // `"content" in message` throws for a truthy primitive.
+    if let Some(primitive) = candidate.filter(|message| {
+        matches!(
+            message,
+            JsValue::Number(_) | JsValue::String(_) | JsValue::Bool(_)
+        ) && spocky_contracts::js::truthy(Some(message))
+    }) {
+        return Err(AgentError {
+            name: "TypeError".to_owned(),
+            message: format!(
+                "Cannot use 'in' operator to search for 'content' in {}",
+                spocky_contracts::js::js_string(Some(primitive))
+            ),
+        });
+    }
+    let Some(message) = candidate.filter(|message| {
         message
             .as_object()
             .is_some_and(|object| object.get("content").is_some())
@@ -605,7 +621,8 @@ impl ClaudeSession {
         let history_timestamp = normalize_replay_timestamp(entry.get("timestamp"));
         let notification_owner = notification_tool_use_id
             .as_ref()
-            .and_then(|id| replay.tool_owners.get(id));
+            .and_then(|id| replay.tool_owners.get(id))
+            .filter(|owner| !owner.is_empty());
         if let Some(owner) = notification_owner {
             for item in self.convert_history_entry(&entry)? {
                 let mut event = JsObject::new();
