@@ -6,6 +6,7 @@ license = "Apache-2.0"
 rust-version = "1.94"
 
 [dependencies]
+spocky-contracts = { path = "../spocky-contracts" }
 spocky-crypto = { path = "../spocky-crypto" }
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 
