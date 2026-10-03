@@ -499,8 +499,14 @@ impl CliAuthorizations {
         let body = Json::object([
             ("deviceCode", Json::string(&device_code)),
             ("userCode", Json::string(&user_code)),
-            ("verificationUri", Json::string(verification_uri.as_str())),
-            ("verificationUriComplete", Json::string(complete.as_str())),
+            (
+                "verificationUri",
+                Json::rust_text(verification_uri.as_str()),
+            ),
+            (
+                "verificationUriComplete",
+                Json::rust_text(complete.as_str()),
+            ),
             ("expiresAt", Json::String(expires_at)),
             (
                 "interval",
