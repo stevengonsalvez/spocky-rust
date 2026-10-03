@@ -1398,6 +1398,19 @@
           "incidents": ["first gate attempt passed the package list as one zsh word, so tests and clippy did not run; rerun with an array", "merge hit a stale 0-byte .git/index.lock from 09:08 held by no process; removed (second occurrence; main checkout readers should avoid index-writing git commands)"]
         },
         {
+          "lane": "p4_xterm_core",
+          "date": "2026-10-03",
+          "sourceRange": "f56bd0ab..4a11295a (4; reviewer PASS, verdicts/p4_xterm_core-4a11295a.txt): xterm follow-ups through cd5a0027 (unreached throw sites and wedge effects recorded)",
+          "integrationHead": "0b13142b",
+          "leadVerification": "gated after cargo clean -p: spocky-xterm 21 passed --test-threads=1 --include-ignored with pinned node 22.20.0, clippy -D warnings, fmt check, cargo check --workspace --all-targets",
+          "retire": "not yet: branch fully on main, but the worktree has uncommitted edits in buffer.rs, circular_list.rs and input_handler.rs"
+        },
+        {
+          "lane": "p2_hub_api",
+          "date": "2026-10-03",
+          "held": "PASS ca20cf81..79edeaa9 (verdicts/p2_hub_api-79edeaa9.txt) not landed: it sits on ef1703e6..f2679e3a (17 commits, the restack of the BLOCKed 6eb12db..07dbaa6 on main 7f640ff7) which has no PASS, and it conflicts on main without them (hub_api_evidence.rs and the hub-api evidence files); base range queued for review; both land together on its PASS"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
