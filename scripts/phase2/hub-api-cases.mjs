@@ -346,6 +346,20 @@ for (const operation of ["validateTrigger", "dispatchManualRun"]) {
     });
   }
 }
+// A lone surrogate in a request string is JavaScript text: the boundary must pass it to the operation
+// and echo it back unchanged, not re-encode it.
+add("body/validateTrigger/lone-surrogate-yaml", "handle", request("validateTrigger", { body: text('{"yaml":"a\\ud800b"}') }), {
+  operation: { result: RESULTS.validateTrigger.valid },
+});
+add("body/validateTrigger/lone-low-surrogate-yaml", "handle", request("validateTrigger", { body: text('{"yaml":"a\\udc00b"}') }), {
+  operation: { result: RESULTS.validateTrigger.valid },
+});
+add("body/dispatchManualRun/lone-surrogate-actor", "handle", request("dispatchManualRun", {
+  body: text('{"projectSlug":"p","trigger":"t","actor":"a\\ud800b","deliveryKey":"d"}'),
+}), { operation: { result: RESULTS.dispatchManualRun.running } });
+add("body/dispatchManualRun/lone-surrogate-project-slug", "handle", request("dispatchManualRun", {
+  body: text('{"projectSlug":"p\\ud800q","trigger":"t","actor":"a","deliveryKey":"d"}'),
+}), { operation: { result: RESULTS.dispatchManualRun.running } });
 // About 1 MB of nesting must neither crash nor change the answer.
 for (const [name, body] of [
   ["deep-array-1mb", repeat("", "[", 500000, "", "]")],
