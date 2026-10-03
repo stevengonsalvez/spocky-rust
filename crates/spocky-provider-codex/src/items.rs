@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use spocky_contracts::js::js_string;
 use spocky_contracts::js_value::js_text_to_utf8;
-use spocky_contracts::text::{is_js_whitespace, js_trim};
+use spocky_contracts::text::{js_trim, js_trim_end};
 
 use crate::transport::to_js_value;
 
@@ -436,7 +436,7 @@ fn plan_item(record: &Map<String, Value>) -> Option<Value> {
 pub fn normalize_plan_markdown(text: &str) -> String {
     let joined = text
         .split('\n')
-        .map(|line| line.trim_end_matches(is_js_whitespace))
+        .map(js_trim_end)
         .collect::<Vec<_>>()
         .join("\n");
     js_trim(&joined).to_owned()
