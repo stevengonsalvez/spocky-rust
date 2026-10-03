@@ -7,7 +7,7 @@
   for argument in "$@"; do printf 'ARG %s\n' "$argument"; done
   echo "PWD $(pwd)"
   echo "ENV-BEGIN"
-  env | sort
+  env
   echo "ENV-END"
 } > "$RECORD_FILE"
 : > "$RECORD_STDIN"
