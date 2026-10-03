@@ -283,7 +283,7 @@ async fn fetch(
             let cwd = match &options {
                 FetchCatalogOptions::Workspace { cwd, .. } => cwd.clone(),
                 FetchCatalogOptions::Global { .. } => std::env::current_dir()
-                    .map(|cwd| cwd.to_string_lossy().into_owned())
+                    .map(|cwd| crate::text::path_text(&cwd))
                     .unwrap_or_default(),
             };
             let mut config = JsObject::new();
