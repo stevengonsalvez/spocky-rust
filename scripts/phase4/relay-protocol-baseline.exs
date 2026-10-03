@@ -23,28 +23,37 @@ defmodule RelayProtocolBaseline do
   end
 
   def run("qs", [query]) do
-    pairs = :cow_qs.parse_qs(dec(query))
+    case parse_qs(dec(query)) do
+      :error ->
+        "qs_error"
 
-    shown =
-      Enum.map_join(pairs, ",", fn
-        {name, true} -> b64(name) <> ":flag"
-        {name, value} -> b64(name) <> ":" <> b64(value)
-      end)
+      {:ok, pairs} ->
+        shown =
+          Enum.map_join(pairs, ",", fn
+            {name, true} -> b64(name) <> ":flag"
+            {name, value} -> b64(name) <> ":" <> b64(value)
+          end)
 
-    map =
-      Map.new(pairs, fn
-        {name, true} -> {name, ""}
-        {name, value} -> {name, value}
-      end)
+        map =
+          Map.new(pairs, fn
+            {name, true} -> {name, ""}
+            {name, value} -> {name, value}
+          end)
 
-    "pairs=" <> shown <> " " <> connection(map)
-  rescue
-    _ -> "qs_error"
+        "pairs=" <> shown <> " " <> connection(map)
+    end
   end
 
   def run("sync", [ids]) do
     keys = ids |> parse_ids() |> Map.new(&{&1, true}) |> Map.keys()
     encode(%{type: "sync", connectionIds: keys})
+  end
+
+  # A map that grows past 32 keys and then loses some: the relay's disconnect path.
+  def run("syncdel", [ids, deleted]) do
+    map = ids |> parse_ids() |> Map.new(&{&1, true})
+    shrunk = Enum.reduce(parse_ids(deleted), map, fn id, acc -> Map.delete(acc, id) end)
+    encode(%{type: "sync", connectionIds: Map.keys(shrunk)})
   end
 
   def run("connected", [id]), do: encode(%{type: "connected", connectionId: dec(id)})
@@ -59,6 +68,13 @@ defmodule RelayProtocolBaseline do
       PaseoRelay.Protocol.maximum_control_payload_bytes()
     ]
     |> Enum.join(" ")
+  end
+
+  # Only the Cowlib call may fail: a crash in Connection.from_query must stay visible.
+  defp parse_qs(query) do
+    {:ok, :cow_qs.parse_qs(query)}
+  rescue
+    _ -> :error
   end
 
   defp parse_ids("none"), do: []
