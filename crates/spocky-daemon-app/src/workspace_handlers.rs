@@ -17,7 +17,7 @@ use spocky_contracts::request::{
     CreationKind, FetchWorkspacesRequest, SortDirection, WorkspaceCreateRequest, WorkspaceSortKey,
     WorkspaceSource,
 };
-use spocky_contracts::text::{JsText, js_trim};
+use spocky_contracts::text::{JsText, js_to_lowercase, js_trim};
 use spocky_session::agent_identity::resolve_create_agent_titles;
 use spocky_session::creation::{
     CreationError, CreationFuture, CreationInput, CreationTarget, Exists, Observer, Provision,
@@ -58,9 +58,11 @@ fn workspace_sort_value(workspace: &JsValue, key: &str) -> SortValue {
             Some(at) => SortValue::Number(date_parse(at).map_or(f64::NAN, |ms| ms as f64)),
             None => SortValue::Null,
         },
-        // `toLocaleLowerCase()`: Unicode lowercasing in the default locale.
-        "name" => SortValue::Text(text("name").unwrap_or_default().to_lowercase()),
-        _ => SortValue::Text(text("projectId").unwrap_or_default().to_lowercase()),
+        // `toLocaleLowerCase()`. ponytail: node's `toLowerCase` tables, which
+        // the default locale shares unless it is tr, az or lt; the locale
+        // variant replaces this when contracts has it.
+        "name" => SortValue::Text(js_to_lowercase(text("name").unwrap_or_default())),
+        _ => SortValue::Text(js_to_lowercase(text("projectId").unwrap_or_default())),
     }
 }
 
@@ -169,10 +171,10 @@ fn matches_filter(workspace: &JsValue, request: &FetchWorkspacesRequest) -> bool
     if let Some(query) = filter.query.as_ref().map(|query| js_trim(query.as_str()))
         && !query.is_empty()
     {
-        let query = query.to_lowercase();
+        let query = js_to_lowercase(query);
         let hit = ["name", "projectId", "id"]
             .iter()
-            .any(|field| text(field).to_lowercase().contains(&query));
+            .any(|field| js_to_lowercase(text(field)).contains(&query));
         if !hit {
             return false;
         }
