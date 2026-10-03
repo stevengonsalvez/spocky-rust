@@ -5,7 +5,6 @@
 
 use spocky_contracts::js::{date_parse, js_string, truthy};
 use spocky_store::js_value::{JsObject, JsValue};
-use spocky_store::time::parse_iso_millis;
 
 use crate::agent_projection::AgentAttention;
 use crate::runtime_mcp_config::strip_internal_paseo_mcp_server;
@@ -138,8 +137,10 @@ pub struct StoredTimestamps {
     pub owner: Option<JsValue>,
 }
 
+/// `new Date(text)` (`persistence-hooks.ts:143-145`, `:164`): the parser
+/// behind `Date.parse`, so every form V8 reads.
 fn date_millis(value: &JsValue) -> Option<i64> {
-    value.as_str().and_then(parse_iso_millis)
+    value.as_str().and_then(date_parse)
 }
 
 fn present(value: Option<&JsValue>) -> Option<JsValue> {
