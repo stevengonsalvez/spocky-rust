@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
+use spocky_contracts::js_value::{js_text_from_utf16, js_text_utf16};
 use spocky_contracts::text::js_length;
 use spocky_hub_pilot::public_api::{
     AccessFailure, ApiKeyAuthorizer, ApiRequest, ApiResponse, AuthorizationOutcome, BrowserAccess,
@@ -1193,7 +1194,8 @@ fn run_scenario(spec: &Json) -> Json {
                     .expect("credential storage");
                 let header = text(member(step, "header"));
                 let shown = if js_length(header) > 80 {
-                    format!("{}...", header.chars().take(80).collect::<String>())
+                    let units: Vec<u16> = js_text_utf16(header).take(80).collect();
+                    format!("{}...", js_text_from_utf16(&units))
                 } else {
                     header.to_owned()
                 };
