@@ -15,9 +15,30 @@ use std::time::Duration;
 
 use signal_hook::consts::{SIGINT, SIGTERM};
 
-use crate::daemon::{DaemonEnv, FORCE_EXIT_AFTER, start};
+use crate::daemon::{DAEMON_VERSION, DaemonEnv, FORCE_EXIT_AFTER, StartupError, start};
 use crate::log::{JsonLineLogger, Logger};
 use crate::session_api::SessionBackend;
+
+/// The worker's root logger: `createRootLogger` writes JSON lines and
+/// `.child({ daemonVersion })` binds the version into every record.
+#[must_use]
+pub fn daemon_logger<W: io::Write + Send>(sink: W) -> JsonLineLogger<W> {
+    JsonLineLogger::new(
+        sink,
+        vec![("daemonVersion".to_owned(), DAEMON_VERSION.to_owned())],
+    )
+}
+
+/// What the process writes to stderr for a failed start. A start that
+/// `daemon.start()` rejected with an Error reaches Node's top level, which
+/// prints the error's stack; any other failure prints its message.
+#[must_use]
+pub fn failure_text(error: &StartupError) -> String {
+    error
+        .1
+        .as_ref()
+        .map_or_else(|| error.0.clone(), |err| err.stack.clone())
+}
 
 /// Starts the daemon from the process environment and runs it until SIGTERM,
 /// SIGINT, or loss of the PID lock, then stops it.
@@ -27,7 +48,7 @@ use crate::session_api::SessionBackend;
 /// the baseline's force-exit timer does.
 #[must_use]
 pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
-    let logger: Arc<dyn Logger> = Arc::new(JsonLineLogger::new(io::stderr(), Vec::new()));
+    let logger: Arc<dyn Logger> = Arc::new(daemon_logger(io::stderr()));
     // Registered before startup, so a signal that arrives while starting is
     // held for the wait loop instead of killing the process mid-startup.
     let signalled = Arc::new(AtomicBool::new(false));
@@ -40,7 +61,7 @@ pub fn run(backend: Arc<dyn SessionBackend>) -> ExitCode {
     let daemon = match start(&DaemonEnv::from_process(), backend, &logger) {
         Ok(daemon) => daemon,
         Err(error) => {
-            eprintln!("{error}");
+            eprintln!("{}", failure_text(&error));
             return ExitCode::from(1);
         }
     };
