@@ -427,7 +427,7 @@ impl AgentManager {
         let (config, rows, title) = match prepared_import {
             Ok(prepared) => prepared,
             Err(error) => {
-                Self::close_unregistered_session(&session).await;
+                self.close_unregistered_session(&session).await;
                 return Err(error);
             }
         };
@@ -739,7 +739,7 @@ impl AgentManager {
                 }
             }
             if let Some(session) = &progress.session {
-                Self::close_unregistered_session(session).await;
+                self.close_unregistered_session(session).await;
             }
         }
         result
@@ -1180,8 +1180,16 @@ impl AgentManager {
     }
 
     /// `closeUnregisteredSession`: errors are only logged.
-    async fn close_unregistered_session(session: &Arc<dyn AgentSession>) {
-        let _ = session.close().await;
+    async fn close_unregistered_session(&self, session: &Arc<dyn AgentSession>) {
+        if session.close().await.is_err() {
+            // pino prints the `err` binding, an `Error`, as `{}`.
+            let mut bindings = JsObject::new();
+            bindings.insert("err", JsValue::Object(JsObject::new()));
+            self.emit_warn(
+                JsValue::Object(bindings),
+                "Failed to close unregistered agent session",
+            );
+        }
     }
 
     /// `requireExternalMcpSupport`.
@@ -1199,7 +1207,7 @@ impl AgentManager {
         {
             return Ok(());
         }
-        Self::close_unregistered_session(session).await;
+        self.close_unregistered_session(session).await;
         Err(AgentError::new(format!(
             "Provider '{}' does not support MCP servers",
             js_string(stored_config.get("provider"))
@@ -1296,7 +1304,7 @@ impl AgentManager {
             .register_session_inner(&session, config, agent_id, options, &mut registered)
             .await;
         if result.is_err() && !registered {
-            Self::close_unregistered_session(&session).await;
+            self.close_unregistered_session(&session).await;
         }
         result
     }
