@@ -404,3 +404,27 @@ fn every_close_the_relay_sent_is_in_the_table() {
         }
     }
 }
+
+#[test]
+fn percent_encoded_route_parameters_decode_before_validation() {
+    let percent = fs::read_to_string(fixture_path(
+        "SPOCKY_RELAY_PERCENT_FIXTURE",
+        "relay-protocol-live-percent.tsv",
+    ))
+    .unwrap();
+    let mut lines = percent.lines();
+    assert_eq!(
+        lines.next().unwrap(),
+        format!("control\t{}", control::sync(&[]).unwrap())
+    );
+    let mut checked = 0;
+    for line in lines {
+        let rest = line.strip_prefix("query\t").expect("a query line");
+        let (query, observed) = rest.split_once('\t').unwrap();
+        let connection = from_query(&query_map(query), || unreachable!("explicit id")).unwrap();
+        let id = connection.connection_id.unwrap();
+        assert_eq!(observed, text(control::connected(&id)), "{query}");
+        checked += 1;
+    }
+    assert_eq!(checked, 8);
+}
