@@ -36,6 +36,7 @@ use crate::create_agent_mode::{
 };
 use crate::paths::{expand_tilde, resolve_from_cwd};
 use crate::text::js_trim;
+use spocky_contracts::number::js_to_number;
 
 const DEFAULT_REFRESH_TIMEOUT_MS: u64 = 120_000;
 const MAX_REFRESH_TIMEOUT_MS: f64 = 2_147_483_647.0;
@@ -51,15 +52,6 @@ fn valid_refresh_deadline(value: f64) -> Option<u64> {
     (value.fract() == 0.0 && value > 0.0 && value <= MAX_REFRESH_TIMEOUT_MS).then_some(value as u64)
 }
 
-/// `Number(text)` for the environment value: trimmed decimal, `""` is 0.
-fn js_number_of(text: &str) -> f64 {
-    let trimmed = js_trim(text);
-    if trimmed.is_empty() {
-        return 0.0;
-    }
-    trimmed.parse::<f64>().unwrap_or(f64::NAN)
-}
-
 /// `providerRefreshDeadline(configured)`.
 fn provider_refresh_deadline(configured: Option<f64>) -> u64 {
     configured
@@ -67,7 +59,7 @@ fn provider_refresh_deadline(configured: Option<f64>) -> u64 {
         .or_else(|| {
             std::env::var(PROVIDER_REFRESH_DEADLINE_ENV)
                 .ok()
-                .and_then(|value| valid_refresh_deadline(js_number_of(&value)))
+                .and_then(|value| valid_refresh_deadline(js_to_number(&value)))
         })
         .unwrap_or(DEFAULT_REFRESH_TIMEOUT_MS)
 }
