@@ -84,64 +84,113 @@ pub fn canonical_client_metadata(record: &str) -> String {
     Value::Object(entry).to_string()
 }
 
-/// The `workspaces` entry of a stub request's `client_metadata` when it is
-/// exactly codex's git probe: one workspace path mapped to an object that has
-/// a string `latest_git_commit_hash`, an optional boolean `has_changes`, and
-/// nothing else.
-fn git_probe(record: &str) -> Option<Value> {
-    let Value::Object(entry) = serde_json::from_str::<Value>(record).ok()? else {
-        return None;
-    };
-    let Value::Object(body) = serde_json::from_str::<Value>(entry.get("body")?.as_str()?).ok()?
-    else {
-        return None;
-    };
-    let workspaces = body.get("client_metadata")?.get("workspaces")?;
+/// The header and the `client_metadata` key that carry codex's turn metadata,
+/// a JSON object serialized into a string.
+const TURN_METADATA: &str = "x-codex-turn-metadata";
+
+/// What removing codex's git probe does to one serialized turn metadata value.
+enum Probe {
+    /// There is no `workspaces` member, so nothing to remove.
+    Absent,
+    /// `workspaces` is exactly the probe; this is the value without it.
+    Strip(String),
+    /// A `workspaces` member that is not exactly the probe, or a value that
+    /// does not re-serialize to the same bytes: leave the record alone.
+    Odd,
+}
+
+/// Whether `workspaces` is exactly codex's git probe: one workspace path
+/// mapped to an object that has a string `latest_git_commit_hash`, an
+/// optional boolean `has_changes`, and nothing else.
+fn probe_shaped(workspaces: &Value) -> bool {
     let Value::Object(by_path) = workspaces else {
-        return None;
+        return false;
     };
     let mut entries = by_path.values();
     let (Some(Value::Object(probe)), None) = (entries.next(), entries.next()) else {
-        return None;
+        return false;
     };
-    let hash = matches!(probe.get("latest_git_commit_hash"), Some(Value::String(_)));
-    let changes = probe.get("has_changes").is_none_or(Value::is_boolean);
-    let known = probe
-        .keys()
-        .all(|key| key == "latest_git_commit_hash" || key == "has_changes");
-    (hash && changes && known).then(|| workspaces.clone())
+    matches!(probe.get("latest_git_commit_hash"), Some(Value::String(_)))
+        && probe.get("has_changes").is_none_or(Value::is_boolean)
+        && probe
+            .keys()
+            .all(|key| key == "latest_git_commit_hash" || key == "has_changes")
 }
 
-/// Removes codex's git probe from one stub request record: the
-/// `client_metadata.workspaces` member, and nothing else. Removing it makes
-/// the body shorter, so the record's own `content-length` header is lowered by
-/// the same amount, and only when it equalled the raw body length. A record
-/// that is not exactly the probe shape, or whose `client_metadata` does not
-/// occur once in the body, is returned unchanged.
-#[must_use]
-pub fn strip_git_probe(record: &str) -> String {
-    if git_probe(record).is_none() {
-        return record.to_owned();
+fn without_probe(text: &str) -> Probe {
+    let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(text) else {
+        return Probe::Absent;
+    };
+    let Some(workspaces) = map.get("workspaces") else {
+        return Probe::Absent;
+    };
+    // Rewriting must change nothing but the removed member.
+    let reserialized = Value::Object(map.clone()).to_string();
+    if reserialized != text || !probe_shaped(workspaces) {
+        return Probe::Odd;
     }
+    map.shift_remove("workspaces");
+    Probe::Strip(Value::Object(map).to_string())
+}
+
+/// The record with codex's git probe removed, or `None` when there is none to
+/// remove or any copy of it is not exactly the probe. Codex sends its turn
+/// metadata twice: as the `x-codex-turn-metadata` header and as the
+/// `x-codex-turn-metadata` key of the body's `client_metadata`; the probe is
+/// the `workspaces` member of that serialized object, and both copies go.
+fn removed_git_probe(record: &str) -> Option<String> {
     let Ok(Value::Object(mut entry)) = serde_json::from_str::<Value>(record) else {
-        return record.to_owned();
+        return None;
     };
-    let Some(Value::String(body)) = entry.get("body").cloned() else {
-        return record.to_owned();
-    };
-    let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(&body) else {
-        return record.to_owned();
-    };
-    let Some(Value::Object(metadata)) = parsed.get("client_metadata") else {
-        return record.to_owned();
-    };
-    let original = Value::Object(metadata.clone()).to_string();
-    if body.matches(original.as_str()).count() != 1 {
-        return record.to_owned();
+    let mut stripped = false;
+    if let Some(Value::Array(headers)) = entry.get_mut("headers") {
+        for header in headers {
+            let Some([Value::String(name), Value::String(value)]) =
+                header.as_array().map(Vec::as_slice)
+            else {
+                continue;
+            };
+            if name != TURN_METADATA {
+                continue;
+            }
+            match without_probe(value) {
+                Probe::Absent => {}
+                Probe::Odd => return None,
+                Probe::Strip(new) => {
+                    *header = serde_json::json!([TURN_METADATA, new]);
+                    stripped = true;
+                }
+            }
+        }
     }
-    let mut kept = metadata.clone();
-    kept.shift_remove("workspaces");
-    let stripped = body.replacen(&original, &Value::Object(kept).to_string(), 1);
+    let Some(Value::String(body)) = entry.get("body").cloned() else {
+        return stripped.then(|| Value::Object(entry).to_string());
+    };
+    let mut new_body = body.clone();
+    if let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(&body)
+        && let Some(Value::Object(metadata)) = parsed.get("client_metadata")
+        && let Some(Value::String(turn)) = metadata.get(TURN_METADATA)
+    {
+        match without_probe(turn) {
+            Probe::Absent => {}
+            Probe::Odd => return None,
+            Probe::Strip(new) => {
+                let original = Value::Object(metadata.clone()).to_string();
+                if body.matches(original.as_str()).count() != 1 {
+                    return None;
+                }
+                let mut kept = metadata.clone();
+                kept.insert(TURN_METADATA.into(), Value::String(new));
+                new_body = body.replacen(&original, &Value::Object(kept).to_string(), 1);
+                stripped = true;
+            }
+        }
+    }
+    if !stripped {
+        return None;
+    }
+    // The body got shorter, so lower the record's own content-length by the
+    // same amount, but only when it equalled the raw body length.
     if let Some(Value::Array(headers)) = entry.get_mut("headers") {
         for header in headers {
             let declared = header.as_array().filter(|pair| {
@@ -150,12 +199,25 @@ pub fn strip_git_probe(record: &str) -> String {
                     && pair[1].as_str() == Some(body.len().to_string().as_str())
             });
             if declared.is_some() {
-                *header = serde_json::json!(["content-length", stripped.len().to_string()]);
+                *header = serde_json::json!(["content-length", new_body.len().to_string()]);
             }
         }
     }
-    entry.insert("body".into(), Value::String(stripped));
-    Value::Object(entry).to_string()
+    entry.insert("body".into(), Value::String(new_body));
+    Some(Value::Object(entry).to_string())
+}
+
+/// Whether the record carries codex's git probe and it can be removed.
+fn git_probe(record: &str) -> bool {
+    removed_git_probe(record).is_some()
+}
+
+/// Removes codex's git probe from one stub request record (see
+/// [`removed_git_probe`]); a record without a removable probe is returned
+/// unchanged.
+#[must_use]
+pub fn strip_git_probe(record: &str) -> String {
+    removed_git_probe(record).unwrap_or_else(|| record.to_owned())
 }
 
 /// Id of the codex git probe transform.
@@ -177,7 +239,7 @@ fn git_probe_strips(left: &SideRun, right: &SideRun) -> (Vec<usize>, Vec<usize>)
         .zip(&right.stub_records)
         .enumerate()
     {
-        match (git_probe(l).is_some(), git_probe(r).is_some()) {
+        match (git_probe(l), git_probe(r)) {
             (true, false) => on_left.push(index),
             (false, true) => on_right.push(index),
             _ => {}
@@ -198,7 +260,7 @@ fn git_probe_transform(left: &[usize], right: &[usize]) -> Option<Transform> {
     removed.extend(right.iter().map(|index| format!("right:stub/{index:03}")));
     Some(Transform {
         id: GIT_PROBE_TRANSFORM.into(),
-        target: "stub request records: client_metadata.workspaces.<root>.{latest_git_commit_hash,has_changes} only, and only where exactly one side carries it; the record's content-length header is lowered by the removed bytes".into(),
+        target: "stub request records: the workspaces member (<root>.{latest_git_commit_hash,has_changes}) of the x-codex-turn-metadata header and of client_metadata[x-codex-turn-metadata], only where exactly one side carries it; the record's content-length header is lowered by the removed body bytes".into(),
         reason: "codex 0.159.0 collects the workspace git probe asynchronously and sometimes sends its first request without it (original-vs-original runs g4-http500 and g4-retry); no daemon controls it. Where both sides carry it, the values are compared raw".into(),
         owner: "p3_slice_harness".into(),
         raw_retained: "left-*/side.json and right-*/side.json stub_records, and files/stub".into(),
@@ -1243,17 +1305,27 @@ mod tests {
     const PROBE: &str =
         r#","workspaces":{"/r/project":{"latest_git_commit_hash":"600188d7","has_changes":false}}"#;
 
-    fn probe_body(workspaces: &str) -> String {
-        format!(r#"{{"model":"m","client_metadata":{{"a":"1"{workspaces},"z":"9"}},"tail":1}}"#)
+    /// Codex's serialized turn metadata, with `workspaces` or without.
+    fn turn_metadata(workspaces: &str) -> String {
+        format!(
+            r#"{{"installation_id":"i","sandbox":"none"{workspaces},"turn_started_at_unix_ms":1}}"#
+        )
     }
 
-    /// A stub record whose content-length header equals its raw body length.
+    /// A stub record shaped like codex 0.159.0's: the turn metadata is a
+    /// header and a `client_metadata` value, both serialized strings.
     fn probe_record(side: SideRun, workspaces: &str, declared: Option<usize>) -> SideRun {
         let mut side = side;
-        let body = probe_body(workspaces);
+        let turn = turn_metadata(workspaces);
+        let body = serde_json::json!({
+            "model": "m",
+            "client_metadata": {"a": "1", TURN_METADATA: turn, "z": "9"},
+            "tail": 1,
+        })
+        .to_string();
         let length = declared.unwrap_or(body.len());
         side.stub_records.push(
-            serde_json::json!({"seq": 0, "method": "POST", "path": "/v1/responses", "headers": [["content-length", length.to_string()]], "body": body, "scripted": 0})
+            serde_json::json!({"seq": 0, "method": "POST", "path": "/v1/responses", "headers": [["x-codex-beta-features", "f"], [TURN_METADATA, turn], ["content-length", length.to_string()]], "body": body, "scripted": 0})
                 .to_string(),
         );
         side.stub_scripted = 1;
@@ -1340,23 +1412,32 @@ mod tests {
     }
 
     #[test]
-    fn removing_the_probe_lowers_a_matching_content_length_only() {
+    fn removing_the_probe_changes_only_the_two_turn_metadata_copies_and_the_length() {
         let record = probe_record(pair().0, PROBE, None).stub_records.remove(0);
-        let stripped = strip_git_probe(&record);
-        let value: Value = serde_json::from_str(&stripped).unwrap();
-        let body = value["body"].as_str().unwrap();
-        assert_eq!(body, probe_body(""));
+        let stripped: Value = serde_json::from_str(&strip_git_probe(&record)).unwrap();
+        let clean = probe_record(pair().0, "", None).stub_records.remove(0);
+        // The result is byte for byte the record codex would have sent without it.
+        assert_eq!(strip_git_probe(&record), clean);
+        let body = stripped["body"].as_str().unwrap();
         assert_eq!(
-            value["headers"][0][1].as_str().unwrap(),
+            stripped["headers"][2][1].as_str().unwrap(),
             body.len().to_string()
         );
-        // Nothing but the probe member changed in the body.
-        assert_eq!(body.len(), probe_body(PROBE).len() - PROBE.len());
         // A header that did not match the raw body length is left alone.
         let odd = probe_record(pair().0, PROBE, Some(7))
             .stub_records
             .remove(0);
         let value: Value = serde_json::from_str(&strip_git_probe(&odd)).unwrap();
-        assert_eq!(value["headers"][0][1].as_str().unwrap(), "7");
+        assert_eq!(value["headers"][2][1].as_str().unwrap(), "7");
+        // A probe in only one of the two copies is removed from that copy.
+        let mut one_copy: Value = serde_json::from_str(&record).unwrap();
+        one_copy["headers"][1] = serde_json::json!([TURN_METADATA, turn_metadata("")]);
+        let one_copy = one_copy.to_string();
+        let stripped: Value = serde_json::from_str(&strip_git_probe(&one_copy)).unwrap();
+        assert_eq!(
+            stripped["headers"][1][1].as_str().unwrap(),
+            turn_metadata("")
+        );
+        assert!(!stripped["body"].as_str().unwrap().contains("workspaces"));
     }
 }
