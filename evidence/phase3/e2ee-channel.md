@@ -14,7 +14,7 @@ source under node 22.20.0. Capabilities: `DSEC-003`, `CLOUD-RELAY-E2EE-007`.
 | `packages/relay/src/base64.ts` | `74d69461af9727aa3fb70b37ee50ae54e467e1eebf26fb0356453557094137e7` |
 | `tweetnacl/nacl-fast.js` (1.0.3) | `6bcd37a3b20dce913f82d4b23e4e2b661058b4b953df8a3f8c45d56ac4f72447` |
 | `base64-js/index.js` (1.5.1) | `829eadd8a1a441d25be0cb93b00e16a0d0c20fd294db95d8f2ed87e6954b7182` |
-| node | `v22.20.0`, binary digest checked by `scripts/phase3/pins.sh` |
+| node | `v22.20.0`, binary SHA-256 `1fdf607e61ae32be3f77e4e3cf1257c677aeb694e409f99586084839f61ad931`, asserted by the test and by `scripts/phase3/pins.sh` |
 
 Dependencies come from the pinned-lockfile install made by
 `scripts/phase3/build-original.sh`; the test asserts every digest above
@@ -42,7 +42,8 @@ TypeScript side and the channel random source on the Rust side.
 
 ## Coverage
 
-51 single-endpoint scenarios and 4 pair transcripts:
+53 single-endpoint scenarios and 4 pair transcripts (the run fails unless
+exactly 53 have both transcripts):
 
 - client and daemon handshakes, `binaryCiphertext` negotiation both ways,
   legacy peers, base64 text frames and raw binary frames;
@@ -61,6 +62,12 @@ TypeScript side and the channel random source on the Rust side.
 - ready-send failure, pending ready with buffering and filtered replay,
   close or error during the handshake, and an open after a rejection;
 - re-hello reuse, key mismatch close 1008, and every re-hello fall-through;
+- the `plaintext frame` rethrow: a re-hello whose send (rejected or pending)
+  or close fails with text containing `plaintext frame` closes the
+  transport with 1011 and that text instead of falling through, and V8
+  `JSON.parse` errors that quote the frame itself (`{"plaintext frame":}`)
+  do the same; a corpus of several hundred mutated frames compares the V8
+  `Unexpected token` message against the Rust reproduction;
 - hello retry timing, including retries that continue after `close()`;
 - `JSON.parse`, `TextDecoder`, `base64ToArrayBuffer`, and wire-size helpers
   compared directly against the pinned runtime.
@@ -76,30 +83,32 @@ retry tick.
 scripts/phase3/e2ee-differential.sh
 ```
 
-Run `e2ee-20261001T203229Z` at commit `f68ba1fde44a758b80d31b7eda72ab895ea2e915`:
+Run `e2ee-20261003T011651Z` at commit `1a621ff90bf8f990ad98e0840fe02b3322c3d70b`:
 
 | Command | Result |
 |---|---|
-| `SPOCKY_PINNED_NODE=... cargo test --locked -p spocky-crypto` | lib 14, `baseline_vectors` 6, `channel_differential` 23 passed |
+| `SPOCKY_PINNED_NODE=... cargo test --locked -p spocky-crypto` | lib 15, `baseline_vectors` 6, `channel_differential` 25 passed |
 | `cargo clippy --locked -p spocky-crypto --all-targets -- -D warnings` | clean |
 | `cargo fmt --package spocky-crypto -- --check` | clean |
 
-| Raw artifact (untracked, `evidence/raw/phase3/e2ee-20261001T203229Z/`) | SHA-256 |
+| Raw artifact (untracked, `evidence/raw/phase3/e2ee-20261003T011651Z/`) | SHA-256 |
 |---|---|
-| `inputs.txt` | `20dec4b41c57a6b99c4b1ab0d7e510796c9b8009319aba8a524be9a7a96dbe4c` |
-| `test.log` | `4c4d40a0366bb6060924cb44dc13e9c13a3f6db58f24daede1ee9e929de11d80` |
-| `clippy.log` | `efbe714146cf8404a1c2e821df4515a2b9795f4e550aee5db4cc65144a93763e` |
+| `inputs.txt` | `83d890cfd8332780e7a38f21893f7afc5a5066d4900bfe15d209b76cc3299152` |
+| `test.log` | `25f5528b2a3239ce2f7cc1556e9093014ee87e71f830b86ace8af21412bbc53b` |
+| `clippy.log` | `3573f9880f848d29fdc43e002decaef5af47cddd2a04f6b0467630e330da550a` |
 | `fmt.log` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
-| `transcripts/*.txt`, concatenated by name | `d89770870d4dd061c02021996b09bdfd01894e6b68b51e40c4a334ee2e3307d7` |
+| `transcripts/*.txt`, concatenated by name | `179c8dafd586ba74e8c5f40ba931fbf01bd078f46dce4b18c20b92040a9e2233` |
 
-The concatenated transcript digest was identical in three consecutive runs.
+The previous 51-scenario set produced one identical transcript digest in three
+consecutive runs; this 53-scenario digest comes from a single run.
 
 ## Known defects reproduced
 
 - No replay or reordering protection within a live session.
 - The client handshake backlog keeps 200 sends and silently drops older ones.
 - A 1011 decryption or protocol close leaves the channel open.
-- A failed daemon re-hello falls through to ciphertext decoding of the hello.
+- A failed daemon re-hello falls through to ciphertext decoding of the hello,
+  unless the failure text contains `plaintext frame`, which closes 1011.
 - A daemon hello whose key is rejected buffers every later frame forever.
 - `close()` on a handshaking client leaves the hello retry running until the
   transport reports its close.
