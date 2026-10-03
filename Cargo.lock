@@ -5615,7 +5615,6 @@ dependencies = [
  "libc",
  "sha2 0.10.9",
  "spocky-contracts",
- "spocky-store",
  "tokio",
  "uuid",
 ]
