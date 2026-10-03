@@ -5,6 +5,14 @@ use spocky_store::js_value::{JsObject, JsValue};
 
 use crate::agent_sdk::AgentError;
 
+/// The errors whose constructor assigns `this.name`, an own enumerable property
+/// pino prints after `message`.
+const ERRORS_WITH_OWN_NAME: [&str; 3] = [
+    "RewindCapabilityError",
+    "AgentRunCancellationError",
+    "AgentManagerShuttingDownError",
+];
+
 /// `stdSerializers.err(error)` for an error the manager logs: `type` (the
 /// constructor name, held in [`AgentError::name`]) and `message`, then the
 /// error's own enumerable properties, which for the errors logged here is
@@ -25,11 +33,48 @@ pub(crate) fn err_binding_with(
     let mut err = JsObject::new();
     err.insert("type", JsValue::String(type_name.to_owned()));
     err.insert("message", JsValue::String(message.to_owned()));
-    if type_name == "RewindCapabilityError" {
+    if ERRORS_WITH_OWN_NAME.contains(&type_name) {
         err.insert("name", JsValue::String(type_name.to_owned()));
     }
     for (key, value) in extras {
         err.insert(key, value);
     }
     JsValue::Object(err)
+}
+
+#[cfg(test)]
+mod tests {
+    use spocky_store::js_value::stringify;
+
+    use super::err_binding;
+    use crate::agent_sdk::AgentError;
+
+    fn named(name: &str) -> AgentError {
+        AgentError {
+            name: name.to_owned(),
+            message: "m".to_owned(),
+        }
+    }
+
+    #[test]
+    fn errors_that_assign_their_name_print_it() {
+        for name in [
+            "RewindCapabilityError",
+            "AgentRunCancellationError",
+            "AgentManagerShuttingDownError",
+        ] {
+            assert_eq!(
+                stringify(&err_binding(&named(name))),
+                format!(r#"{{"type":"{name}","message":"m","name":"{name}"}}"#)
+            );
+        }
+    }
+
+    #[test]
+    fn other_errors_print_type_and_message_only() {
+        assert_eq!(
+            stringify(&err_binding(&named("TypeError"))),
+            r#"{"type":"TypeError","message":"m"}"#
+        );
+    }
 }
