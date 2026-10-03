@@ -29,6 +29,10 @@ pub enum StoreError {
     },
     /// A failed file write, with node's error text.
     Fs(atomic::FsError),
+    /// `Workspace registry mutations are blocked until daemon restart`.
+    MutationsBlocked,
+    /// An error an injected writer raised, with its message.
+    Message(String),
 }
 
 impl Display for StoreError {
@@ -42,6 +46,10 @@ impl Display for StoreError {
             Self::JsonSyntax(error) => write!(formatter, "invalid JSON: {error}"),
             Self::Io { operation, source } => write!(formatter, "{operation}: {source}"),
             Self::Fs(error) => error.fmt(formatter),
+            Self::MutationsBlocked => {
+                formatter.write_str("Workspace registry mutations are blocked until daemon restart")
+            }
+            Self::Message(message) => formatter.write_str(message),
         }
     }
 }
@@ -54,7 +62,7 @@ impl Error for StoreError {
             Self::JsonSyntax(error) => Some(error),
             Self::Io { source, .. } => Some(source),
             Self::Fs(error) => Some(error),
-            Self::MissingString(_) => None,
+            Self::MissingString(_) | Self::MutationsBlocked | Self::Message(_) => None,
         }
     }
 }
