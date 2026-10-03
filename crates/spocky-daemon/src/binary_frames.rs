@@ -157,6 +157,13 @@ fn decode_text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// `z.number().int().nonnegative()` of zod 4: an integer-valued number no
+/// larger than 2^53 - 1 (`Number.isSafeInteger`), negative zero included.
+fn is_non_negative_safe_integer(number: f64) -> bool {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+    number.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER).contains(&number)
+}
+
 /// `FileBeginMetadataSchema.safeParse(value)`.
 fn file_begin_metadata(value: &JsValue) -> Option<FileBeginMetadata> {
     let JsValue::Object(object) = value else {
@@ -170,9 +177,7 @@ fn file_begin_metadata(value: &JsValue) -> Option<FileBeginMetadata> {
     };
     let mime = string("mime").filter(|mime| !mime.is_empty())?;
     let size = match object.get("size") {
-        Some(JsValue::Number(size)) if size.is_finite() && size.fract() == 0.0 && *size >= 0.0 => {
-            *size
-        }
+        Some(JsValue::Number(size)) if is_non_negative_safe_integer(*size) => *size,
         _ => return None,
     };
     let encoding = match string("encoding")?.as_str() {
@@ -240,6 +245,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn begin_size_is_a_safe_integer() {
+        for (size, decodes) in [
+            ("9007199254740991", true),
+            ("-0", true),
+            ("1e2", true),
+            ("9007199254740992", false),
+            ("1e21", false),
+        ] {
+            let metadata =
+                format!(r#"{{"mime":"a","size":{size},"encoding":"utf-8","modifiedAt":"x"}}"#);
+            assert_eq!(
+                decode_binary_frame(&begin(&metadata)).is_some(),
+                decodes,
+                "{size}"
+            );
+        }
+    }
+
+    #[test]
+    fn begin_text_is_decoded_like_a_text_decoder() {
+        let good = br#"{"mime":"a","size":1,"encoding":"utf-8","modifiedAt":"x"}"#;
+        let frame = |metadata: &[u8]| {
+            let mut bytes = vec![FILE_BEGIN, 1, b'r'];
+            bytes.extend_from_slice(&u16::try_from(metadata.len()).unwrap().to_be_bytes());
+            bytes.extend_from_slice(metadata);
+            decode_binary_frame(&bytes)
+        };
+        let with_bom = [&[0xEF, 0xBB, 0xBF][..], good].concat();
+        assert!(frame(&with_bom).is_some(), "a byte order mark is dropped");
+        let in_string = [
+            br#"{"mime":"te"#.as_slice(),
+            &[0xFF],
+            br#"xt","size":1,"encoding":"utf-8","modifiedAt":"x"}"#,
+        ]
+        .concat();
+        assert!(
+            frame(&in_string).is_some(),
+            "an invalid byte in a string is replaced"
+        );
+        let outside = [good.as_slice(), &[0xFF]].concat();
+        assert!(
+            frame(&outside).is_none(),
+            "an invalid byte outside a string is not JSON"
+        );
+    }
+
     fn begin(metadata: &str) -> Vec<u8> {
         let mut bytes = vec![FILE_BEGIN, 1, b'r'];
         bytes.extend_from_slice(&u16::try_from(metadata.len()).unwrap().to_be_bytes());
@@ -262,6 +314,9 @@ mod tests {
             r"[]",
             r#"{"mime":"","size":1,"encoding":"utf-8","modifiedAt":"x"}"#,
             r#"{"mime":"a","size":-1,"encoding":"utf-8","modifiedAt":"x"}"#,
+            r#"{"mime":"a","size":9007199254740992,"encoding":"utf-8","modifiedAt":"x"}"#,
+            r#"{"mime":"a","size":1e21,"encoding":"utf-8","modifiedAt":"x"}"#,
+            r#"{"mime":"a","size":1e300,"encoding":"utf-8","modifiedAt":"x"}"#,
             r#"{"mime":"a","size":1.5,"encoding":"utf-8","modifiedAt":"x"}"#,
             r#"{"mime":"a","size":1,"encoding":"UTF-8","modifiedAt":"x"}"#,
             r#"{"mime":"a","size":1,"encoding":"utf-8","modifiedAt":"x","revision":null}"#,
