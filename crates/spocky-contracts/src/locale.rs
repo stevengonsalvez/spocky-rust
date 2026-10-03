@@ -255,33 +255,87 @@ pub fn default_locale_from(lookup: impl Fn(&str) -> Option<String>) -> String {
     let Some(id) = id.filter(|id| id != "C" && id != "POSIX") else {
         return "en-US".to_owned();
     };
-    let (body, modifier) = match id.split_once('@') {
-        Some((body, modifier)) => (body, Some(modifier)),
-        None => (id.as_str(), None),
+    let (body, modifier) = match id.rsplit_once('@') {
+        Some((body, modifier)) => (
+            body.split('@').next().unwrap_or(""),
+            modifier.split('.').next().unwrap_or(""),
+        ),
+        None => (id.as_str(), ""),
     };
     let body = body.split('.').next().unwrap_or("");
     if body == "C" || body == "POSIX" {
         return "en-US".to_owned();
     }
     let mut parts = body.split(['_', '-']).filter(|part| !part.is_empty());
-    let mut tag = parts
+    let language = parts
         .next()
         .map_or_else(|| "und".to_owned(), str::to_ascii_lowercase);
+    let mut tag = language.clone();
+    let (mut script, mut region) = (false, false);
+    let mut tokens: Vec<String> = Vec::new();
     for part in parts {
-        tag.push('-');
-        if is_script(part) {
+        if tokens.is_empty() && !script && !region && is_script(part) {
             let mut letters = part.to_ascii_lowercase();
             letters[..1].make_ascii_uppercase();
+            tag.push('-');
             tag.push_str(&letters);
-        } else if is_region(part) {
+            script = true;
+        } else if tokens.is_empty() && !region && is_region(part) {
+            tag.push('-');
             tag.push_str(&part.to_ascii_uppercase());
+            region = true;
         } else {
-            tag.push_str(&part.to_ascii_lowercase());
+            tokens.push(part.to_ascii_lowercase());
         }
     }
-    if let Some(modifier) = modifier.filter(|modifier| !modifier.is_empty()) {
+    // ICU keeps a modifier made of letters, digits, `_`, and `-`; a keyword
+    // list or anything else is dropped. Its pieces join the variants.
+    if modifier
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        tokens.extend(
+            modifier
+                .to_ascii_lowercase()
+                .split(['_', '-'])
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    // A lone `posix` is the POSIX variant: dropped for `en-US`, a Unicode
+    // extension elsewhere.
+    let region_us = tag == "en-US";
+    let lone_posix = tokens.len() == 1 && tokens[0] == "posix";
+    if lone_posix {
+        tokens.clear();
+        if !region_us {
+            tag.push_str("-u-va-posix");
+        }
+        return tag;
+    }
+    // Variants sorted and unique; pieces that are not BCP 47 variants go
+    // after them as `x-lvariant-`; longer than eight characters, dropped.
+    tokens.sort();
+    tokens.dedup();
+    // ICU drops the variants when a one-character piece sorts first beside
+    // others, or there are two of them.
+    if tokens.len() > 1
+        && (tokens[0].len() == 1 || tokens.iter().filter(|token| token.len() == 1).count() > 1)
+    {
+        tokens.clear();
+    }
+    for token in tokens.iter().filter(|token| is_variant(token)) {
+        tag.push('-');
+        tag.push_str(token);
+    }
+    let private: Vec<&str> = tokens
+        .iter()
+        .filter(|token| !is_variant(token) && token.len() <= 8)
+        .map(String::as_str)
+        .collect();
+    if !private.is_empty() {
         tag.push_str("-x-lvariant-");
-        tag.push_str(&modifier.to_ascii_lowercase());
+        tag.push_str(&private.join("-"));
     }
     tag
 }
