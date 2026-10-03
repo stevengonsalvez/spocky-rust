@@ -16,12 +16,46 @@ const WARN: u8 = 40;
 const ERROR: u8 = 50;
 const FATAL: u8 = 60;
 
+/// An error as pino's standard `err` serializer writes it: `type` (the
+/// constructor name), `message`, `stack`, then the error's other enumerable
+/// own properties in the order the runtime defined them (`code`, `errno`,
+/// `syscall`, ... for a system error).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogError {
+    pub name: String,
+    pub message: String,
+    pub stack: String,
+    pub props: Vec<(String, Value)>,
+}
+
+impl LogError {
+    /// The `err` object of a record.
+    #[must_use]
+    pub fn to_value(&self) -> Value {
+        let mut object = Map::new();
+        object.insert("type".into(), Value::from(self.name.as_str()));
+        object.insert("message".into(), Value::from(self.message.as_str()));
+        object.insert("stack".into(), Value::from(self.stack.as_str()));
+        for (key, value) in &self.props {
+            object.insert(key.clone(), value.clone());
+        }
+        Value::Object(object)
+    }
+}
+
 /// A log destination. `fields` are the first pino argument, `message` the second.
 pub trait Logger: Send + Sync {
     fn info(&self, fields: &[(&str, &str)], message: &str);
     fn warn(&self, fields: &[(&str, &str)], message: &str);
     fn error(&self, fields: &[(&str, &str)], message: &str);
     fn fatal(&self, fields: &[(&str, &str)], message: &str);
+    /// `logger.fatal({ err, ...fields }, message)`: `err` is written as an object
+    /// by a destination that can; the default has only the message to offer.
+    fn fatal_with_error(&self, err: &LogError, fields: &[(&str, &str)], message: &str) {
+        let mut all = vec![("err", err.message.as_str())];
+        all.extend_from_slice(fields);
+        self.fatal(&all, message);
+    }
 }
 
 /// Discards every record.
@@ -35,10 +69,11 @@ impl Logger for NullLogger {
     fn fatal(&self, _fields: &[(&str, &str)], _message: &str) {}
 }
 
-/// Writes one pino-shaped JSON object per line: `level`, `time`, `pid`, the
-/// bindings, the fields, then `msg`.
+/// Writes one pino-shaped JSON object per line: `level`, `time`, `pid`,
+/// `hostname`, the bindings, the fields, then `msg`.
 pub struct JsonLineLogger<W: Write + Send> {
     sink: Mutex<W>,
+    hostname: String,
     bindings: Vec<(String, String)>,
 }
 
@@ -47,11 +82,12 @@ impl<W: Write + Send> JsonLineLogger<W> {
     pub fn new(sink: W, bindings: Vec<(String, String)>) -> Self {
         Self {
             sink: Mutex::new(sink),
+            hostname: gethostname::gethostname().to_string_lossy().into_owned(),
             bindings,
         }
     }
 
-    fn write(&self, level: u8, fields: &[(&str, &str)], message: &str) {
+    fn write(&self, level: u8, err: Option<&LogError>, fields: &[(&str, &str)], message: &str) {
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis());
@@ -59,8 +95,12 @@ impl<W: Write + Send> JsonLineLogger<W> {
         record.insert("level".into(), Value::from(level));
         record.insert("time".into(), Value::from(u64::try_from(time).unwrap_or(0)));
         record.insert("pid".into(), Value::from(std::process::id()));
+        record.insert("hostname".into(), Value::from(self.hostname.as_str()));
         for (key, value) in &self.bindings {
             record.insert(key.clone(), Value::from(value.as_str()));
+        }
+        if let Some(err) = err {
+            record.insert("err".into(), err.to_value());
         }
         for (key, value) in fields {
             record.insert((*key).to_owned(), Value::from(*value));
@@ -74,16 +114,19 @@ impl<W: Write + Send> JsonLineLogger<W> {
 
 impl<W: Write + Send> Logger for JsonLineLogger<W> {
     fn info(&self, fields: &[(&str, &str)], message: &str) {
-        self.write(INFO, fields, message);
+        self.write(INFO, None, fields, message);
     }
     fn warn(&self, fields: &[(&str, &str)], message: &str) {
-        self.write(WARN, fields, message);
+        self.write(WARN, None, fields, message);
     }
     fn error(&self, fields: &[(&str, &str)], message: &str) {
-        self.write(ERROR, fields, message);
+        self.write(ERROR, None, fields, message);
     }
     fn fatal(&self, fields: &[(&str, &str)], message: &str) {
-        self.write(FATAL, fields, message);
+        self.write(FATAL, None, fields, message);
+    }
+    fn fatal_with_error(&self, err: &LogError, fields: &[(&str, &str)], message: &str) {
+        self.write(FATAL, Some(err), fields, message);
     }
 }
 
@@ -176,6 +219,77 @@ mod tests {
         let keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
         assert_eq!(keys.first().map(String::as_str), Some("level"));
         assert_eq!(keys.last().map(String::as_str), Some("msg"));
+    }
+
+    #[test]
+    fn a_record_has_pinos_base_fields_in_order() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let logger = JsonLineLogger::new(
+            Shared(Arc::clone(&bytes)),
+            vec![("daemonVersion".to_owned(), "0.10.0".to_owned())],
+        );
+        logger.info(&[("elapsed", "750ms")], "Agent storage initialized");
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let value: Value = serde_json::from_str(text.trim_end()).unwrap();
+        let keys: Vec<_> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "level",
+                "time",
+                "pid",
+                "hostname",
+                "daemonVersion",
+                "elapsed",
+                "msg"
+            ]
+        );
+        assert_eq!(
+            value["hostname"],
+            gethostname::gethostname().to_string_lossy().as_ref()
+        );
+    }
+
+    #[test]
+    fn an_error_is_written_as_pinos_err_object() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let logger = JsonLineLogger::new(Shared(Arc::clone(&bytes)), vec![]);
+        let err = LogError {
+            name: "Error".to_owned(),
+            message: "listen EADDRINUSE: address already in use 127.0.0.1:1".to_owned(),
+            stack: "Error: x\n    at y".to_owned(),
+            props: vec![
+                ("code".to_owned(), Value::from("EADDRINUSE")),
+                ("errno".to_owned(), Value::from(-48)),
+            ],
+        };
+        logger.fatal_with_error(&err, &[], "Daemon failed to start listening");
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let value: Value = serde_json::from_str(text.trim_end()).unwrap();
+        assert_eq!(value["level"], 60);
+        let keys: Vec<_> = value["err"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["type", "message", "stack", "code", "errno"]);
+        assert_eq!(value["err"]["errno"], -48);
+        let record_keys: Vec<_> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            record_keys,
+            ["level", "time", "pid", "hostname", "err", "msg"]
+        );
     }
 
     #[test]

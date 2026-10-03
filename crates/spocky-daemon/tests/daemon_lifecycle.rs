@@ -276,7 +276,7 @@ fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
     assert_eq!(fatal["level"], 60);
     assert_eq!(fatal["msg"], "Daemon failed to start listening");
     assert_eq!(fatal["err"], "agent MCP base url is unusable");
-    assert_eq!(fatal.as_object().unwrap().len(), 5, "{fatal}");
+    assert_eq!(fatal.as_object().unwrap().len(), 6, "{fatal}");
     assert_only_one_fatal(&records);
     assert!(
         !home.join("local-credential").exists(),
