@@ -41,25 +41,24 @@ fn session_message(frame: &Value) -> Option<&Value> {
 }
 
 /// The full handle: the `persistence` of the FIRST `wait_for_finish_response`
-/// in the probe's wire. When that frame carries no `nativeHandle`, or its
-/// line does not serialize back to itself byte for byte, there is no full
-/// handle and the transform does not apply; a later frame never stands in
-/// for it.
+/// in the probe's wire. The first line that mentions that message decides:
+/// when it is not UTF-8, not JSON, not a session message of that type, does
+/// not serialize back to itself byte for byte, or carries no `nativeHandle`,
+/// there is no full handle and the transform does not apply. A later line
+/// never stands in for it.
 fn full_handle(stdout: &[u8]) -> Option<Value> {
+    const MESSAGE: &[u8] = b"wait_for_finish_response";
     for line in stdout.split(|byte| *byte == b'\n') {
-        let Ok(text) = std::str::from_utf8(line) else {
-            continue;
-        };
-        let Ok(frame) = serde_json::from_str::<Value>(text) else {
-            continue;
-        };
-        let Some(message) = session_message(&frame) else {
-            continue;
-        };
-        if message.get("type") != Some(&Value::from("wait_for_finish_response")) {
+        if !line.windows(MESSAGE.len()).any(|window| window == MESSAGE) {
             continue;
         }
-        // The first one decides; it must not change under a rewrite.
+        let text = std::str::from_utf8(line).ok()?;
+        let frame = serde_json::from_str::<Value>(text).ok()?;
+        let message = session_message(&frame)?;
+        if message.get("type") != Some(&Value::from("wait_for_finish_response")) {
+            return None;
+        }
+        // It must not change under a rewrite.
         if serialized(&frame) != text {
             return None;
         }
@@ -182,6 +181,150 @@ pub fn without_enrichment_race(side: &SideRun) -> (SideRun, Vec<String>) {
         }
     }
     (side, names)
+}
+
+/// Id of the stored persistence enrichment race class.
+pub const STORED_RACE_TRANSFORM: &str = "stored-persistence-enrichment-race";
+
+/// Whether a gate id is a G4 gate, the only ones the stored race class
+/// applies to.
+#[must_use]
+pub fn is_g4_gate(id: &str) -> bool {
+    id.starts_with("g4-")
+}
+
+fn keys(handle: &Value) -> Option<Vec<&str>> {
+    Some(handle.as_object()?.keys().map(String::as_str).collect())
+}
+
+/// Exactly `{provider, sessionId, metadata: {cwd}}`, in that order.
+fn is_minimal_shape(handle: &Value) -> bool {
+    keys(handle).is_some_and(|keys| keys == ["provider", "sessionId", "metadata"])
+        && handle.get("provider").is_some_and(Value::is_string)
+        && handle.get("sessionId").is_some_and(Value::is_string)
+        && handle
+            .get("metadata")
+            .and_then(Value::as_object)
+            .is_some_and(|metadata| {
+                metadata.len() == 1 && metadata.get("cwd").is_some_and(Value::is_string)
+            })
+}
+
+/// `{provider, sessionId, nativeHandle, metadata}` in that order, the native
+/// handle equal to the session id and the metadata carrying the same
+/// provider and a `cwd`.
+fn is_full_shape(handle: &Value) -> bool {
+    let metadata = handle.get("metadata");
+    keys(handle).is_some_and(|keys| keys == ["provider", "sessionId", "nativeHandle", "metadata"])
+        && handle.get("provider").is_some_and(Value::is_string)
+        && handle.get("sessionId").is_some_and(Value::is_string)
+        && handle.get("nativeHandle") == handle.get("sessionId")
+        && metadata.is_some_and(Value::is_object)
+        && metadata
+            .and_then(|m| m.get("cwd"))
+            .is_some_and(Value::is_string)
+        && metadata.and_then(|m| m.get("provider")) == handle.get("provider")
+}
+
+/// One stored creation record that has an agent handle.
+struct Stored {
+    file: usize,
+    created: String,
+    record: Value,
+    suffix: String,
+}
+
+/// The side's stored creation records with an agent handle, oldest first by
+/// the agent's `createdAt`. `None` when any of them does not serialize back
+/// to itself or has no `createdAt`, so the class then does not apply.
+fn stored_records(side: &SideRun) -> Option<Vec<Stored>> {
+    let mut found = Vec::new();
+    for (file, captured) in side.state.iter().enumerate() {
+        let is_json = Path::new(&captured.path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+        if !captured.path.contains("/creations/") || !is_json {
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(&captured.bytes) else {
+            continue;
+        };
+        let body = text.trim_end_matches('\n');
+        let Ok(record) = serde_json::from_str::<Value>(body) else {
+            continue;
+        };
+        if record.pointer(RECORD_HANDLE).is_none() {
+            continue;
+        }
+        if serde_json::to_string_pretty(&record).ok()? != body {
+            return None;
+        }
+        let created = record
+            .pointer("/snapshot/agent/createdAt")?
+            .as_str()?
+            .to_owned();
+        found.push(Stored {
+            file,
+            created,
+            record,
+            suffix: text[body.len()..].to_owned(),
+        });
+    }
+    found.sort_by(|a, b| a.created.cmp(&b.created));
+    Some(found)
+}
+
+/// The record's handle rewritten to the minimal shape of its own provider,
+/// session id and `cwd`.
+fn minimized(stored: &Stored) -> Option<Vec<u8>> {
+    let mut record = stored.record.clone();
+    let handle = record.pointer_mut(RECORD_HANDLE)?;
+    let minimal = json!({
+        "provider": handle.get("provider")?,
+        "sessionId": handle.get("sessionId")?,
+        "metadata": {"cwd": handle.pointer("/metadata/cwd")?},
+    });
+    *handle = minimal;
+    let text = serde_json::to_string_pretty(&record).ok()?;
+    Some(format!("{text}{}", stored.suffix).into_bytes())
+}
+
+/// The stored-persistence-enrichment-race class (every G4 gate). A stored
+/// creation record's `/snapshot/agent/persistence` may be the minimal handle
+/// or a full handle; where one side stored the full handle and the other the
+/// minimal one, the full one is rewritten to the minimal shape of its own
+/// provider, session id and `cwd`, so the normal comparison then fails on any
+/// difference in those three fields. Records are paired oldest first by
+/// `createdAt`; a different count, or any other shape, is left raw. Returns
+/// the sides and, per side, the stored file paths rewritten.
+#[must_use]
+pub fn without_stored_race(
+    left: &SideRun,
+    right: &SideRun,
+) -> ((SideRun, Vec<String>), (SideRun, Vec<String>)) {
+    let mut sides = [(left.clone(), Vec::new()), (right.clone(), Vec::new())];
+    let (Some(l), Some(r)) = (stored_records(left), stored_records(right)) else {
+        let [a, b] = sides;
+        return (a, b);
+    };
+    if l.len() == r.len() {
+        for (mine, theirs) in l.iter().zip(&r) {
+            for (side, (own, other)) in [(0, (mine, theirs)), (1, (theirs, mine))] {
+                let handle = own.record.pointer(RECORD_HANDLE);
+                let against = other.record.pointer(RECORD_HANDLE);
+                if handle.is_some_and(is_full_shape)
+                    && against.is_some_and(is_minimal_shape)
+                    && let Some(bytes) = minimized(own)
+                {
+                    let (run, names) = &mut sides[side];
+                    names.push(run.state[own.file].path.clone());
+                    run.state[own.file].bytes = bytes;
+                }
+            }
+        }
+    }
+    let [a, b] = sides;
+    (a, b)
 }
 
 #[cfg(test)]
@@ -329,5 +472,19 @@ mod tests {
         };
         // The two early full handles are gone; the one at wait_for_finish stays.
         assert_eq!((count(&bytes), count(&new)), (3, 1));
+    }
+
+    #[test]
+    fn an_unparseable_first_wait_line_means_the_class_does_not_apply() {
+        let good = later(FULL);
+        // Broken JSON mentioning the message, then a good line.
+        let broken = r#"{"type":"session","message":{"type":"wait_for_finish_response","#;
+        assert!(full_handle([broken, good.as_str()].join("\n").as_bytes()).is_none());
+        // Not UTF-8 mentioning the message.
+        let mut bytes = b"\xff wait_for_finish_response\n".to_vec();
+        bytes.extend_from_slice(good.as_bytes());
+        assert!(full_handle(&bytes).is_none());
+        // Sanity: the good line alone supplies the handle.
+        assert!(full_handle(good.as_bytes()).is_some());
     }
 }
