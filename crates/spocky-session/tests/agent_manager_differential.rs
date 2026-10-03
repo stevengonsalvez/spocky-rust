@@ -95,10 +95,10 @@ use spocky_session::agent_manager::{
     AgentArchivedCallback, AgentManager, AgentManagerEvent, AgentManagerOptions,
     AgentMetadataUpdates, AgentSteerOptions, AppendedTimelineItem, AttentionCallback,
     CreateAgentOptions, HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest,
-    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError, PaseoToolCatalogFactory,
-    PaseoToolRuntimeContext, ProviderDefinition, ProviderRegistryUpdate, ReloadAgentOptions,
-    ResumeAgentOptions, SteerDispatch, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
-    WaitForAgentOptions,
+    ImportablePersistedAgentQueryOptions, ImportableSessionProviderError, NoPluginLifecycle,
+    PaseoToolCatalogFactory, PaseoToolRuntimeContext, PluginLifecycle, ProviderDefinition,
+    ProviderRegistryUpdate, ReloadAgentOptions, ResumeAgentOptions, SteerDispatch,
+    SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -398,6 +398,7 @@ const fs = await import("node:fs");
 const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
 // pino's default `err` serializer, as the pinned logger applies it to an `err` binding.
 // The stack is dropped: its frames are node source locations no Rust error has.
+const { validateBeforeRequest } = await import(`${dist}/server/plugins/lifecycle/index.js`);
 const { default: pinoStd } = await import(`${dist}/../../../../node_modules/pino-std-serializers/index.js`);
 const serializeLogErr = (bindings) => {
   if (!bindings || typeof bindings !== "object" || !("err" in bindings)) return bindings;
@@ -1752,6 +1753,70 @@ const catalogScenario = async () => {
   return { steps };
 };
 
+const pluginLifecycleScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const internalId = "00000000-0000-4000-8000-0000000000f7";
+  const importedId = "00000000-0000-4000-8000-0000000000f8";
+  const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
+  const build = (name, hooks, specExtra = {}) => {
+    const calls = [];
+    const manager = new AgentManager({
+      logger,
+      registry: new AgentStorage(`${home}/plugin-${name}`, logger),
+      clients: { fake: fakeClient(calls, spec("fake", specExtra)) },
+      providerDefinitions: { fake: { enabled: true } },
+      pluginLifecycle: hooks,
+    });
+    return { calls, manager, feed: recordFeed(manager) };
+  };
+  // A plugin that adds to the env of each request.
+  const log = [];
+  const recording = {
+    async before(name, request) {
+      log.push(["before", name, request]);
+      const checked = validateBeforeRequest(name, request);
+      const added = name === "agent.session_open" ? { PLUGIN_OPEN: "1" } : { PLUGIN_CREATE: "1" };
+      return { ...checked, env: { ...checked.env, ...added } };
+    },
+    emit(name, event) { log.push(["emit", name, event]); },
+  };
+  const one = build("recording", recording, { turns: [scripted.ask, scripted.long, scripted.failed], response: scripted.response, interrupt: scripted.interrupt, import: scripted.import });
+  const { manager } = one;
+  await manager.createAgent({ provider: "fake", cwd, title: "Plugin agent" }, agentId, { labels: { "paseo.parent-agent-id": otherId }, workspaceId: "wks_1" });
+  await manager.createAgent({ provider: "fake", cwd, internal: true }, internalId, {});
+  const second = manager.streamAgent(agentId, "remove x");
+  const secondEvents = [(await second.next()).value];
+  await manager.waitForAgentEvent(agentId);
+  await manager.respondToPermission(agentId, "perm-1", { behavior: "allow" });
+  await collect(second, secondEvents);
+  await sleep(100);
+  const third = manager.streamAgent(agentId, "long task");
+  const thirdEvents = [(await third.next()).value];
+  await sleep(50);
+  await manager.cancelAgentRun(agentId);
+  await collect(third, thirdEvents);
+  await sleep(100);
+  const fourthEvents = await outcome(async () => await collect(manager.streamAgent(agentId, "fail me"), []));
+  await sleep(100);
+  const archived = await outcome(async () => { await manager.archiveAgent(agentId); return null; });
+  const archivedInternal = await outcome(async () => { await manager.archiveAgent(internalId); return null; });
+  const archivedAgain = await outcome(async () => { await manager.archiveSnapshot(agentId, "2026-07-12T10:00:00.000Z"); return null; });
+  const resumed = await outcome(async () => (await manager.resumeAgentFromPersistence({ provider: "fake", sessionId: "sess-p", nativeHandle: "thread-p", metadata: { cwd, model: "m" } }, undefined, otherId, { workspaceId: "wks_2" })).id);
+  const reloaded = await outcome(async () => (await manager.reloadAgentSession(otherId)).id);
+  const imported = await outcome(async () => (await manager.importProviderSession({ provider: "fake", providerHandleId: "h1", cwd, workspaceId: "wks_3" })).provider);
+  await sleep(100);
+  await manager.flush();
+  const recordingCase = { secondEvents, thirdEvents, fourthEvents, archived, archivedInternal, archivedAgain, resumed, reloaded, imported, log: log.splice(0), calls: one.calls, feed: one.feed };
+
+  // The runtime with no plugin loaded: the requests are only validated.
+  const validating = { async before(name, request) { log.push(["before", name, request]); return validateBeforeRequest(name, request); }, emit() {} };
+  const plain = build("validating", validating);
+  const created = await outcome(async () => (await plain.manager.createAgent({ provider: "fake", cwd }, undefined, { env: { KEEP: "me" } })).provider);
+  const badEnv = await outcome(async () => (await plain.manager.createAgent({ provider: "fake", cwd }, undefined, { env: { BAD: 1 } })).provider);
+  const validatingCase = { created, badEnv, log: log.splice(0), calls: plain.calls };
+  return { recordingCase, validatingCase };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1860,7 +1925,7 @@ const storedDates = async () => {
   return { results, times, feed, stored: await registry.get(otherId) };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), catalog: await catalogScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), timelineItems: await timelineItemsScenario(), availability: await availabilityScenario(), importable: await importableScenario(), draft: await draftScenario(), registry: await registryScenario(), callbacks: await callbacksScenario(), persistFailure: await persistFailureScenario(), catalog: await catalogScenario(), pluginLifecycle: await pluginLifecycleScenario(), steer: await steerScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive(), storedDates: await storedDates() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3738,6 +3803,10 @@ const PINNED_MODULES: &[(&str, &str)] = &[
         "server/agent/agent-timeline-store.js",
         "5473e829162d3256ab76b9b39d965158efbf5b4a29bb01e444626ac3a4bf52e3",
     ),
+    (
+        "server/plugins/lifecycle/index.js",
+        "fff7a2629df50bfff0e7837e34adc13f4876e0760d233509da1f313c98039546",
+    ),
 ];
 
 fn assert_pinned_modules(dist: &std::ffi::OsStr) {
@@ -3770,6 +3839,10 @@ fn home(name: &str) -> Home {
     Home(path)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one line per scenario the node twin runs"
+)]
 #[tokio::test]
 async fn scenarios_match_pinned_manager() {
     let (node, dist) = match (
@@ -3855,6 +3928,10 @@ async fn scenarios_match_pinned_manager() {
             persist_failure_scenario(&cwd, &rust_home.0).await,
         ),
         ("catalog", catalog_scenario(&cwd, &rust_home.0).await),
+        (
+            "pluginLifecycle",
+            plugin_lifecycle_scenario(&cwd, &rust_home.0).await,
+        ),
         ("steer", steer_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
         ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
@@ -6969,6 +7046,281 @@ async fn catalog_scenario(cwd: &str, home: &Path) -> JsValue {
         .map(|agent| text(&agent.provider));
     step("reload", outcome(reloaded));
     object(vec![("steps", JsValue::Array(steps))])
+}
+
+/// A plugin lifecycle that records each request; `adds_env` makes it a plugin
+/// that also records events and adds a variable to the env of the requests it
+/// transforms, where the other one only validates.
+struct RecordingLifecycle {
+    log: Arc<Mutex<Vec<JsValue>>>,
+    adds_env: bool,
+}
+
+impl PluginLifecycle for RecordingLifecycle {
+    fn before(&self, name: &str, request: JsValue) -> BoxFuture<'_, AgentResult<JsValue>> {
+        let name = name.to_owned();
+        Box::pin(async move {
+            self.log.lock().expect("log").push(JsValue::Array(vec![
+                text("before"),
+                text(&name),
+                request.clone(),
+            ]));
+            let checked = NoPluginLifecycle.before(&name, request).await?;
+            if !self.adds_env {
+                return Ok(checked);
+            }
+            let added = if name == "agent.session_open" {
+                "PLUGIN_OPEN"
+            } else {
+                "PLUGIN_CREATE"
+            };
+            let mut env = checked
+                .get("env")
+                .and_then(JsValue::as_object)
+                .cloned()
+                .unwrap_or_default();
+            env.insert(added, text("1"));
+            let mut out = checked.as_object().cloned().expect("a request object");
+            out.insert("env", JsValue::Object(env));
+            Ok(JsValue::Object(out))
+        })
+    }
+
+    fn emit(&self, name: &str, event: JsValue) {
+        // The validating plugin does not listen for events.
+        if self.adds_env {
+            self.log.lock().expect("log").push(JsValue::Array(vec![
+                text("emit"),
+                text(name),
+                event,
+            ]));
+        }
+    }
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn plugin_lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
+    const INTERNAL_ID: &str = "00000000-0000-4000-8000-0000000000f7";
+    let turns = json(SCENARIO_TURNS);
+    let log: Arc<Mutex<Vec<JsValue>>> = Arc::default();
+    let build = |name: &str, adds_env: bool, configure: &dyn Fn(&mut Spec)| {
+        let calls = Calls::default();
+        let mut fake = spec("fake");
+        configure(&mut fake);
+        let manager = AgentManager::new(AgentManagerOptions {
+            clients: vec![(
+                "fake".to_owned(),
+                Arc::new(FakeClient {
+                    spec: fake,
+                    calls: Arc::clone(&calls),
+                }) as Arc<dyn AgentClient>,
+            )],
+            provider_definitions: vec![("fake".to_owned(), enabled())],
+            registry: Some(AgentStorage::new(home.join(format!("plugin-{name}")))),
+            plugin_lifecycle_host: Some(Arc::new(RecordingLifecycle {
+                log: Arc::clone(&log),
+                adds_env,
+            })),
+            ..AgentManagerOptions::default()
+        });
+        let feed = record_feed(&manager);
+        (manager, calls, feed)
+    };
+    let (manager, calls, feed) = build("recording", true, &|fake| {
+        scripted(fake, &["ask", "long", "failed"]);
+        fake.response = turns.get("response").cloned();
+        fake.interrupt = turns.get("interrupt").cloned();
+        fake.import = turns.get("import").cloned();
+    });
+    manager
+        .create_agent(
+            object(vec![
+                ("provider", text("fake")),
+                ("cwd", text(cwd)),
+                ("title", text("Plugin agent")),
+            ]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions {
+                labels: Some(object(vec![("paseo.parent-agent-id", text(OTHER_ID))])),
+                workspace_id: Some("wks_1".to_owned()),
+                ..CreateAgentOptions::default()
+            },
+        )
+        .await
+        .expect("create");
+    manager
+        .create_agent(
+            object(vec![
+                ("provider", text("fake")),
+                ("cwd", text(cwd)),
+                ("internal", JsValue::Bool(true)),
+            ]),
+            Some(INTERNAL_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create internal");
+    let prompt = |body: &str| AgentPromptInput::Text(body.to_owned());
+    let mut second = manager
+        .stream_agent(AGENT_ID, prompt("remove x"), None)
+        .expect("second stream");
+    let mut second_events = vec![second.next().await.expect("first").expect("event")];
+    manager
+        .wait_for_agent_event(AGENT_ID, WaitForAgentOptions::default())
+        .await
+        .expect("permission wait");
+    manager
+        .respond_to_permission(
+            AGENT_ID,
+            "perm-1",
+            object(vec![("behavior", text("allow"))]),
+        )
+        .await
+        .expect("respond");
+    collect(&mut second, &mut second_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut third = manager
+        .stream_agent(AGENT_ID, prompt("long task"), None)
+        .expect("third stream");
+    let mut third_events = vec![third.next().await.expect("first").expect("event")];
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.cancel_agent_run(AGENT_ID).await.expect("cancel");
+    collect(&mut third, &mut third_events).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut fourth = manager
+        .stream_agent(AGENT_ID, prompt("fail me"), None)
+        .expect("fourth stream");
+    let mut fourth_events = Vec::new();
+    collect(&mut fourth, &mut fourth_events).await;
+    let fourth_result = outcome(Ok(JsValue::Array(fourth_events)));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let archived = outcome(manager.archive_agent(AGENT_ID).await.map(|_| JsValue::Null));
+    let archived_internal = outcome(
+        manager
+            .archive_agent(INTERNAL_ID)
+            .await
+            .map(|_| JsValue::Null),
+    );
+    let archived_again = outcome(
+        manager
+            .archive_snapshot(AGENT_ID, "2026-07-12T10:00:00.000Z".to_owned())
+            .await
+            .map(|_| JsValue::Null),
+    );
+    let resumed = outcome(
+        manager
+            .resume_agent_from_persistence(
+                object(vec![
+                    ("provider", text("fake")),
+                    ("sessionId", text("sess-p")),
+                    ("nativeHandle", text("thread-p")),
+                    (
+                        "metadata",
+                        object(vec![("cwd", text(cwd)), ("model", text("m"))]),
+                    ),
+                ]),
+                None,
+                Some(OTHER_ID.to_owned()),
+                ResumeAgentOptions {
+                    workspace_id: Some("wks_2".to_owned()),
+                    ..ResumeAgentOptions::default()
+                },
+                None,
+            )
+            .await
+            .map(|agent| text(&agent.id)),
+    );
+    let reloaded = outcome(
+        manager
+            .reload_agent_session(OTHER_ID, None, ReloadAgentOptions::default())
+            .await
+            .map(|agent| text(&agent.id)),
+    );
+    let imported = outcome(
+        manager
+            .import_provider_session(ImportProviderSessionRequest {
+                provider: "fake".to_owned(),
+                provider_handle_id: "h1".to_owned(),
+                cwd: cwd.to_owned(),
+                workspace_id: "wks_3".to_owned(),
+                labels: None,
+            })
+            .await
+            .map(|agent| text(&agent.provider)),
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    let recording_log = JsValue::Array(std::mem::take(&mut *log.lock().expect("log")));
+    let recording_case = object(vec![
+        ("secondEvents", JsValue::Array(second_events)),
+        ("thirdEvents", JsValue::Array(third_events)),
+        ("fourthEvents", fourth_result),
+        ("archived", archived),
+        ("archivedInternal", archived_internal),
+        ("archivedAgain", archived_again),
+        ("resumed", resumed),
+        ("reloaded", reloaded),
+        ("imported", imported),
+        ("log", recording_log),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+    ]);
+
+    // The runtime with no plugin loaded: the requests are only validated.
+    let (plain, plain_calls, _) = build("validating", false, &|_| {});
+    let env = |name: &str, value: JsValue| {
+        let mut env = JsObject::new();
+        env.insert(name, value);
+        env
+    };
+    let created = outcome(
+        plain
+            .create_agent(
+                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+                None,
+                CreateAgentOptions {
+                    env: Some(env("KEEP", text("me"))),
+                    ..CreateAgentOptions::default()
+                },
+            )
+            .await
+            .map(|agent| text(&agent.provider)),
+    );
+    let bad_env = outcome(
+        plain
+            .create_agent(
+                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+                None,
+                CreateAgentOptions {
+                    env: Some(env("BAD", JsValue::Number(1.0))),
+                    ..CreateAgentOptions::default()
+                },
+            )
+            .await
+            .map(|agent| text(&agent.provider)),
+    );
+    let validating_case = object(vec![
+        ("created", created),
+        ("badEnv", bad_env),
+        (
+            "log",
+            JsValue::Array(std::mem::take(&mut *log.lock().expect("log"))),
+        ),
+        (
+            "calls",
+            JsValue::Array(plain_calls.lock().expect("calls").clone()),
+        ),
+    ]);
+    object(vec![
+        ("recordingCase", recording_case),
+        ("validatingCase", validating_case),
+    ])
 }
 
 #[allow(
