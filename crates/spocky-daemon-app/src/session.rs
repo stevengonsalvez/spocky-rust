@@ -24,6 +24,7 @@ use spocky_contracts::session::SessionInbound;
 use spocky_contracts::text::JsText;
 use spocky_contracts::ws::DaemonPermission;
 use spocky_daemon::binary_frames::BinaryFrame;
+use spocky_daemon::listen::ListenTarget;
 use spocky_daemon::session_api::{
     ProtocolFailure, SessionBackend, SessionError, SessionHandle, SessionOpen, SessionSink,
     SocketId,
@@ -59,6 +60,7 @@ use crate::agent_directory::{
 use crate::agent_message::send_agent_message;
 use crate::agent_updates::{AgentUpdates, WaitGuard};
 use crate::authorization::SessionAuthorization;
+use crate::bootstrap::agent_mcp_base_url;
 use crate::events::EventDelivery;
 use crate::inline_task::start_inline;
 use crate::request::{Emit, handle_request, now_millis, pong, request_type};
@@ -114,6 +116,18 @@ fn inbound(message: &Value) -> Result<SessionInbound, FrameError> {
 }
 
 impl SessionBackend for DaemonBackend {
+    /// Bootstrap's `agentManager.setMcpBaseUrl(createAgentMcpBaseUrl(
+    /// boundListenTarget))` in the `'listening'` handler. The url is built
+    /// whether or not it is injected, so a host `new URL` rejects fails the
+    /// start with the parser's message, as the throw does there.
+    fn listening(&self, bound: &ListenTarget) -> Result<(), String> {
+        let url = agent_mcp_base_url(bound)?;
+        self.services
+            .manager
+            .set_mcp_base_url(url.filter(|_| self.inject_mcp));
+        Ok(())
+    }
+
     fn open(&self, open: SessionOpen) -> Arc<dyn SessionHandle> {
         let authorization = Arc::new(SessionAuthorization::new(&open.permissions));
         let capabilities = Arc::new(Mutex::new(open.client_capabilities));
