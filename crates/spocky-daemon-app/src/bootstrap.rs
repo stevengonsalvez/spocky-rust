@@ -17,9 +17,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
+use spocky_contracts::url::Url;
 use spocky_daemon::listen::ListenTarget;
 use spocky_session::clock::random_uuid;
-use url::Url;
 
 /// The pinned `OpenCode` bridge plugin bundle.
 const OPENCODE_BRIDGE_PLUGIN: &[u8] = include_bytes!("../assets/opencode-bridge-plugin.bundle.mjs");
@@ -30,9 +30,10 @@ pub const OPENCODE_BRIDGE_PLUGIN_SHA256: &str =
 
 /// `createAgentMcpBaseUrl(boundListenTarget)`: the agent MCP url for the
 /// target the listener bound, `None` for a socket or pipe listener. The url
-/// goes through the WHATWG parser, as `new URL(..).toString()` does, so the
-/// host is lowercased, an IPv6 literal compressed and an IPv4 form
-/// normalized.
+/// goes through contracts' port of node's URL parser (ada 2.9.2), as
+/// `new URL(..).toString()` does, so the host is lowercased, an IPv6 literal
+/// compressed, an IPv4 form normalized and an international name converted by
+/// ada's IDNA rules (the `url` crate follows another standard revision).
 ///
 /// # Errors
 ///
@@ -53,11 +54,11 @@ pub fn agent_mcp_base_url(bound: &ListenTarget) -> Result<Option<String>, String
     } else {
         host.to_owned()
     };
-    let invalid = |_| "Invalid URL".to_owned();
-    Url::parse(&format!("http://{host}:{port}"))
-        .and_then(|base| base.join("/mcp/agents"))
-        .map(|url| Some(url.to_string()))
-        .map_err(invalid)
+    // `new URL("/mcp/agents", base)`: a base or result the parser rejects is
+    // the `ERR_INVALID_URL` throw.
+    Url::parse("/mcp/agents", Some(&format!("http://{host}:{port}")))
+        .map(|url| Some(url.href()))
+        .ok_or_else(|| "Invalid URL".to_owned())
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
@@ -171,12 +172,15 @@ mod tests {
         std::fs::remove_dir_all(&home).unwrap();
     }
 
-    #[test]
-    fn the_agent_mcp_url_matches_new_url_for_the_bound_target() {
-        let tcp = |host: &str, port| ListenTarget::Tcp {
+    fn tcp(host: &str, port: i64) -> ListenTarget {
+        ListenTarget::Tcp {
             host: host.to_owned(),
             port,
-        };
+        }
+    }
+
+    #[test]
+    fn the_agent_mcp_url_matches_new_url_for_the_bound_target() {
         // Printed by node 22: new URL("/mcp/agents", `http://${host}:${port}`)
         // after resolveAgentMcpClientHost and formatHostForHttpUrl.
         let cases = [
@@ -210,11 +214,6 @@ mod tests {
                 "{host}:{port}"
             );
         }
-        // `new URL` throws ERR_INVALID_URL for a host with a space.
-        assert_eq!(
-            agent_mcp_base_url(&tcp("a b", 7)),
-            Err("Invalid URL".to_owned())
-        );
         for target in [
             ListenTarget::Socket {
                 path: "/tmp/paseo.sock".to_owned(),
@@ -224,6 +223,82 @@ mod tests {
             },
         ] {
             assert_eq!(agent_mcp_base_url(&target), Ok(None));
+        }
+    }
+
+    #[test]
+    fn international_hosts_match_new_url() {
+        // Printed by node 22 (ada 2.9.2): new URL("/mcp/agents", `http://${host}:4000`).
+        let cases = [
+            (
+                "b\u{fc}cher.example",
+                4000,
+                "http://xn--bcher-kva.example:4000/mcp/agents",
+            ),
+            (
+                "\u{42f}\u{41d}\u{414}\u{415}\u{41a}\u{421}.\u{440}\u{444}",
+                4000,
+                "http://xn--d1acpjx3f.xn--p1ai:4000/mcp/agents",
+            ),
+            ("fa\u{df}.de", 4000, "http://xn--fa-hia.de:4000/mcp/agents"),
+            (
+                "\u{ff41}\u{ff42}\u{ff43}.com",
+                4000,
+                "http://abc.com:4000/mcp/agents",
+            ),
+            ("a\u{ad}b.com", 4000, "http://ab.com:4000/mcp/agents"),
+            ("\u{2603}.net", 4000, "http://xn--n3h.net:4000/mcp/agents"),
+            ("EXAMPLE.COM", 4000, "http://example.com:4000/mcp/agents"),
+            (
+                "xn--bcher-kva.example",
+                4000,
+                "http://xn--bcher-kva.example:4000/mcp/agents",
+            ),
+            ("a_b.example", 4000, "http://a_b.example:4000/mcp/agents"),
+            (
+                "caf\u{e9}.\u{e9}xample",
+                4000,
+                "http://xn--caf-dma.xn--xample-9ua:4000/mcp/agents",
+            ),
+            (
+                "\u{130}stanbul.test",
+                4000,
+                "http://xn--istanbul-o0e.test:4000/mcp/agents",
+            ),
+            (
+                "\u{3c3}\u{3c2}.gr",
+                4000,
+                "http://xn--3xab.gr:4000/mcp/agents",
+            ),
+            (
+                "1\u{ff0e}2\u{ff0e}3\u{ff0e}4",
+                4000,
+                "http://1.2.3.4:4000/mcp/agents",
+            ),
+            ("a..b", 4000, "http://a..b:4000/mcp/agents"),
+            ("-a.com", 4000, "http://-a.com:4000/mcp/agents"),
+            ("a-.com", 4000, "http://a-.com:4000/mcp/agents"),
+            (
+                "m\u{fc}ller.\u{fc}ber.de",
+                4000,
+                "http://xn--mller-kva.xn--ber-goa.de:4000/mcp/agents",
+            ),
+        ];
+        for (host, port, expected) in cases {
+            assert_eq!(
+                agent_mcp_base_url(&tcp(host, port)),
+                Ok(Some(expected.to_owned())),
+                "{host:?}"
+            );
+        }
+        // `new URL` throws ERR_INVALID_URL for these hosts: a space, an
+        // invalid punycode label and a lone zero width joiner.
+        for host in ["a b", "xn--a.com", "\u{200d}.com"] {
+            assert_eq!(
+                agent_mcp_base_url(&tcp(host, 7)),
+                Err("Invalid URL".to_owned()),
+                "{host:?}"
+            );
         }
     }
 }
