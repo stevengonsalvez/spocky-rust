@@ -45,7 +45,8 @@ pub use archive::{
     AgentArchivedCallback, AgentMetadataUpdates, DetachedAgent, LogWarn, UnarchiveUpdates,
 };
 
-/// `logger.info(bindings, message)`.
+/// `logger.info(bindings, message)`, also the shape of `logger.error`. A sink
+/// must not call back into the manager, see [`LogWarn`].
 pub type LogInfo = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
 pub use create::{
     CreateAgentOptions, ImportProviderSessionRequest, ReloadAgentOptions, ResumeAgentOptions,
