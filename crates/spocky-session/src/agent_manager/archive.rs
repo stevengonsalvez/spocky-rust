@@ -31,7 +31,9 @@ use crate::runtime_mcp_config::strip_internal_paseo_mcp_server;
 pub type AgentArchivedCallback =
     Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), AgentError>> + Send + Sync>;
 
-/// `logger.warn(bindings, message)`.
+/// `logger.warn(bindings, message)`. A sink must not call back into the
+/// manager: a few call sites log while the manager state is locked, where node
+/// could not deadlock (the cancel and session event logs release it first).
 pub type LogWarn = Arc<dyn Fn(JsValue, &str) + Send + Sync>;
 
 /// `unarchiveSnapshot`'s `updates`.
