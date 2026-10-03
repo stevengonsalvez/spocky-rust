@@ -142,6 +142,11 @@ fn removed_git_probe(record: &str) -> Option<String> {
     let Ok(Value::Object(mut entry)) = serde_json::from_str::<Value>(record) else {
         return None;
     };
+    // Rewriting the envelope must change nothing but the removed members.
+    let reserialized = Value::Object(entry.clone()).to_string();
+    if reserialized != record {
+        return None;
+    }
     let mut stripped = false;
     if let Some(Value::Array(headers)) = entry.get_mut("headers") {
         for header in headers {
@@ -1481,5 +1486,18 @@ mod tests {
             ),
             (vec![0], vec![])
         );
+    }
+
+    #[test]
+    fn a_record_that_does_not_round_trip_is_left_alone() {
+        let record = probe_record(pair().0, PROBE, None).stub_records.remove(0);
+        assert_ne!(strip_git_probe(&record), record);
+        // Same content, different bytes (whitespace between members).
+        let spaced = record.replacen("\"seq\":0,", "\"seq\": 0, ", 1);
+        assert_ne!(spaced, record);
+        assert_eq!(strip_git_probe(&spaced), spaced);
+        // A repeated key would be collapsed by a rewrite.
+        let repeated = record.replacen("{\"seq\":0,", "{\"seq\":0,\"seq\":0,", 1);
+        assert_eq!(strip_git_probe(&repeated), repeated);
     }
 }
