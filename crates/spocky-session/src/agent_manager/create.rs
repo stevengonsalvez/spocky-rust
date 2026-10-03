@@ -5,7 +5,6 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use spocky_contracts::zod::Outcome;
 use spocky_store::js_value::{JsObject, JsValue, js_text_to_utf8};
 
 use super::log_error::err_binding;
@@ -284,7 +283,7 @@ impl AgentManager {
         &self,
         config: JsValue,
         agent_id: Option<String>,
-        options: CreateAgentOptions,
+        mut options: CreateAgentOptions,
     ) -> Result<ManagedAgentSnapshot, AgentError> {
         let _registration = self.track_agent_registration();
         self.assert_accepting_agent_registrations()?;
@@ -293,12 +292,22 @@ impl AgentManager {
             "createAgent",
         )?;
         let internal = config.get("internal").cloned();
-        let config = if self.lock().plugin_lifecycle && !truthy(internal.as_ref()) {
-            let mut parsed = spread(Some(&before_agent_create(&config, options.env.as_ref())?));
-            parsed.insert("internal", internal.unwrap_or(JsValue::Undefined));
-            JsValue::Object(parsed)
-        } else {
-            config
+        let config = match self.plugin_lifecycle() {
+            Some(lifecycle) if !truthy(internal.as_ref()) => {
+                let mut request = JsObject::new();
+                request.insert("config", config.clone());
+                if let Some(env) = options.env.as_ref() {
+                    request.insert("env", JsValue::Object(env.clone()));
+                }
+                let request = lifecycle
+                    .before("agent.create", JsValue::Object(request))
+                    .await?;
+                let mut parsed = spread(request.get("config"));
+                parsed.insert("internal", internal.unwrap_or(JsValue::Undefined));
+                options.env = request.get("env").and_then(JsValue::as_object).cloned();
+                JsValue::Object(parsed)
+            }
+            _ => config,
         };
         self.delete_agent_state(&resolved_agent_id);
         let prepared = self
@@ -1578,74 +1587,6 @@ fn resolve_provider_launch_config(
     } else {
         launch_config.clone()
     }
-}
-
-/// `pluginLifecycle.before("agent.create", { config, env })` with no plugin
-/// loaded: the request is only parsed by
-/// `CreateAgentRequestMessageSchema.pick({ config, env }).strict()`, so the
-/// config keeps its schema keys, in schema order, and loses any other key.
-/// `env` (a record of strings) parses to itself.
-///
-/// A failing request reports zod's issue list from the contracts schema:
-/// the request is checked as a session `create_agent_request` holding only
-/// the `config` and `env` (plus its required `type` and `requestId`), whose
-/// discriminated option reports the same issues as the picked schema, under
-/// the session envelope's `message` key, which each issue path drops.
-fn before_agent_create(config: &JsValue, env: Option<&JsObject>) -> Result<JsValue, AgentError> {
-    let parse_error = |message: String| AgentError::named("ZodError", message);
-    let mut request = JsObject::new();
-    request.insert("type", JsValue::String("create_agent_request".to_owned()));
-    request.insert("config", config.clone());
-    if let Some(env) = env {
-        request.insert("env", JsValue::Object(env.clone()));
-    }
-    request.insert("requestId", JsValue::String("agent.create".to_owned()));
-    let mut envelope = JsObject::new();
-    envelope.insert("type", JsValue::String("session".to_owned()));
-    envelope.insert("message", JsValue::Object(request));
-    match spocky_contracts::zod_schemas::check_inbound(&JsValue::Object(envelope)) {
-        Outcome::Invalid(issues) => return Err(parse_error(without_envelope_path(&issues))),
-        Outcome::TooDeep => {
-            return Err(AgentError::named(
-                "RangeError".to_owned(),
-                "Maximum call stack size exceeded".to_owned(),
-            ));
-        }
-        Outcome::Valid | Outcome::Unmodeled => {}
-    }
-    let parsed =
-        <spocky_contracts::agent_config::AgentSessionConfig as serde::Deserialize>::deserialize(
-            spocky_contracts::json::JsValueDeserializer(config),
-        )
-        .map_err(|error| parse_error(error.to_string()))?;
-    let text = serde_json::to_string(&parsed).map_err(|error| parse_error(error.to_string()))?;
-    spocky_store::js_value::parse(&text).map_err(|error| parse_error(error.to_string()))
-}
-
-/// Drops the session envelope's leading `message` from each issue path; a
-/// nested union's issues keep their own relative paths.
-fn without_envelope_path(issues: &str) -> String {
-    let Ok(parsed) = spocky_store::js_value::parse(issues) else {
-        return issues.to_owned();
-    };
-    let Some(list) = parsed.as_array() else {
-        return issues.to_owned();
-    };
-    let issues = list
-        .iter()
-        .map(|issue| {
-            let (JsValue::Object(object), Some(path)) =
-                (issue, issue.get("path").and_then(JsValue::as_array))
-            else {
-                return issue.clone();
-            };
-            let skip = usize::from(path.first().and_then(JsValue::as_str) == Some("message"));
-            let mut object = object.clone();
-            object.insert("path", JsValue::Array(path[skip..].to_vec()));
-            JsValue::Object(object)
-        })
-        .collect();
-    spocky_store::js_value::stringify_pretty(&JsValue::Array(issues))
 }
 
 /// The live-agent fields `registerSession` takes from its options.

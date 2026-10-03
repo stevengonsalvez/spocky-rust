@@ -31,6 +31,7 @@ mod importable;
 mod lifecycle;
 mod log_error;
 mod metrics;
+mod plugin_lifecycle;
 mod provider_registry;
 mod run;
 
@@ -58,6 +59,7 @@ pub use importable::{
 };
 pub use lifecycle::AgentRunCancellationResult;
 pub use metrics::AgentMetricsSnapshot;
+pub use plugin_lifecycle::{NoPluginLifecycle, PluginLifecycle};
 pub use provider_registry::ProviderRegistryUpdate;
 pub use run::{
     AgentRunResult, AgentSteerOptions, SteerDispatch, TurnEventStream, WaitForAgentOptions,
@@ -315,6 +317,10 @@ pub struct AgentManagerOptions {
     /// it: before-hooks then only validate their request (see
     /// `create_agent`), and lifecycle events go nowhere.
     pub plugin_lifecycle: bool,
+    /// The plugin runtime itself, for a build that has one: `before` hooks
+    /// and lifecycle events go through it. It takes the place of
+    /// `plugin_lifecycle`, which stands for [`NoPluginLifecycle`].
+    pub plugin_lifecycle_host: Option<Arc<dyn PluginLifecycle>>,
     /// `rescueTimeouts.interruptSessionMs` (default 2000).
     pub rescue_interrupt_session_ms: Option<u64>,
     /// `rescueTimeouts.reloadSessionCloseMs` (default 3000).
@@ -390,7 +396,7 @@ pub(crate) struct State {
     /// `setPaseoToolCatalogFactory`.
     pub(crate) paseo_tool_catalog_factory: Option<PaseoToolCatalogFactory>,
     pub(crate) append_system_prompt: String,
-    pub(crate) plugin_lifecycle: bool,
+    pub(crate) plugin_lifecycle: Option<Arc<dyn PluginLifecycle>>,
 }
 
 impl State {
@@ -559,7 +565,11 @@ impl AgentManager {
             paseo_tools_enabled: options.paseo_tools_enabled.unwrap_or(true),
             paseo_tool_catalog_factory: options.paseo_tool_catalog_factory,
             append_system_prompt: options.append_system_prompt.unwrap_or_default(),
-            plugin_lifecycle: options.plugin_lifecycle,
+            plugin_lifecycle: options.plugin_lifecycle_host.or_else(|| {
+                options
+                    .plugin_lifecycle
+                    .then(|| Arc::new(NoPluginLifecycle) as Arc<dyn PluginLifecycle>)
+            }),
         };
         Self {
             inner: Arc::new(Inner {
@@ -639,6 +649,11 @@ impl AgentManager {
     /// `setPaseoToolCatalogFactory(factory)`.
     pub fn set_paseo_tool_catalog_factory(&self, factory: Option<PaseoToolCatalogFactory>) {
         self.lock().paseo_tool_catalog_factory = factory;
+    }
+
+    /// `pluginLifecycle`, when the manager has one.
+    pub(crate) fn plugin_lifecycle(&self) -> Option<Arc<dyn PluginLifecycle>> {
+        self.lock().plugin_lifecycle.clone()
     }
 
     /// `setAppendSystemPrompt(prompt)`.
