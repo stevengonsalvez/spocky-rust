@@ -67,3 +67,18 @@ pub fn assert_fixture_provenance(fixture: &serde_json::Value) {
         "dist digests"
     );
 }
+
+/// A fixture that records only the Node it ran under (no build marker).
+#[allow(dead_code)]
+pub fn assert_node_pin(fixture: &serde_json::Value) {
+    assert_eq!(
+        fixture["node"].as_str(),
+        Some(format!("v{}", pin("P3_NODE_VERSION")).as_str()),
+        "Node version"
+    );
+    assert_eq!(
+        fixture["nodeSha256"].as_str(),
+        Some(pin("P3_NODE_BINARY_SHA256").as_str()),
+        "Node binary digest"
+    );
+}
