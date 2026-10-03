@@ -42,11 +42,15 @@ line per step with the step's result or error (`code`, `message`), and a
 catalog change event and every file under the scenario home. Raw lines must
 be equal after normalization.
 
-Normalization replaces only: the disposable root path with `<root>`, the
-`randomUUID()` generation with `<uuid>`, and a generated `toISOString()` stamp
-with `<now>`. Timestamps the script writes itself (`2026-08-14T`, `2099-`)
-are never masked. Results, error text, ordering and file bytes are not
-normalized. Two further tests cover the normalizer.
+Normalization replaces only: the disposable root path with `<root>`; each
+`randomUUID()` with `<uuid:N>`, N counting distinct values in order of first
+appearance so a reused generation and a rotated one stay distinguishable; the
+pid and `Date.now()` of a `writeFileAtomic` temp name with `<pid>` and `<ms>`;
+and a generated `toISOString()` stamp with `<now>`. Timestamps the script
+writes itself (`2026-08-14T`, `2099-`) are never masked. Results, error text,
+ordering and file bytes are not normalized. The home dump lists every file,
+dot-files included, so a leftover temp file would show. Two further tests
+cover the normalizer.
 
 Scenarios: the 25 cases of the baseline `index.test.ts` (normalization,
 catch-up, name cycles, edit and delete, one commit for name and colour,
@@ -76,16 +80,16 @@ Inputs and digests of the pinned modules are in `inputs.txt` of each run
 
 ## Result
 
-Run `labels-20261003T181215Z` at commit `60e0d99f5310c66c3b0eb6616c934705fbbde892`:
-exit 0, `labels-20261003T181215Z passed`. Tests: 2 unit (`names`), 2
+Run `labels-20261003T195210Z` at commit `d6e37471dbf3193552004ee01396165ac780943b`:
+exit 0, `labels-20261003T195210Z passed`. Tests: 2 unit (`names`), 2
 differential (`label_scenarios_match_the_pinned_build` and the normalizer
 test), 0 doc tests; 4 passed, 0 failed, 0 ignored. Clippy and fmt clean. The
 normalized traces are byte-identical (sha256
-`c8206cf98ad041ac05984973857deccae560bc1e6461f1d5eb4866c8cebf647e` for both
-sides); the raw traces differ only in the root path, the generation uuid and
-generated timestamps (node raw `621eb122...`, Rust raw `4ac61ab6...`).
+`55c8fa7585b6fe209637300abd8f4115ae26698e82b281dd3987db7023468e5f` for both
+sides); the raw traces differ only in the root path, the generation uuids and
+generated timestamps (node raw `1d538fd6...`, Rust raw `46be71cb...`).
 
-Per-commit check: every commit from `7c76e71e` to `60e0d99f` passes
+Per-commit check: every commit from `7c76e71e` to `d6e37471` passes
 `cargo clippy --all-targets -D warnings` and `cargo fmt --check` on its own
 (the two `spocky-store` commits also on `spocky-session` and
 `spocky-message-receipts`). Empty stub modules fail `rustfmt --check`, so the
