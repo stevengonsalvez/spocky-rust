@@ -18,7 +18,8 @@ use spocky_daemon::hostnames::Hostnames;
 use spocky_daemon::log::{Logger, NullLogger};
 use spocky_daemon::server::{ListenHandle, Server, ServerConfig, ServerDeps, Timeouts};
 use spocky_daemon::session_api::{
-    ProtocolFailure, SessionBackend, SessionHandle, SessionOpen, SessionSink, SocketId,
+    ProtocolFailure, SessionBackend, SessionError, SessionHandle, SessionOpen, SessionSink,
+    SocketId,
 };
 use tungstenite::client::IntoClientRequest;
 use tungstenite::protocol::CloseFrame;
@@ -88,7 +89,7 @@ impl SessionHandle for Handle {
         self.used();
         self.calls.messages.lock().unwrap().push((source, message));
     }
-    fn binary_frame(&self, frame: BinaryFrame, source: SocketId) -> Result<(), String> {
+    fn binary_frame(&self, frame: BinaryFrame, source: SocketId) -> Result<(), SessionError> {
         self.used();
         let rejected =
             matches!(&frame, BinaryFrame::Terminal(terminal) if terminal.payload == b"fail");
@@ -98,7 +99,7 @@ impl SessionHandle for Handle {
             .unwrap()
             .push((source, frame));
         if rejected {
-            Err("hook failed".to_owned())
+            Err(SessionError::new("TypeError", "hook failed"))
         } else {
             Ok(())
         }
@@ -608,12 +609,31 @@ fn a_frame_with_no_known_type_reports_the_zod_issue_list() {
     harness.finish();
 }
 
+/// Fields of each error record.
+#[derive(Default)]
+struct ErrorFields(Mutex<Vec<Vec<(String, String)>>>);
+
+impl Logger for ErrorFields {
+    fn info(&self, _: &[(&str, &str)], _: &str) {}
+    fn warn(&self, _: &[(&str, &str)], _: &str) {}
+    fn error(&self, fields: &[(&str, &str)], _: &str) {
+        self.0.lock().unwrap().push(
+            fields
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect(),
+        );
+    }
+    fn fatal(&self, _: &[(&str, &str)], _: &str) {}
+}
+
 /// `maybeHandleBinaryFrame`: after the hello a message that decodes as a binary
 /// frame goes to the session, whether the WebSocket frame was binary or text,
 /// and a hook error becomes a protocol failure; the JSON path is not taken.
 #[test]
 fn a_decoded_binary_frame_reaches_the_session_hook() {
-    let harness = start(config());
+    let errors = Arc::new(ErrorFields::default());
+    let harness = start_with_logger(config(), Arc::clone(&errors) as Arc<dyn Logger>);
     let mut ws = harness.connect(&[]);
     send(&mut ws, &hello("c"));
     next_json(&mut ws);
@@ -648,6 +668,11 @@ fn a_decoded_binary_frame_reaches_the_session_hook() {
     assert_eq!(failures[0].1.error, "Invalid message: hook failed");
     assert_eq!(failures[0].1.code, "invalid_message");
     assert_eq!(failures[0].1.request_id, None);
+    // The log carries the name of what the hook threw.
+    assert_eq!(
+        errors.0.lock().unwrap()[0],
+        vec![("errorName".to_owned(), "TypeError".to_owned())]
+    );
     // 0xff 0xee does not decode and falls to the JSON path: lossy text, not JSON.
     assert!(failures[1].1.error.starts_with("Invalid message: "));
     assert!(harness.calls.messages.lock().unwrap().is_empty());

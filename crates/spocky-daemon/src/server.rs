@@ -1589,8 +1589,8 @@ impl SocketTask {
             return;
         };
         let connection = Arc::clone(connection);
-        if let Err(message) = connection.session.binary_frame(frame, self.id) {
-            self.on_raw_error("Error", &message);
+        if let Err(error) = connection.session.binary_frame(frame, self.id) {
+            self.on_raw_error(&error.name, &error.message);
         }
     }
 

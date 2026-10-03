@@ -55,6 +55,25 @@ pub struct ProtocolFailure {
     pub code: &'static str,
 }
 
+/// An error a session threw, as `handleRawMessageError` reads it: `err.name` goes
+/// to the log, `err.message` into the protocol failure. A rejection that is not
+/// an `Error` becomes `new Error(String(value))`, named `Error`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionError {
+    pub name: String,
+    pub message: String,
+}
+
+impl SessionError {
+    #[must_use]
+    pub fn new(name: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            message: message.into(),
+        }
+    }
+}
+
 /// A live session. All methods may be called from any connection thread.
 pub trait SessionHandle: Send + Sync {
     /// `getSessionId`.
@@ -79,14 +98,15 @@ pub trait SessionHandle: Send + Sync {
     /// `handleBinaryFrame(frame, ws)`: a frame `decodeBinaryFrame` accepted,
     /// from a socket that has said hello. Same threading rule as
     /// [`Self::handle_message`]. `Err` carries the message of the error the
-    /// baseline's promise rejects with; the transport logs it and sends a
-    /// protocol failure, as for any message the session could not handle. A
-    /// session without terminals or file transfers has nothing to do.
+    /// baseline's promise rejects with; the transport logs its name and sends a
+    /// protocol failure with its message, as for any message the session could
+    /// not handle. A session without terminals or file transfers has nothing to
+    /// do.
     ///
     /// # Errors
     ///
-    /// The message of the failure.
-    fn binary_frame(&self, _frame: BinaryFrame, _source: SocketId) -> Result<(), String> {
+    /// The error the session threw.
+    fn binary_frame(&self, _frame: BinaryFrame, _source: SocketId) -> Result<(), SessionError> {
         Ok(())
     }
     /// `delivery.protocolFailure(socket, { requestId, requestType, error, code })`:
