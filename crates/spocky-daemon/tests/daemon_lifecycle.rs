@@ -157,6 +157,8 @@ fn a_started_daemon_publishes_its_identity_and_serves_hello() {
 #[derive(Default)]
 struct ListeningBackend {
     told: std::sync::Mutex<Vec<ListenTarget>>,
+    /// Makes `listening` fail with this message.
+    fail: Option<&'static str>,
 }
 
 impl SessionBackend for ListeningBackend {
@@ -168,7 +170,7 @@ impl SessionBackend for ListeningBackend {
     }
     fn listening(&self, bound: &ListenTarget) -> Result<(), String> {
         self.told.lock().unwrap().push(bound.clone());
-        Ok(())
+        self.fail.map_or(Ok(()), |message| Err(message.to_owned()))
     }
 }
 
@@ -196,6 +198,45 @@ fn the_backend_is_told_the_bound_address_after_a_port_zero_bind() {
     assert!(*port != 0 && *port != 6767 && *port != 6768, "{told:?}");
     assert_eq!(format_listen_target(&told[0]), daemon.listen());
     daemon.stop();
+}
+
+/// A failure in the `'listening'` handler rejects the start in the baseline,
+/// which undoes it: the credential is deleted, the heartbeat stopped, the
+/// server closed. The start fails with the handler's message.
+#[test]
+fn a_failing_listening_hook_undoes_the_start_and_fails_it_with_the_message() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    write_config(&home, &json!({"listen": "127.0.0.1:0"}));
+    let backend = Arc::new(ListeningBackend {
+        fail: Some("agent MCP base url is unusable"),
+        ..ListeningBackend::default()
+    });
+    let logger: Arc<dyn Logger> = Arc::new(NullLogger);
+    let error = start(
+        &env(&home, &[]),
+        Arc::clone(&backend) as Arc<dyn SessionBackend>,
+        &logger,
+    )
+    .err()
+    .expect("the start must fail");
+    assert_eq!(error.0, "agent MCP base url is unusable");
+    assert!(
+        !home.join("local-credential").exists(),
+        "credential deleted"
+    );
+    assert!(!home.join("paseo.pid").exists(), "lock released");
+    let told = backend.told.lock().unwrap().clone();
+    assert_eq!(told.len(), 1, "told once: {told:?}");
+    let ListenTarget::Tcp { host, port } = &told[0] else {
+        panic!("expected a TCP target, got {:?}", told[0]);
+    };
+    let port = u16::try_from(*port).unwrap();
+    assert!(port != 6767 && port != 6768);
+    assert!(
+        TcpStream::connect((host.as_str(), port)).is_err(),
+        "the listener is closed"
+    );
 }
 
 #[test]
