@@ -34,6 +34,8 @@ use spocky_contracts::zod::{Schema, UnknownKeys, Verdict, verdict};
 use spocky_store::atomic::{FsError, mkdirp, write_file_atomic};
 use spocky_store::collate::locale_compare;
 use spocky_store::js_value::{JsObject, JsValue, parse, stringify, stringify_pretty};
+
+use crate::text::bytes_text;
 use tokio::sync::{oneshot, watch};
 
 use crate::clock::{generate_workspace_id, random_uuid};
@@ -280,7 +282,7 @@ fn read_optional(file: &Path) -> Result<Option<String>, CreationError> {
         dest: None,
         source,
     })?;
-    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+    Ok(Some(bytes_text(&bytes)))
 }
 
 fn parse_json(text: &str) -> Result<JsValue, CreationError> {
@@ -1090,9 +1092,31 @@ async fn run_steps(
 
 #[cfg(test)]
 mod tests {
-    use spocky_store::js_value::parse;
+    use spocky_store::js_value::{JsTextUnit, js_text_units, parse};
 
-    use super::digest;
+    use super::{digest, read_optional};
+
+    /// A claim file holding U+10FFFF followed by U+F0000 is read as those
+    /// characters, not as an encoded lone surrogate, and invalid UTF-8
+    /// becomes U+FFFD.
+    #[test]
+    fn a_file_read_is_javascript_text() {
+        let home =
+            std::env::temp_dir().join(format!("spocky-creation-text-{}", std::process::id()));
+        std::fs::create_dir_all(&home).expect("home");
+        let file = home.join("owner.claim");
+        std::fs::write(&file, "a\u{10FFFF}\u{F0000}b\u{FFFD}".as_bytes()).expect("write");
+        let text = read_optional(&file).expect("read").expect("present");
+        assert_eq!(text, "a\u{10FFFF}\u{10FFFF}\u{F0000}b\u{FFFD}");
+        assert!(js_text_units(&text).all(|unit| matches!(unit, JsTextUnit::Char(_))));
+        std::fs::write(&file, b"x\xffy").expect("write");
+        assert_eq!(
+            read_optional(&file).expect("read").as_deref(),
+            Some("x\u{FFFD}y")
+        );
+        assert_eq!(read_optional(&home.join("missing")).expect("read"), None);
+        std::fs::remove_dir_all(&home).expect("clean");
+    }
 
     #[test]
     fn digest_sorts_keys_and_puts_index_keys_first() {
