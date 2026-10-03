@@ -12,6 +12,8 @@ use serde::ser::{Error as _, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+use crate::text::js_trim;
+
 /// `Number.MAX_SAFE_INTEGER`, the bound zod 4 applies to `.int()`.
 pub const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
@@ -22,6 +24,113 @@ pub fn format_js_number(value: f64) -> String {
         return "0".to_owned();
     }
     ryu_js::Buffer::new().format_finite(value).to_owned()
+}
+
+/// `Number(text)`: the `StringToNumber` grammar. Whitespace is trimmed as
+/// `String.prototype.trim` does, empty text is `0`, `0x`, `0o`, and `0b`
+/// read unsigned integers, `Infinity` takes a sign, and decimal literals use
+/// ASCII digits with no separators. Anything else is `NaN`.
+#[must_use]
+pub fn js_to_number(text: &str) -> f64 {
+    let trimmed = js_trim(text);
+    if trimmed.is_empty() {
+        return 0.0;
+    }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() > 2 && bytes[0] == b'0' {
+        let radix = match bytes[1] {
+            b'x' | b'X' => Some(16),
+            b'o' | b'O' => Some(8),
+            b'b' | b'B' => Some(2),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            return radix_value(&trimmed[2..], radix);
+        }
+    }
+    let (sign, unsigned) = match bytes[0] {
+        b'+' => (1.0, &trimmed[1..]),
+        b'-' => (-1.0, &trimmed[1..]),
+        _ => (1.0, trimmed),
+    };
+    if unsigned == "Infinity" {
+        return sign * f64::INFINITY;
+    }
+    if !is_decimal_literal(unsigned) {
+        return f64::NAN;
+    }
+    // Rust rounds correctly, as V8 does; the grammar above is the JS one.
+    unsigned
+        .parse::<f64>()
+        .map_or(f64::NAN, |value| sign * value)
+}
+
+/// `StrUnsignedDecimalLiteral` without `Infinity`.
+fn is_decimal_literal(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let digits = |from: usize| {
+        bytes[from..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+    };
+    let integer = digits(0);
+    let mut end = integer;
+    let mut fraction = 0;
+    if bytes.get(end) == Some(&b'.') {
+        fraction = digits(end + 1);
+        end += 1 + fraction;
+    }
+    if integer + fraction == 0 {
+        return false;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        end += 1;
+        if matches!(bytes.get(end), Some(b'+' | b'-')) {
+            end += 1;
+        }
+        let exponent = digits(end);
+        if exponent == 0 {
+            return false;
+        }
+        end += exponent;
+    }
+    end == bytes.len()
+}
+
+/// An unsigned integer in a power-of-two radix, rounded to the nearest
+/// double (ties to even) as the exact mathematical value is.
+fn radix_value(digits: &str, radix: u32) -> f64 {
+    let bits_per_digit = radix.trailing_zeros() as usize;
+    let mut bits: Vec<bool> = Vec::with_capacity(digits.len() * bits_per_digit);
+    for character in digits.chars() {
+        let Some(value) = character.to_digit(radix) else {
+            return f64::NAN;
+        };
+        for shift in (0..bits_per_digit).rev() {
+            bits.push(value >> shift & 1 == 1);
+        }
+    }
+    if bits.is_empty() {
+        return f64::NAN;
+    }
+    let significant = &bits[bits.iter().position(|bit| *bit).unwrap_or(bits.len())..];
+    let kept = significant.len().min(64);
+    let mut top: u64 = 0;
+    for bit in &significant[..kept] {
+        top = top << 1 | u64::from(*bit);
+    }
+    if significant.len() <= 64 {
+        // `u64 as f64` rounds to nearest even.
+        #[allow(clippy::cast_precision_loss)]
+        return top as f64;
+    }
+    // Bits below the 64 kept only decide ties: fold them into a sticky bit.
+    let sticky = significant[64..].iter().any(|bit| *bit);
+    let exponent = i32::try_from(significant.len() - 64).unwrap_or(i32::MAX);
+    #[allow(clippy::cast_precision_loss)]
+    let mantissa = (top | u64::from(sticky)) as f64;
+    mantissa * 2f64.powi(exponent)
 }
 
 fn serialize_js_number<S: Serializer>(value: f64, serializer: S) -> Result<S::Ok, S::Error> {
