@@ -17,6 +17,7 @@ serde_json = "1.0.145"
 spocky-contracts = { path = "../spocky-contracts" }
 spocky-wire = { path = "../spocky-wire" }
 spocky-xterm = { path = "../spocky-xterm" }
+signal-hook = { version = "0.3.18", default-features = false }
 rustix = { version = "1.1.5", features = ["fs", "process", "pty", "termios"] }
 uuid = { version = "1.26.1", features = ["v4"] }
 
