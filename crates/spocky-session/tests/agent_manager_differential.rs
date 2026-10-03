@@ -92,9 +92,10 @@ use std::time::Duration;
 use spocky_contracts::js::{js_string, spread, spread_into};
 use spocky_session::agent_loading::{EnsureAgentLoadedDeps, ensure_agent_loaded};
 use spocky_session::agent_manager::{
-    AgentManager, AgentManagerEvent, AgentManagerOptions, CreateAgentOptions, HydrateBroadcast,
-    HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition, ReloadAgentOptions,
-    ResumeAgentOptions, SubscribeOptions, TurnEventStream, UnarchiveUpdates, WaitForAgentOptions,
+    AgentManager, AgentManagerEvent, AgentManagerOptions, AgentMetadataUpdates, CreateAgentOptions,
+    HydrateBroadcast, HydrateTimelineOptions, ImportProviderSessionRequest, ProviderDefinition,
+    ReloadAgentOptions, ResumeAgentOptions, SubscribeOptions, TurnEventStream, UnarchiveUpdates,
+    WaitForAgentOptions,
 };
 use spocky_session::agent_projection::{AgentAttention, to_agent_payload};
 use spocky_session::agent_sdk::{
@@ -252,6 +253,9 @@ const SCENARIO_TURNS: &str = r#"{
     {"name":"runtimethinking","spec":{"settable":true,"runtimeInfoExtra":{"thinkingOptionId":"low"}},"ops":[["thinking","high"]]},
     {"name":"runtimenull","spec":{"settable":true,"runtimeInfoExtra":{"thinkingOptionId":null}},"ops":[["thinking","high"]]},
     {"name":"plain","spec":{},"ops":[["mode","auto"],["model","m"],["thinking","t"],["feature","f",1]]}
+  ],
+  "spontaneousPermission": [
+    {"type":"permission_requested","provider":"fake","request":{"id":"perm-9","provider":"fake","name":"shell","kind":"tool","input":{"command":"ls"},"actions":[{"id":"allow","label":"Allow","behavior":"allow"}]}}
   ],
   "rpIdle": [
     {"type":"turn_started","provider":"fake","turnId":"turn-13"},
@@ -1221,6 +1225,64 @@ const settingsScenario = async () => {
   return out;
 };
 
+const metadataScenario = async () => {
+  const scripted = JSON.parse(scenarioTurnsJson);
+  const unknownId = "00000000-0000-4000-8000-0000000000f3";
+  const calls = [];
+  const registry = new AgentStorage(`${home}/metadata`, logger);
+  const manager = new AgentManager({ logger, registry, clients: { fake: fakeClient(calls, spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const feed = recordFeed(manager);
+  await manager.createAgent({ provider: "fake", cwd }, agentId, { labels: { lane: "one" }, workspaceId: "wks_1" });
+  await manager.createAgent({ provider: "fake", cwd }, otherId, { labels: { lane: "other" }, workspaceId: "wks_1" });
+  await manager.closeAgent(otherId);
+  await manager.flush();
+  await registry.flush();
+  const live = () => toAgentPayload(manager.getAgent(agentId));
+  const results = [];
+  const step = async (run) => results.push(await outcome(async () => { await run(); return live(); }));
+  await step(() => manager.setLabels(agentId, { lane: "two", extra: "1" }));
+  await step(() => manager.setLabels(agentId, { extra: null }));
+  await step(() => manager.setLabels(unknownId, { a: "b" }));
+  await step(() => manager.updateAgentMetadata(agentId, { title: "New title", labels: { x: "y" } }));
+  await step(() => manager.updateAgentMetadata(agentId, { title: "", labels: { x: null } }));
+  await step(() => manager.updateAgentMetadata(otherId, { title: "Stored title", labels: { s: "1", lane: null } }));
+  await step(() => manager.updateAgentMetadata(otherId, {}));
+  await step(() => manager.updateAgentMetadata(unknownId, { title: "x" }));
+  await step(() => manager.markAgentUnread(agentId));
+  await step(() => manager.markAgentUnread(agentId));
+  await step(() => manager.markAgentUnread(otherId));
+  await step(() => manager.markAgentUnread(otherId));
+  await step(() => manager.markAgentUnread(unknownId));
+  const storedAt = "2026-07-01T00:00:01.000Z";
+  const storedRecord = (suffix, extra) => ({ id: `00000000-0000-4000-8000-0000000000${suffix}`, provider: "fake", cwd, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: storedAt, lastStatus: "idle", ...extra });
+  const storedIds = {};
+  for (const [suffix, extra] of [["f4", { lastStatus: "running" }], ["f5", { archivedAt: "2026-07-01T00:00:00.000Z" }], ["f6", { internal: true }], ["f7", { requiresAttention: true }], ["f8", { updatedAt: "2099-01-01T00:00:00.000Z" }]]) {
+    const record = storedRecord(suffix, extra);
+    await registry.upsert(record);
+    storedIds[suffix] = record.id;
+    await step(() => manager.markAgentUnread(record.id));
+  }
+  const pendingCalls = [];
+  const pendingRegistry = new AgentStorage(`${home}/metadata-pending`, logger);
+  const pendingManager = new AgentManager({ logger, registry: pendingRegistry, clients: { fake: fakeClient(pendingCalls, spec("fake", { response: scripted.spontaneousPermission })) }, providerDefinitions: { fake: { enabled: true } } });
+  const pendingFeed = recordFeed(pendingManager);
+  await pendingManager.createAgent({ provider: "fake", cwd }, agentId, {});
+  await pendingManager.respondToPermission(agentId, "none", { behavior: "allow" });
+  await sleep(300);
+  const pending = await outcome(async () => { await pendingManager.markAgentUnread(agentId); return toAgentPayload(pendingManager.getAgent(agentId)); });
+  await sleep(100);
+  await manager.flush();
+  await registry.flush();
+  const bareManager = new AgentManager({ logger, clients: { fake: fakeClient([], spec("fake")) }, providerDefinitions: { fake: { enabled: true } } });
+  const noStorage = [
+    await outcome(async () => { await bareManager.markAgentUnread(unknownId); return null; }),
+    await outcome(async () => { await bareManager.updateAgentMetadata(unknownId, { title: "x" }); return null; }),
+  ];
+  const storedFixtures = {};
+  for (const [suffix, id] of Object.entries(storedIds)) storedFixtures[suffix] = await registry.get(id);
+  return { results, storedLive: await registry.get(agentId), storedOther: await registry.get(otherId), storedFixtures, pending, pendingFeed, feed, calls, noStorage };
+};
+
 const importScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
@@ -1307,7 +1369,7 @@ const archive = async () => {
   return { results, stored, afterStored, calls, feed, byHandle: { archivedRecord, unarchived, record: await byHandleRegistry.get(agentId), calls: byHandleCalls, warns } };
 };
 
-process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), settings: await settingsScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
+process.stdout.write(JSON.stringify({ main: await main(), errors: await errors(), turns: await turns(), permission: await permission(), lifecycle: await lifecycle(), subagents: await subagents(), hydration: await hydration(), resume: await resume(), titles: await titles(), runstart: await runstart(), outofband: await outofband(), shutdown: await shutdown(), loading: await loading(), replace: await replaceScenario(), rewind: await rewindScenario(), settings: await settingsScenario(), metadata: await metadataScenario(), cancelLogs: await cancelLogsScenario(), failureLogs: await failureLogsScenario(), reload: await reloadScenario(), import: await importScenario(), archive: await archive() }));
 "#;
 
 fn json(text: &str) -> JsValue {
@@ -3128,6 +3190,7 @@ async fn scenarios_match_pinned_manager() {
         ("replace", replace_scenario(&cwd, &rust_home.0).await),
         ("rewind", rewind_scenario(&cwd, &rust_home.0).await),
         ("settings", settings_scenario(&cwd, &rust_home.0).await),
+        ("metadata", metadata_scenario(&cwd, &rust_home.0).await),
         ("cancelLogs", cancel_logs_scenario(&cwd, &rust_home.0).await),
         (
             "failureLogs",
@@ -4549,6 +4612,228 @@ async fn settings_scenario(cwd: &str, home: &Path) -> JsValue {
         );
     }
     JsValue::Object(out)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one scripted scenario mirrors its node twin"
+)]
+async fn metadata_scenario(cwd: &str, home: &Path) -> JsValue {
+    const UNKNOWN: &str = "00000000-0000-4000-8000-0000000000f3";
+    let calls = Calls::default();
+    let registry = AgentStorage::new(home.join("metadata"));
+    let manager = manager_with(&calls, &registry, vec![(spec("fake"), enabled())]);
+    let feed = record_feed(&manager);
+    for (id, lane) in [(AGENT_ID, "one"), (OTHER_ID, "other")] {
+        manager
+            .create_agent(
+                object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+                Some(id.to_owned()),
+                CreateAgentOptions {
+                    labels: Some(object(vec![("lane", text(lane))])),
+                    workspace_id: Some("wks_1".to_owned()),
+                    ..CreateAgentOptions::default()
+                },
+            )
+            .await
+            .expect("create");
+    }
+    manager.close_agent(OTHER_ID).await.expect("close");
+    manager.flush().await;
+    registry.flush().await;
+    let live = || {
+        to_agent_payload(
+            &manager.get_agent(AGENT_ID).expect("agent").payload_view(),
+            None,
+        )
+        .expect("payload")
+    };
+    let updates = |title: Option<&str>, labels: Option<JsValue>| AgentMetadataUpdates {
+        title: title.map(str::to_owned),
+        labels,
+    };
+    let patch = |entries: Vec<(&str, JsValue)>| object(entries);
+    let mut results = Vec::new();
+    results.push(outcome(
+        manager
+            .set_labels(
+                AGENT_ID,
+                &patch(vec![("lane", text("two")), ("extra", text("1"))]),
+            )
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .set_labels(AGENT_ID, &patch(vec![("extra", JsValue::Null)]))
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .set_labels(UNKNOWN, &patch(vec![("a", text("b"))]))
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .update_agent_metadata(
+                AGENT_ID,
+                updates(Some("New title"), Some(patch(vec![("x", text("y"))]))),
+            )
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .update_agent_metadata(
+                AGENT_ID,
+                updates(Some(""), Some(patch(vec![("x", JsValue::Null)]))),
+            )
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .update_agent_metadata(
+                OTHER_ID,
+                updates(
+                    Some("Stored title"),
+                    Some(patch(vec![("s", text("1")), ("lane", JsValue::Null)])),
+                ),
+            )
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .update_agent_metadata(OTHER_ID, updates(None, None))
+            .await
+            .map(|()| live()),
+    ));
+    results.push(outcome(
+        manager
+            .update_agent_metadata(UNKNOWN, updates(Some("x"), None))
+            .await
+            .map(|()| live()),
+    ));
+    for id in [AGENT_ID, AGENT_ID, OTHER_ID, OTHER_ID, UNKNOWN] {
+        results.push(outcome(
+            manager.mark_agent_unread(id).await.map(|()| live()),
+        ));
+    }
+    let stored_at = "2026-07-01T00:00:01.000Z";
+    let mut stored_ids = JsObject::new();
+    for (suffix, extra) in [
+        ("f4", vec![("lastStatus", text("running"))]),
+        ("f5", vec![("archivedAt", text("2026-07-01T00:00:00.000Z"))]),
+        ("f6", vec![("internal", JsValue::Bool(true))]),
+        ("f7", vec![("requiresAttention", JsValue::Bool(true))]),
+        ("f8", vec![("updatedAt", text("2099-01-01T00:00:00.000Z"))]),
+    ] {
+        let id = format!("00000000-0000-4000-8000-0000000000{suffix}");
+        let mut record = JsObject::new();
+        record.insert("id", text(&id));
+        record.insert("provider", text("fake"));
+        record.insert("cwd", text(cwd));
+        record.insert("createdAt", text("2026-07-01T00:00:00.000Z"));
+        record.insert("updatedAt", text(stored_at));
+        record.insert("lastStatus", text("idle"));
+        for (key, value) in extra {
+            record.insert(key, value);
+        }
+        registry
+            .upsert(JsValue::Object(record))
+            .await
+            .expect("upsert");
+        results.push(outcome(
+            manager.mark_agent_unread(&id).await.map(|()| live()),
+        ));
+        stored_ids.insert(suffix, text(&id));
+    }
+    let pending_calls = Calls::default();
+    let pending_registry = AgentStorage::new(home.join("metadata-pending"));
+    let mut pending_spec = spec("fake");
+    pending_spec.response = json(SCENARIO_TURNS).get("spontaneousPermission").cloned();
+    let pending_manager = manager_with(
+        &pending_calls,
+        &pending_registry,
+        vec![(pending_spec, enabled())],
+    );
+    let pending_feed = record_feed(&pending_manager);
+    pending_manager
+        .create_agent(
+            object(vec![("provider", text("fake")), ("cwd", text(cwd))]),
+            Some(AGENT_ID.to_owned()),
+            CreateAgentOptions::default(),
+        )
+        .await
+        .expect("create");
+    pending_manager
+        .respond_to_permission(AGENT_ID, "none", object(vec![("behavior", text("allow"))]))
+        .await
+        .expect("respond");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let pending = outcome(pending_manager.mark_agent_unread(AGENT_ID).await.map(|()| {
+        to_agent_payload(
+            &pending_manager
+                .get_agent(AGENT_ID)
+                .expect("agent")
+                .payload_view(),
+            None,
+        )
+        .expect("payload")
+    }));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    manager.flush().await;
+    registry.flush().await;
+    let bare = AgentManager::new(AgentManagerOptions {
+        clients: vec![(
+            "fake".to_owned(),
+            rewind_client(spec("fake"), &Calls::default()),
+        )],
+        provider_definitions: vec![("fake".to_owned(), enabled())],
+        ..AgentManagerOptions::default()
+    });
+    let no_storage = vec![
+        outcome(
+            bare.mark_agent_unread(UNKNOWN)
+                .await
+                .map(|()| JsValue::Null),
+        ),
+        outcome(
+            bare.update_agent_metadata(UNKNOWN, updates(Some("x"), None))
+                .await
+                .map(|()| JsValue::Null),
+        ),
+    ];
+    let stored_live = registry.get(AGENT_ID).await.unwrap_or(JsValue::Null);
+    let stored_other = registry.get(OTHER_ID).await.unwrap_or(JsValue::Null);
+    let mut stored_fixtures = JsObject::new();
+    for (suffix, id) in stored_ids.iter() {
+        stored_fixtures.insert(
+            suffix,
+            registry
+                .get(id.as_str().expect("id"))
+                .await
+                .unwrap_or(JsValue::Null),
+        );
+    }
+    let pending_feed = JsValue::Array(pending_feed.lock().expect("feed").clone());
+    object(vec![
+        ("results", JsValue::Array(results)),
+        ("storedLive", stored_live),
+        ("storedOther", stored_other),
+        ("storedFixtures", JsValue::Object(stored_fixtures)),
+        ("pending", pending),
+        ("pendingFeed", pending_feed),
+        ("feed", JsValue::Array(feed.lock().expect("feed").clone())),
+        (
+            "calls",
+            JsValue::Array(calls.lock().expect("calls").clone()),
+        ),
+        ("noStorage", JsValue::Array(no_storage)),
+    ])
 }
 
 #[allow(
