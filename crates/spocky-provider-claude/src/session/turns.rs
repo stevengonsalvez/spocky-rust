@@ -9,6 +9,7 @@ use spocky_session::agent_sdk::{AgentError, AgentPromptInput, SteerResult};
 
 use super::options::provider_subagent;
 use super::{ClaudeSession, TurnState, text};
+use crate::local::{LocalBoxFuture, run_inline};
 use crate::process::ChildExit;
 use crate::prompt_attachments::render_prompt_attachment_as_text;
 use crate::sdk_query::{ClaudeQuery, PromptInput};
@@ -402,8 +403,11 @@ impl ClaudeSession {
         canceled.insert("provider", text("claude"));
         canceled.insert("reason", text("Interrupted"));
         self.finish_foreground_turn(JsValue::Object(canceled))?;
-        let session = Rc::clone(self);
-        tokio::task::spawn_local(async move { session.interrupt_active_turn().await });
+        // The synchronous prefix of `interruptActiveTurn()` runs before
+        // `requestCancel` returns; only its awaits continue on the local set.
+        if let Some(interrupt) = self.begin_interrupt() {
+            run_inline(interrupt);
+        }
         Ok(())
     }
 
@@ -531,27 +535,42 @@ impl ClaudeSession {
 
     /// `interruptActiveTurn()`.
     pub(crate) async fn interrupt_active_turn(self: &Rc<Self>) {
-        let Some(query) = self.state.borrow().query.clone() else {
-            return;
-        };
-        self.state.borrow_mut().pending_interrupt_abort = true;
-        self.discard_queued_steers(&query).await;
-        Self::await_with_timeout(Some(query.interrupt())).await;
+        if let Some(interrupt) = self.begin_interrupt() {
+            interrupt.await;
+        }
     }
 
-    async fn discard_queued_steers(&self, query: &Rc<dyn ClaudeQuery>) {
+    /// The synchronous prefix of `interruptActiveTurn()`: captures the query,
+    /// raises `pendingInterruptAbort`, clears the steer sets and issues the
+    /// first `cancelAsyncMessage`. The returned future runs the awaits.
+    fn begin_interrupt(&self) -> Option<LocalBoxFuture<'static, ()>> {
+        let query = self.state.borrow().query.clone()?;
+        self.state.borrow_mut().pending_interrupt_abort = true;
         let uuids = {
             let mut state = self.state.borrow_mut();
             state.permission_clearing_steer_uuids.clear();
             std::mem::take(&mut state.queued_steer_uuids)
         };
-        for uuid in uuids {
-            if let Some(cancel) = query.cancel_async_message(&uuid) {
-                let _ = cancel.await;
-            } else {
-                return;
+        let mut uuids = uuids.into_iter();
+        // `discardQueuedSteers`: nothing to do without a uuid; the first call
+        // is made inline.
+        let first_call = uuids
+            .next()
+            .and_then(|uuid| query.cancel_async_message(&uuid));
+        Some(Box::pin(async move {
+            if let Some(call) = first_call {
+                let _ = call.await;
+                for uuid in uuids {
+                    if let Some(call) = query.cancel_async_message(&uuid) {
+                        let _ = call.await;
+                    }
+                }
             }
-        }
+            // `await discardQueuedSteers(...)` resumes a tick after the async
+            // function returned, even when it returned at once.
+            tokio::task::yield_now().await;
+            Self::await_with_timeout(Some(query.interrupt())).await;
+        }))
     }
 
     /// `streamHistory()`: the replayed timeline, then subagent events.
