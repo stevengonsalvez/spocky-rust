@@ -134,6 +134,15 @@ async function withProcess(command, args, options, run) {
     const r = spawnSync("python", [compare, path.join(out, `${a}.json`), path.join(out, `${b}.json`), path.join(out, `${name}.json`)], { stdio: "inherit" });
     if (r.status !== 0) throw new Error(`compare ${name} failed`);
   }
+  const inputs = spawnSync(process.execPath, [path.join(scripts, "renderer-platform-inputs.cjs")], {
+    stdio: "inherit",
+    env: {
+      ...process.env, SPOCKY_INPUTS_OUT: path.join(out, "inputs.json"), SPOCKY_BUNDLE: bundle, SPOCKY_CEF_HOST: cefHost,
+      SPOCKY_APP_ASAR: path.join(ref, "packages", "desktop", "release", "win-unpacked", "resources", "app.asar"),
+      SPOCKY_WEB_EXPORT: path.join(ref, "packages", "app", "dist"), SPOCKY_HOSTB: hostB,
+    },
+  });
+  if (inputs.status !== 0) throw new Error("recording the run inputs failed");
   console.log("RENDERER_WINDOWS_GATE_OK");
 })().catch((error) => {
   console.error(error.message);
