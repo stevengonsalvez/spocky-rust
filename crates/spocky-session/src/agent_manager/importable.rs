@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use spocky_contracts::js::truthy;
+use spocky_contracts::text::js_to_lowercase;
 use spocky_store::js_value::{JsObject, JsValue};
 
 use super::AgentManager;
@@ -196,7 +197,7 @@ fn matches_importable_session_query(
     session: &ImportableProviderSession,
     raw_query: Option<&str>,
 ) -> bool {
-    let query = raw_query.map(|raw| js_trim(raw).to_lowercase());
+    let query = raw_query.map(|raw| js_to_lowercase(js_trim(raw)));
     let Some(query) = query.filter(|query| !query.is_empty()) else {
         return true;
     };
@@ -209,7 +210,7 @@ fn matches_importable_session_query(
     ]
     .into_iter()
     .flatten()
-    .any(|value| value.to_lowercase().contains(&query))
+    .any(|value| js_to_lowercase(value).contains(&query))
 }
 
 /// The end index of `array.slice(0, limit)` for an array of `len` items.
