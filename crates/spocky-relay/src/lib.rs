@@ -4,3 +4,4 @@
 //! reading) and reports the effects the BEAM process performs (messages to sockets, timers,
 //! monitors, metrics). A runner owns the sockets and the clock.
 pub mod capacity;
+pub mod writer;
