@@ -55,9 +55,10 @@ jobs:
             grep -E "DevTools listening" "variant-logs/$name.log" | head -1 || true
             if [ "$name" != verbose ]; then sleep 8; fi
           }
+          run_variant popup "" "--spocky-popup=1"
           run_variant verbose "" "--enable-logging=stderr --v=1"
           # Where is the browser process stuck? Dump all thread stacks of the host.
-          pid=$(pgrep -f "spocky-cef-host --spocky-cdp-port" | head -n 1 || true)
+          pid=$(pgrep -o -x spocky-cef-host || true)
           echo "browser pid: $pid"
           if [ -n "$pid" ]; then sudo gdb -p "$pid" -batch -ex "thread apply all bt 12" > variant-logs/gdb.txt 2>&1 || true; head -80 variant-logs/gdb.txt; fi
           echo "--- tail of plain log"; grep -v dbus variant-logs/verbose.log | tail -40 || true
