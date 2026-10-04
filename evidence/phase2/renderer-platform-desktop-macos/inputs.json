@@ -1,0 +1,26 @@
+{
+  "commit": "cdec389b750a3a49866f008a7aa845dce627db02",
+  "ci": null,
+  "os": {
+    "uname": "Darwin Stevens-MacBook-Pro-5.local 24.6.0 Darwin Kernel Version 24.6.0: Wed Nov  5 21:30:23 PST 2025; root:xnu-11417.140.69.705.2~1/RELEASE_X86_64 x86_64",
+    "sw_vers": "ProductName:\t\tmacOS\nProductVersion:\t\t15.7.3\nBuildVersion:\t\t24G419"
+  },
+  "node": "v26.7.0",
+  "electron": "44.2.0",
+  "playwrightCore": "1.58.2",
+  "referenceCommit": "5de45e208690b0efc51c59a585ae9729325a9204",
+  "gateImageId": null,
+  "cef": {
+    "archive": null,
+    "archiveSha256": null,
+    "hostBinarySha256": null
+  },
+  "dioxusBundle": null,
+  "shippedApp": {
+    "appAsarSha256": "168b498461f93c94a700a4dc40d5cb7bd75f1116d412180f0e5f6c10d141393b",
+    "webExport": {
+      "fileCount": 39,
+      "digest": "a3c81c0e7249686fdcd281a5ac4ca3b6054ee13465a4c38c3cd1dae40ef70410"
+    }
+  }
+}

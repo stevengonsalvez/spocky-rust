@@ -14,5 +14,12 @@
     "kernel": "24.6.0",
     "arch": "x86_64"
   },
+  "builtApp": {
+    "appAsarSha256": "168b498461f93c94a700a4dc40d5cb7bd75f1116d412180f0e5f6c10d141393b",
+    "webExport": {
+      "fileCount": 39,
+      "digest": "a3c81c0e7249686fdcd281a5ac4ca3b6054ee13465a4c38c3cd1dae40ef70410"
+    }
+  },
   "normalization": "none"
 }

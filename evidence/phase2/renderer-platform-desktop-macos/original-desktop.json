@@ -38,7 +38,18 @@
     "visibilityState": "visible",
     "activeElement": "body.",
     "hoverMatches": [],
-    "focusVisibleMatches": []
+    "focusVisibleMatches": [],
+    "window": {
+      "screenX": 240,
+      "screenY": 69,
+      "outerWidth": 1200,
+      "outerHeight": 800,
+      "innerWidth": 1280,
+      "innerHeight": 800,
+      "screenWidth": 1280,
+      "screenHeight": 800,
+      "devicePixelRatio": 1
+    }
   },
   "axRawFile": "original-desktop.ax.json",
   "consoleMessages": [

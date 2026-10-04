@@ -38,7 +38,18 @@
     "visibilityState": "visible",
     "activeElement": "body.",
     "hoverMatches": [],
-    "focusVisibleMatches": []
+    "focusVisibleMatches": [],
+    "window": {
+      "screenX": 240,
+      "screenY": 69,
+      "outerWidth": 1200,
+      "outerHeight": 800,
+      "innerWidth": 1280,
+      "innerHeight": 800,
+      "screenWidth": 1280,
+      "screenHeight": 800,
+      "devicePixelRatio": 1
+    }
   },
   "axRawFile": "original-repeat-desktop.ax.json",
   "consoleMessages": [
@@ -67,6 +78,15 @@
         "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
         "lineNumber": 16208,
         "columnNumber": 2160
+      }
+    },
+    {
+      "type": "warning",
+      "text": "Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 237,
+        "columnNumber": 6878
       }
     },
     {
