@@ -29,8 +29,6 @@ pub const RESERVATION_TIMEOUT_MS: u64 = 5_000;
 pub const CHECK_INTERVAL_MS: u64 = 1_000;
 /// `@pressure_recheck_ms`.
 pub const PRESSURE_RECHECK_MS: u64 = 100;
-/// Native time units per microsecond on the pinned runtime (nanosecond native unit).
-const NANOSECONDS_PER_MICROSECOND: i64 = 1_000;
 const INITIAL_MAX_SHED_BATCH: i128 = 64;
 const MAX_SHED_BATCH: i128 = 1_024;
 
@@ -40,6 +38,8 @@ pub struct Config {
     pub ingress_budget_bytes: i64,
     pub ingress_weight: i64,
     pub memory_watermark_bytes: i64,
+    /// `System.convert_time_unit(1, :second, :native)`: the unit of the clock the callers pass.
+    pub native_units_per_second: i64,
 }
 
 /// What the BEAM process does besides changing its state.
@@ -195,6 +195,7 @@ pub struct Capacity {
     pressure: Option<Pressure>,
     pressure_recheck: bool,
     next_reference: u64,
+    native_units_per_second: i64,
     effects: Vec<Effect>,
 }
 
@@ -222,6 +223,7 @@ impl Capacity {
             pressure: None,
             pressure_recheck: false,
             next_reference: 0,
+            native_units_per_second: config.native_units_per_second,
             effects: vec![Effect::ScheduleCheck],
         }
     }
@@ -384,7 +386,7 @@ impl Capacity {
     }
 
     /// `handle_call({:start_delivery, token, socket}, from, state)`: `socket` is the caller;
-    /// `now_native` is the caller's `System.monotonic_time()`: nanoseconds on the pinned runtime.
+    /// `now_native` is the caller's `System.monotonic_time()`, in the unit `Config::native_units_per_second` names.
     ///
     /// # Errors
     ///
@@ -578,6 +580,13 @@ impl Capacity {
         }
     }
 
+    /// `System.convert_time_unit(duration, :native, :microsecond)`: one floor of the exact quotient.
+    fn microseconds(&self, native: i64) -> i64 {
+        let exact = i128::from(native) * 1_000_000;
+        i64::try_from(exact.div_euclid(i128::from(self.native_units_per_second)))
+            .expect("a wait fits")
+    }
+
     fn demonitor(&mut self, monitor: Monitor) {
         self.monitored.remove(&monitor);
         self.effects.push(Effect::Demonitor(monitor));
@@ -623,8 +632,7 @@ impl Capacity {
         let delivering = message.status == MessageStatus::Delivering;
         if observe_wait && delivering {
             self.effects.push(Effect::ObserveDeliveryWait {
-                microseconds: (now_native - message.started.unwrap_or(now_native))
-                    .div_euclid(NANOSECONDS_PER_MICROSECOND),
+                microseconds: self.microseconds(now_native - message.started.unwrap_or(now_native)),
             });
         }
         self.reserved_bytes -= message.weighted_bytes;

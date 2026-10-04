@@ -198,14 +198,16 @@ fn render(baseline: &str) -> String {
         let fields: Vec<&str> = block.op.split(' ').collect();
         if let ["scenario", _, budget, weight, watermark] = fields[..] {
             let name = block.heading.expect("a scenario heading");
+            let native = input(&block, "native");
             let config = Config {
                 ingress_budget_bytes: budget.parse().unwrap(),
                 ingress_weight: weight.parse().unwrap(),
                 memory_watermark_bytes: watermark.parse().unwrap(),
+                native_units_per_second: native,
             };
             let fresh = Machine::new(config);
             out.push(format!(
-                "# {name}\n> {}\n= ok\n{}",
+                "# {name}\n> {}\n= ok\n~ native={native}\n{}",
                 block.op,
                 fresh.state_line()
             ));
@@ -781,6 +783,7 @@ fn scenario(random: &mut Random, index: usize, out: &mut String) {
         ingress_budget_bytes: budget,
         ingress_weight: weight,
         memory_watermark_bytes: 0,
+        native_units_per_second: 1_000_000_000,
     });
     writeln!(out, "{heading}").unwrap();
     let processes = 2 + random.below(6);

@@ -12,6 +12,7 @@ fn capacity(watermark: i64) -> Capacity {
         ingress_budget_bytes: 1_000_000,
         ingress_weight: 1,
         memory_watermark_bytes: watermark,
+        native_units_per_second: 1_000_000_000,
     })
 }
 
@@ -114,14 +115,25 @@ fn more_candidates_than_the_first_batch_cap_wait_for_the_next_pass() {
 
 #[test]
 fn the_delivery_wait_floors_the_native_difference_once() {
-    for (elapsed, microseconds) in [
-        (0, 0),
-        (999, 0),
-        (1_000, 1),
-        (1_999, 1),
-        (2_000_000_001, 2_000_000),
+    // (native units per second, elapsed native units, microseconds): the unit is what
+    // `System.convert_time_unit(1, :second, :native)` reports, nanoseconds on the pinned runtime.
+    for (unit, elapsed, microseconds) in [
+        (1_000_000_000, 0, 0),
+        (1_000_000_000, 999, 0),
+        (1_000_000_000, 1_000, 1),
+        (1_000_000_000, 1_999, 1),
+        (1_000_000_000, 2_000_000_001, 2_000_000),
+        (1_000_000, 3, 3),
+        (3, 2, 666_666),
     ] {
-        let mut capacity = with_socket(0);
+        let mut capacity = Capacity::new(Config {
+            ingress_budget_bytes: 1_000_000,
+            ingress_weight: 1,
+            memory_watermark_bytes: 0,
+            native_units_per_second: unit,
+        });
+        let token = capacity.admit_connection("a", 1, Pid(1), true).unwrap();
+        capacity.attach_connection(token, Pid(1)).unwrap();
         let message = capacity.admit_message(Pid(1), 10).expect("admitted");
         capacity.take_effects();
         capacity
@@ -132,7 +144,7 @@ fn the_delivery_wait_floors_the_native_difference_once() {
             capacity
                 .take_effects()
                 .contains(&Effect::ObserveDeliveryWait { microseconds }),
-            "elapsed {elapsed}"
+            "unit {unit} elapsed {elapsed}"
         );
     }
 }
@@ -164,10 +176,15 @@ fn a_stale_active_key_panics_after_the_earlier_victims_were_reported() {
             Effect::MemoryPressureDisconnect
         ]
     );
-    let fresh = Capacity::new(Config {
+    // The crashed Capacity held state (two sockets, three connections); the runner's reset leaves
+    // none of it.
+    assert_ne!(capacity.sizes(), [0; 5]);
+    let reset = Capacity::new(Config {
         ingress_budget_bytes: 1_000_000,
         ingress_weight: 1,
         memory_watermark_bytes: 1_000_000_000,
+        native_units_per_second: 1_000_000_000,
     });
-    assert_eq!(fresh.sizes(), [0; 5]);
+    assert_eq!(reset.sizes(), [0; 5]);
+    assert!(reset.pressure().is_none());
 }
