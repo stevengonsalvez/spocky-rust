@@ -102,7 +102,12 @@ async function withProcess(command, args, options, run) {
     for (const name of ["candidate-electron-desktop", "candidate-electron-repeat-desktop"]) {
       const cdpPort = await freePort();
       fs.copyFileSync(path.join(scripts, "renderer-platform-electron-host.cjs"), path.join(hostB, "renderer-platform-electron-host.cjs"));
-      const electron = path.join(hostB, "node_modules", "electron", "dist", "electron.exe");
+      // The electron package exports the path of the binary it installed.
+      const resolved = spawnSync(process.execPath, ["-p", "require('electron')"], { cwd: hostB, encoding: "utf8" });
+      const electron = resolved.stdout.trim();
+      if (resolved.status !== 0 || !fs.existsSync(electron)) {
+        throw new Error(`Electron binary not found in ${hostB}: ${resolved.stderr.trim() || electron}`);
+      }
       await withProcess(electron, ["renderer-platform-electron-host.cjs"], { cwd: hostB, env: { ...process.env, CDP_PORT: String(cdpPort), HOST_BOUND_MS: "600000" } }, async () => {
         await waitCdp(cdpPort);
         capture(cdpPort, bundleUrl, name, "candidate");
