@@ -17,6 +17,22 @@ until xdpyinfo -display :99 >/dev/null 2>&1; do
   sleep 0.1
 done
 
+# An idle X pointer sits at the screen centre, inside a tile of this screen, and the real
+# pointer (not a synthetic CDP move) decides :hover. Park the real pointer in a corner.
+park_pointer() {
+  python3 - <<'PY'
+import ctypes
+x11 = ctypes.CDLL("libX11.so.6")
+x11.XOpenDisplay.restype = ctypes.c_void_p
+display = x11.XOpenDisplay(None)
+assert display, "cannot open the X display"
+root = x11.XDefaultRootWindow(ctypes.c_void_p(display))
+x11.XWarpPointer(ctypes.c_void_p(display), 0, root, 0, 0, 0, 0, 1279, 799)
+x11.XFlush(ctypes.c_void_p(display))
+x11.XCloseDisplay(ctypes.c_void_p(display))
+PY
+}
+
 free_port() {
   python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
@@ -75,6 +91,7 @@ kill_by_arg() {
 
 shipped() {
   name=$1
+  park_pointer
   home=$(mktemp -d /tmp/paseo-home.XXXXXX)
   daemon_port=$(free_port); refuse_6767 "$daemon_port"
   cdp=$(free_port); refuse_6767 "$cdp"
@@ -97,6 +114,7 @@ PY
 }
 host_a() {
   name=$1
+  park_pointer
   cdp=$(free_port); refuse_6767 "$cdp"
   cache=$(mktemp -d /tmp/cef-cache.XXXXXX)
   echo "missing shared libraries for the CEF host: $(ldd /cefbuild/Release/spocky-cef-host /cefbuild/Release/libcef.so 2>&1 | grep 'not found' || echo none)"
@@ -111,6 +129,7 @@ host_a() {
 }
 host_b() {
   name=$1
+  park_pointer
   cdp=$(free_port); refuse_6767 "$cdp"
   cp "$scripts/renderer-platform-electron-host.cjs" /hostb/
   (cd /hostb && setsid env CDP_PORT="$cdp" HOST_BOUND_MS=600000 node_modules/.bin/electron --no-sandbox renderer-platform-electron-host.cjs) \
