@@ -36,7 +36,8 @@ struct Machine {
     /// Live monitors, timers and the recheck flag, derived from the effects the port reports.
     monitors: BTreeMap<Monitor, Pid>,
     timers: BTreeSet<Token>,
-    recheck: bool,
+    /// Armed rechecks: a count, so a double `SchedulePressureRecheck` shows.
+    recheck: u32,
     scheduled_checks: u64,
 }
 
@@ -56,7 +57,7 @@ impl Machine {
             next_pid: 0,
             monitors: BTreeMap::new(),
             timers: BTreeSet::new(),
-            recheck: false,
+            recheck: 0,
             scheduled_checks: 0,
         }
     }
@@ -92,7 +93,7 @@ impl Machine {
                     self.monitors.remove(&monitor);
                 }
                 Effect::ScheduleCheck => self.scheduled_checks += 1,
-                Effect::SchedulePressureRecheck => self.recheck = true,
+                Effect::SchedulePressureRecheck => self.recheck += 1,
             }
         }
     }
@@ -326,7 +327,7 @@ fn step(
         }
         ["recheck"] => {
             let memory = input(block, "memory");
-            machine.recheck = false;
+            machine.recheck = machine.recheck.saturating_sub(1);
             machine.capacity.pressure_recheck(memory);
             inputs.push(format!("memory={memory}"));
             "ok".to_owned()
@@ -674,6 +675,26 @@ attach p3 c3
 set_watermark_rel -1000000000000
 check_now
 set_watermark_abs 0
+# start_delivery under pressure: the message was admitted before, the socket was not shed
+scenario pressure_start 1000000 1 0
+spawn p1
+spawn p2
+spawn p3
+admit p1 a 9 p1
+admit p2 a 9 p2
+admit p3 a 9 p3
+attach p1 c1
+attach p2 c2
+attach p3 c3
+msg p1 10
+msg p2 10
+set_watermark_rel -16777216
+check_now
+start p1 m1
+start p2 m2
+msg p1 5
+set_watermark_abs 0
+start p1 m1
 # pressure with nothing to shed, and recovery
 scenario pressure_idle 1000000 1 0
 spawn p1
@@ -765,6 +786,7 @@ fn scenario(random: &mut Random, index: usize, out: &mut String) {
     let mut pressure = false;
     // The relay re-checks 100 ms after a shed, so the script ends soon after the first one.
     let mut after_shed = 0;
+    let mut starts: Vec<(usize, u64)> = Vec::new();
     let length = 25 + random.below(45);
     for _ in 0..length {
         if after_shed > 6 {
@@ -801,6 +823,13 @@ fn scenario(random: &mut Random, index: usize, out: &mut String) {
         };
         let connection = pick(random, 'c', &sim);
         let message = pick(random, 'm', &sim);
+        if after_shed > 0
+            && random.below(2) == 0
+            && let Some((owner, token)) = starts.pop()
+            && !dead.contains(&owner)
+        {
+            emit(out, &mut sim, &format!("start p{owner} m{token}"));
+        }
         let op = match random.below(26) {
             0..=3 => {
                 let holder = if !free.is_empty() && random.below(5) != 0 {
@@ -856,6 +885,15 @@ fn scenario(random: &mut Random, index: usize, out: &mut String) {
             21 | 22 => {
                 let delta = WATERMARK_DELTAS[random.below(WATERMARK_DELTAS.len())];
                 pressure = true;
+                // Messages admitted before the pressure, for starts that meet it.
+                for _ in 0..2 {
+                    let other = live[random.below(live.len())];
+                    let before = sim.counters[1];
+                    emit(out, &mut sim, &format!("msg p{other} 10"));
+                    if sim.counters[1] > before {
+                        starts.push((other, sim.counters[1]));
+                    }
+                }
                 Some(format!("set_watermark_rel {delta}"))
             }
             23..=25 if pressure => {
