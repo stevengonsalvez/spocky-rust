@@ -28,10 +28,10 @@ The approved divergence table lives in `porting/inventory-summary.md`. The
 V8 stack-depth family is listed here because it affects observable boundaries:
 
 - DIV-001: JSON stringify and zod recursion depth in `spocky-store`.
-- DIV-003: Hub public API `MAX_JOIN_DEPTH` 4,500 in
-  `crates/spocky-hub-pilot/src/public_api/validation.rs`. The baseline joins
-  4,400 levels and throws `RangeError` at 4,600; depths in between are not
-  compared.
+- DIV-003: Hub public API `MAX_JOIN_DEPTH` 3,100 in
+  `crates/spocky-hub-pilot/src/public_api/validation.rs`. On the pinned node
+  22.20.0 the baseline joins 3,000 levels and throws `RangeError` at 3,200;
+  depths in between are not compared.
 - DIV-004: session create-hook `Outcome::TooDeep` in
   `crates/spocky-session/src/agent_manager/create.rs`. The `RangeError` text
   matches V8; the trigger depth is the zod port's recursion boundary, not
