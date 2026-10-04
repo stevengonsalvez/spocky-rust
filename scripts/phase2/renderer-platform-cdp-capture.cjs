@@ -48,7 +48,7 @@ async function waitForProductState(page) {
     }
   } catch (error) {
     const text = await page.locator("body").innerText().catch(() => "");
-    throw new Error(`product state not reached at ${page.url()}: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
+    throw new Error(`product state not reached at ${page.url()}: ${text}`);
   }
   if (mode === "desktop") {
     // The desktop app renders the Pair device tile only after it has resolved its local
@@ -74,7 +74,7 @@ async function settle(page) {
 
 async function interactionState(page) {
   return page.evaluate(() => {
-    const text = (element) => element.innerText?.replace(/\s+/g, " ").trim() ?? "";
+    const text = (element) => element.innerText ?? "";
     const role = (element) => {
       const explicit = element.getAttribute("role");
       if (explicit) return explicit;
@@ -130,7 +130,7 @@ async function focusCycle(page) {
           tag,
           role,
           label: active.getAttribute("aria-label"),
-          text: active.innerText?.trim().replace(/\s+/g, " ").slice(0, 120) ?? null,
+          text: active.innerText ?? null,
           disabled: active.hasAttribute("disabled") || active.getAttribute("aria-disabled") === "true",
         },
       };
@@ -151,7 +151,7 @@ async function activate(page, selector) {
   } catch (error) {
     const text = await page.locator("body").innerText().catch(() => "");
     await page.screenshot({ path: path.join(outDir, `${name}-failure.png`) }).catch(() => {});
-    throw new Error(`activation control ${selector} not visible at ${page.url()}: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
+    throw new Error(`activation control ${selector} not visible at ${page.url()}: ${text}`);
   }
   await control.focus();
   const urlBefore = page.url();
@@ -235,6 +235,22 @@ function simplifyAxTree(nodes) {
       },
       { port: daemonPort },
     );
+    // Raw page output, every entry as the browser reported it: console messages, page
+    // errors, failed requests, and HTTP error responses. Nothing is filtered or summarized.
+    const consoleMessages = [];
+    const pageErrors = [];
+    const failedRequests = [];
+    const errorResponses = [];
+    page.on("console", (message) => {
+      consoleMessages.push({ type: message.type(), text: message.text(), location: message.location() });
+    });
+    page.on("pageerror", (error) => pageErrors.push({ message: error.message, stack: error.stack ?? null }));
+    page.on("requestfailed", (request) => {
+      failedRequests.push({ url: request.url(), method: request.method(), failure: request.failure()?.errorText ?? null });
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) errorResponses.push({ url: response.url(), status: response.status() });
+    });
     const version = await session.send("Browser.getVersion");
     if (mode === "desktop") {
       // The packaged app opens its own page. Wait for it to be the app, then reuse its URL.
@@ -286,7 +302,10 @@ function simplifyAxTree(nodes) {
     const screenshotPath = path.join(outDir, `${name}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     const png = fs.readFileSync(screenshotPath);
-    const axTree = simplifyAxTree((await session.send("Accessibility.getFullAXTree")).nodes);
+    // The raw accessibility response is authoritative; axTree is a structural projection of it.
+    const axRaw = await session.send("Accessibility.getFullAXTree");
+    fs.writeFileSync(path.join(outDir, `${name}.ax.json`), `${JSON.stringify(axRaw, null, 2)}\n`);
+    const axTree = simplifyAxTree(axRaw.nodes);
     const result = {
       name,
       mode,
@@ -299,6 +318,11 @@ function simplifyAxTree(nodes) {
       gateConditions: { colorScheme: "light", reducedMotion: "reduce", viewport, deviceScaleFactor: 1, pointer: [viewport.width - 1, viewport.height - 1] },
       environment,
       pageFocus,
+      axRawFile: `${name}.ax.json`,
+      consoleMessages,
+      pageErrors,
+      failedRequests,
+      errorResponses,
       readiness,
       screenshot: {
         file: `${name}.png`,
