@@ -5743,6 +5743,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-win-locale"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "spocky-wire"
 version = "0.1.0"
 dependencies = [

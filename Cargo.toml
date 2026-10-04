@@ -24,6 +24,7 @@ members = [
   "crates/spocky-terminal",
   "crates/spocky-ui-pilot",
   "crates/spocky-ui-renderer-pilot",
+  "crates/spocky-win-locale",
   "crates/spocky-wire",
   "crates/spocky-xterm",
 ]
