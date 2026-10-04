@@ -39,6 +39,8 @@ struct Machine {
     /// Armed rechecks: a count, so a double `SchedulePressureRecheck` shows.
     recheck: u32,
     scheduled_checks: u64,
+    /// `:check` messages the relay handled; the relay keeps exactly one armed at all times.
+    checks_run: u64,
 }
 
 impl Machine {
@@ -59,6 +61,7 @@ impl Machine {
             timers: BTreeSet::new(),
             recheck: 0,
             scheduled_checks: 0,
+            checks_run: 0,
         }
     }
 
@@ -214,6 +217,14 @@ fn render(baseline: &str) -> String {
         let mut inputs: Vec<String> = Vec::new();
         let reply = step(machine, &fields, &block, &mut inputs);
         machine.drain_effects();
+        // The relay's timer count is not observable from outside, so the replay asserts the
+        // invariant after every operation: one `:check` armed (`capacity.ex:54`, `:297`).
+        assert_eq!(
+            machine.scheduled_checks - machine.checks_run,
+            1,
+            "one :check armed after {}",
+            block.op
+        );
         let mut lines = vec![format!("> {}", block.op), format!("= {reply}")];
         lines.extend(inputs.iter().map(|line| format!("~ {line}")));
         if !machine.received.is_empty() {
@@ -322,6 +333,7 @@ fn step(
                 before + 1,
                 ":check re-arms itself"
             );
+            machine.checks_run += 1;
             inputs.push(format!("memory={memory}"));
             "ok".to_owned()
         }
