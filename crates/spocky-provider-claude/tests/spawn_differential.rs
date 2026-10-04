@@ -367,6 +367,23 @@ fn scenarios() -> Vec<(&'static str, String)> {
             ),
         ),
         (
+            "cwd_is_a_file",
+            format!(
+                r#"{{"observe":true,"config":{}}}"#,
+                base("").replace("<cwd>", "<cwd>-file")
+            ),
+        ),
+        (
+            "argument_list_too_long",
+            format!(
+                r#"{{"observe":true,"config":{}}}"#,
+                base(&format!(
+                    r#","providerOptions":{{"extraArgs":{{"big":"{}"}}}}"#,
+                    "x".repeat(2_000_000)
+                ))
+            ),
+        ),
+        (
             "resume",
             format!(
                 r#"{{"resume":{{"provider":"claude","sessionId":"sess-abc","nativeHandle":"sess-abc","metadata":{}}}}}"#,
@@ -386,6 +403,7 @@ fn spawns_match_the_pinned_build() {
     std::fs::create_dir_all(scratch.join("home")).expect("scratch");
     let cwd = scratch.join("cwd");
     std::fs::create_dir_all(&cwd).expect("cwd");
+    std::fs::write(scratch.join("cwd-file"), "").expect("a file to use as a cwd");
     let recorder = scratch.join("recorder.sh");
     std::fs::write(&recorder, RECORDER).expect("recorder");
     #[cfg(unix)]
