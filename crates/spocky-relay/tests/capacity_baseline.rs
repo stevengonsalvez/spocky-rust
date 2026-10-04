@@ -9,8 +9,8 @@
 #![allow(clippy::too_many_lines)]
 
 use spocky_relay::capacity::{
-    AdmitConnectionError, AdmitMessageError, Capacity, Config, Effect, Pid, StartDeliveryError,
-    Token,
+    AdmitConnectionError, AdmitMessageError, Capacity, Config, Effect, Monitor, Pid,
+    StartDeliveryError, Token,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +33,11 @@ struct Machine {
     waits: i64,
     received: Vec<String>,
     next_pid: u64,
+    /// Live monitors, timers and the recheck flag, derived from the effects the port reports.
+    monitors: BTreeMap<Monitor, Pid>,
+    timers: BTreeSet<Token>,
+    recheck: bool,
+    scheduled_checks: u64,
 }
 
 impl Machine {
@@ -49,6 +54,10 @@ impl Machine {
             waits: 0,
             received: Vec::new(),
             next_pid: 0,
+            monitors: BTreeMap::new(),
+            timers: BTreeSet::new(),
+            recheck: false,
+            scheduled_checks: 0,
         }
     }
 
@@ -70,13 +79,26 @@ impl Machine {
                 }
                 Effect::MemoryPressureDisconnect => self.disconnects += 1,
                 Effect::ObserveDeliveryWait { .. } => self.waits += 1,
-                _ => {}
+                Effect::StartReservationTimer(token) => {
+                    self.timers.insert(token);
+                }
+                Effect::CancelReservationTimer(token) => {
+                    self.timers.remove(&token);
+                }
+                Effect::Monitor { monitor, pid } => {
+                    self.monitors.insert(monitor, pid);
+                }
+                Effect::Demonitor(monitor) => {
+                    self.monitors.remove(&monitor);
+                }
+                Effect::ScheduleCheck => self.scheduled_checks += 1,
+                Effect::SchedulePressureRecheck => self.recheck = true,
             }
         }
     }
 
     fn tick(&mut self) -> i64 {
-        self.clock += 1_000;
+        self.clock += 1_000_000;
         self.clock
     }
 
@@ -100,12 +122,15 @@ impl Machine {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "state gauges={},{},{},{} pressure={pressure} active={} blocked={} sizes={sizes} \
-             metrics={},{}",
+            "state gauges={},{},{},{} pressure={pressure} recheck={} monitors={} timers={} \
+             active={} blocked={} sizes={sizes} metrics={},{}",
             gauges.active_websockets,
             gauges.ingress_reserved_bytes,
             gauges.inflight_delivery_bytes,
             gauges.backpressured_sources,
+            self.recheck,
+            self.monitors.len(),
+            self.timers.len(),
             names(self.capacity.active_order()),
             names(self.capacity.blocked_order()),
             self.disconnects,
@@ -191,9 +216,7 @@ fn render(baseline: &str) -> String {
         let mut lines = vec![format!("> {}", block.op), format!("= {reply}")];
         lines.extend(inputs.iter().map(|line| format!("~ {line}")));
         if !machine.received.is_empty() {
-            let mut received = machine.received.clone();
-            received.sort();
-            lines.push(format!("@ {}", received.join(" ")));
+            lines.push(format!("@ {}", machine.received.join(" ")));
         }
         lines.push(machine.state_line());
         out.push(lines.join("\n"));
@@ -219,6 +242,8 @@ fn step(
             let pid = machine.pid(name);
             machine.dead.insert((*name).to_owned());
             machine.capacity.process_down(pid);
+            // The exit message removes every monitor on the process.
+            machine.monitors.retain(|_, watched| *watched != pid);
             "ok".to_owned()
         }
         ["admit", _caller, namespace, limit, holder] => {
@@ -288,12 +313,20 @@ fn step(
         }
         ["check"] => {
             let memory = input(block, "memory");
+            let before = machine.scheduled_checks;
             machine.capacity.check(memory);
+            machine.drain_effects();
+            assert_eq!(
+                machine.scheduled_checks,
+                before + 1,
+                ":check re-arms itself"
+            );
             inputs.push(format!("memory={memory}"));
             "ok".to_owned()
         }
         ["recheck"] => {
             let memory = input(block, "memory");
+            machine.recheck = false;
             machine.capacity.pressure_recheck(memory);
             inputs.push(format!("memory={memory}"));
             "ok".to_owned()
@@ -549,6 +582,98 @@ set_watermark_abs 0
 check_now
 status a 9
 msg p5 1
+# batch sizes, continued pressure below the watermark, and recovery. The relay re-checks 100 ms
+# after a shed, so each scenario keeps its pressure phase short.
+scenario batches_continue 1000000 1 0
+spawn p1
+spawn p2
+spawn p3
+spawn p4
+spawn p5
+spawn p6
+admit p1 a 9 p1
+admit p2 a 9 p2
+admit p3 a 9 p3
+admit p4 a 9 p4
+admit p5 a 9 p5
+admit p6 a 9 p6
+attach p1 c1
+attach p2 c2
+attach p3 c3
+attach p4 c4
+attach p5 c5
+msg p2 10
+start p2 m1
+set_watermark_rel -50331627
+check_now
+status a 9
+set_watermark_rel 16777216
+check_now
+set_watermark_abs 0
+scenario batches_recover 1000000 1 0
+spawn p1
+spawn p2
+spawn p3
+spawn p4
+spawn p5
+spawn p6
+admit p1 a 9 p1
+admit p2 a 9 p2
+admit p3 a 9 p3
+admit p4 a 9 p4
+admit p5 a 9 p5
+admit p6 a 9 p6
+attach p1 c1
+attach p2 c2
+attach p3 c3
+attach p4 c4
+attach p5 c5
+msg p2 10
+start p2 m1
+set_watermark_rel -50331627
+check_now
+set_watermark_rel 50331627
+check_now
+status a 9
+admit p6 a 9 p6
+set_watermark_abs 0
+scenario batches_grow 1000000 1 0
+spawn p1
+spawn p2
+spawn p3
+spawn p4
+spawn p5
+spawn p6
+admit p1 a 9 p1
+admit p2 a 9 p2
+admit p3 a 9 p3
+admit p4 a 9 p4
+admit p5 a 9 p5
+admit p6 a 9 p6
+attach p1 c1
+attach p2 c2
+attach p3 c3
+attach p4 c4
+attach p5 c5
+msg p2 10
+start p2 m1
+set_watermark_rel -83886045
+check_now
+check_now
+set_watermark_abs 0
+scenario batches_cap 1000000 1 0
+spawn p1
+spawn p2
+spawn p3
+admit p1 a 9 p1
+admit p2 a 9 p2
+admit p3 a 9 p3
+attach p1 c1
+attach p2 c2
+attach p3 c3
+set_watermark_rel -1000000000000
+check_now
+set_watermark_abs 0
 # pressure with nothing to shed, and recovery
 scenario pressure_idle 1000000 1 0
 spawn p1
@@ -580,71 +705,169 @@ fn write_ops() {
     .unwrap();
 }
 
+/// Watermarks relative to the BEAM memory reading. The shed batch is
+/// `ceil((memory - watermark) / 33554418)` (at least 1): each delta sits in the middle of a step
+/// so the reading's drift does not change it. A watermark above the reading by more than the
+/// recovery margin (a 33554418 byte step) lets a later check clear the pressure.
+const WATERMARK_DELTAS: [i64; 9] = [
+    -16_777_216,
+    -16_777_216,
+    -50_331_627,
+    -83_886_045,
+    -117_440_463,
+    -1_000_000_000_000,
+    16_777_216,
+    50_331_627,
+    100_000_000,
+];
+
+/// Writes one operation and runs it on the port, so the generator knows which tokens exist.
+/// The memory and watermark inputs are fixed (no pressure): the replay supplies the real ones, and
+/// the pressure phase at the end of a scenario is short.
+fn emit(out: &mut String, machine: &mut Machine, op: &str) {
+    use std::fmt::Write;
+    writeln!(out, "{op}").unwrap();
+    let block = Block {
+        heading: None,
+        op: "",
+        inputs: vec!["memory=0", "watermark=100000000"],
+    };
+    let fields: Vec<&str> = op.split(' ').collect();
+    machine.received.clear();
+    step(machine, &fields, &block, &mut Vec::new());
+    machine.drain_effects();
+}
+
 fn scenario(random: &mut Random, index: usize, out: &mut String) {
     use std::fmt::Write;
-    let budget = [1_000, 5_000, 1_000_000][random.below(3)];
-    let weight = 1 + random.below(4);
+    let budget: i64 = [1_000, 5_000, 1_000_000][random.below(3)];
+    let weight = i64::try_from(1 + random.below(4)).unwrap();
     writeln!(out, "# generated {index}").unwrap();
-    writeln!(out, "scenario generated{index} {budget} {weight} 0").unwrap();
-    let processes = 2 + random.below(5);
+    let heading = format!("scenario generated{index} {budget} {weight} 0");
+    let mut sim = Machine::new(Config {
+        ingress_budget_bytes: budget,
+        ingress_weight: weight,
+        memory_watermark_bytes: 0,
+    });
+    writeln!(out, "{heading}").unwrap();
+    let processes = 2 + random.below(6);
     for process in 1..=processes {
-        writeln!(out, "spawn p{process}").unwrap();
+        emit(out, &mut sim, &format!("spawn p{process}"));
     }
+    let limits = [1 + random.below(3), 1 + random.below(3)];
     let mut dead: BTreeSet<usize> = BTreeSet::new();
-    let mut admitted: BTreeSet<usize> = BTreeSet::new();
-    let (mut connections, mut messages) = (0, 0);
+    // A process holds one connection at a time in the relay (the request process). A second
+    // attach by the same holder overwrites its socket entry and leaves a stale key in the
+    // `active` tree that crashes the next shed (the process restarts, see the evidence), so
+    // the script gives each live process at most one connection as holder; further admits name
+    // a dead process.
+    let mut held: BTreeSet<usize> = BTreeSet::new();
     let mut pressure = false;
-    let length = 20 + random.below(40);
+    // The relay re-checks 100 ms after a shed, so the script ends soon after the first one.
+    let mut after_shed = 0;
+    let length = 25 + random.below(45);
     for _ in 0..length {
+        if after_shed > 6 {
+            break;
+        }
+        if after_shed > 0 {
+            after_shed += 1;
+        }
         let live: Vec<usize> = (1..=processes).filter(|p| !dead.contains(p)).collect();
         if live.is_empty() {
             break;
         }
         let caller = live[random.below(live.len())];
-        // A process holds one connection at a time in the relay (the request process). A second
-        // attach by the same holder overwrites its socket entry and leaves a stale key in the
-        // `active` tree that crashes the next shed (the process restarts), so the script avoids
-        // it: each process admits for itself once, other holders are dead processes.
-        let holder = match dead.iter().next() {
-            Some(&gone) if random.below(6) == 0 => gone,
-            _ => caller,
+        let free: Vec<usize> = live.iter().copied().filter(|p| !held.contains(p)).collect();
+        let namespace_index = random.below(2);
+        let namespace = ["a", "b"][namespace_index];
+        let limit = if random.below(12) == 0 {
+            1 + random.below(3)
+        } else {
+            limits[namespace_index]
         };
-        let namespace = ["a", "b"][random.below(2)];
-        let limit = 1 + random.below(3);
-        let connection = format!("c{}", 1 + random.below(connections + 2));
-        let message = format!("m{}", 1 + random.below(messages + 2));
-        match random.below(24) {
-            0..=3 if holder != caller || admitted.insert(caller) => {
-                writeln!(out, "admit p{caller} {namespace} {limit} p{holder}").unwrap();
-                connections += 1;
+        // Mostly tokens that exist, sometimes a stale or unknown one.
+        let pick = |random: &mut Random, prefix: char, sim: &Machine| {
+            let known: Vec<&String> = sim
+                .tokens
+                .keys()
+                .filter(|k| k.starts_with(prefix))
+                .collect();
+            if known.is_empty() || random.below(6) == 0 {
+                format!("{prefix}{}", 1 + random.below(known.len() + 2))
+            } else {
+                known[random.below(known.len())].clone()
             }
-            4..=6 => writeln!(out, "attach p{caller} {connection}").unwrap(),
-            7..=10 => {
+        };
+        let connection = pick(random, 'c', &sim);
+        let message = pick(random, 'm', &sim);
+        let op = match random.below(26) {
+            0..=3 => {
+                let holder = if !free.is_empty() && random.below(5) != 0 {
+                    // Mostly the caller itself; sometimes another live process.
+                    let own = free.contains(&caller);
+                    let holder = if own && random.below(3) != 0 {
+                        caller
+                    } else {
+                        free[random.below(free.len())]
+                    };
+                    held.insert(holder);
+                    Some(holder)
+                } else {
+                    dead.iter().next().copied()
+                };
+                if let Some(holder) = holder {
+                    emit(
+                        out,
+                        &mut sim,
+                        &format!("admit p{caller} {namespace} {limit} p{holder}"),
+                    );
+                    // The request process attaches right after it is admitted.
+                    if holder == caller && random.below(5) != 0 && sim.counters[0] > 0 {
+                        Some(format!("attach p{caller} c{}", sim.counters[0]))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            4..=7 => Some(format!("attach p{caller} {connection}")),
+            8..=10 => {
                 let bytes = [1, 10, 100, 250, 999, 1_001][random.below(6)];
-                writeln!(out, "msg p{caller} {bytes}").unwrap();
-                messages += 1;
+                emit(out, &mut sim, &format!("msg p{caller} {bytes}"));
+                let latest = sim.counters[1];
+                if random.below(2) == 0 && latest > 0 {
+                    Some(format!("start p{caller} m{latest}"))
+                } else {
+                    None
+                }
             }
-            11..=13 => writeln!(out, "start p{caller} {message}").unwrap(),
-            14 | 15 => writeln!(out, "finish p{caller} {message}").unwrap(),
-            16 => writeln!(out, "cancel p{caller} {message}").unwrap(),
-            17 => writeln!(out, "release p{caller} {connection}").unwrap(),
-            18 => writeln!(out, "expire {connection}").unwrap(),
+            11..=13 => Some(format!("start p{caller} {message}")),
+            14 | 15 => Some(format!("finish p{caller} {message}")),
+            16 => Some(format!("cancel p{caller} {message}")),
+            17 => Some(format!("release p{caller} {connection}")),
+            18 => Some(format!("expire {connection}")),
             19 if live.len() > 1 => {
-                writeln!(out, "kill p{caller}").unwrap();
                 dead.insert(caller);
+                Some(format!("kill p{caller}"))
             }
-            20 => writeln!(out, "status {namespace} {limit}").unwrap(),
-            21 if !pressure => {
-                writeln!(out, "set_watermark_rel -16777216").unwrap();
+            20 => Some(format!("status {namespace} {limit}")),
+            21 | 22 => {
+                let delta = WATERMARK_DELTAS[random.below(WATERMARK_DELTAS.len())];
                 pressure = true;
+                Some(format!("set_watermark_rel {delta}"))
             }
-            22 if pressure => writeln!(
-                out,
-                "{}",
-                ["check_now", "check", "recheck"][random.below(3)]
-            )
-            .unwrap(),
-            _ => writeln!(out, "active {namespace}").unwrap(),
+            23..=25 if pressure => {
+                if after_shed == 0 {
+                    after_shed = 1;
+                }
+                Some(["check_now", "check", "recheck", "check_now"][random.below(4)].to_owned())
+            }
+            _ => Some(format!("active {namespace}")),
+        };
+        if let Some(op) = op {
+            emit(out, &mut sim, &op);
         }
     }
     if pressure {
