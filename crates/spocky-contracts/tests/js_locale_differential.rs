@@ -18,12 +18,15 @@
 #[path = "support/pinned_node.rs"]
 mod support;
 
+#[cfg(unix)]
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::process::Command;
 
 use spocky_contracts::js_value::{JsValue, parse, stringify};
-use spocky_contracts::locale::{default_locale_from, js_to_locale_lower_case};
+#[cfg(unix)]
+use spocky_contracts::locale::default_locale_from;
+use spocky_contracts::locale::js_to_locale_lower_case;
 
 const NODE_SCRIPT: &str = r#"
 const [dist, file] = process.argv.slice(1);
