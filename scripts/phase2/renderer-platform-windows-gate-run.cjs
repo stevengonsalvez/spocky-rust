@@ -54,8 +54,12 @@ function capture(cdpPort, url, name, mode) {
   const result = spawnSync(process.execPath, [driver, String(cdpPort), url, out, name, mode], { stdio: "inherit", timeout: 600_000 });
   if (result.status !== 0) throw new Error(`capture ${name} failed`);
 }
+// Host output is kept raw next to the evidence, never discarded.
+fs.mkdirSync(path.join(out, "logs"), { recursive: true });
+let logCount = 0;
 async function withProcess(command, args, options, run) {
-  const child = spawn(command, args, { stdio: "ignore", windowsHide: false, ...options });
+  const log = fs.openSync(path.join(out, "logs", `host-${(logCount += 1)}-${path.basename(command)}.log`), "w");
+  const child = spawn(command, args, { stdio: ["ignore", log, log], windowsHide: false, ...options });
   try {
     await run();
   } finally {
@@ -65,7 +69,8 @@ async function withProcess(command, args, options, run) {
 
 (async () => {
   const httpPort = await freePort();
-  const http = spawn("python", ["-m", "http.server", String(httpPort), "--bind", "127.0.0.1", "--directory", bundle], { stdio: "ignore" });
+  const httpLog = fs.openSync(path.join(out, "logs", "http-server.log"), "w");
+  const http = spawn("python", ["-m", "http.server", String(httpPort), "--bind", "127.0.0.1", "--directory", bundle], { stdio: ["ignore", httpLog, httpLog] });
   try {
     await sleep(2000);
     const bundleUrl = `http://127.0.0.1:${httpPort}/`;
