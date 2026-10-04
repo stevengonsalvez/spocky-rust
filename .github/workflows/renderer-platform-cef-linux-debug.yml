@@ -55,6 +55,7 @@ jobs:
             grep -E "DevTools listening" "variant-logs/$name.log" | head -1 || true
             if [ "$name" != verbose ]; then sleep 8; fi
           }
+          run_variant views "" ""
           run_variant popup "" "--spocky-popup=1"
           run_variant verbose "" "--enable-logging=stderr --v=1"
           # Where is the browser process stuck? Dump all thread stacks of the host.
