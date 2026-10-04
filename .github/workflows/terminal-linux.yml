@@ -1,0 +1,52 @@
+name: terminal-linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ci/p4_terminal/**"]
+
+permissions:
+  contents: read
+
+env:
+  PASEO_COMMIT: 5de45e208690b0efc51c59a585ae9729325a9204
+  NODE_VERSION: 22.20.0
+  RUST_VERSION: 1.94.0
+
+jobs:
+  spocky-terminal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal -c clippy -c rustfmt
+          rustup default "$RUST_VERSION"
+
+      - name: Pinned Paseo build
+        run: |
+          git clone https://github.com/getpaseo/paseo.git "$RUNNER_TEMP/paseo"
+          git -C "$RUNNER_TEMP/paseo" checkout "$PASEO_COMMIT"
+          cd "$RUNNER_TEMP/paseo"
+          npm ci
+          npm run build:protocol
+          npm run build --workspace=@getpaseo/server
+
+      - name: Tests
+        run: |
+          export SPOCKY_PINNED_NODE="$(command -v node)"
+          export SPOCKY_PASEO_DIST="$RUNNER_TEMP/paseo/packages/server/dist/server"
+          node --version
+          cargo test --locked -p spocky-terminal
+
+      - name: Clippy
+        run: cargo clippy --locked -p spocky-terminal --all-targets -- -D warnings
+
+      - name: Format
+        run: cargo fmt --package spocky-terminal -- --check
