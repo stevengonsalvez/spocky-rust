@@ -218,6 +218,7 @@ const TAGS: &[&str] = &[
     "az-Latn-AZ-1abc-u-ca-x-y",
 ];
 
+#[cfg(unix)]
 /// The environments node is run under for the default locale: each is
 /// `LANG`, `LC_ALL`, `LC_MESSAGES`, `LC_CTYPE` pairs.
 const ENVIRONMENTS: &[&[(&str, &str)]] = &[
@@ -294,6 +295,7 @@ const ENVIRONMENTS: &[&[(&str, &str)]] = &[
     &[("LANG", "de@abcde_abcde")],
 ];
 
+#[cfg(unix)]
 /// Node run with exactly `environment` as its environment, under `gtimeout`
 /// or `timeout` so a hung spawn fails the test instead of stalling it.
 fn run_node_under(
@@ -444,6 +446,7 @@ fn locale_lowercase_matches_node() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn default_locale_matches_node() {
     let Some((node, _)) = support::pinned() else {
@@ -589,4 +592,27 @@ console.log(JSON.stringify([
     for item in repeated_variant.as_array().expect("array") {
         assert!(!item.as_str().expect("string").starts_with("RangeError"));
     }
+}
+
+/// Node on Windows ignores the environment: its default locale is the user
+/// locale, and `default_locale` must read the same one. Also run in the
+/// workflow after `Set-Culture` to a second locale, in a fresh process.
+#[cfg(windows)]
+#[test]
+fn default_locale_matches_node_on_windows() {
+    let Some((node, _)) = support::pinned() else {
+        return;
+    };
+    let script = r#"console.log(JSON.stringify([Intl.DateTimeFormat().resolvedOptions().locale, "I\u0130\u0307".toLocaleLowerCase()]));"#;
+    let output = Command::new(&node)
+        .args(["-e", script])
+        .output()
+        .expect("run pinned node");
+    assert!(output.status.success());
+    let printed = parse(String::from_utf8_lossy(&output.stdout).trim()).expect("node output");
+    let pair = printed.as_array().expect("pair");
+    let tag = spocky_contracts::locale::default_locale();
+    assert_eq!(pair[0].as_str(), Some(tag.as_str()));
+    let lower = js_to_locale_lower_case("I\u{130}\u{307}", Some(&tag)).expect("valid tag");
+    assert_eq!(pair[1].as_str(), Some(lower.as_str()));
 }
