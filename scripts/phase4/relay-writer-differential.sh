@@ -15,6 +15,9 @@ work=${SPOCKY_RELAY_WORK:-$HOME/.cache/spocky-p4-relay}
 target=${CARGO_TARGET_DIR:-/private/tmp/spocky-targets/p4_relay}
 fixtures="$repo_root/crates/spocky-relay/tests/fixtures"
 gate=/private/tmp/spocky-targets/build-gate.sh
+# Only the local lane has the build gate and GNU timeout under its g-prefixed name.
+[[ -x "$gate" ]] && gate_cmd="$gate" || gate_cmd=
+timeout_cmd=${SPOCKY_TIMEOUT:-gtimeout}
 limit=${SPOCKY_RELAY_DOCKER_TIMEOUT:-900}
 mode=${1:-compare}
 container="spocky-p4-relay-writer-$$"
@@ -30,7 +33,7 @@ rsync -a --delete --exclude .git --exclude _build --exclude deps "$baseline_sour
 cp "$repo_root/scripts/phase4/relay-writer-baseline.exs" "$work/io/writer.exs"
 
 docker_run() {
-  gtimeout --kill-after=30 "$limit" docker run --rm --name "$container" -e MIX_ENV=test \
+  $timeout_cmd --kill-after=30 "$limit" docker run --rm --name "$container" -e MIX_ENV=test \
     -v "$work/baseline:/work" -v "$work/io:/io" -v "$work/mix:/root/.mix" \
     -w /work "$elixir_image" sh -c "$1"
 }
@@ -41,7 +44,7 @@ if [[ ! -d "$work/baseline/_build" ]]; then
   docker_run 'mix deps.get && mix compile'
 fi
 
-binary=${SPOCKY_RELAY_WRITER_BINARY:-$(CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR="$target" "$gate" \
+binary=${SPOCKY_RELAY_WRITER_BINARY:-$(CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR="$target" $gate_cmd \
   cargo test -p spocky-relay --no-run --message-format=json 2>/dev/null |
   grep -o '"executable":"[^"]*writer_baseline-[^"]*"' | sed 's/"executable":"//; s/"$//' | head -1)}
 
