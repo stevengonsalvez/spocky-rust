@@ -173,7 +173,25 @@ pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[
         "a3bed36ae3ed83b2ac2fce475bd578c51f5b536041f0b2dfe116987f565e9758",
     ),
 ];
-#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+/// The Linux x64 native piece of node-pty.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[(
+    "prebuilds/linux-x64/pty.node",
+    "123792d8f22f36d519b21dfb6f4b716f9b18b9e579085ea2840d0773d88d35fd",
+)];
+/// The Linux arm64 native piece of node-pty.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[(
+    "prebuilds/linux-arm64/pty.node",
+    "5a3b8930d62535edabec2eac79fe8eca70a178d93fbb76b1ae875dd60ee8f825",
+)];
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "x86_64"),
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+)))]
 pub const PINNED_NODE_PTY_NATIVE: &[(&str, &str)] = &[];
 
 pub struct Pinned {
