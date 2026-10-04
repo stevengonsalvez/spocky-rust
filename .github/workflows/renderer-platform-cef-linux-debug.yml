@@ -26,7 +26,7 @@ jobs:
       - name: Install build and runtime packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb cmake ninja-build build-essential libx11-dev libgtk-3-0t64 libnss3 libxss1 libasound2t64 libgbm1 libxtst6 libatspi2.0-0t64 libdrm2 libcups2t64 libxkbcommon0 dbus-x11 fonts-dejavu-core
+          sudo apt-get install -y -qq xvfb cmake ninja-build build-essential libx11-dev libgtk-3-0t64 libnss3 libxss1 libasound2t64 libgbm1 libxtst6 libatspi2.0-0t64 libdrm2 libcups2t64 libxkbcommon0 dbus-x11 fonts-dejavu-core gdb
       - name: Build the CEF host
         run: |
           curl -fsSL -o cef.tar.bz2 "https://cef-builds.spotifycdn.com/$(printf '%s' "$CEF_ARCHIVE" | sed 's/+/%2B/g')"
@@ -53,15 +53,14 @@ jobs:
             done
             echo "variant $name devtools=$ok"
             grep -E "DevTools listening" "variant-logs/$name.log" | head -1 || true
-            sleep 8
+            if [ "$name" != verbose ]; then sleep 8; fi
           }
-          run_variant plain "" ""
-          run_variant gpu-off "" "--disable-gpu"
-          run_variant shm "" "--disable-dev-shm-usage"
-          run_variant swiftshader "" "--use-gl=angle --use-angle=swiftshader"
-          run_variant ozone-x11 "" "--ozone-platform=x11"
-          run_variant dbus "dbus-run-session --" ""
-          echo "--- tail of plain log"; grep -v dbus variant-logs/plain.log | tail -15 || true
+          run_variant verbose "" "--enable-logging=stderr --v=1"
+          # Where is the browser process stuck? Dump all thread stacks of the host.
+          pid=$(pgrep -f "spocky-cef-host --spocky-cdp-port" | head -n 1 || true)
+          echo "browser pid: $pid"
+          if [ -n "$pid" ]; then sudo gdb -p "$pid" -batch -ex "thread apply all bt 12" > variant-logs/gdb.txt 2>&1 || true; head -80 variant-logs/gdb.txt; fi
+          echo "--- tail of plain log"; grep -v dbus variant-logs/verbose.log | tail -40 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
