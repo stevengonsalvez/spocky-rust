@@ -55,6 +55,15 @@ python3 -m http.server "$http_port" --bind 127.0.0.1 --directory /bundle >/tmp/h
 http_pid=$!
 trap 'kill $http_pid $xvfb_pid 2>/dev/null || true' EXIT
 
+# The Paseo daemon detaches from the capture's process group. Stop each leftover by exact
+# PID, found through this capture's unique PASEO_HOME in the process environment.
+kill_by_home() {
+  for environ in /proc/[0-9]*/environ; do
+    pid=${environ#/proc/}; pid=${pid%/environ}
+    if grep -a -q "PASEO_HOME=$1" "$environ" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+  done
+}
+
 shipped() {
   name=$1
   home=$(mktemp -d /tmp/paseo-home.XXXXXX)
@@ -75,6 +84,7 @@ PY
   wait_cdp "$cdp"
   timeout 600 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" - "$out" "$name" desktop
   stop_group
+  kill_by_home "$home"
 }
 host_a() {
   name=$1
