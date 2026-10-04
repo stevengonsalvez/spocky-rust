@@ -296,15 +296,11 @@ impl Machine {
             .filter_map(|(token, ms)| Some((self.token_names.get(token)?.clone(), *ms)))
             .collect();
         // A control frame's timer is `delivery_timeout_ms` minus the time between two clock reads
-        // in the Writer, which the capture cannot reproduce: it must lie in the last 100 ms.
+        // in the relay's Writer, which the capture cannot reproduce. The replay's clock is fixed,
+        // so the port's delay must be exactly `delivery_timeout_ms`.
         for (token, ms) in &self.timer_events {
             if self.frame_refs.contains(&token.0) {
-                assert!(
-                    *ms > self.timeout_ms - 100 && *ms <= self.timeout_ms,
-                    "control timer {ms} outside ({} - 100, {}]",
-                    self.timeout_ms,
-                    self.timeout_ms
-                );
+                assert_eq!(*ms, self.timeout_ms, "control timer delay");
             }
         }
         self.timer_events.clear();
