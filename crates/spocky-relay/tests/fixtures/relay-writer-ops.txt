@@ -1,73 +1,73 @@
 # one reservation, write and acknowledgement
 scenario basic 30000 1000
 reserve S1 10 far
-write S1 t1 text 10 far
+write S1 t1 text 10 far 10
 ack w1
 reserve S1 5 far
-write S1 t2 binary 5 far
+write S1 t2 binary 5 far 17
 ack w2
 # a second source queues behind the first
 scenario queue 30000 1000
 reserve S1 10 far
 reserve S2 10 far
 reserve S3 10 far
-write S1 t1 text 3 far
+write S1 t1 text 3 far 24
 ack w1
-write S2 t2 text 4 far
+write S2 t2 text 4 far 31
 kill S3
 ack w2
 reserve S3 1 far
 # invalid reservations and expired deadlines
 scenario invalid 30000 1000
-write S1 t9 text 1 far
+write S1 t9 text 1 far 38
 reserve S1 10 past
 reserve_raw S1 10 past
 reserve S1 10 far
-write S2 t1 text 1 far
-write S1 t1 text 1 past
-write_raw S1 t1 text 1 past
+write S2 t1 text 1 far 45
+write S1 t1 text 1 past 52
+write_raw S1 t1 text 1 past 59
 reserve_raw S2 10 past
 reserve_raw S3 10 far
-write S1 t1 text 2 far
-write S1 t1 text 2 far
+write S1 t1 text 2 far 66
+write S1 t1 text 2 far 73
 ack w1
 ack w2
 ack w3
 # control frames queue up to the byte bound
 scenario control 30000 50
-control 10
-control 20
-control 20
+control 10 164
+control 20 171
+control 20 178
 ack w1
 ack w2
-control 30
-control 30
-control 30
+control 30 185
+control 30 192
+control 30 199
 # a control frame waits behind a reservation
 scenario control_behind 30000 100
 reserve S1 10 far
-control 10
-control 10
-write S1 t1 text 1 far
+control 10 206
+control 10 213
+write S1 t1 text 1 far 80
 ack w1
 ack w2
 ack w3
 # control with an expired deadline
 scenario control_expired 0 100
-control 10
-control 10
+control 10 220
+control 10 227
 # reservation timeout sheds the destination
 scenario timeout 30000 100
 reserve S1 10 far
 reserve S2 10 far
-control 10
+control 10 234
 timeout t1
 reserve S1 1 far
-control 5
+control 5 241
 # reservation timeout while a write is in flight
 scenario timeout_write 30000 100
 reserve S1 10 far
-write S1 t1 text 10 far
+write S1 t1 text 10 far 87
 reserve S2 10 far
 timeout t1
 # the source exits
@@ -76,11 +76,11 @@ reserve S1 10 far
 reserve S2 10 far
 kill S1
 reserve S3 10 far
-write S2 t2 text 2 far
+write S2 t2 text 2 far 94
 kill S2
-write S3 t3 text 2 far
+write S3 t3 text 2 far 101
 kill S3
-control 3
+control 3 248
 # a dead source in the queue
 scenario source_exit_queued 30000 100
 reserve S1 10 far
@@ -88,31 +88,31 @@ reserve S2 10 far
 reserve S3 10 far
 kill S2
 ack w1
-write S1 t1 text 1 far
+write S1 t1 text 1 far 108
 ack w1
-write S3 t3 text 1 far
+write S3 t3 text 1 far 115
 ack w2
 # the destination exits or the Writer is closed
 scenario destination_exit 30000 100
 reserve S1 10 far
 reserve S2 10 far
-write S1 t1 text 4 far
+write S1 t1 text 4 far 122
 kill_dest
 reserve S3 10 far
-control 1
-write S3 t3 text 1 far
+control 1 255
+write S3 t3 text 1 far 129
 scenario closed 30000 100
 reserve S1 10 far
 reserve S2 10 far
-write S1 t1 text 4 far
+write S1 t1 text 4 far 136
 close 1000
 reserve S3 10 far
 reserve_raw S3 1 far
-control 1
+control 1 262
 # a second write on one reservation replaces the first caller
 scenario double_write 30000 100
 reserve S1 10 far
-write_raw S1 t1 text 1 far
+write_raw S1 t1 text 1 far 143
 reserve S2 10 far
 ack w1
 ack w1
@@ -121,150 +121,147 @@ scenario queued_expired 30000 100
 reserve S1 10 far
 reserve_raw S2 10 past
 reserve_raw S3 10 far
-write S1 t1 text 1 far
+write S1 t1 text 1 far 150
 ack w1
-write S3 t2 text 1 far
+write S3 t2 text 1 far 157
 # generated 0
 scenario generated0 30000 10
 ack w1
 reserve S1 41 far
-write S2 t1 binary 2 past
-control 9
+write S2 t1 binary 2 past 103
+ack w1
 ack w1
 reserve S4 26 past
 reserve S3 43 past
-write S4 t3 binary 26 far
+write S4 t3 binary 26 far 699
+write_raw S1 t3 text 6 far 668
+write S3 t3 binary 20 far 997
 ack w3
-ack w3
-reserve S1 11 far
-kill S3
-ack w1
-reserve_raw S4 32 far
+write S1 t4 text 14 far 823
 ack w2
-write_raw S2 t3 text 20 past
-kill S1
-reserve S1 12 far
-reserve S2 38 far
-reserve S3 15 past
-# generated 1
-scenario generated1 30000 10
-ack w1
-reserve_raw S1 37 past
-ack w1
-ack w1
-write S4 t2 text 9 far
-control 29
-ack w3
-control 24
-write_raw S1 t2 binary 1 far
-ack w1
-reserve S1 36 far
-ack w1
-control 11
-reserve S3 42 far
-kill S4
-ack w2
-write S1 t1 binary 0 far
-ack w3
-ack w1
-ack w4
-write S4 t4 binary 6 far
-control 25
-write_raw S4 t2 text 16 past
-# generated 2
-scenario generated2 30000 50
-control 22
-control 18
+control 27 109
+reserve_raw S3 11 far
+control 9 950
 kill S2
-reserve S3 33 far
 ack w3
+ack w1
 ack w3
+# generated 1
+scenario generated1 30000 50
+control 14 888
+write S2 t1 text 27 far 988
+ack w1
+ack w1
+ack w1
+reserve_raw S3 5 far
+ack w1
 ack w2
-ack w2
 ack w3
-control 15
-write S3 t1 binary 7 far
-write S1 t1 text 25 far
-write S3 t1 binary 0 far
-write S2 t2 binary 25 past
-control 25
-reserve_raw S4 4 far
-reserve S3 2 far
-control 2
-write S1 t2 text 1 past
-write_raw S4 t2 binary 11 far
+ack w1
+write S3 t1 binary 24 far 339
+ack w1
+ack w1
+reserve S2 32 far
+reserve S4 34 far
+reserve S1 12 far
+ack w1
+ack w3
+kill S1
+ack w3
+ack w4
+write S1 t2 text 9 far 209
+write S4 t3 text 25 far 288
+kill S4
+control 18 329
+write S2 t1 text 0 far 945
+write_raw S2 t3 text 10 far 963
+# generated 2
+scenario generated2 30000 10
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
+reserve S1 23 far
+ack w1
+ack w1
+ack w1
+control 5 632
+write_raw S3 t1 text 6 past 875
+ack w3
+kill S4
+ack w1
+kill S3
 reserve S3 16 far
 reserve_raw S4 36 past
-control 22
-ack w4
-control 28
-control 6
+control 22 411
+kill S2
+ack w3
+ack w3
 ack w2
 reserve S4 7 far
 ack w2
-write S2 t1 text 24 far
-ack w2
+write S2 t1 text 24 far 418
+ack w4
 ack w3
 reserve S2 42 past
-write S3 t1 text 19 far
-ack w3
-ack w1
-reserve S4 18 far
-ack w2
-control 21
-ack w3
+write S3 t1 text 19 far 595
+reserve S1 5 far
+write S2 t4 binary 11 past 892
+reserve S3 41 far
 # generated 3
-scenario generated3 30000 10
-write S3 t1 text 9 far
-reserve S1 30 past
-ack w1
+scenario generated3 30000 50
+reserve S2 21 far
+write_raw S1 t1 binary 26 past 139
+write S2 t1 binary 13 past 846
 kill S4
-kill S1
+write S1 t1 binary 22 past 155
+write S4 t2 text 14 past 233
 ack w1
-ack w1
-reserve_raw S4 36 far
-control 15
-control 8
-reserve S2 14 far
-ack w4
-write S1 t4 binary 4 far
+kill S2
+reserve S1 9 far
+control 23 453
+ack w3
+reserve_raw S2 6 past
+timeout t4
+ack w2
 ack w3
 ack w2
 reserve S4 6 far
-control 12
-write_raw S2 t1 binary 22 far
-ack w1
-ack w4
-write S2 t1 text 11 far
+control 12 953
 kill S1
-ack w4
-write S1 t2 binary 0 far
-write_raw S1 t2 binary 6 far
+close 1000
+write_raw S3 t3 binary 21 past 997
+ack w2
+kill S2
+reserve S1 35 past
+write S2 t3 binary 8 past 341
+ack w2
 reserve_raw S3 41 past
 ack w3
 ack w3
-control 16
-reserve S4 24 far
-write S3 t4 text 26 far
-write S2 t1 text 19 far
-ack w1
-control 30
-write S4 t1 binary 27 past
 # generated 4
 scenario generated4 30000 10
+kill_dest
 ack w1
+kill S4
+reserve S3 43 far
 ack w1
-ack w1
-reserve_raw S4 14 past
-ack w1
-kill S1
+control 30 875
+write S1 t1 text 2 past 701
+write S4 t1 binary 23 far 402
+timeout t1
+write_raw S2 t2 text 25 far 539
+reserve S1 27 past
+reserve S3 42 far
 kill S3
-ack w1
-reserve S1 14 far
-control 13
-write_raw S3 t3 binary 9 past
 ack w2
-control 14
+reserve S1 14 far
+control 13 866
+ack w4
+reserve S2 32 far
+ack w1
 ack w2
 ack w1
 ack w1
@@ -275,530 +272,507 @@ reserve S2 13 past
 reserve_raw S3 48 far
 ack w2
 kill S4
-write S3 t1 binary 13 far
-write S3 t2 binary 12 far
-write_raw S2 t3 binary 26 past
-kill S2
-write_raw S3 t3 text 28 far
-ack w4
-timeout t2
-control 12
-write S1 t3 text 5 far
-reserve S3 34 far
-reserve S2 37 far
+write S3 t1 binary 13 far 106
+write S2 t4 binary 21 past 646
+reserve S3 17 far
+reserve S4 17 far
+write S1 t3 text 24 far 894
+reserve_raw S2 28 far
 # generated 5
 scenario generated5 30000 50
 ack w1
-control 13
-reserve S2 23 far
 ack w1
-write S4 t2 text 28 far
-kill S1
-ack w3
-ack w2
-kill S2
 ack w1
-ack w3
+reserve S2 37 far
+kill S3
+control 24 509
 ack w2
-write_raw S2 t1 text 14 past
+control 13 292
+reserve S2 15 far
+write_raw S3 t2 text 12 far 703
+reserve S2 31 past
+write_raw S4 t4 binary 2 past 611
+ack w1
+ack w2
+kill S3
+ack w4
 reserve S2 13 far
 reserve S4 27 far
 reserve_raw S2 28 far
-write S1 t3 binary 6 far
-control 17
-write_raw S1 t2 text 0 far
-# generated 6
-scenario generated6 30000 1000
-ack w1
-timeout t1
-ack w1
-reserve_raw S4 25 far
-control 27
-ack w2
-ack w2
-write S3 t2 binary 11 past
-reserve S3 37 past
-write_raw S1 t2 binary 10 far
-reserve_raw S4 3 far
-control 19
-ack w1
-write S2 t2 binary 11 past
-reserve S4 28 far
-kill S4
-write S3 t4 text 21 far
-ack w1
-control 24
-ack w2
-write_raw S3 t3 text 23 far
+write S1 t3 binary 6 far 146
+reserve S2 12 far
+kill_dest
+kill S1
 ack w3
+control 17 143
+reserve_raw S3 48 far
+reserve S1 7 far
+write_raw S3 t2 binary 0 far 344
+ack w3
+# generated 6
+scenario generated6 30000 50
+write S4 t1 binary 15 far 323
+kill S3
+reserve_raw S1 25 past
+write S1 t2 binary 28 far 796
+write S3 t2 binary 15 far 701
+write S2 t2 text 22 far 412
+control 20 827
+ack w1
+timeout t2
+reserve S1 33 far
+kill S3
+reserve S1 29 far
+ack w4
+ack w3
+reserve S4 25 far
+control 29 627
+timeout t2
+ack w4
+reserve_raw S4 4 far
+write S3 t1 text 15 far 663
 # generated 7
 scenario generated7 30000 10
-reserve S4 25 far
-control 29
-reserve S4 26 far
-ack w2
-reserve_raw S4 4 far
-write S3 t1 text 15 far
-write S4 t4 binary 23 far
-reserve S4 19 far
-write S3 t2 text 3 past
-reserve S2 34 far
-timeout t2
-ack w2
-reserve_raw S2 43 past
-ack w2
-write S3 t1 text 1 far
+reserve S2 18 past
+reserve S4 42 far
+reserve_raw S3 27 far
 kill S4
-ack w4
-ack w3
-write S2 t1 binary 1 past
+ack w1
+control 20 64
+ack w1
+reserve S1 47 far
+write S2 t3 binary 12 far 835
+reserve S2 15 far
+ack w1
+write S2 t1 binary 1 past 644
+write_raw S1 t3 binary 13 far 457
+ack w1
+ack w1
 kill S1
-write S3 t3 binary 11 far
-ack w3
 ack w1
-ack w4
-control 19
-control 2
+kill S2
+ack w3
 kill S4
-write_raw S1 t2 binary 8 far
-write_raw S3 t3 binary 19 far
-control 9
+write_raw S1 t2 binary 8 far 102
+write S3 t2 binary 17 past 732
+reserve_raw S2 11 far
+ack w4
+write_raw S4 t2 text 27 far 725
 ack w3
-reserve_raw S4 37 far
-# generated 8
-scenario generated8 30000 10
-ack w1
-write_raw S1 t1 text 4 far
-ack w1
-control 15
+write_raw S1 t2 text 4 far 614
+ack w2
+kill S1
 close 1000
 ack w2
-write S4 t1 binary 11 far
-control 21
-write S1 t1 text 18 far
-write S3 t1 text 4 far
+write S4 t4 binary 11 far 871
+reserve S4 44 past
+kill S1
+write S3 t3 text 4 far 240
+write_raw S3 t3 text 1 past 403
 ack w3
-kill S2
-reserve_raw S1 11 far
-ack w4
-reserve S3 33 far
-control 19
+kill S1
+kill_dest
+# generated 8
+scenario generated8 30000 1000
+write S2 t1 text 10 far 398
 reserve S2 5 far
 ack w1
 ack w1
 kill S3
-write S4 t1 text 19 far
-write S1 t3 binary 1 far
+write S4 t1 text 19 far 152
+reserve S3 10 past
 ack w1
-reserve S4 47 past
-ack w1
+ack w2
+ack w3
 reserve_raw S1 40 past
 kill S4
 kill S1
-control 23
-write_raw S2 t3 binary 29 past
-# generated 9
-scenario generated9 30000 10
-reserve_raw S4 5 far
-ack w1
-write S4 t1 text 3 far
-reserve S2 6 far
-ack w2
-control 8
-control 9
-write S3 t2 text 7 far
-control 24
-ack w1
+control 23 17
 ack w4
-kill S3
+ack w2
+ack w1
 ack w3
-write S1 t3 binary 8 far
-write S1 t2 text 8 far
-ack w1
-reserve S2 23 far
-kill S2
 ack w2
-write S1 t1 binary 22 far
-reserve_raw S4 24 past
-ack w2
-control 26
-ack w2
+ack w3
+control 28 365
+write S1 t3 text 7 far 776
+timeout t3
+reserve S4 3 far
 ack w4
-kill S3
-reserve S1 31 far
-reserve S3 2 far
-reserve S1 4 past
+reserve_raw S1 40 far
+write S3 t2 text 1 far 936
+ack w3
+write S1 t1 binary 8 far 804
+kill S4
+ack w1
+ack w2
+# generated 9
+scenario generated9 0 10
+kill S2
+ack w1
+write S1 t1 binary 22 far 887
+reserve S3 8 past
+ack w1
+ack w1
+reserve S2 6 far
+kill S2
+control 12 307
+kill S2
+ack w1
+write_raw S1 t3 text 7 far 678
+reserve S3 8 far
+control 18 790
+ack w4
+control 16 189
+write_raw S1 t1 text 12 far 394
 # generated 10
 scenario generated10 30000 50
-kill S4
 kill S2
-write S1 t1 text 11 far
-kill S1
-ack w2
-ack w2
-write_raw S2 t1 text 17 far
-control 22
-ack w4
-write S2 t1 text 26 far
-reserve_raw S3 27 far
-reserve_raw S2 37 past
-ack w3
-write S2 t2 text 15 far
-reserve_raw S4 16 far
-ack w2
-ack w2
-control 27
-control 16
-control 7
-reserve S4 31 far
-reserve S1 20 far
-control 20
-kill S4
-reserve_raw S3 32 far
-reserve_raw S1 29 far
+control 22 107
 ack w1
-write_raw S1 t2 text 25 far
+control 27 318
+reserve S4 24 far
+write S2 t1 text 1 far 543
+reserve S3 35 far
+ack w4
+ack w1
 ack w2
-# generated 11
-scenario generated11 30000 1000
-control 17
+ack w2
+control 27 526
+ack w4
+control 7 787
+reserve S4 9 far
+write S3 t2 binary 0 far 753
+write_raw S2 t1 binary 8 far 526
+write_raw S3 t2 text 6 far 647
+ack w3
+ack w3
 kill S3
-control 6
-ack w3
-reserve S4 35 far
-reserve S2 34 past
-control 18
-ack w3
-ack w4
-control 20
+control 18 614
 ack w1
-reserve S3 29 far
-write S1 t4 binary 4 far
-ack w3
-ack w4
-write S2 t4 binary 22 far
-write S4 t2 binary 28 far
-write S1 t4 text 21 far
-ack w4
-write S2 t4 binary 20 past
-ack w4
-control 10
-reserve S1 36 far
-write S2 t4 binary 6 far
-ack w4
-write S2 t4 text 29 far
-ack w4
-reserve S4 36 past
-# generated 12
-scenario generated12 30000 1000
-reserve_raw S4 12 far
-ack w1
-ack w1
-write S3 t1 binary 7 far
-control 19
-ack w1
-reserve S3 31 far
+kill S2
 ack w3
 ack w3
-control 7
+ack w2
+ack w4
+ack w1
+kill S4
+control 18 394
+kill S4
+ack w4
+timeout t3
+write S1 t3 text 27 past 593
+write S1 t1 binary 21 far 861
+write S2 t1 text 10 far 727
+# generated 11
+scenario generated11 30000 10
+kill S4
+control 24 465
+ack w2
+reserve S4 37 far
+ack w1
+ack w2
+write S1 t1 text 2 past 15
+write S2 t2 binary 0 far 56
+ack w2
+control 20 120
+kill S4
+ack w3
+ack w1
+control 10 960
+control 8 665
+ack w4
+ack w2
+ack w3
+ack w2
+ack w2
+control 21 394
+ack w2
+write S4 t2 binary 20 far 420
+write S1 t2 binary 14 far 776
 kill S1
 reserve S4 34 far
-kill S1
+# generated 12
+scenario generated12 0 50
+ack w1
+ack w1
+control 5 565
 ack w2
 ack w2
-# generated 13
-scenario generated13 30000 1000
-write_raw S3 t1 binary 26 far
-write S4 t1 text 20 far
-ack w3
-write S1 t1 binary 5 past
-reserve S3 7 past
-ack w3
-control 13
-ack w1
-ack w1
-write_raw S4 t2 binary 28 past
-ack w1
-reserve S1 9 far
-write S4 t2 binary 14 past
-reserve_raw S2 40 far
-ack w1
-ack w4
-write S3 t4 binary 11 past
-ack w3
-ack w3
-kill S1
-ack w1
 ack w2
+write S1 t1 binary 5 past 730
+write_raw S2 t1 binary 14 past 791
+ack w1
+reserve S4 9 far
+ack w1
+write_raw S1 t1 binary 0 far 83
 kill S2
-write_raw S2 t4 binary 25 past
-ack w1
+write S1 t1 text 25 past 885
+kill S3
+write S4 t2 text 9 far 720
+reserve S4 33 far
+control 24 191
+write S3 t3 binary 11 past 590
+reserve S3 1 past
 ack w4
+ack w3
+ack w4
+kill S3
+write S3 t4 binary 3 far 13
+ack w3
+reserve S2 10 past
 reserve S2 37 past
-write S2 t3 binary 13 far
-write S3 t1 text 23 far
-ack w3
+write S2 t3 binary 13 far 926
 ack w2
-ack w1
-write S2 t4 text 28 far
-ack w3
-ack w2
-write S2 t1 binary 29 far
-reserve S4 42 far
-ack w3
-control 5
-write S4 t4 binary 12 far
-ack w4
-# generated 14
-scenario generated14 0 50
-kill S2
-ack w1
+reserve S4 40 far
 ack w1
 timeout t1
+write S4 t3 text 13 far 103
+ack w4
 ack w1
-write_raw S4 t1 binary 16 far
+control 30 487
+reserve S2 40 far
+kill S4
+control 22 683
+control 28 122
+reserve S4 31 far
+# generated 13
+scenario generated13 30000 10
+ack w1
+ack w1
+ack w1
+control 14 901
+ack w1
+ack w1
+control 25 917
+ack w2
+ack w3
+kill S2
+control 4 178
+reserve S2 9 far
+ack w2
+write S4 t2 binary 25 past 236
+reserve_raw S2 2 far
+# generated 14
+scenario generated14 30000 10
+write_raw S4 t1 binary 9 far 580
+reserve S1 31 far
+ack w1
+reserve S2 23 far
+reserve S4 31 far
+ack w2
+kill S1
 kill S3
 ack w1
-write S1 t1 text 26 far
-control 11
-control 4
-ack w3
-control 25
-kill S2
-write_raw S4 t1 binary 16 far
-# generated 15
-scenario generated15 30000 10
-write S4 t1 binary 27 far
-kill S4
-ack w1
-ack w1
-write_raw S1 t1 binary 28 far
-ack w2
-reserve S3 39 far
-ack w2
-ack w2
-ack w3
-timeout t1
+timeout t3
 ack w1
 reserve_raw S1 3 past
-write S1 t2 text 24 past
-kill S3
-ack w3
-ack w1
-ack w4
-control 28
-control 6
-reserve_raw S2 28 far
-kill_dest
-kill S2
-reserve S3 14 past
-control 5
+write S1 t2 text 24 past 66
+write S1 t3 binary 28 past 745
+reserve_raw S2 3 far
 ack w2
+write S2 t4 text 27 past 412
+reserve S4 47 far
+reserve_raw S4 7 far
+write S2 t4 text 25 far 285
 kill S1
-reserve S1 21 far
-control 10
-kill S3
-reserve S4 11 far
 ack w2
-ack w3
+ack w1
+ack w2
+control 15 75
+ack w2
+write S4 t2 binary 26 far 664
+write S4 t3 text 19 past 51
+kill S4
+write S4 t1 text 13 past 811
 ack w1
 reserve S3 13 far
-control 3
-reserve S1 4 far
+control 3 328
+control 24 514
+control 22 990
+ack w2
+ack w4
+ack w4
+ack w4
+ack w2
+# generated 15
+scenario generated15 30000 1000
+reserve S4 34 far
+control 9 750
+write_raw S2 t1 text 5 far 62
+ack w3
+ack w3
+ack w3
+reserve S4 5 far
+ack w3
+ack w3
+ack w1
+ack w1
+ack w3
+write S1 t3 binary 9 far 970
+reserve_raw S2 48 far
+write S3 t2 binary 28 far 389
+ack w4
 kill S3
 ack w3
-write S3 t3 binary 22 past
+ack w3
+write S4 t3 text 27 far 508
+reserve S3 41 far
+ack w3
 # generated 16
-scenario generated16 30000 50
-control 16
-control 30
+scenario generated16 0 50
+write S2 t1 binary 22 far 869
+reserve S3 48 past
 kill S2
-ack w1
-write S2 t1 binary 23 past
-control 25
-ack w1
-ack w4
-ack w1
-ack w4
-reserve S4 5 far
 ack w2
-ack w2
-ack w4
+control 15 30
+control 21 880
+write S3 t1 text 23 far 342
+kill S3
 ack w1
+write_raw S4 t1 binary 16 past 866
+ack w3
+reserve S3 3 far
 ack w4
-write S1 t1 binary 9 far
-ack w1
-ack w2
-reserve S1 41 far
-kill S4
-control 29
-control 29
-ack w4
-reserve S3 26 past
-ack w1
+write S2 t3 binary 25 far 55
+write S2 t1 binary 14 far 84
+kill S3
+kill S2
+write_raw S2 t3 text 25 past 19
+write S2 t3 binary 9 past 730
 kill S1
-write S2 t3 binary 19 far
-ack w2
-ack w4
-reserve S3 38 past
-kill S3
-# generated 17
-scenario generated17 30000 1000
-ack w1
-kill S3
-write S1 t1 binary 10 past
-control 28
-write_raw S1 t1 binary 23 far
-control 2
-reserve_raw S3 7 far
-reserve S3 6 far
-reserve S3 16 past
-write_raw S3 t2 text 25 far
-kill S4
-write_raw S1 t4 binary 19 far
-ack w2
-ack w4
-ack w4
-reserve_raw S4 33 past
 ack w2
 ack w1
-control 26
-write_raw S3 t1 text 14 past
+control 26 810
+ack w4
 reserve S2 35 far
-write_raw S4 t1 text 24 far
+write_raw S4 t1 text 24 far 437
+reserve_raw S3 39 far
+write S2 t2 text 29 far 476
+ack w3
+control 18 825
+reserve S2 36 past
 kill S2
-kill S1
-control 7
-write S1 t3 text 4 past
-ack w4
-ack w4
-kill S2
-control 6
-reserve S1 23 far
+control 6 684
+write S2 t1 binary 12 far 78
+control 1 304
 ack w2
-reserve S1 27 far
-ack w2
-write S2 t1 text 12 far
 ack w1
-reserve S3 27 far
-# generated 18
-scenario generated18 30000 1000
+ack w1
+control 18 143
+reserve_raw S2 31 past
 timeout t1
-ack w1
-write_raw S4 t1 binary 24 far
-ack w1
-write_raw S4 t1 binary 7 past
-reserve S1 18 past
+# generated 17
+scenario generated17 0 10
 kill S3
-control 8
-write S3 t2 text 24 past
-reserve S2 7 far
-ack w1
-write S2 t3 binary 0 far
-close 1000
-write_raw S2 t1 binary 4 far
-write_raw S1 t3 binary 4 far
-write S1 t2 binary 26 far
+write_raw S1 t1 text 8 far 461
 ack w2
+ack w2
+reserve S2 8 far
+control 28 246
+timeout t1
+write S1 t1 binary 22 far 394
+ack w3
+write_raw S2 t2 binary 5 far 733
+ack w1
+ack w2
+ack w4
+reserve S2 15 far
+ack w1
+kill S2
+ack w4
+write_raw S1 t1 binary 12 far 722
 timeout t3
 ack w3
-ack w1
-reserve S4 13 far
-ack w1
-reserve S3 48 past
-kill S4
-reserve_raw S1 24 far
-control 8
-reserve S4 10 past
 ack w3
+kill S4
+kill_dest
 kill S2
-ack w3
-write_raw S3 t3 binary 0 past
-write S4 t2 text 5 past
-write S2 t2 binary 25 far
+control 8 63
 ack w4
-control 20
-# generated 19
-scenario generated19 30000 1000
-reserve_raw S1 47 far
-reserve S1 4 far
-ack w1
-ack w1
-write S1 t3 binary 2 far
-ack w1
-reserve S1 41 far
-reserve_raw S3 3 far
+reserve S4 42 far
 kill S4
+kill S2
+write S3 t3 binary 19 past 97
+reserve_raw S3 38 past
+write S3 t3 text 4 far 443
+ack w3
+ack w3
+reserve S1 31 far
+reserve S3 26 far
+ack w4
+control 9 474
+write S1 t4 binary 2 far 745
 ack w2
-ack w2
-write_raw S3 t4 text 20 far
+# generated 18
+scenario generated18 30000 10
 ack w1
+write_raw S3 t1 text 17 far 907
+ack w2
+reserve_raw S3 26 far
+reserve_raw S1 8 far
+control 21 879
 ack w3
 reserve S4 45 far
 ack w2
-write S3 t3 text 21 far
-write S3 t4 binary 8 far
-kill S4
-kill S1
-timeout t3
-ack w1
-write_raw S3 t2 text 21 far
-write S1 t3 text 24 far
-control 6
+write S3 t3 text 21 far 286
+ack w3
+reserve S1 3 past
+ack w2
+control 4 252
+write_raw S3 t3 binary 8 far 530
+write S3 t2 binary 29 far 542
+reserve_raw S1 36 far
 ack w2
 ack w4
-write_raw S2 t1 binary 23 past
-write_raw S1 t2 text 1 far
+write_raw S2 t1 binary 23 past 724
+ack w3
 ack w1
 reserve S4 39 past
 ack w4
-control 6
+control 6 321
 ack w1
-control 5
+control 18 156
+reserve S4 12 past
+reserve S4 39 far
+write S2 t3 text 25 past 475
+close 1000
+kill S3
+write S2 t3 binary 22 far 360
 ack w4
-kill S4
-write_raw S3 t2 text 5 past
-reserve S4 38 far
-write_raw S4 t2 text 18 past
 ack w3
-# generated 20
-scenario generated20 30000 10
-reserve S3 40 far
-write_raw S2 t2 text 26 far
-reserve S3 19 far
-kill S1
 ack w1
+write S3 t4 text 3 far 427
+ack w3
+# generated 19
+scenario generated19 30000 50
+write_raw S1 t1 binary 18 far 51
+reserve_raw S3 31 past
+ack w2
+reserve S2 17 far
 ack w1
-control 15
-control 7
-kill S1
-ack w1
-reserve S3 9 far
 reserve S3 25 far
-control 19
-control 18
-ack w2
-reserve_raw S1 32 past
-ack w3
-reserve_raw S4 50 far
-ack w3
-write S4 t2 binary 24 past
+control 19 373
+reserve_raw S1 38 past
 ack w1
+kill S4
+write_raw S1 t3 binary 25 far 817
+reserve_raw S2 3 past
+write S1 t3 binary 9 far 771
+ack w2
+reserve S3 26 far
+ack w2
+ack w2
 kill S1
-reserve S4 43 far
-write S2 t2 binary 15 far
-reserve_raw S1 39 far
-write S2 t4 binary 25 far
-# generated 21
-scenario generated21 30000 10
+control 30 657
+timeout t2
+write S1 t2 binary 28 far 607
+reserve S2 2 far
+reserve S2 16 far
+reserve S1 4 past
+write S4 t4 text 6 far 446
 ack w1
-control 2
-control 23
 ack w1
-ack w2
-write S4 t1 text 6 far
-ack w2
-control 13
 reserve S2 27 far
 ack w1
 ack w4
@@ -807,271 +781,258 @@ ack w2
 ack w2
 reserve_raw S4 19 far
 reserve_raw S2 6 far
-control 30
-ack w2
-kill S3
-control 10
-write S1 t3 text 6 past
-write_raw S4 t3 text 11 far
-kill S2
+control 30 418
+ack w4
+reserve S3 29 far
+control 15 195
+control 7 208
+ack w4
 ack w3
-kill S4
+kill S3
+# generated 20
+scenario generated20 30000 50
 kill S4
 reserve_raw S1 46 far
-control 22
-write S4 t4 binary 4 far
-reserve_raw S4 24 past
-control 27
-write_raw S4 t2 binary 0 far
-reserve S3 47 far
+control 22 551
+write S4 t1 text 17 past 634
+reserve S3 47 past
 ack w3
-write S1 t4 text 14 far
-write_raw S3 t1 binary 20 far
+reserve S2 7 far
+reserve S4 40 far
+kill S3
 ack w3
-# generated 22
-scenario generated22 30000 50
-ack w1
-control 27
-write S2 t1 text 6 past
-write S1 t1 binary 17 far
-reserve_raw S4 50 past
-kill S3
-kill S3
+write_raw S3 t1 binary 20 far 967
+ack w4
+ack w2
+reserve S3 9 far
+ack w2
+write S3 t2 text 22 far 885
+ack w4
+write_raw S3 t2 text 25 far 274
+ack w3
 ack w1
 kill S1
-write_raw S2 t2 binary 2 past
+write_raw S2 t4 binary 2 past 414
 ack w4
-write S3 t1 binary 6 past
-write S1 t2 text 18 far
-ack w3
-reserve S4 39 far
-reserve S2 18 far
-# generated 23
-scenario generated23 0 10
+ack w4
+control 2 235
 ack w1
-reserve_raw S1 49 far
+# generated 21
+scenario generated21 30000 50
 ack w1
-reserve S2 18 past
-write S4 t1 text 1 far
-reserve S1 14 far
-write_raw S3 t4 binary 25 far
-reserve_raw S2 5 far
-write S4 t1 text 28 far
-write S2 t3 binary 7 far
-control 4
-reserve S3 42 past
 ack w1
-reserve S1 5 far
-reserve S1 42 past
-write S1 t1 binary 4 far
+control 8 132
+reserve_raw S2 39 past
+kill S3
+control 4 70
+kill S2
+control 14 140
+reserve S1 13 far
+control 16 184
+write_raw S2 t2 text 4 far 568
+reserve S3 30 far
+write S2 t1 binary 7 past 716
+kill S4
+ack w4
+reserve_raw S4 32 far
+control 20 400
+ack w2
+control 5 796
+kill S4
 ack w1
-reserve S4 48 far
-reserve S3 48 far
-ack w3
-write S3 t1 text 23 past
+ack w4
+kill_dest
+ack w1
 ack w2
 reserve_raw S4 24 far
-control 2
+control 2 554
+kill S4
+kill S1
+ack w2
+ack w4
+write S1 t2 text 5 far 802
+ack w3
+write S4 t1 text 7 far 580
+# generated 22
+scenario generated22 30000 10
+write S4 t1 text 14 far 698
+reserve_raw S2 5 far
+kill S2
+reserve S2 35 far
+write_raw S1 t2 binary 20 far 447
+write S3 t1 text 5 far 798
+ack w1
+reserve S2 15 past
+write_raw S4 t3 binary 7 far 891
+ack w3
+control 2 936
+ack w1
+ack w4
+kill S2
+write S4 t2 binary 10 far 615
+ack w3
+ack w4
+reserve_raw S1 15 far
+reserve_raw S3 43 past
+ack w1
+ack w1
+reserve_raw S3 44 past
+reserve_raw S4 12 past
+ack w1
+ack w3
+control 25 134
+write_raw S1 t4 binary 23 far 907
+reserve_raw S2 47 past
+control 16 897
+write_raw S4 t2 text 4 past 46
+kill S3
+ack w4
+ack w2
+kill S4
+ack w2
+close 1000
+ack w4
+ack w4
+write_raw S4 t3 binary 0 far 373
+control 5 488
+reserve S2 1 past
+kill S2
+ack w3
+write S4 t3 text 18 far 596
+# generated 23
+scenario generated23 30000 10
+write S2 t1 binary 24 far 764
+ack w2
+write S4 t1 binary 5 past 950
+write_raw S4 t1 text 11 past 165
+write S1 t1 text 29 past 959
+write S3 t1 binary 12 far 738
+ack w2
+reserve S4 10 far
+ack w3
+ack w1
+write S3 t2 binary 19 far 644
+reserve_raw S1 1 far
+ack w1
+ack w2
+write S2 t1 binary 25 past 987
+control 1 480
+reserve S1 8 far
+write S4 t4 binary 18 far 291
+write S1 t1 binary 5 past 176
+kill S3
+ack w1
+write S4 t3 text 5 far 566
+reserve_raw S2 18 past
+control 25 449
+ack w4
+ack w2
+ack w2
+ack w2
+ack w3
+write S3 t1 text 18 far 600
+kill S4
+write S4 t2 text 25 far 991
+reserve S3 10 far
+ack w1
+reserve_raw S2 15 far
+ack w3
+kill S4
+ack w3
+control 20 682
+control 20 508
+ack w2
+reserve S3 8 past
+control 21 591
 # generated 24
 scenario generated24 30000 10
+reserve S2 18 far
 ack w1
 ack w1
-kill S2
-control 19
+write S2 t2 binary 15 far 789
+control 1 946
 ack w2
-write S4 t1 binary 24 far
-write S2 t1 binary 0 past
+control 21 404
+write S4 t1 text 19 past 993
 ack w2
-ack w3
-reserve S4 42 far
-ack w2
-kill S2
-control 21
-control 27
-reserve S1 9 past
-control 17
-write_raw S4 t2 text 5 past
-reserve_raw S4 45 past
-ack w3
-control 15
-ack w2
-ack w1
-reserve S1 38 far
-reserve_raw S4 35 far
 ack w4
-reserve S1 33 past
-ack w3
-reserve S2 8 far
-ack w1
-ack w3
-ack w4
-ack w1
-write S1 t1 binary 8 far
-write_raw S1 t4 text 27 far
-kill S3
-# generated 25
-scenario generated25 30000 10
-write S2 t1 binary 1 past
-ack w1
-write_raw S3 t1 binary 5 past
-control 15
-reserve_raw S3 12 far
-ack w4
-close 1000
-ack w4
-reserve S3 36 far
-kill S4
-write S4 t2 binary 4 far
-write S1 t3 text 23 far
-ack w4
-ack w3
-ack w3
-kill S2
-ack w3
-write S4 t2 text 18 far
-ack w1
-write S2 t1 text 23 past
-write_raw S4 t2 binary 5 past
-ack w3
-ack w4
-write S2 t2 binary 20 far
-reserve S2 4 far
-ack w1
-ack w3
 ack w2
-ack w3
-ack w1
-write S3 t2 binary 19 far
-ack w2
-ack w1
-kill S4
-ack w3
-write S2 t4 binary 28 past
-reserve S2 9 far
-write S2 t2 binary 13 far
-close 1000
-write_raw S1 t4 text 6 far
-# generated 26
-scenario generated26 30000 50
-control 7
-ack w2
-reserve_raw S1 46 far
-reserve S4 33 far
-timeout t1
-ack w1
-kill S2
-reserve S2 24 far
-ack w1
-write_raw S4 t1 text 12 far
-ack w1
 kill S1
-kill S2
-control 5
-ack w3
-ack w2
-ack w3
-write S1 t3 text 16 far
-control 20
-ack w3
-write S3 t2 binary 14 far
-ack w1
-kill S1
-ack w3
-control 12
-write_raw S1 t3 binary 20 far
-ack w2
-kill S3
-control 22
-kill_dest
-reserve S2 25 far
-ack w2
-ack w3
-ack w4
-ack w3
-ack w1
-write_raw S1 t3 text 14 far
-control 22
 reserve_raw S4 9 far
 kill S2
 ack w2
 reserve S4 6 past
-# generated 27
-scenario generated27 0 10
-write S1 t1 binary 7 far
-write S3 t1 binary 20 far
 ack w3
-reserve S2 5 past
+reserve_raw S1 16 far
+reserve S1 22 far
 ack w2
-write S4 t2 binary 0 past
-ack w3
-kill S4
-control 10
-write S3 t2 binary 9 far
-control 22
-write S3 t1 binary 1 past
-ack w4
-reserve S2 36 far
-ack w1
-kill S4
-kill S4
-write S2 t2 text 19 far
-ack w4
-ack w4
-ack w4
-write_raw S2 t1 text 3 far
 ack w2
-write_raw S3 t3 binary 13 far
-ack w2
-ack w3
-ack w2
-control 2
-timeout t2
-reserve S2 5 far
-ack w3
-control 13
-control 21
-write_raw S2 t1 text 19 past
-ack w4
-# generated 28
-scenario generated28 0 50
-reserve S4 23 far
-ack w1
-ack w1
-ack w1
-write_raw S4 t1 binary 19 far
-kill S4
-write S2 t1 text 8 far
-ack w3
-control 19
-reserve_raw S1 7 past
-reserve S2 31 far
-ack w2
-write S2 t2 binary 11 far
-write S2 t4 binary 26 far
-reserve S3 1 far
-ack w2
-ack w4
-control 30
-reserve S2 21 far
-write S1 t3 binary 21 far
-write_raw S4 t1 binary 7 past
-# generated 29
-scenario generated29 30000 10
-ack w1
-reserve_raw S2 9 past
-timeout t2
+reserve S4 26 past
 kill S2
+ack w4
+kill S1
+kill S1
+write S3 t2 binary 9 far 262
+ack w3
+write S3 t1 binary 1 past 963
+reserve_raw S3 30 far
+write S3 t4 binary 14 far 547
+reserve S3 20 far
+kill S4
+write S2 t2 text 19 far 830
+write_raw S4 t4 text 4 far 991
+write S1 t1 binary 23 far 280
+reserve_raw S1 45 far
+control 23 962
+control 14 778
+write_raw S3 t2 binary 5 far 190
+write S4 t3 binary 11 past 965
+write S4 t4 text 1 past 966
+# generated 25
+scenario generated25 30000 10
+write_raw S1 t1 binary 22 far 942
+reserve_raw S3 35 far
+reserve_raw S4 43 far
+control 21 425
+reserve S1 13 far
+reserve S1 17 far
+reserve S4 23 far
+ack w3
+ack w2
 ack w1
+write_raw S4 t3 binary 19 far 487
+ack w2
+write_raw S1 t4 text 9 far 52
+reserve_raw S1 49 past
 ack w1
+kill S4
+control 1 627
+kill S4
 ack w1
+ack w4
+reserve S4 26 far
 ack w1
+write S2 t3 text 5 past 82
+write S2 t4 binary 9 past 585
 ack w1
-ack w1
-write_raw S1 t2 binary 22 past
-reserve S4 15 far
-write S1 t1 text 9 past
-write_raw S3 t1 binary 28 past
-control 14
+write S3 t3 text 24 far 358
+ack w4
+ack w4
+control 4 171
+control 26 978
+# generated 26
+scenario generated26 30000 1000
+timeout t1
+reserve_raw S4 13 past
+kill S3
+kill S1
+write_raw S1 t2 text 14 far 455
+ack w2
+write_raw S1 t2 binary 22 past 151
+ack w3
+reserve S1 26 far
+control 5 28
+control 11 873
 ack w4
 ack w1
 reserve_raw S2 7 far
@@ -1079,443 +1040,422 @@ ack w3
 kill S1
 reserve_raw S4 20 far
 ack w1
-write_raw S4 t2 text 22 far
-write_raw S4 t3 text 18 far
-write S3 t1 text 24 past
-write_raw S4 t1 binary 16 far
-reserve S2 27 far
-write S4 t1 binary 23 far
+write_raw S4 t2 text 22 far 491
+control 19 230
+write S1 t3 text 15 far 180
+reserve S1 41 far
+reserve_raw S3 33 far
+ack w2
 ack w1
 ack w1
 reserve S2 17 far
-write S4 t1 text 1 far
-ack w4
+write S4 t1 text 1 far 900
+ack w3
 reserve S1 30 past
 reserve_raw S3 46 far
-# generated 30
-scenario generated30 30000 10
-write S3 t1 binary 21 past
-write S1 t1 binary 12 past
+control 10 277
+kill S2
 ack w3
-reserve_raw S1 11 past
-ack w3
-ack w2
-write S2 t1 binary 19 far
-reserve S3 5 far
-kill S1
-ack w4
-kill S3
+reserve_raw S3 45 far
+reserve_raw S4 34 far
+# generated 27
+scenario generated27 30000 10
+ack w1
+write S2 t1 binary 19 far 730
+write S1 t1 binary 24 far 203
+control 14 658
+control 18 825
 ack w4
 reserve S3 11 far
-write S2 t4 binary 23 far
+write S2 t2 binary 23 far 418
 ack w4
-write S3 t1 text 9 past
-kill S4
-ack w1
+write S1 t2 binary 1 far 880
+reserve S2 27 far
+write S2 t3 text 2 far 359
+control 6 205
+reserve S3 44 far
+ack w4
 ack w2
+control 29 230
+control 7 879
+ack w1
+ack w3
+control 6 167
+ack w2
+kill S3
+ack w1
+ack w4
+kill S1
+reserve S1 44 far
+write_raw S4 t3 text 24 far 815
+ack w3
+kill S3
+ack w3
+ack w2
+kill S3
+write S1 t2 text 21 far 327
+ack w3
 timeout t4
-ack w2
-control 16
-control 28
-write S3 t3 binary 26 far
-kill S2
-control 14
-reserve S2 15 past
-kill S3
-# generated 31
-scenario generated31 30000 50
-kill S3
-reserve_raw S2 41 far
-reserve_raw S3 27 far
-reserve S3 30 far
-ack w1
-kill S2
-close 1000
-write S4 t3 binary 28 far
-ack w1
-ack w2
-ack w2
-kill S3
-write S1 t2 text 21 far
-write S4 t1 text 27 far
-kill S4
 reserve_raw S3 6 past
 reserve S1 46 past
 ack w2
 ack w1
-control 24
-# generated 32
-scenario generated32 30000 10
-control 8
+# generated 28
+scenario generated28 30000 1000
 ack w1
-ack w2
-ack w1
-control 6
-reserve S2 5 past
-control 9
-write_raw S4 t2 binary 24 far
-ack w1
-control 3
-ack w3
-reserve S4 41 far
-reserve S3 14 far
-control 17
-control 12
-# generated 33
-scenario generated33 30000 50
-control 9
-ack w2
-write S2 t1 binary 4 past
-ack w1
-reserve S1 15 far
-write S3 t1 binary 29 far
-ack w1
-ack w1
-reserve S2 48 far
-write S2 t3 binary 20 past
-ack w4
-reserve S4 30 far
-ack w3
-write S1 t1 text 8 far
-reserve S1 12 far
-reserve_raw S4 42 far
-reserve S1 24 past
-control 6
-reserve_raw S2 6 far
-reserve S4 39 far
-write S4 t2 binary 21 far
-reserve S4 33 far
-write S4 t1 text 19 far
-control 28
-ack w2
-kill S2
-ack w3
-kill S3
-# generated 34
-scenario generated34 0 50
-write S3 t1 binary 9 far
-control 10
-write_raw S4 t1 binary 10 far
-ack w1
-reserve S2 31 far
-kill S2
-control 13
-kill S3
-reserve S3 28 far
-ack w3
-ack w2
-ack w2
-write_raw S1 t2 binary 28 past
-ack w3
-reserve S4 48 far
-control 28
-ack w3
-ack w3
-ack w1
-ack w1
-reserve S1 45 far
-reserve S3 32 past
-timeout t2
-ack w1
-kill S2
-ack w2
-ack w1
-control 26
-# generated 35
-scenario generated35 30000 10
-reserve S4 24 past
+reserve_raw S3 38 far
 ack w1
 ack w1
 ack w1
+control 6 605
+reserve S2 28 far
+write S3 t1 binary 25 far 669
+control 10 480
+write S2 t2 text 18 far 460
+write S3 t2 text 25 far 715
+write_raw S4 t2 text 12 past 472
+control 9 817
 kill S4
-ack w1
-control 13
-ack w1
-ack w1
+reserve S3 14 far
+ack w3
+control 1 826
+write S2 t3 binary 4 past 121
+write_raw S1 t4 binary 25 past 306
+ack w3
+write_raw S1 t3 binary 1 past 902
+ack w4
+kill S1
+kill S4
+write S2 t3 binary 20 past 284
+reserve_raw S4 33 far
 ack w2
-reserve S2 27 far
-control 17
-reserve S3 8 far
+ack w2
+kill_dest
+ack w1
+ack w3
+ack w4
+# generated 29
+scenario generated29 30000 10
+ack w1
+kill S3
+control 19 241
+control 23 860
+ack w2
+ack w1
+write S1 t1 binary 14 far 51
+reserve_raw S2 38 far
+kill S4
 ack w3
 kill S1
-control 1
+reserve S2 31 past
+reserve S2 40 past
+write S1 t3 binary 24 far 2
+ack w4
+reserve_raw S3 29 far
+ack w2
+control 18 54
+reserve_raw S1 30 far
+kill S4
+write S1 t1 text 1 past 828
+kill S1
+write S3 t1 binary 0 far 647
+write_raw S1 t4 binary 28 past 915
 ack w3
-write_raw S4 t3 binary 13 past
-reserve S4 46 past
-kill S2
-# generated 36
-scenario generated36 0 10
-reserve_raw S4 14 far
-write S3 t2 text 29 far
+reserve S4 48 far
+control 28 10
+reserve S4 29 far
+write S1 t4 binary 29 past 940
 ack w1
+# generated 30
+scenario generated30 30000 1000
+kill S3
+ack w1
+ack w1
+ack w1
+reserve S2 30 far
+ack w1
+ack w1
+control 26 213
+reserve S2 20 far
+ack w1
+control 17 576
+ack w1
+kill S4
+ack w3
+control 13 145
+kill_dest
+timeout t1
+control 12 452
+reserve_raw S4 25 far
+reserve_raw S1 33 far
+ack w4
+write S2 t2 text 17 past 551
+reserve S1 11 far
+ack w3
+write_raw S4 t3 binary 13 past 51
+kill S1
+write S2 t2 binary 20 past 271
+control 24 571
+ack w4
+write_raw S3 t1 binary 7 far 546
 kill S2
 reserve S4 9 far
 reserve S4 26 far
 kill S1
 reserve_raw S2 45 far
-ack w2
+ack w4
 reserve S2 37 past
-write S1 t2 binary 20 far
-write S1 t2 binary 28 past
-reserve S2 41 far
-reserve S4 5 far
-write_raw S1 t3 binary 5 far
-reserve S2 41 far
-write_raw S4 t2 text 1 past
-write S2 t1 binary 18 far
-write S1 t4 text 9 far
-reserve_raw S1 8 far
-control 19
+write S1 t2 binary 20 far 572
+write S2 t3 binary 17 far 598
+# generated 31
+scenario generated31 0 50
+write S3 t1 text 0 past 78
+reserve_raw S3 31 far
+ack w2
+ack w1
+reserve_raw S2 23 far
+timeout t2
+write S4 t3 binary 14 far 720
+control 23 244
+reserve S3 35 far
+ack w3
+kill S1
+ack w3
 ack w1
 ack w1
+write S4 t4 text 18 far 950
+write_raw S2 t4 text 22 far 918
+kill S3
+write S2 t4 binary 3 far 25
+reserve_raw S2 26 far
+write S4 t4 binary 7 past 230
+write S2 t3 text 20 past 922
+control 22 597
+write_raw S1 t4 binary 18 far 526
+kill S4
+ack w4
+ack w2
 ack w1
-# generated 37
-scenario generated37 30000 50
+reserve S2 45 far
 ack w1
-ack w1
-write S4 t1 text 18 far
+reserve S4 23 far
 kill S3
 ack w1
+write S1 t2 binary 22 far 825
+# generated 32
+scenario generated32 30000 50
+reserve S4 16 far
+reserve S2 34 far
+reserve S1 22 far
+reserve_raw S4 35 far
+reserve S4 26 past
+reserve S3 44 past
+reserve S2 41 far
+kill S1
 kill S4
-write S4 t1 binary 29 far
-write S1 t1 binary 3 far
-write S4 t1 binary 20 far
-write S2 t1 text 20 past
-control 19
+reserve_raw S1 16 past
+control 1 220
+reserve S2 18 far
 ack w1
-write_raw S4 t1 text 17 far
-ack w1
-kill S2
-control 4
-# generated 38
-scenario generated38 30000 10
-write S4 t1 binary 29 far
-control 19
+write S1 t4 text 21 past 289
 timeout t1
-reserve_raw S2 47 far
-control 7
-reserve S2 33 far
-reserve S1 31 past
-write S4 t2 text 28 far
-write S4 t1 text 22 far
-reserve_raw S2 4 past
+ack w2
+write S2 t1 binary 5 far 95
+ack w4
+write_raw S1 t1 binary 13 far 890
+ack w3
+write S4 t4 binary 24 far 95
+ack w1
 ack w4
 kill S4
-write S4 t1 binary 1 far
-reserve_raw S3 44 far
-write S4 t2 text 27 past
-control 28
 ack w1
-ack w1
-write_raw S2 t2 binary 8 far
-reserve S1 10 far
-reserve_raw S3 30 far
-write S1 t3 binary 24 far
-kill S2
-reserve_raw S4 18 past
-# generated 39
-scenario generated39 30000 10
-ack w1
-kill S2
-kill S3
-close 1000
-write S4 t1 binary 18 far
-write S1 t1 text 13 far
-kill S2
-write S2 t1 binary 2 past
-kill S1
-write S2 t1 binary 10 past
-ack w2
-ack w4
-reserve S1 24 far
-ack w1
-reserve S3 2 past
-reserve S4 48 past
-write_raw S3 t4 text 16 far
-write_raw S3 t4 binary 2 far
-control 13
-write S3 t3 binary 13 far
-# generated 40
-scenario generated40 0 10
-write S2 t1 binary 24 far
-ack w2
-ack w1
-write S2 t1 binary 6 far
-kill S1
-ack w2
-ack w1
+write S4 t2 text 18 far 865
+reserve_raw S2 35 far
+timeout t1
 ack w3
+kill S1
+ack w3
+ack w3
+write S1 t1 text 11 far 919
+ack w3
+write_raw S3 t4 text 16 far 34
+control 3 965
+reserve S1 11 far
+ack w4
+ack w2
+# generated 33
+scenario generated33 0 1000
+kill_dest
+ack w1
+write S2 t1 text 19 far 346
+kill S1
+ack w1
+ack w1
+ack w2
 reserve S2 12 far
-write S2 t2 text 27 far
+write S2 t2 text 27 far 830
+write S3 t1 binary 8 far 891
+kill S3
+write S2 t1 binary 12 past 362
+control 4 440
 ack w1
-kill S4
-reserve S4 18 far
+ack w1
+ack w3
+write_raw S4 t2 text 17 far 409
+# generated 34
+scenario generated34 30000 10
+ack w1
+write S4 t1 binary 29 far 465
+kill S1
+reserve_raw S3 23 far
+control 9 449
 ack w3
 kill S1
-control 16
-write S1 t2 text 24 far
-write_raw S1 t3 binary 16 past
-reserve_raw S1 31 far
-ack w1
-write S4 t3 binary 29 far
-ack w3
-close 1000
-reserve_raw S1 22 far
-write_raw S1 t2 text 28 past
-kill S1
-# generated 41
-scenario generated41 30000 10
-write S2 t1 binary 28 far
-ack w1
-ack w1
+reserve_raw S4 24 far
+ack w2
+write_raw S4 t3 binary 29 past 118
 reserve S3 3 far
 ack w2
-write S2 t2 text 20 far
+write S2 t2 text 20 far 466
+reserve S3 8 far
+reserve S1 39 far
+write S4 t3 text 0 far 792
+ack w2
+write S3 t2 binary 23 far 563
+kill S1
+reserve_raw S2 50 far
+# generated 35
+scenario generated35 30000 10
+control 16 216
+write S4 t1 text 20 far 821
+ack w2
 kill S3
-write_raw S3 t2 binary 6 far
+control 4 11
+reserve S2 5 far
+ack w1
+kill S4
 ack w3
-ack w1
-ack w2
-write S3 t2 binary 23 far
-ack w4
-control 17
-write S4 t2 text 9 far
+write S4 t1 binary 23 far 337
 ack w3
-control 2
-ack w4
-kill S3
-control 4
-timeout t2
-ack w2
-write S3 t2 text 15 far
-ack w2
-ack w1
-reserve_raw S4 7 past
-write S4 t1 binary 11 far
-control 29
-write_raw S3 t1 binary 2 far
-# generated 42
-scenario generated42 0 1000
+write S4 t2 binary 11 far 11
+ack w3
+reserve_raw S1 33 past
+reserve S3 15 far
 ack w1
 ack w1
-ack w1
-write S4 t1 text 27 far
+write S4 t1 text 27 far 709
+ack w3
+ack w3
 kill S2
-write S3 t1 text 17 far
-kill S3
-reserve S2 43 past
-control 24
-ack w4
-reserve S3 44 far
-write S3 t3 text 21 far
-ack w3
-kill S3
-ack w3
-reserve_raw S1 21 far
-write_raw S1 t4 text 23 far
-reserve S3 36 past
-write S2 t3 text 17 far
-ack w3
-control 3
-kill S2
-reserve S3 19 far
-ack w4
 ack w1
-control 26
+ack w1
+kill S4
+write_raw S4 t1 text 18 far 114
+write_raw S2 t4 text 6 far 707
+kill_dest
+reserve S1 8 far
+write_raw S3 t3 binary 6 far 852
+control 2 18
+control 14 589
+ack w2
+ack w3
+kill S4
+write_raw S2 t1 text 2 far 421
+kill S3
+write S4 t2 binary 7 far 244
+write S4 t2 text 7 far 204
+reserve_raw S4 16 far
 ack w3
 reserve_raw S1 16 far
+# generated 36
+scenario generated36 30000 1000
+reserve S4 23 far
+reserve S2 37 past
+write_raw S3 t3 text 28 past 641
+reserve_raw S1 9 far
+ack w2
+kill S1
+ack w1
+ack w2
+write S2 t3 binary 29 far 325
+kill S1
 kill S3
-ack w1
-ack w4
-ack w4
-ack w1
-write S3 t3 text 0 far
-reserve S2 29 past
+reserve S3 41 far
 ack w2
+ack w1
 kill S4
-ack w2
-ack w2
-write S3 t4 text 27 past
-ack w3
-write S2 t2 binary 27 far
-# generated 43
-scenario generated43 30000 10
-kill S2
+write S1 t2 text 18 far 521
+kill S1
+# generated 37
+scenario generated37 30000 1000
 kill S4
-write S1 t1 text 18 far
-ack w1
-control 12
-ack w1
-ack w3
-control 9
-close 1000
-reserve_raw S4 21 past
-ack w4
-ack w4
-write S2 t2 binary 17 past
+control 17 104
+kill S4
+reserve S4 5 far
+reserve_raw S4 27 past
+reserve S3 24 far
 ack w2
+write S2 t2 binary 17 past 583
+kill S4
 kill S2
 reserve_raw S4 30 far
-# generated 44
-scenario generated44 30000 50
-reserve S2 17 far
-ack w1
-kill S1
-reserve S4 15 far
-reserve S2 25 far
-ack w1
-control 22
-ack w2
-control 19
-write_raw S2 t3 binary 15 far
-ack w1
-write S3 t2 binary 5 far
-kill S3
-control 20
-ack w1
-ack w2
-control 19
-ack w3
-ack w2
-kill S1
-ack w1
-ack w1
-write S4 t1 binary 2 far
-ack w2
-kill S1
-ack w1
-reserve_raw S2 41 far
-timeout t1
-ack w1
-kill S4
-write S2 t1 binary 10 past
-kill S3
 reserve S1 15 far
-reserve_raw S3 20 past
-reserve S4 37 far
-control 11
-ack w3
-reserve S2 48 far
-write_raw S3 t4 text 15 past
+ack w1
+reserve_raw S4 7 past
+write S2 t4 text 25 far 342
+reserve_raw S1 24 far
 ack w4
+ack w4
+reserve_raw S2 40 far
+timeout t1
+write S3 t4 text 28 far 127
+reserve_raw S1 24 past
+reserve S2 46 far
+write S2 t3 binary 28 far 500
 ack w3
-# generated 45
-scenario generated45 30000 1000
+ack w2
+control 19 815
+reserve_raw S3 50 far
+reserve S1 18 past
+# generated 38
+scenario generated38 30000 10
+control 17 401
+ack w2
+write S2 t1 binary 0 far 761
+ack w3
+kill_dest
 ack w1
-ack w1
-kill S4
-kill S2
-kill S2
-write S1 t1 binary 15 far
-reserve S4 1 past
-control 14
+reserve S3 7 far
 ack w1
 ack w2
+kill S2
+ack w2
 ack w3
+ack w2
+ack w1
+reserve S4 37 far
+control 11 413
+ack w2
+ack w2
+write_raw S3 t1 text 15 past 95
+reserve S3 40 far
+ack w2
+ack w2
+ack w3
+ack w4
+# generated 39
+scenario generated39 0 10
+write S4 t1 binary 0 far 13
+ack w2
+write S2 t1 text 9 far 724
+ack w1
+ack w3
+timeout t1
+reserve_raw S4 44 far
 reserve_raw S2 36 far
 reserve_raw S2 43 far
-write S2 t2 text 9 far
-control 29
+write S2 t2 text 9 far 199
+kill S4
 timeout t4
 kill S2
 reserve S3 8 far
@@ -1526,860 +1466,828 @@ reserve_raw S1 18 past
 ack w2
 reserve S3 15 far
 kill S3
-write_raw S3 t1 text 13 past
-write S1 t1 binary 6 far
-ack w3
-reserve_raw S1 41 far
-reserve S1 41 far
-ack w1
-ack w1
+write_raw S3 t1 text 13 past 388
 ack w1
 ack w3
-write S3 t4 binary 10 far
+reserve_raw S4 5 past
 ack w4
-write S4 t1 text 3 far
-ack w4
-reserve S2 32 far
-ack w2
-control 14
-ack w2
-control 21
-ack w2
-# generated 46
-scenario generated46 30000 1000
-ack w1
+control 17 560
 kill S3
-ack w1
-ack w1
-reserve S4 35 far
-write S1 t2 text 11 far
-ack w1
-reserve S3 16 far
+# generated 40
+scenario generated40 30000 1000
+kill S1
+write_raw S4 t1 text 7 past 850
 ack w2
-write_raw S3 t3 binary 8 past
+ack w1
+ack w1
+ack w1
 ack w2
-ack w3
-write S1 t1 binary 23 far
-write S1 t2 text 7 past
-reserve S2 18 far
+ack w2
+control 14 704
 kill S2
-ack w4
-write_raw S4 t3 binary 15 far
-write_raw S4 t1 binary 25 past
-kill S1
-write S3 t4 text 1 far
-write S1 t1 text 15 far
-ack w4
-write_raw S1 t2 text 23 far
-ack w1
-reserve S1 23 far
-kill S1
-reserve S2 35 far
-control 20
-ack w1
+control 4 890
+write_raw S2 t1 binary 13 far 446
+kill S2
+control 23 970
+reserve S3 36 past
+reserve S2 5 far
+reserve_raw S3 40 far
 ack w2
-kill S1
-write S3 t4 text 14 far
+reserve_raw S4 11 far
+control 16 91
+write_raw S3 t4 binary 8 past 931
 ack w3
-write S1 t1 text 4 far
-reserve_raw S3 15 far
-kill S1
-control 11
-# generated 47
-scenario generated47 30000 10
-write S2 t1 binary 29 far
-control 15
-reserve_raw S4 1 far
-kill S4
+ack w4
+write S3 t1 text 16 past 650
+reserve S4 2 past
+kill S2
+reserve S4 16 far
+reserve_raw S2 39 past
+ack w2
+ack w4
 ack w2
 ack w3
-write S4 t2 text 29 far
-write S2 t2 text 12 far
+write S1 t1 text 15 far 24
+reserve S2 17 far
+write S1 t1 binary 28 far 507
+ack w1
+ack w3
+write_raw S4 t3 binary 4 far 146
+ack w2
+write S4 t4 text 2 far 859
+# generated 41
+scenario generated41 30000 10
+ack w1
 kill S3
-ack w3
-write S3 t1 text 28 past
-ack w3
-write_raw S3 t2 binary 24 past
+ack w1
+reserve S3 49 past
+ack w1
+kill S1
+kill S1
+control 11 236
+control 12 461
+ack w2
+write S1 t2 text 22 past 294
+write_raw S1 t1 binary 0 far 882
+write S3 t1 text 11 far 34
+ack w1
+reserve S1 6 far
+ack w2
+kill S1
+kill_dest
+reserve_raw S3 18 far
+ack w1
+ack w2
 reserve_raw S4 41 past
 reserve S3 47 far
-write_raw S4 t3 binary 7 far
+write_raw S4 t3 binary 7 far 981
+# generated 42
+scenario generated42 30000 10
+kill S1
 ack w1
-reserve S3 44 past
 ack w1
-write_raw S2 t4 binary 22 far
-kill S2
-write S2 t1 text 26 far
-timeout t1
-ack w3
+control 23 381
+ack w2
+ack w2
+reserve S3 7 far
+ack w1
 reserve_raw S1 18 past
 reserve_raw S3 41 past
-control 26
-# generated 48
-scenario generated48 30000 10
-reserve S1 14 far
-kill_dest
-write S2 t1 text 19 past
+control 26 649
+ack w1
 kill S2
-ack w2
-reserve_raw S3 50 far
-reserve_raw S1 35 far
-write S4 t1 text 24 far
-write S3 t1 text 16 far
+write S3 t1 text 28 far 507
+control 15 948
 ack w1
-reserve_raw S2 27 far
+ack w3
+ack w2
+control 8 404
+ack w3
+ack w2
+ack w4
 ack w2
 ack w1
-ack w2
+write S4 t3 binary 20 past 976
+ack w4
 reserve S4 17 far
 ack w3
 ack w3
-control 6
-write S3 t2 binary 1 far
+control 6 682
+ack w3
 ack w4
 ack w2
-write S3 t2 text 17 past
-write S4 t1 binary 23 past
-# generated 49
-scenario generated49 30000 1000
-reserve S1 42 past
-ack w1
-ack w1
-ack w1
-reserve S4 25 far
-write S4 t1 binary 16 far
+write S3 t2 text 17 past 159
+# generated 43
+scenario generated43 30000 50
+write S4 t1 binary 14 far 107
+write S4 t1 binary 20 past 398
+reserve_raw S1 2 far
+control 16 73
+write S4 t2 text 22 far 624
+write S4 t1 binary 16 far 931
+control 24 989
+reserve S3 6 past
+write_raw S2 t2 binary 26 far 969
 ack w2
-control 18
-control 22
-kill S1
+write_raw S1 t3 binary 8 far 112
+ack w4
 ack w2
-write_raw S1 t3 binary 8 far
-write S1 t2 text 3 past
-kill S3
-reserve S2 30 far
+write S4 t1 text 19 far 529
 ack w4
 ack w3
-control 2
+control 2 78
+control 19 30
+write S3 t1 text 21 far 819
+control 3 72
+write S2 t3 binary 25 far 450
+control 20 929
+write S3 t1 binary 26 far 870
+write_raw S1 t1 text 2 far 425
+write S4 t1 binary 6 far 33
+ack w2
+reserve S4 45 far
+ack w2
 ack w4
-ack w3
-ack w2
-control 3
-reserve S1 14 past
-timeout t3
-control 9
-ack w1
-ack w1
-# generated 50
-scenario generated50 30000 1000
-ack w1
-reserve S2 24 far
-control 5
-ack w2
-ack w2
 reserve_raw S2 46 far
-timeout t3
+timeout t1
 reserve S1 2 far
-control 18
-reserve_raw S3 35 far
-write_raw S3 t1 text 6 far
-kill S3
-ack w3
-reserve S4 18 far
-control 30
-reserve_raw S1 22 past
-write S1 t2 binary 6 far
-write S2 t1 text 20 far
-control 24
-ack w1
-control 2
-reserve S1 3 far
-write_raw S2 t1 text 6 past
-reserve S2 33 far
-write S1 t1 text 4 far
-write S2 t1 text 28 past
-reserve S4 44 far
-reserve S3 24 far
-ack w1
-reserve S2 40 far
-ack w2
-reserve S1 43 past
-control 15
-write_raw S1 t2 binary 6 far
-reserve S1 32 far
-ack w1
-ack w1
-write_raw S2 t3 binary 9 far
-ack w1
-# generated 51
-scenario generated51 30000 10
-kill S1
-control 29
-ack w2
-reserve S3 44 far
-write S4 t2 text 14 past
-ack w1
-ack w2
-ack w2
-ack w3
-ack w2
-write S2 t2 binary 3 far
-ack w4
-ack w4
-ack w1
-reserve S2 50 far
-ack w2
-ack w2
-ack w2
-write S4 t3 binary 15 far
-write S2 t1 text 20 past
-control 6
-write S3 t1 text 16 past
-ack w2
-kill S2
-ack w2
-write S3 t3 text 21 far
-close 1000
-kill S4
-ack w3
-ack w4
-# generated 52
-scenario generated52 30000 1000
-reserve S4 11 far
-ack w1
-write S1 t1 binary 28 far
-reserve S2 13 far
-ack w2
-reserve S2 36 past
-control 10
-ack w3
-ack w2
-ack w2
-ack w3
-reserve S2 33 far
-reserve S4 37 past
-ack w3
-kill S4
-ack w3
-kill S4
-ack w1
-kill S2
-kill S1
-ack w1
-kill S4
-ack w2
-write_raw S1 t3 text 26 far
-control 4
-ack w4
-reserve S4 3 past
-reserve_raw S4 13 past
-ack w1
-timeout t4
-ack w1
-reserve S2 22 past
-ack w3
-ack w1
-ack w2
-kill S2
-write_raw S2 t2 binary 16 far
-ack w3
-kill S4
-# generated 53
-scenario generated53 30000 50
-reserve S2 44 far
+control 18 654
 timeout t2
-reserve S4 20 far
-kill S2
-write_raw S4 t3 binary 10 far
-ack w2
-write_raw S3 t2 binary 15 far
-ack w2
-ack w3
-write S2 t3 binary 6 far
-write S4 t3 binary 25 far
-ack w1
-ack w2
-reserve S4 12 past
-reserve_raw S3 40 far
-control 5
-write S3 t2 text 17 past
-ack w2
-write S3 t3 text 18 far
+write_raw S3 t1 text 6 far 282
+control 1 726
+reserve S2 47 past
+write_raw S3 t1 binary 20 far 10
 kill S4
-reserve_raw S2 9 far
-reserve_raw S4 35 far
-ack w2
-control 25
-reserve S2 39 far
-kill S1
-ack w4
-ack w4
+control 25 110
+control 21 789
+control 19 679
+# generated 44
+scenario generated44 0 10
 ack w1
-write_raw S4 t3 binary 10 far
-write_raw S4 t1 binary 15 far
+control 2 512
+timeout t1
+write_raw S2 t1 text 6 past 317
+ack w2
+write S1 t1 text 4 far 461
+control 29 139
+control 4 374
+ack w2
+write S4 t1 binary 23 far 708
+write_raw S1 t1 binary 28 past 649
+kill S2
+write S4 t1 text 21 far 859
+write_raw S2 t1 binary 11 far 647
+control 13 184
+ack w4
+ack w2
+reserve S1 44 far
+ack w4
+reserve S4 19 far
+reserve_raw S4 19 far
+ack w1
+write_raw S2 t1 binary 22 far 586
+write_raw S3 t4 binary 8 far 398
+ack w2
+write S3 t2 text 26 past 966
+kill S4
+ack w1
+ack w4
+control 4 622
+write S3 t4 text 23 past 579
+kill S1
+reserve S1 27 far
+write S2 t3 text 0 past 998
+write S2 t2 text 1 far 948
+write S2 t2 binary 11 far 483
+timeout t3
+write S1 t3 text 14 far 849
+# generated 45
+scenario generated45 30000 1000
+ack w1
+ack w1
+write S3 t1 text 16 far 218
+kill S2
+write_raw S1 t1 binary 15 far 356
+ack w2
+reserve_raw S3 35 far
+ack w2
+ack w2
+reserve S1 13 far
+control 15 78
+kill S3
+kill S2
+close 1000
+reserve S2 36 past
+control 10 23
+reserve_raw S3 14 far
+kill S1
+reserve_raw S3 48 far
+write S4 t2 text 27 far 482
+reserve S4 37 past
+ack w1
+kill S4
+ack w3
+kill S4
 ack w1
 kill S2
-ack w2
+kill S1
 ack w3
-write S1 t3 text 14 past
-control 11
+kill S4
+ack w2
+write_raw S1 t3 text 26 far 905
+write S2 t4 binary 12 far 579
 ack w3
-reserve_raw S4 32 far
-write S3 t2 text 25 past
+reserve S4 28 far
+control 17 356
+ack w3
+write_raw S1 t4 text 2 far 256
+kill S2
+reserve_raw S4 42 far
+reserve S4 49 past
+# generated 46
+scenario generated46 30000 10
 ack w1
-# generated 54
-scenario generated54 30000 10
-control 30
-write S3 t1 text 21 far
-ack w2
-reserve S1 1 far
-reserve S4 37 far
-ack w2
-write S3 t3 text 9 far
+kill S4
 ack w1
+write S1 t1 binary 28 far 214
+write S4 t1 text 26 far 406
+control 22 294
+reserve S4 30 past
+write_raw S2 t2 text 15 far 267
+write_raw S4 t1 binary 10 far 135
+ack w3
 ack w1
 ack w3
+ack w1
+write S2 t1 binary 6 far 859
+control 26 976
+reserve_raw S2 6 far
 ack w2
+kill S2
+reserve S1 18 past
+ack w4
+ack w1
+ack w2
+write S3 t3 text 18 far 439
+write S3 t3 binary 7 far 273
+write_raw S2 t1 binary 7 far 275
+write_raw S2 t1 binary 19 far 849
+control 25 277
+kill S2
+control 16 264
+write S1 t4 text 26 far 151
+kill S2
+write S1 t2 text 27 past 379
+kill S4
+reserve_raw S2 13 far
+ack w2
+ack w1
+write_raw S3 t1 text 11 far 272
+reserve_raw S3 10 far
+kill S4
+ack w3
+# generated 47
+scenario generated47 30000 10
+ack w1
+write S4 t1 text 29 past 852
+ack w2
+ack w1
+write S3 t1 text 21 far 527
+reserve S3 2 far
+reserve_raw S3 39 past
+write S1 t3 text 17 far 863
+control 26 236
+control 30 305
+ack w3
+ack w3
+write S2 t1 binary 10 past 671
 reserve S2 41 past
 ack w3
-write S2 t4 text 12 far
-reserve S4 9 past
-reserve_raw S4 12 far
-write_raw S4 t1 text 19 far
-ack w4
-control 17
-ack w1
+write S2 t4 text 12 far 751
 kill S3
+write_raw S1 t4 text 5 past 311
+write_raw S4 t1 text 19 far 961
+write_raw S4 t4 binary 13 far 985
+ack w3
+write_raw S2 t4 binary 0 far 945
 reserve_raw S3 29 far
 ack w3
 ack w4
-control 4
-ack w2
+control 4 337
+ack w3
+write S1 t1 text 11 far 769
+ack w3
+reserve_raw S3 17 far
 ack w1
-write_raw S4 t2 binary 13 far
-write S1 t3 binary 7 far
-# generated 55
-scenario generated55 0 10
-write_raw S3 t1 binary 24 past
+control 16 834
+control 6 551
+reserve_raw S2 41 past
+ack w3
+reserve S1 13 far
 ack w1
+ack w3
+# generated 48
+scenario generated48 0 10
+ack w1
+ack w1
+control 12 117
+reserve_raw S2 6 past
+write S1 t1 binary 7 far 744
+ack w1
+write S4 t2 binary 6 far 602
 ack w2
+reserve S3 9 far
+control 27 729
+kill S1
 kill S4
-kill S2
-ack w1
-write S2 t1 binary 27 far
-ack w2
-reserve S2 38 far
-ack w2
-kill S3
-ack w3
-ack w3
-write S1 t1 binary 7 far
-write_raw S1 t1 binary 2 past
-write S4 t2 binary 6 far
-kill S3
-kill S2
-write S1 t1 binary 12 far
-reserve S4 2 far
-write S2 t1 text 11 far
 kill S4
-write_raw S3 t2 binary 8 past
-reserve_raw S2 4 far
-control 29
-write S1 t1 text 0 far
-ack w4
-write S3 t2 text 6 past
+write_raw S3 t2 binary 8 past 61
+reserve S2 11 past
+kill S3
+write S1 t1 text 0 far 385
+write S3 t4 text 22 far 407
+ack w2
 ack w3
-reserve_raw S3 8 past
-write S4 t2 text 22 far
-reserve S3 3 far
-# generated 56
-scenario generated56 30000 50
+reserve S4 49 far
+control 15 522
+control 17 981
 reserve_raw S3 22 far
 kill S2
 reserve S3 24 far
-timeout t3
-ack w1
+timeout t4
+ack w2
 reserve_raw S4 24 far
 ack w1
 reserve S1 33 far
 kill S3
 kill S2
-control 8
-reserve_raw S2 18 far
-write S1 t1 binary 8 far
-reserve S3 1 far
-timeout t2
-reserve S1 35 far
-# generated 57
-scenario generated57 30000 10
-reserve S2 22 far
-ack w1
-ack w1
-ack w1
+# generated 49
+scenario generated49 30000 50
+kill S3
+write S2 t1 binary 4 far 876
+ack w2
+write_raw S3 t1 text 1 far 524
+kill S1
+reserve S2 21 far
+write S4 t2 text 21 far 271
+ack w3
+ack w3
+ack w3
 reserve_raw S2 8 far
-write_raw S1 t2 text 21 far
-ack w2
-write S4 t1 text 26 far
-write S4 t2 text 1 far
-reserve S2 12 far
-ack w2
+write_raw S1 t2 text 21 far 444
 ack w3
-ack w4
 ack w3
-control 14
-reserve S3 20 far
-# generated 58
-scenario generated58 30000 10
-write S4 t1 binary 20 past
+write S4 t2 text 1 far 801
+ack w3
+control 10 650
+ack w1
 ack w2
-control 12
+write S4 t1 binary 8 past 916
+write S4 t1 binary 28 far 419
+reserve S3 38 past
 ack w1
+reserve_raw S4 30 far
+ack w2
+kill_dest
+write S1 t3 binary 11 past 86
+reserve S3 32 far
+reserve S3 2 past
+kill S4
 ack w1
-write S1 t1 binary 11 past
-reserve S3 10 far
-kill S2
-reserve S1 26 past
-reserve S3 11 far
 reserve_raw S4 12 far
 reserve S4 24 far
-reserve S3 10 past
+# generated 50
+scenario generated50 30000 50
+reserve S4 21 far
+ack w1
+ack w1
+write S4 t1 text 23 far 255
+kill S3
+kill S3
+reserve S4 16 far
+ack w2
+ack w1
+reserve S4 10 far
+ack w1
+ack w1
+kill S1
+reserve S1 28 far
+write S2 t4 binary 28 past 411
+timeout t4
+ack w1
+control 7 559
+ack w4
+reserve S3 2 far
+control 15 716
+ack w2
+control 28 85
+write S4 t2 binary 21 far 940
+write_raw S4 t2 binary 27 far 102
+write S4 t1 text 7 far 523
+# generated 51
+scenario generated51 30000 1000
+control 12 453
+ack w1
+reserve_raw S2 19 far
+write S1 t1 binary 0 far 500
+ack w1
+close 1000
+control 30 535
+write S3 t1 text 16 past 123
+write S1 t1 binary 25 far 47
+reserve S4 41 far
+kill S2
+ack w4
 ack w3
 ack w2
-write_raw S4 t2 text 10 past
+reserve_raw S2 26 far
+kill_dest
+# generated 52
+scenario generated52 30000 1000
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
+write S3 t1 binary 19 far 966
 kill S2
-reserve S4 31 far
-reserve S4 31 far
-control 9
-control 2
-control 5
-control 6
-ack w4
-control 2
 ack w2
-write_raw S2 t3 binary 13 far
-write_raw S4 t4 text 1 past
-ack w4
-control 14
-ack w2
-control 5
-write_raw S3 t3 binary 0 far
-control 30
-reserve_raw S4 34 far
-kill S4
-# generated 59
-scenario generated59 30000 50
-ack w1
-control 23
-write S4 t1 text 7 far
-write_raw S4 t1 text 12 far
-write S4 t1 binary 20 far
-close 1000
-kill S4
-kill S2
-ack w1
-close 1000
-control 30
-ack w3
-write S4 t1 text 15 far
-control 17
-ack w1
-control 29
-write_raw S4 t1 text 10 far
-kill S2
-ack w1
-ack w2
-write_raw S4 t1 text 14 far
-ack w2
-kill S2
-ack w1
-reserve S4 18 far
-ack w1
-control 20
-ack w1
-ack w4
 kill S1
 ack w1
 kill S4
+ack w2
+ack w1
+control 11 805
+write S3 t1 text 29 far 864
 ack w4
+reserve S3 36 past
+timeout t1
+ack w4
+kill S2
+ack w1
+ack w4
+reserve_raw S4 33 far
+reserve_raw S4 37 past
+reserve S4 1 far
+reserve S2 40 far
+control 12 602
+kill S1
+control 25 26
 ack w3
-control 11
+reserve_raw S3 14 past
+reserve S4 4 far
+write S4 t4 text 11 far 152
+ack w3
+reserve_raw S4 40 far
+ack w2
+write S2 t1 binary 23 far 513
 ack w1
-write S1 t2 text 5 far
-reserve S4 11 far
 ack w4
-write S1 t3 binary 20 far
-reserve S2 49 past
+kill S1
+timeout t4
+write S2 t2 text 5 past 808
+ack w4
+# generated 53
+scenario generated53 30000 50
+write S4 t1 binary 8 far 461
+ack w2
 ack w1
+reserve S3 23 far
+write_raw S2 t1 text 20 far 689
+reserve S4 48 far
+kill S3
+ack w3
+ack w2
+kill S2
+close 1000
+kill S1
+reserve S4 45 far
+ack w3
+ack w1
+ack w1
+ack w2
+ack w1
+reserve S3 11 far
+write S4 t3 text 20 far 145
+control 16 335
+# generated 54
+scenario generated54 0 10
+kill S1
+reserve_raw S1 24 past
+write_raw S3 t1 binary 4 past 487
+write S1 t2 text 13 far 349
+ack w1
+reserve S2 21 far
+write S2 t2 binary 2 far 293
+write S3 t3 binary 1 far 231
+write_raw S3 t3 text 9 far 490
+ack w1
+control 15 894
+write S3 t2 text 5 past 634
 ack w4
+control 19 396
+write S1 t1 binary 5 far 206
+ack w1
+reserve S2 39 far
+write S1 t4 text 9 far 658
+control 19 914
+# generated 55
+scenario generated55 30000 50
+write_raw S2 t1 binary 27 far 8
+write_raw S2 t1 binary 0 far 651
+reserve S2 29 far
+reserve_raw S2 24 far
+control 5 894
+control 28 250
+ack w4
+ack w4
+ack w2
+ack w4
+ack w1
+ack w3
+kill S2
+timeout t2
+ack w2
+ack w2
+# generated 56
+scenario generated56 30000 50
+control 29 187
+control 1 657
+reserve S4 27 far
+reserve S4 20 far
+reserve_raw S1 44 past
+ack w3
+reserve S2 24 far
+reserve S4 25 far
+reserve S2 13 far
+write S4 t3 text 22 past 107
+ack w3
+write_raw S2 t1 text 24 past 607
+reserve_raw S4 1 far
+ack w4
+control 4 228
+ack w3
+reserve S1 49 far
+ack w1
+ack w2
+ack w3
+write S1 t4 binary 27 past 89
+write S1 t1 binary 20 far 724
+timeout t2
+# generated 57
+scenario generated57 0 50
+ack w1
+ack w1
+reserve S1 26 far
+control 18 928
+kill S2
+ack w1
+write S2 t1 binary 19 far 309
+ack w3
+control 24 198
+ack w2
+control 20 48
+reserve S3 50 far
+reserve S1 34 far
+write S2 t1 text 21 far 794
+kill S1
+reserve_raw S2 42 far
+control 15 393
+ack w1
+kill S3
+reserve S1 35 far
+kill S3
+write S2 t2 text 7 far 757
+kill S4
+reserve_raw S1 14 far
+write_raw S4 t4 text 2 far 942
+ack w2
+ack w4
+kill S2
+# generated 58
+scenario generated58 30000 50
+control 1 118
+kill S2
+ack w1
+reserve_raw S2 22 past
+kill S3
+ack w1
+control 17 0
+write_raw S2 t2 text 20 far 129
+kill S4
+ack w4
+ack w1
+kill S3
+reserve S2 9 far
+reserve_raw S1 43 past
+reserve S1 34 far
+kill S3
+write S3 t1 binary 18 far 934
+ack w1
+ack w3
+write S1 t3 text 12 past 635
+ack w2
+ack w3
+reserve_raw S4 8 far
+write S3 t3 text 6 past 707
+# generated 59
+scenario generated59 30000 1000
+reserve S4 7 far
+reserve_raw S1 24 far
+kill S4
+ack w1
+ack w1
+write S1 t2 text 16 far 860
+ack w1
+write S2 t1 text 22 past 316
+reserve_raw S3 40 far
+kill S1
+reserve S4 29 far
+kill S1
+write_raw S1 t1 text 7 far 504
+ack w4
+write_raw S2 t4 binary 23 past 630
+control 7 95
+control 2 759
+kill S2
+kill S2
+ack w3
+control 17 197
+control 5 476
+ack w4
+ack w1
+write_raw S2 t1 binary 2 far 870
+ack w2
 # generated 60
 scenario generated60 30000 1000
 ack w1
-ack w1
-reserve S4 1 far
-reserve S2 40 far
-control 12
-ack w1
-control 25
-reserve_raw S3 7 far
-control 4
-reserve S4 4 far
-write S4 t4 text 11 far
-write_raw S1 t1 text 9 far
-reserve S3 33 far
-control 25
-control 4
-ack w1
-ack w4
-kill S1
-timeout t4
-write S2 t2 text 5 past
+control 11 444
 ack w2
-ack w2
-kill S1
-ack w4
 ack w1
-reserve S3 23 far
-write_raw S2 t1 text 20 far
+reserve_raw S4 27 far
+ack w1
+write S2 t1 text 2 far 726
 ack w2
-ack w4
-ack w3
-ack w3
-write_raw S2 t4 binary 23 far
 kill S3
-# generated 61
-scenario generated61 30000 10
-kill S1
-reserve S4 45 far
+write_raw S3 t1 binary 5 far 366
 ack w1
-ack w1
-ack w1
-ack w1
-ack w1
-reserve S3 11 far
-write S4 t3 text 20 far
-write S2 t3 text 15 past
-kill S4
-kill S4
-ack w1
-write_raw S3 t3 binary 4 past
-ack w2
-reserve S3 12 far
-reserve S2 19 past
-ack w2
-ack w3
 ack w4
-write_raw S3 t4 text 9 far
-reserve S3 47 far
-reserve S2 41 far
-# generated 62
-scenario generated62 0 50
-ack w1
-ack w1
-ack w1
-write S1 t1 binary 5 far
-write S3 t1 text 3 far
-control 9
-write S1 t1 text 9 far
-reserve S3 49 far
-control 29
-ack w3
-reserve S4 2 far
-reserve S2 29 far
-reserve_raw S2 24 far
-control 5
-write S3 t2 text 27 far
-reserve S3 22 past
-write S3 t4 text 18 far
-control 18
-# generated 63
-scenario generated63 30000 10
-ack w1
-ack w1
-kill S2
-timeout t1
-ack w1
-ack w1
-write S3 t1 text 15 far
-write S4 t1 binary 0 far
-write S1 t1 text 3 past
-control 7
-control 28
-kill S4
-ack w1
-write_raw S2 t1 text 7 far
-ack w1
-reserve S2 13 far
-write S4 t1 text 22 past
-control 4
-reserve S3 45 far
-ack w4
-control 14
-ack w4
-reserve S1 3 far
-write S1 t3 binary 13 far
-control 25
-reserve S2 17 far
-ack w3
-write S1 t4 binary 27 past
-ack w1
-ack w3
-control 23
-write_raw S2 t4 binary 22 far
-ack w2
-reserve S1 26 far
-# generated 64
-scenario generated64 30000 10
-write_raw S1 t1 text 10 past
-kill S4
-ack w1
-ack w2
-ack w1
-control 24
-control 1
-control 20
-write S1 t1 text 6 far
-ack w4
-reserve_raw S2 48 far
-ack w3
-control 7
-ack w3
-control 14
-write S2 t1 binary 2 far
-reserve S3 45 past
-reserve S2 41 far
-reserve S3 24 far
-timeout t4
-write_raw S3 t4 text 0 far
-ack w4
-control 3
-control 10
-reserve S4 35 far
-ack w4
-control 1
-reserve S3 10 far
-kill S3
-reserve S1 5 past
-kill_dest
-ack w3
-ack w1
-write_raw S2 t4 text 20 far
-kill S2
-# generated 65
-scenario generated65 30000 50
-reserve_raw S4 17 far
-ack w1
-ack w1
-ack w1
-ack w1
-reserve S1 34 far
-kill S3
-write S3 t2 binary 18 far
-ack w1
-control 30
-ack w3
-reserve S1 43 far
-write S3 t3 text 10 far
-reserve_raw S4 8 far
-write S3 t3 text 6 past
-control 26
-ack w4
-reserve_raw S4 38 far
-# generated 66
-scenario generated66 0 1000
-reserve S2 19 far
-ack w1
-write S1 t2 text 16 far
-reserve S1 26 far
-ack w2
-control 3
-ack w2
-ack w3
-reserve S3 37 far
-control 19
-ack w4
-write_raw S3 t4 text 19 far
-write S4 t4 binary 8 far
-control 16
-control 2
-kill S4
-ack w4
-ack w4
-ack w3
-control 9
-write_raw S4 t2 binary 10 far
-write S1 t4 text 14 far
-write_raw S2 t1 binary 2 far
-ack w2
-write S1 t3 binary 14 far
-write S2 t3 binary 3 past
-ack w1
-ack w2
-control 19
-write_raw S3 t4 text 13 far
-control 30
-ack w3
-write S4 t1 text 19 far
-reserve S4 17 far
-kill S2
-write S2 t1 binary 4 far
-# generated 67
-scenario generated67 30000 10
-ack w1
+write_raw S3 t2 text 9 far 585
 reserve_raw S3 46 far
-ack w1
+ack w2
 kill S1
 reserve S3 7 far
+ack w3
+ack w4
+control 20 80
 ack w1
-ack w1
-control 20
-reserve_raw S1 27 far
 ack w1
 kill S2
-ack w2
-write_raw S3 t4 binary 28 past
-control 17
-kill S1
-control 9
-write_raw S1 t4 binary 15 far
-reserve S3 20 past
-ack w3
-ack w2
-write_raw S2 t2 text 23 past
 ack w4
-write_raw S3 t4 binary 28 past
-# generated 68
-scenario generated68 0 50
-reserve_raw S2 9 far
-reserve S1 25 far
-write_raw S4 t1 binary 7 far
+write_raw S3 t4 binary 28 past 857
+ack w4
+reserve_raw S2 46 past
+kill S4
+reserve_raw S2 25 far
+write S3 t4 binary 0 far 134
+kill S3
+kill S3
+ack w1
+ack w4
+# generated 61
+scenario generated61 30000 10
+ack w1
+ack w1
+write S4 t1 text 27 far 569
+ack w1
+reserve_raw S3 6 far
+ack w1
+ack w1
+write_raw S2 t1 text 11 far 955
+ack w1
 ack w2
-write S4 t2 text 21 far
+kill S4
 ack w3
-kill S1
-reserve S3 26 far
-control 5
-control 21
 ack w2
 reserve S3 13 far
-write S4 t2 text 5 far
-ack w2
-ack w2
-ack w1
-ack w4
-write S3 t3 binary 24 far
-reserve S4 42 far
-ack w3
-reserve S1 16 past
-# generated 69
-scenario generated69 30000 10
-write S4 t1 text 23 far
-write_raw S3 t1 binary 13 far
-write S2 t1 text 21 far
-ack w1
-write S4 t1 text 23 far
-control 19
-kill S2
-ack w1
+write S4 t1 text 5 far 270
 kill S4
+reserve_raw S4 24 past
+kill S1
+write S4 t1 text 4 far 551
+ack w3
+control 15 382
+control 26 77
+control 16 205
+# generated 62
+scenario generated62 30000 1000
+control 20 359
+ack w2
+kill S1
+reserve_raw S1 28 far
+write_raw S2 t1 binary 10 far 943
+ack w1
+reserve S2 4 far
+timeout t1
 kill S3
 reserve_raw S2 11 far
 ack w1
 reserve S4 15 far
-write_raw S2 t3 text 0 far
-ack w4
-ack w3
-ack w2
-write_raw S2 t2 binary 22 far
+write_raw S2 t2 text 0 far 407
+write_raw S2 t4 binary 4 far 10
+kill S1
+# generated 63
+scenario generated63 30000 50
+ack w1
 reserve S2 22 far
 ack w1
-ack w4
-control 3
-reserve S2 33 far
-control 11
-write S4 t2 text 29 far
 ack w1
-control 17
+control 3 1
+reserve S3 9 far
+ack w1
+reserve_raw S2 49 far
+kill S3
+ack w1
 kill S2
-write_raw S4 t3 text 23 past
-write_raw S4 t4 text 20 far
+write_raw S4 t3 text 23 past 127
 ack w3
-# generated 70
-scenario generated70 30000 1000
-kill S1
-write_raw S1 t1 binary 12 far
-kill S4
-ack w2
-ack w2
-control 28
-write S3 t1 text 1 past
-reserve S1 19 far
-reserve S4 35 past
-ack w4
-write_raw S4 t1 text 17 far
-reserve_raw S1 28 past
-reserve S1 15 far
-write_raw S3 t2 text 4 past
-write S2 t1 binary 12 far
-ack w2
-ack w4
+ack w3
+write_raw S4 t2 binary 9 far 245
+write_raw S1 t1 binary 12 far 963
+write S2 t4 text 19 far 201
+control 21 47
+control 28 310
+control 2 264
+reserve_raw S3 12 far
+kill S3
 ack w1
-ack w4
-reserve S1 42 far
-reserve_raw S4 44 far
-ack w4
-timeout t4
+reserve_raw S3 46 past
+ack w2
+control 18 985
+control 10 44
+reserve_raw S3 36 far
+kill S4
+ack w1
+reserve S2 13 far
+ack w1
+# generated 64
+scenario generated64 30000 50
+reserve S4 2 far
+kill S3
+ack w1
+timeout t2
 reserve_raw S3 8 far
 kill S1
 reserve_raw S2 30 far
-ack w2
-ack w4
+ack w1
+ack w1
 kill S4
 reserve S2 30 far
-write_raw S1 t3 binary 14 past
-kill S2
-control 12
-write S1 t1 text 15 past
+write_raw S1 t3 binary 14 past 893
 ack w1
 ack w2
-kill S2
-ack w2
-reserve S2 32 far
+write S1 t1 text 15 past 903
 ack w3
-control 29
-ack w2
-# generated 71
-scenario generated71 30000 10
-reserve S4 8 far
-reserve_raw S4 9 far
-write S1 t1 binary 13 far
+write_raw S4 t2 binary 5 far 884
 ack w1
+control 27 447
+ack w4
+ack w4
+ack w3
+write S3 t4 text 23 far 106
+reserve S4 25 far
+ack w3
+ack w2
+ack w3
 reserve S2 15 far
-write S3 t4 binary 2 far
-kill S1
-kill S2
+write S3 t4 binary 2 far 84
+write_raw S1 t3 binary 23 far 896
+kill_dest
 ack w3
-write S1 t3 text 1 far
+ack w4
+ack w4
+ack w4
+reserve S3 34 far
+kill S1
+ack w1
+reserve S4 19 past
 ack w1
 kill S4
-ack w2
-write_raw S4 t2 binary 11 far
-control 13
-write S4 t4 binary 21 far
-kill S4
+write_raw S3 t2 text 0 past 581
 ack w3
-write S2 t2 text 21 far
+kill S3
+# generated 65
+scenario generated65 30000 1000
+control 16 403
 ack w2
-reserve_raw S1 7 far
-write S4 t2 binary 28 past
-write S3 t1 binary 23 far
-write S2 t1 text 19 far
-kill S1
+write_raw S3 t1 text 25 past 420
+ack w2
+control 28 774
+kill S3
+reserve S2 49 far
 ack w4
-control 28
-ack w3
-ack w4
-ack w3
-control 8
-kill S2
 ack w2
+write_raw S4 t2 binary 22 far 775
 ack w4
 kill S3
 kill S4
@@ -2388,17 +2296,14 @@ ack w2
 ack w4
 ack w4
 ack w3
-# generated 72
-scenario generated72 30000 50
+write_raw S4 t1 binary 24 past 686
+write S1 t1 binary 20 far 142
+ack w2
+write S3 t2 binary 3 far 560
+reserve S3 29 far
+control 11 561
+write_raw S2 t3 text 9 far 822
 ack w1
-write S1 t1 binary 20 far
-ack w1
-reserve S4 2 far
-write S4 t1 binary 14 far
-ack w1
-kill S4
-kill S4
-control 12
 ack w4
 kill S3
 timeout t1
@@ -2411,2025 +2316,1944 @@ ack w2
 ack w3
 ack w3
 ack w2
-control 26
-control 3
-# generated 73
-scenario generated73 0 10
-ack w1
-ack w1
-write S4 t1 text 15 past
-ack w1
-ack w1
-kill S4
-write_raw S3 t1 text 22 past
+control 26 797
+write S4 t4 binary 0 past 582
 ack w3
-ack w2
 ack w1
-write S4 t1 binary 3 far
+# generated 66
+scenario generated66 30000 10
+kill S4
+write S4 t1 text 14 far 331
+ack w1
+write S1 t1 binary 26 far 535
+ack w2
+write S2 t1 binary 22 far 293
+ack w2
+kill S1
 kill S1
 ack w1
 ack w3
 reserve S2 39 far
-control 3
-ack w1
-write S3 t1 text 13 far
-ack w4
-reserve_raw S4 16 far
-reserve S3 13 far
-control 27
-control 11
-kill S4
+control 3 303
 ack w2
-write S3 t2 text 29 past
-reserve_raw S3 35 past
-ack w2
-ack w2
-ack w4
-reserve S3 40 far
-control 12
-write S4 t2 binary 5 far
-write_raw S2 t4 binary 27 past
-control 5
-ack w2
-reserve_raw S4 34 past
-# generated 74
-scenario generated74 30000 1000
-control 6
-kill S3
-reserve_raw S4 23 far
-ack w2
-control 6
-ack w2
-ack w1
-ack w1
-reserve_raw S1 15 far
-reserve S4 17 far
-write_raw S3 t1 text 28 past
-control 25
-write S3 t2 text 11 far
-ack w1
+write S1 t2 binary 21 far 780
+control 23 274
+reserve S1 41 past
+reserve S3 2 far
+reserve S4 6 past
 ack w4
 ack w3
-reserve S4 27 past
-ack w2
+write S3 t2 text 29 past 970
+# generated 67
+scenario generated67 0 1000
+ack w1
+ack w1
+ack w1
+control 30 905
+ack w1
 kill S1
+write S4 t1 binary 5 far 625
+reserve S4 15 past
+reserve S1 35 far
+ack w1
+control 9 328
+control 6 318
+control 8 423
+kill S2
 kill S4
-write S1 t2 binary 25 far
-reserve S1 37 far
+write S3 t3 text 22 far 382
+ack w2
+ack w2
+ack w1
+kill S2
+write S2 t2 text 16 far 443
+control 6 97
+ack w3
+reserve S2 33 far
+ack w3
+control 6 620
+ack w4
+reserve S3 23 far
+control 13 131
+kill S4
+write S1 t2 binary 25 far 704
+ack w1
 ack w1
 reserve S4 47 past
 ack w3
-write_raw S1 t4 binary 13 far
-ack w3
-control 19
-ack w2
+write_raw S1 t4 binary 13 far 534
+# generated 68
+scenario generated68 30000 10
+reserve S2 47 far
+write S1 t1 binary 21 far 755
 reserve S2 43 far
 kill S2
 kill S4
 reserve S3 21 far
-# generated 75
-scenario generated75 30000 10
-reserve S3 26 far
-write S1 t2 text 21 past
-write_raw S3 t2 binary 8 past
-reserve S3 13 far
 ack w2
-write S1 t2 binary 17 far
+write S1 t1 binary 23 past 239
+reserve S3 20 past
+reserve S2 42 far
 ack w2
-control 26
-write S1 t3 text 5 far
+ack w2
+timeout t2
 ack w1
+control 9 63
 ack w4
-ack w2
-reserve_raw S4 35 far
+ack w3
 kill S4
 ack w1
-reserve S2 50 far
-reserve S4 30 past
-write_raw S3 t2 text 0 far
-write S1 t2 text 26 far
-write S4 t2 binary 5 past
-control 22
-reserve_raw S2 35 far
-kill S2
-ack w3
+write S2 t1 binary 9 past 122
+reserve_raw S3 6 past
+control 21 27
+write_raw S3 t4 binary 16 far 262
+control 24 988
+reserve S3 41 far
 ack w2
-write S1 t4 text 22 past
-write S2 t4 text 5 far
-ack w1
-# generated 76
-scenario generated76 30000 50
-ack w1
-write_raw S2 t1 binary 6 far
-control 9
-write S2 t1 text 0 far
-ack w2
-kill S2
-kill S3
-write S1 t1 text 20 far
-control 30
-ack w2
-ack w3
-control 30
-control 6
-write S2 t1 text 27 far
-ack w3
-ack w2
-control 6
+write_raw S4 t3 binary 24 far 510
+reserve_raw S4 37 past
 kill S1
-reserve_raw S2 27 far
-write S1 t2 text 26 past
-reserve S3 5 far
 ack w4
-ack w4
-reserve_raw S3 7 far
+kill S4
+write S4 t1 text 5 past 920
 kill S1
-ack w2
 ack w4
-write S2 t2 text 29 far
-control 19
-control 1
-ack w4
-control 23
-write S2 t4 text 12 far
-reserve S2 2 past
-# generated 77
-scenario generated77 30000 1000
-ack w1
-ack w1
+write_raw S4 t3 binary 27 far 953
+control 5 123
+write S2 t4 binary 19 far 949
 kill S3
-control 30
+write S2 t1 binary 25 far 86
+# generated 69
+scenario generated69 30000 50
+reserve S1 41 far
+ack w1
+ack w1
+control 2 18
+ack w1
+reserve S3 28 far
+write_raw S4 t3 text 18 far 445
+write S2 t2 text 27 far 582
+kill S3
+write_raw S4 t1 text 3 past 156
+ack w3
 ack w2
-control 19
-reserve S2 27 far
+write S2 t1 text 11 past 727
+reserve S3 28 far
+ack w1
+reserve_raw S4 36 past
+ack w4
+write S3 t1 text 11 far 830
+ack w2
+ack w1
+write S2 t2 text 29 far 458
+ack w1
+control 1 837
+reserve S4 13 past
+control 4 674
+write S3 t1 binary 19 far 363
+write S1 t3 binary 19 far 776
+ack w1
+kill S4
+ack w4
+ack w4
+# generated 70
+scenario generated70 30000 50
+control 19 813
+ack w1
 reserve_raw S1 38 far
-control 5
-reserve_raw S2 23 far
+control 5 185
+write_raw S1 t1 text 20 far 92
 ack w3
-ack w2
-reserve S1 41 past
 ack w4
-write S4 t1 binary 6 far
+control 4 648
+ack w2
+kill S2
 ack w2
 ack w3
-write S1 t2 binary 12 far
-control 21
-ack w1
-write S4 t2 text 9 past
-control 12
-timeout t2
-ack w2
+write S1 t2 binary 12 far 140
+ack w4
+kill S3
+write S2 t2 text 16 far 742
+write_raw S1 t2 binary 8 far 959
+write S4 t1 binary 16 far 321
 reserve S4 27 past
 reserve S1 16 far
 ack w3
 kill S2
-write S4 t3 binary 24 far
-ack w3
+write S4 t3 binary 24 far 418
+ack w4
 ack w1
-write S4 t2 text 12 far
+write S4 t2 text 12 far 994
+ack w4
+ack w2
+ack w2
+reserve_raw S4 15 far
+write_raw S1 t1 binary 23 far 901
+ack w1
+write S3 t1 binary 28 far 887
+write_raw S2 t2 text 29 far 366
+reserve S2 4 past
+reserve_raw S2 37 far
+write S2 t2 text 3 past 864
+ack w1
+ack w4
+write S1 t2 text 7 past 486
+# generated 71
+scenario generated71 30000 50
 kill S3
-ack w2
-write S2 t3 binary 7 far
-write S1 t1 binary 22 past
-control 24
-write S2 t1 binary 14 far
-ack w2
-write S3 t4 binary 12 far
-ack w3
-reserve S4 7 past
-reserve_raw S1 40 far
+reserve S4 36 far
 ack w1
-# generated 78
-scenario generated78 0 50
-write_raw S3 t1 binary 17 past
-reserve S2 10 far
-ack w2
-ack w2
-reserve_raw S2 9 far
-reserve S3 1 far
-control 1
-control 23
-reserve S4 24 far
-write S3 t2 binary 19 past
-reserve S3 37 past
-reserve_raw S2 33 past
-write S2 t1 binary 17 far
-ack w2
-control 12
-ack w4
-ack w2
-ack w2
-ack w4
-ack w3
-write S3 t4 text 2 far
-ack w4
-kill S4
-reserve S1 42 far
-kill S4
-write_raw S3 t3 text 4 far
-ack w4
+write S4 t1 text 11 far 90
 ack w1
-write_raw S3 t4 text 29 far
-ack w2
-write S1 t1 binary 29 far
-reserve S4 1 far
-control 13
-write_raw S1 t4 binary 19 far
+control 28 414
+ack w1
+reserve S2 40 past
+ack w1
+reserve S2 7 past
+write_raw S2 t3 text 2 past 277
 kill S3
-# generated 79
-scenario generated79 30000 10
+write_raw S2 t3 text 9 far 171
+ack w4
+ack w4
+write_raw S4 t4 text 17 past 25
+ack w3
+write_raw S4 t2 binary 21 far 368
+ack w2
+kill S3
+reserve_raw S4 3 far
 ack w1
-write S3 t1 binary 12 far
-reserve_raw S4 31 past
-reserve S4 45 far
-write S4 t3 text 5 past
-ack w3
+reserve S1 36 far
+control 13 957
+write S4 t3 text 14 far 899
 ack w2
-write S1 t3 binary 16 far
+write S1 t1 binary 29 far 859
+control 21 875
+write_raw S1 t2 binary 23 far 261
+control 30 540
 ack w2
-write_raw S3 t2 binary 3 far
-reserve_raw S2 46 past
+ack w1
+write S3 t2 binary 12 far 103
+write S2 t3 text 25 far 316
+ack w1
+ack w4
+ack w1
 ack w2
-control 28
-ack w2
-kill S4
-ack w3
+ack w1
+ack w1
+ack w4
+# generated 72
+scenario generated72 30000 50
+control 14 789
 kill S1
+ack w2
+reserve S3 48 far
 ack w1
-kill S4
-write S2 t3 text 7 past
-ack w1
+write S2 t1 text 27 far 702
+kill S1
 ack w3
-ack w1
-ack w4
-reserve S3 28 past
-control 30
-ack w1
-write_raw S4 t4 text 6 far
-ack w2
-ack w1
-write S4 t1 binary 0 past
-ack w2
-ack w4
-write S3 t2 binary 3 past
+kill S4
+write S2 t1 text 7 past 654
 kill S2
-ack w4
-kill S1
-ack w3
-# generated 80
-scenario generated80 0 1000
-ack w1
-ack w1
-ack w1
-ack w1
-reserve_raw S3 49 far
-ack w1
-write S3 t1 text 1 far
+reserve S1 3 far
 ack w2
+write S3 t2 binary 15 far 842
+control 12 717
+kill S4
+write_raw S1 t3 text 14 far 826
 ack w2
-reserve S1 28 far
-control 25
-write_raw S1 t2 text 15 far
-write S1 t3 text 0 far
-ack w3
-ack w4
-ack w4
 ack w1
+write S4 t1 binary 0 past 19
 kill S3
+kill S1
+# generated 73
+scenario generated73 30000 1000
+control 5 238
 kill S4
-ack w3
-write S1 t3 text 16 far
-write S1 t2 binary 26 past
-write S4 t1 binary 21 far
+reserve S2 36 far
+write S1 t2 text 20 far 532
+reserve_raw S4 10 far
 ack w1
-write S2 t3 binary 11 past
-ack w2
-ack w2
-write S4 t3 binary 3 past
-control 28
-ack w2
-ack w4
-ack w3
-ack w4
-ack w4
-write S4 t2 text 14 past
-write S3 t3 binary 4 far
-reserve S3 18 far
+control 5 812
 kill S4
+kill S2
+reserve S3 32 past
+ack w3
+ack w1
+ack w4
+control 16 732
+write S4 t3 text 20 far 0
 ack w2
+ack w4
+ack w2
+reserve_raw S1 44 far
+write_raw S3 t3 text 9 far 197
+write S3 t3 binary 3 far 453
+write_raw S4 t2 binary 3 far 100
+reserve S3 13 far
+ack w1
+ack w4
+ack w2
+# generated 74
+scenario generated74 30000 50
+ack w1
+reserve S4 11 far
+kill S4
+control 10 75
+reserve S4 12 far
+write_raw S3 t1 binary 19 far 259
+reserve S4 11 far
+kill S3
+control 14 431
+write_raw S2 t4 binary 3 far 394
+write S3 t4 binary 4 far 590
+ack w1
+kill S4
+ack w1
 kill S1
 reserve S2 4 far
 kill S1
-# generated 81
-scenario generated81 30000 50
-write_raw S4 t1 text 2 far
-reserve S4 9 far
+ack w2
+kill S3
+timeout t2
 kill S1
 timeout t1
 reserve S1 34 far
 reserve_raw S3 11 far
-write_raw S4 t2 binary 18 far
-reserve_raw S2 1 past
-ack w3
+write_raw S4 t2 binary 18 far 605
+ack w4
 ack w1
-write S3 t4 binary 1 far
+write S1 t2 text 14 far 567
+kill S4
 kill S1
-write_raw S2 t4 binary 8 far
-write S4 t2 text 21 far
-write S1 t1 binary 15 far
-write S3 t1 text 23 past
-write S1 t1 binary 21 far
-reserve_raw S3 33 far
-reserve_raw S2 25 far
-write S2 t4 binary 25 far
-kill S2
+write_raw S2 t4 binary 8 far 131
+write S2 t1 text 6 far 992
+reserve_raw S2 7 far
+ack w1
+kill S1
+reserve S4 2 far
+ack w1
+# generated 75
+scenario generated75 30000 1000
+write S2 t1 binary 25 far 409
+ack w1
+write S1 t1 binary 21 far 584
+ack w1
+control 27 757
+ack w4
+reserve_raw S2 18 far
+kill S3
+ack w2
+write S2 t2 text 13 far 172
+ack w3
+ack w4
+reserve S1 3 past
+ack w4
+ack w4
+ack w2
+ack w3
+control 6 715
+ack w4
+# generated 76
+scenario generated76 30000 1000
+reserve_raw S4 41 far
+kill S1
+ack w1
+ack w1
+kill S3
+ack w1
+write S2 t1 text 5 past 535
+control 22 282
+ack w3
 reserve S4 9 past
+control 18 174
+ack w3
+reserve S3 16 far
+reserve S1 13 far
+reserve S2 8 far
+write S3 t2 binary 19 far 469
+kill S3
 ack w1
+control 7 774
 ack w4
-reserve_raw S1 2 far
-kill S2
-reserve S4 8 far
-control 26
-kill S4
-write S1 t3 binary 2 far
 kill S1
-reserve S3 28 past
+reserve S4 49 far
+timeout t3
+control 5 107
+reserve S1 9 past
+ack w4
+write S2 t1 binary 28 far 228
+write_raw S3 t2 text 0 far 510
+reserve_raw S1 4 far
+ack w1
+# generated 77
+scenario generated77 30000 1000
+write S4 t1 binary 27 far 302
+reserve S4 10 far
+ack w1
+ack w2
 kill S4
-ack w3
+ack w2
+write_raw S4 t1 binary 29 far 377
+control 5 173
+reserve_raw S1 13 far
+control 12 409
+write S2 t3 binary 27 far 394
+reserve S4 36 past
+write S2 t3 binary 19 far 561
+write_raw S4 t4 text 28 past 887
+reserve S2 43 far
 ack w4
-ack w2
-ack w3
-control 6
 ack w4
-ack w1
-control 7
-reserve S2 34 far
-ack w1
-ack w1
-# generated 82
-scenario generated82 30000 10
-write_raw S2 t1 text 9 far
-write_raw S3 t1 binary 5 far
-control 22
-write S3 t1 text 9 past
-ack w4
-control 23
 ack w3
-write_raw S2 t1 binary 0 far
-write S1 t1 text 4 far
-ack w3
-reserve S2 49 far
-reserve_raw S3 28 past
-reserve S3 13 far
-ack w2
-ack w1
-write S4 t4 text 0 far
-ack w2
-reserve_raw S2 48 past
-reserve_raw S2 10 far
-control 8
-# generated 83
-scenario generated83 30000 10
-close 1000
-control 18
-ack w1
-kill S1
-ack w1
-ack w1
-write S3 t1 binary 9 past
-ack w1
-control 17
-write S3 t1 binary 19 far
-reserve S2 11 past
-ack w4
-write_raw S4 t1 binary 29 far
-reserve S2 45 far
-control 16
-write S4 t2 binary 11 far
-ack w2
-write_raw S4 t2 text 29 far
-ack w2
-write S3 t3 binary 1 far
-write_raw S4 t1 text 28 past
-write_raw S4 t1 binary 0 far
-reserve S3 33 past
-reserve_raw S1 11 past
-timeout t1
-write S3 t1 binary 20 far
-write S4 t4 text 14 far
-control 16
-control 21
-control 27
-ack w3
-reserve_raw S2 28 far
+reserve S1 22 far
+write S2 t2 binary 12 past 1
+reserve_raw S4 35 far
+control 17 450
+control 27 98
+control 18 230
 kill S2
-write S2 t1 text 1 far
-ack w1
-ack w3
-write S1 t4 binary 27 far
-ack w1
-write S1 t3 text 4 far
-reserve S2 24 far
-control 8
-reserve S2 30 past
-close 1000
-# generated 84
-scenario generated84 30000 1000
-reserve_raw S2 41 far
-ack w1
-kill S4
-write S1 t1 binary 4 far
+reserve S4 13 far
+# generated 78
+scenario generated78 30000 50
+write_raw S2 t1 text 28 far 106
 ack w2
-write S3 t2 text 26 far
-ack w2
-ack w3
-reserve S3 20 far
 ack w1
-write_raw S2 t1 binary 27 far
-reserve S4 35 far
-write_raw S1 t1 text 16 past
-kill S4
-control 27
+ack w1
+write S1 t1 text 4 far 173
+ack w3
+write_raw S4 t1 binary 7 far 785
+write_raw S2 t1 text 23 far 67
+ack w2
+reserve S3 25 past
+ack w4
+reserve S4 23 far
+write S1 t2 binary 4 far 884
+reserve S3 33 far
+control 22 587
+reserve_raw S1 15 far
+ack w3
+reserve S2 32 past
+reserve S3 32 far
+reserve S3 24 far
+write_raw S2 t1 text 2 far 399
+ack w4
+reserve_raw S4 7 far
 ack w4
 reserve S2 18 far
-control 7
-reserve_raw S2 39 past
-ack w2
-kill S4
-reserve_raw S1 9 past
-ack w3
-reserve S4 32 far
-ack w1
-ack w3
-write S1 t4 binary 8 past
-# generated 85
-scenario generated85 30000 50
-write S2 t1 text 6 far
-ack w1
-reserve S1 46 past
-write S2 t1 binary 18 far
-control 30
+control 7 717
 ack w4
-write_raw S1 t1 binary 29 far
-control 4
-write S2 t2 binary 3 far
-write S3 t2 text 12 far
-write_raw S3 t1 binary 21 far
-write S3 t1 binary 3 far
-write S1 t2 text 28 far
-control 13
-reserve S1 2 past
-reserve S4 4 far
+write_raw S1 t2 binary 23 far 311
+control 10 99
+reserve S4 10 far
+timeout t4
+write S3 t2 binary 12 past 18
 ack w3
-write S1 t4 binary 3 far
-kill S3
+# generated 79
+scenario generated79 30000 10
+write S4 t1 text 12 past 857
+reserve S2 18 far
 ack w1
+ack w2
+write S2 t1 binary 18 far 777
+write_raw S1 t2 text 5 far 839
+ack w4
+ack w3
+write S4 t2 text 21 far 62
+control 18 244
+write_raw S2 t1 text 17 past 290
+write S2 t2 text 19 past 905
+reserve S2 13 far
+reserve S3 35 far
 kill S1
-kill S3
-control 24
+kill S1
+ack w3
+ack w3
+write S1 t4 binary 3 far 670
+write_raw S2 t3 binary 2 far 213
+ack w1
+ack w3
+write_raw S4 t1 text 8 far 33
 reserve S3 45 past
 kill S3
-control 24
-kill S4
-# generated 86
-scenario generated86 30000 1000
-ack w1
-write_raw S2 t1 text 27 far
-reserve S2 16 far
+control 24 179
 ack w2
-kill S1
-write_raw S1 t1 binary 5 far
-write S2 t1 text 6 far
-reserve_raw S2 42 far
-reserve_raw S2 19 far
-ack w1
-reserve S4 27 far
-ack w1
-kill S4
-control 8
-ack w1
+write_raw S1 t1 text 26 past 33
+control 28 665
 ack w2
-ack w1
-control 24
-control 29
-write S1 t1 binary 6 far
-control 7
-write_raw S3 t1 binary 18 far
-write S3 t3 text 2 far
-reserve S1 38 past
-ack w2
-ack w3
-ack w3
-ack w1
-write S1 t4 binary 5 past
 kill S2
-timeout t3
-write S2 t2 binary 29 far
-ack w2
-write S4 t1 text 23 far
-control 18
-# generated 87
-scenario generated87 30000 50
-ack w1
-ack w1
-write S2 t1 binary 19 far
-ack w2
-reserve S3 14 far
-control 28
-write S1 t1 binary 24 far
+write_raw S2 t1 binary 12 far 486
 ack w4
-reserve S2 33 far
+# generated 80
+scenario generated80 30000 10
+reserve S1 25 past
+ack w1
+write_raw S3 t1 binary 25 past 736
+reserve_raw S1 23 far
+reserve S2 44 far
+control 15 199
+kill S2
+ack w1
 ack w2
+kill S4
+ack w3
+reserve S2 16 far
+ack w3
+reserve S4 43 far
+write_raw S1 t3 binary 20 far 91
+reserve S3 16 far
+ack w1
+# generated 81
+scenario generated81 30000 10
+ack w1
+ack w1
+ack w1
+ack w1
+write S1 t1 binary 5 past 697
+ack w1
+kill S3
+write S2 t1 binary 29 far 657
+ack w3
+control 24 972
+control 29 463
+ack w2
+ack w4
+write S2 t1 binary 19 far 320
+reserve S3 41 far
+write S2 t2 binary 9 far 480
+write S2 t1 text 29 far 843
+kill S2
+reserve_raw S3 20 far
+write S1 t2 binary 20 far 300
 reserve S2 38 far
 ack w4
-write S3 t2 binary 17 far
-control 12
-reserve_raw S4 9 far
-kill S4
+write S3 t2 binary 17 far 73
+write S2 t1 text 6 far 26
+write S3 t1 text 19 far 610
 ack w3
-reserve S4 9 far
-kill S4
-reserve_raw S4 47 far
+reserve S3 1 far
+kill S2
+timeout t4
+control 14 934
+reserve S3 11 far
+kill S2
+# generated 82
+scenario generated82 30000 1000
 ack w1
-control 8
-reserve_raw S2 37 far
+write S3 t1 binary 14 far 644
+reserve S2 34 far
+reserve S2 32 far
+kill S2
+write_raw S1 t1 text 26 far 306
+kill S2
 ack w2
-write S3 t2 binary 14 far
-reserve_raw S1 28 past
-reserve S4 24 past
-ack w3
-ack w1
-# generated 88
-scenario generated88 30000 1000
-ack w1
-write S3 t1 text 26 far
-control 28
+reserve S1 28 past
 ack w1
 ack w1
 ack w2
 reserve_raw S1 43 far
-control 20
-write_raw S2 t2 text 12 far
-kill S2
-control 2
-write S1 t1 text 22 far
-ack w1
-control 15
+control 20 857
+control 13 41
+reserve S4 34 far
+reserve S1 23 far
+ack w2
+ack w2
+timeout t2
+write_raw S3 t4 binary 20 far 119
+write S4 t2 binary 21 far 451
+control 8 744
 ack w3
-ack w1
-kill S4
-control 5
-ack w1
 ack w4
-write S2 t2 text 5 far
+ack w1
 reserve S4 15 far
-write S4 t2 text 13 far
-control 8
-reserve_raw S1 1 far
-write_raw S3 t4 text 12 far
-write_raw S2 t1 binary 20 past
-write_raw S2 t1 binary 29 past
-control 13
-control 30
+write S4 t1 text 13 far 378
+control 1 738
+write S3 t1 binary 27 far 935
+ack w2
+# generated 83
+scenario generated83 0 10
+write S2 t1 binary 29 far 273
+control 12 410
+write_raw S1 t1 text 16 far 519
 reserve_raw S4 9 far
-write S1 t3 text 17 far
+write S1 t1 text 17 far 289
+write S2 t2 binary 5 past 583
+write S3 t2 binary 26 far 523
+reserve S1 23 past
+ack w3
 kill S2
 ack w4
-write S1 t1 text 2 past
-write S4 t4 text 15 past
+write_raw S3 t3 text 19 far 298
 kill S4
-ack w2
-ack w3
-reserve S1 49 far
-kill S4
-# generated 89
-scenario generated89 0 10
-control 22
-ack w2
+reserve_raw S1 18 far
+control 16 499
 reserve S4 48 far
 ack w1
-ack w2
-write S3 t1 binary 19 far
-kill S1
-control 4
-ack w1
+ack w4
+write S3 t1 binary 19 far 832
+write S2 t3 binary 25 far 574
+write S2 t4 text 7 far 783
 kill S3
 reserve S2 35 far
-control 5
-write S3 t1 text 12 far
-write_raw S1 t1 binary 3 far
-kill S3
-kill S3
+control 5 750
+ack w1
+ack w1
+ack w3
+reserve_raw S3 6 past
 reserve S3 19 past
 reserve S3 16 far
 kill S2
 ack w1
 kill S3
 ack w3
+# generated 84
+scenario generated84 30000 50
 ack w1
-reserve_raw S2 5 far
-ack w4
-control 16
-ack w4
-kill S4
-reserve_raw S3 37 far
-ack w4
-reserve S1 31 past
+write S3 t1 binary 17 far 911
+ack w2
+ack w1
+ack w1
+control 29 500
+control 18 339
+write_raw S2 t1 binary 19 past 680
 ack w2
 ack w2
 ack w4
 ack w1
 reserve S4 1 past
 ack w1
-write S3 t1 binary 26 past
+write S3 t1 binary 26 past 689
+ack w3
+ack w3
+ack w3
+control 2 492
+reserve_raw S2 8 far
+kill S3
+kill S4
+write S3 t2 binary 13 far 743
+ack w3
+ack w3
+kill S2
+ack w3
+control 18 95
+ack w3
+# generated 85
+scenario generated85 30000 1000
 ack w1
-control 6
-reserve S4 21 far
+write_raw S3 t1 binary 10 past 63
+reserve S1 47 past
+reserve_raw S1 25 far
+write S4 t3 binary 1 far 816
+kill S3
+write_raw S3 t3 binary 29 far 443
+write_raw S1 t1 binary 4 far 376
+write_raw S2 t3 binary 15 far 240
+reserve S3 31 far
+control 8 609
+control 16 527
+write S2 t4 binary 5 far 463
+ack w4
+write S1 t1 binary 5 far 634
+write S2 t2 text 14 past 649
+control 4 328
+write S1 t2 text 24 past 96
+write S3 t2 binary 12 far 723
 ack w2
-reserve S1 15 far
-# generated 90
-scenario generated90 30000 1000
+ack w2
+ack w2
+write_raw S1 t1 text 18 far 245
+ack w2
+# generated 86
+scenario generated86 30000 10
+control 12 514
+ack w2
+ack w2
+kill S1
 ack w1
 ack w1
-reserve S2 39 past
-write_raw S1 t1 text 22 far
-reserve S4 3 far
-control 2
-control 18
+kill S2
+ack w1
+control 8 188
+ack w1
+ack w2
+reserve_raw S2 11 far
+ack w2
+ack w1
+ack w3
+kill S4
 reserve S4 41 far
 ack w2
-control 18
-reserve_raw S4 43 far
-timeout t4
-reserve S4 6 far
-kill S3
-ack w3
-timeout t2
-kill S3
-write S4 t2 binary 13 far
-write S3 t2 text 20 past
-reserve S3 31 far
-control 8
-ack w1
 ack w2
-ack w3
-control 5
-ack w2
-timeout t2
-kill S2
-control 22
-ack w1
-# generated 91
-scenario generated91 0 1000
-ack w1
-kill S4
-write_raw S1 t1 text 17 far
-write S3 t1 binary 13 far
-kill S3
-ack w3
-control 20
-control 24
-ack w2
-ack w3
-ack w2
-ack w3
+# generated 87
+scenario generated87 30000 50
+control 7 275
+control 27 642
+write S3 t1 binary 8 far 106
+write_raw S4 t1 binary 21 far 520
 ack w4
-reserve S3 35 far
-ack w1
-timeout t2
-timeout t2
-control 25
-write S1 t2 binary 1 far
-ack w4
-ack w1
-ack w4
-kill S3
-ack w1
-ack w2
-kill S2
-# generated 92
-scenario generated92 30000 10
-reserve S1 29 far
-reserve_raw S2 5 past
-control 27
-write_raw S4 t2 binary 21 far
-reserve S1 19 past
-control 28
-control 10
-kill S3
-write_raw S4 t4 binary 12 past
-ack w3
-write S3 t4 binary 3 far
-control 12
-write_raw S1 t4 text 5 past
-ack w2
-reserve S3 6 past
-write_raw S3 t4 text 29 past
-reserve_raw S2 42 far
-kill S4
-timeout t4
-# generated 93
-scenario generated93 30000 50
-ack w1
 kill S1
-ack w1
-control 29
-control 25
-reserve S4 48 far
-kill S1
-ack w2
-write S2 t1 text 21 far
-kill S2
+write_raw S2 t1 binary 26 far 739
 kill S3
+write_raw S4 t1 binary 12 past 405
+write S4 t1 binary 24 far 825
+control 14 951
+reserve_raw S4 17 far
 ack w2
-reserve S1 12 far
-ack w3
+write S4 t1 binary 17 far 972
+write_raw S4 t2 text 10 past 997
 ack w1
-ack w3
+ack w2
+control 22 692
+reserve S3 37 far
+reserve S2 1 far
 ack w4
+control 29 608
+ack w3
+kill S3
+kill S2
 ack w1
-control 8
-write S1 t2 text 18 far
+ack w2
+# generated 88
+scenario generated88 30000 50
 ack w1
 ack w1
+write S3 t1 binary 12 far 406
+reserve S4 20 far
+write_raw S3 t1 text 17 far 553
 ack w1
-ack w4
-control 1
+reserve S4 40 past
+write_raw S3 t3 text 23 past 182
+control 1 508
+ack w1
+timeout t3
+ack w3
+reserve S4 12 past
+reserve_raw S1 21 far
 reserve_raw S1 42 far
 ack w2
-# generated 94
-scenario generated94 30000 1000
-reserve S4 28 far
-control 9
-ack w2
-write_raw S1 t1 binary 17 far
-kill S1
-write S2 t2 binary 0 far
-write S3 t2 text 6 far
-reserve S4 21 past
-reserve_raw S2 33 far
-reserve S1 11 far
-reserve_raw S3 8 far
-write_raw S2 t1 text 21 far
-control 7
-ack w3
-kill S2
-kill S1
-reserve S3 19 far
-ack w1
-reserve S4 9 past
-write S4 t3 text 2 past
-reserve S4 24 far
-ack w2
-kill S2
-ack w3
-ack w2
-control 24
+write S3 t1 text 23 past 916
+write S4 t2 text 7 past 738
 ack w4
+write_raw S1 t1 binary 17 far 548
+ack w1
+ack w3
+ack w2
+control 2 335
+reserve S1 30 far
+close 1000
+kill S2
+ack w4
+write_raw S2 t1 text 21 far 476
+ack w4
+# generated 89
+scenario generated89 30000 1000
+ack w1
+control 21 182
+ack w2
+kill S3
+write_raw S2 t1 binary 21 far 568
+ack w3
+kill S4
+kill S3
+kill S4
+write_raw S3 t1 binary 20 far 288
+write S3 t1 binary 17 far 739
+kill S1
+reserve S2 28 far
 kill S3
 ack w3
 reserve S4 22 past
 reserve_raw S1 7 far
 kill S3
-control 26
-ack w3
-ack w4
-ack w3
-# generated 95
-scenario generated95 0 10
-reserve S4 46 far
-ack w1
-kill S3
-control 30
-ack w2
-reserve S2 17 past
-ack w1
-ack w1
-write_raw S3 t1 text 29 far
-kill S1
-control 4
-write S1 t2 binary 26 far
-control 5
-write S1 t3 binary 28 past
-write_raw S2 t1 binary 23 far
-write_raw S4 t3 binary 12 far
-write S1 t3 binary 17 far
-write_raw S3 t2 text 0 past
-write S1 t2 text 0 far
-ack w2
-reserve S1 3 far
-reserve S3 41 past
-control 15
-write S3 t1 binary 14 far
+control 26 552
 kill S2
-kill S1
-ack w2
-write S4 t1 binary 18 far
-reserve_raw S1 26 far
-kill S2
-ack w2
-write S1 t2 text 9 far
-reserve_raw S4 32 far
-timeout t3
-reserve_raw S1 28 far
-# generated 96
-scenario generated96 30000 1000
-control 20
-kill S3
-write S3 t1 text 19 past
+reserve S1 47 far
 kill S4
-write S4 t1 binary 17 far
-write S2 t1 text 12 past
-ack w3
-ack w3
-write S4 t1 text 22 far
-ack w1
+reserve S4 46 far
+ack w2
 kill S3
-ack w3
-ack w3
-write S1 t1 binary 23 past
-ack w3
-control 8
+control 30 464
+reserve S2 22 past
+reserve S4 9 far
+ack w2
+ack w1
+ack w1
+control 23 500
+ack w4
+reserve S2 18 far
+reserve_raw S3 12 far
+write S4 t2 binary 26 far 847
+ack w4
+write S2 t1 text 24 far 475
+write_raw S4 t3 binary 8 far 438
+reserve_raw S3 44 far
+ack w4
+# generated 90
+scenario generated90 30000 50
+control 23 86
+control 1 843
+reserve S3 25 far
+reserve S2 40 far
 kill S3
-ack w4
-ack w4
-reserve S3 6 past
+kill S4
 ack w2
 ack w2
-control 1
-reserve S1 50 far
-ack w4
-reserve S1 24 far
-write_raw S4 t1 binary 7 far
-control 10
+ack w2
+ack w2
+reserve S1 21 far
+write S1 t2 text 9 far 259
 ack w3
-# generated 97
-scenario generated97 30000 1000
+ack w3
 kill S3
-ack w1
-control 20
-write S1 t1 binary 24 far
-ack w2
-control 19
-ack w1
-ack w1
-timeout t1
-write S4 t1 text 20 far
+write_raw S1 t1 binary 11 past 522
+control 4 738
+reserve_raw S2 41 far
+write S3 t3 text 23 past 11
+write S4 t3 binary 17 far 517
+ack w4
 ack w4
 ack w3
-control 25
-write_raw S2 t1 binary 22 far
-timeout t1
-reserve S1 28 far
-write S1 t1 binary 1 far
-close 1000
+write S4 t3 text 22 far 565
+control 1 997
 ack w4
-reserve_raw S2 46 far
-reserve S3 9 far
-reserve_raw S4 9 far
-control 12
+ack w4
+# generated 91
+scenario generated91 30000 10
+write_raw S1 t1 binary 8 far 499
 ack w1
-reserve S1 45 far
-control 30
-reserve S3 43 past
-write S4 t3 binary 9 far
-reserve S3 30 past
-ack w1
-ack w3
-control 27
-reserve S2 27 past
-write S3 t4 binary 0 far
-reserve S4 29 far
-ack w3
-write_raw S3 t4 binary 18 far
-reserve S1 41 far
-ack w1
-write_raw S2 t3 text 9 far
-kill S2
-kill S2
-# generated 98
-scenario generated98 30000 10
-ack w1
-ack w1
-reserve_raw S4 32 far
-ack w1
-reserve S1 45 far
-ack w1
-reserve S2 15 far
-ack w1
-reserve S1 50 far
-write S1 t1 binary 21 past
 ack w2
 ack w1
-reserve S4 21 far
-reserve_raw S4 17 past
-control 2
-write S3 t4 binary 18 far
-reserve S4 28 far
-control 5
-control 15
-ack w3
-ack w3
-write S1 t2 text 14 far
-reserve_raw S1 13 far
+ack w1
+reserve_raw S4 12 far
 ack w2
 ack w1
-ack w3
-ack w3
-control 18
-ack w4
 reserve S3 6 far
-ack w1
-control 23
+write S4 t1 binary 24 far 765
 ack w2
-# generated 99
-scenario generated99 30000 1000
+control 5 78
 ack w1
-write S4 t1 text 7 far
-control 23
+write S3 t3 text 19 far 298
+control 15 582
+kill S2
+reserve_raw S4 3 past
+control 20 480
+write S4 t4 binary 16 far 405
+control 22 917
+reserve S4 10 past
+reserve S2 12 far
+timeout t1
+write S4 t1 text 20 far 648
+control 20 706
+control 11 41
+ack w2
+control 5 950
+write S1 t2 binary 0 far 734
+ack w3
+control 17 123
+# generated 92
+scenario generated92 30000 10
+ack w1
+control 6 178
+ack w1
+reserve_raw S4 9 far
+control 12 924
+reserve_raw S4 8 far
+kill S2
+ack w1
+ack w1
+reserve_raw S1 29 far
+kill S4
+ack w3
+reserve S1 39 past
+control 20 776
+reserve S2 27 past
+write S3 t4 binary 0 far 883
+# generated 93
+scenario generated93 0 1000
+write_raw S3 t1 text 29 far 471
+write_raw S4 t1 binary 17 far 748
+reserve S1 41 far
+ack w3
+write_raw S2 t1 text 9 far 105
+ack w1
+reserve S2 29 far
+ack w1
+ack w2
+reserve_raw S4 32 far
+ack w3
+reserve S1 45 far
+ack w3
+reserve S2 15 far
+ack w2
+reserve S1 50 far
+write S1 t1 binary 21 past 101
+write S2 t2 text 4 far 702
+ack w3
+ack w1
+ack w4
+write_raw S1 t3 binary 1 far 474
+reserve S4 14 past
+write S4 t2 binary 18 past 403
+ack w3
+control 5 341
+control 27 958
+ack w1
+control 15 909
+# generated 94
+scenario generated94 30000 1000
+ack w1
+ack w1
+ack w1
+ack w1
+control 18 90
+ack w1
+write S3 t1 text 23 far 811
+ack w2
+ack w2
+ack w3
+reserve S1 39 past
+reserve_raw S4 49 far
+reserve_raw S2 3 past
 ack w1
 kill S1
-control 6
-write S3 t1 binary 24 far
+control 6 10
+timeout t3
 reserve S4 29 far
 ack w1
 reserve S4 35 far
 timeout t2
-write_raw S4 t1 binary 16 far
+write_raw S4 t3 binary 16 far 645
 ack w1
-kill S1
-kill S1
-ack w1
-ack w1
-control 10
-write S2 t1 text 4 far
-reserve S4 2 far
+control 5 401
+reserve S4 40 far
+write S3 t2 text 25 past 552
 ack w4
-write S2 t1 binary 19 far
-write_raw S1 t2 text 0 far
-control 23
+kill S2
+kill S3
+kill S2
+write_raw S2 t1 text 1 far 123
+control 3 275
+write S4 t3 text 3 far 392
 ack w2
 ack w1
-# generated 100
-scenario generated100 30000 50
+timeout t1
+reserve_raw S4 38 far
+# generated 95
+scenario generated95 30000 10
 ack w1
 ack w1
+reserve_raw S2 40 far
 ack w1
-write S4 t1 binary 21 far
-reserve S1 39 far
-write S2 t2 text 1 far
 reserve S4 22 past
 ack w1
 reserve_raw S4 14 far
 kill S3
 kill S1
-ack w3
-ack w3
-control 27
-reserve S3 46 past
+ack w1
+ack w1
+control 27 490
 ack w2
-write_raw S1 t1 text 9 past
-write_raw S1 t3 binary 11 past
-reserve_raw S3 26 past
-ack w3
+ack w2
+control 18 651
+control 25 300
+ack w2
+write S2 t4 text 2 far 485
 reserve_raw S1 2 far
 kill S4
-control 4
-ack w2
-write_raw S1 t2 binary 5 far
-ack w3
-control 29
-ack w2
-ack w2
-reserve_raw S4 11 past
-reserve S4 7 far
-kill S1
-ack w1
-reserve_raw S1 18 past
-kill S1
-write S4 t1 binary 0 far
-# generated 101
-scenario generated101 0 10
-write S4 t1 binary 17 far
-ack w2
-control 21
-ack w3
-ack w2
-reserve_raw S2 47 past
-ack w2
-reserve S3 38 far
-control 21
-control 11
-write S2 t2 text 22 far
-reserve S4 24 past
-reserve S1 36 far
-write S4 t2 binary 27 far
-ack w2
-control 13
-kill S4
-kill S1
-write S2 t4 binary 29 far
-kill S3
-reserve S3 49 far
-write_raw S3 t2 binary 0 past
-ack w2
-# generated 102
-scenario generated102 30000 10
-ack w1
-ack w1
-ack w1
-control 14
-reserve S4 19 far
-write S4 t1 binary 15 far
-control 19
-ack w1
-ack w2
-write S1 t1 binary 3 far
-ack w4
-reserve S3 23 past
-ack w1
-write_raw S3 t1 text 22 far
-ack w4
-reserve S3 45 far
-kill S4
-control 6
-ack w1
-ack w4
-write S4 t4 text 19 far
-ack w2
-ack w4
-ack w2
-write S4 t3 text 20 far
-write_raw S2 t2 text 7 past
-reserve_raw S1 38 far
-ack w2
-ack w4
-write S3 t2 binary 5 far
-control 11
-# generated 103
-scenario generated103 30000 1000
-reserve S4 14 far
-reserve_raw S4 26 past
-kill S3
-reserve S2 31 far
-ack w1
-ack w1
-reserve S1 6 far
-control 18
-reserve_raw S4 50 far
-write_raw S1 t4 text 22 far
-reserve S3 24 far
-ack w3
-ack w2
-kill S4
-control 15
-control 14
-reserve S2 7 far
-ack w3
-ack w2
-write S1 t4 text 23 far
-ack w4
-control 24
-ack w2
-control 27
+control 4 769
+reserve_raw S1 47 far
 kill S2
-kill S4
+reserve S4 13 far
+reserve S2 32 far
+reserve_raw S1 3 far
+reserve S1 36 past
+ack w4
+write S1 t1 text 8 far 298
+control 25 664
+control 8 316
+reserve S1 18 far
+reserve S1 9 past
+write S4 t4 binary 17 far 833
+write S2 t4 text 23 far 313
+write_raw S1 t1 binary 14 far 398
+kill S2
+reserve S3 39 far
+write_raw S3 t1 text 24 far 273
+write S2 t1 binary 1 far 340
+# generated 96
+scenario generated96 30000 10
+ack w1
+ack w1
+reserve S3 48 far
+write_raw S1 t1 text 6 far 844
+ack w2
+write S1 t2 binary 3 far 102
+timeout t1
+write S1 t1 binary 10 past 322
+kill S1
+write S2 t2 binary 29 far 654
+ack w4
+ack w2
+reserve S1 36 far
+write S1 t1 binary 28 far 51
+reserve S1 21 far
+# generated 97
+scenario generated97 30000 50
+ack w1
+write S3 t1 binary 1 past 634
+ack w2
+reserve S3 33 past
+timeout t2
+ack w1
+write S3 t1 binary 15 far 362
+timeout t2
+kill S3
+reserve_raw S3 4 far
+ack w2
+write S1 t3 text 24 far 320
+kill S3
+ack w3
+reserve S1 48 far
+reserve S4 31 far
+ack w2
+ack w4
+control 19 205
+reserve_raw S1 33 far
+ack w4
+ack w2
+write S4 t3 text 20 far 325
+write S2 t2 text 6 far 388
 ack w3
 ack w2
-reserve_raw S3 13 past
-# generated 104
-scenario generated104 30000 50
+ack w4
+# generated 98
+scenario generated98 30000 50
 ack w1
+reserve S1 21 far
+kill S3
+write S2 t2 text 7 past 954
+ack w1
+control 22 524
+reserve S3 2 far
+ack w2
+reserve S1 6 far
+control 18 811
+reserve S4 47 far
+reserve S4 47 far
+write_raw S3 t4 text 23 far 506
+write S1 t4 binary 19 far 500
+kill S1
+write S1 t4 binary 2 far 74
+control 14 965
+ack w2
+kill S3
+reserve S4 49 far
+write S1 t4 text 23 far 571
+kill S2
+kill S2
+ack w2
+control 27 9
+ack w2
+reserve S3 48 past
+reserve S3 39 far
+write S1 t3 binary 20 past 312
+write S2 t1 text 10 far 115
 kill S4
-ack w1
+ack w2
 reserve_raw S4 39 far
 kill S3
-reserve_raw S2 45 far
+# generated 99
+scenario generated99 30000 1000
+control 26 291
 ack w1
-ack w1
-reserve S4 4 far
-control 5
-write S2 t2 binary 9 past
-reserve S4 14 past
-ack w1
+control 16 210
+write_raw S2 t1 text 3 past 708
+ack w2
+control 30 911
+reserve S4 16 far
 ack w3
-ack w1
-ack w1
-control 15
-# generated 105
-scenario generated105 30000 50
-ack w1
+reserve S3 8 far
+ack w4
+kill S2
 kill S3
-ack w1
-reserve S1 43 far
-ack w1
-write S1 t2 text 14 past
-ack w1
-ack w2
-kill S1
-reserve S4 10 far
-write S2 t1 text 19 past
-ack w1
-reserve S4 14 past
-ack w1
-reserve S4 26 past
-ack w2
-ack w1
-reserve S2 1 far
-reserve S4 14 far
-write_raw S1 t3 binary 17 far
-ack w4
-kill S1
-ack w2
-ack w4
-reserve S2 29 far
-control 11
-ack w1
-write S1 t1 text 3 past
-ack w4
-close 1000
-reserve S3 26 past
-ack w2
-reserve_raw S2 49 far
-ack w2
-ack w3
-ack w1
-ack w4
-write S4 t1 binary 25 past
-control 15
-kill S3
-write S1 t3 text 4 far
-# generated 106
-scenario generated106 30000 10
-control 22
-control 18
-reserve S1 37 far
-control 2
-control 24
-reserve S3 3 far
-control 17
-reserve_raw S3 9 far
-write S4 t2 binary 18 far
-ack w3
-ack w1
-ack w2
-write_raw S3 t4 binary 8 far
-ack w4
-write S4 t4 text 9 far
-ack w3
-kill_dest
-ack w3
-reserve_raw S2 46 far
-reserve S4 11 far
-ack w3
-reserve S4 34 far
-ack w4
-write S1 t1 binary 3 far
-ack w2
-write_raw S4 t4 text 23 far
-write S3 t4 text 27 far
-control 19
-# generated 107
-scenario generated107 30000 10
-ack w1
-ack w1
-ack w1
-kill S1
-reserve S1 28 far
-control 7
-reserve_raw S1 17 far
 kill S2
 ack w1
-reserve_raw S1 8 past
-write S2 t1 text 25 far
-ack w1
-ack w1
-kill S1
 ack w2
-kill S1
-write_raw S2 t1 text 3 past
-ack w3
-control 1
-reserve S3 5 far
-write_raw S4 t3 text 22 far
-ack w3
-control 22
-ack w2
-kill S1
+reserve S2 29 past
+kill S2
+ack w1
 kill S4
-# generated 108
-scenario generated108 30000 1000
-timeout t1
-ack w1
-write S4 t1 text 5 past
+kill S2
+kill S1
+reserve S4 10 far
+write S2 t4 text 19 past 209
+write_raw S4 t1 binary 8 far 71
+kill S3
 ack w2
-write_raw S1 t1 text 14 far
-write S3 t1 binary 22 far
-control 11
+write_raw S1 t4 binary 17 far 989
+reserve S2 41 past
+write S2 t2 text 10 far 600
+reserve S4 14 far
+write_raw S1 t3 binary 17 far 7
+# generated 100
+scenario generated100 30000 10
+ack w1
+kill S2
+control 22 821
+reserve S2 29 far
+control 11 535
+control 13 746
+timeout t1
 ack w4
+write_raw S2 t1 text 23 far 438
+ack w2
+reserve S3 14 far
+ack w1
+ack w4
+reserve_raw S4 11 far
+ack w4
+write S4 t1 binary 25 past 842
+kill S3
+kill S3
+write S1 t3 text 4 far 349
+control 2 351
 ack w3
-control 23
-reserve S1 37 far
-write S2 t2 binary 0 far
-control 26
-reserve S1 24 past
-control 21
-control 2
-control 4
+ack w1
+reserve_raw S2 19 far
+reserve S1 1 far
+reserve_raw S1 15 past
+kill S1
+control 30 705
+ack w1
+ack w2
+ack w1
+ack w3
+write S4 t2 binary 14 far 973
+ack w4
+write S4 t3 binary 0 far 346
+ack w4
+kill S4
+write S3 t2 text 12 far 872
+reserve S2 38 far
+kill S4
+ack w3
+ack w1
+kill S4
+kill S4
+reserve S3 32 far
+# generated 101
+scenario generated101 30000 50
+write S2 t1 binary 13 far 894
+kill S3
+control 7 40
+reserve S2 32 far
+ack w3
+ack w3
+ack w3
+kill S1
+reserve S1 28 far
+control 7 524
+ack w3
+kill S2
+ack w3
+reserve_raw S1 8 past
+write S2 t1 text 25 far 34
+kill S2
+kill S4
+write S1 t4 binary 25 past 758
+kill S3
+control 13 445
+ack w3
+write S3 t4 binary 24 far 160
+reserve S3 5 far
+write_raw S4 t3 text 22 far 688
+reserve S3 41 far
+reserve S2 43 far
+# generated 102
+scenario generated102 30000 1000
+write_raw S2 t1 binary 8 far 481
+ack w2
+reserve S2 25 far
+ack w2
+ack w1
+ack w2
+write_raw S1 t2 text 14 far 86
+ack w1
+reserve S3 31 past
+ack w1
+ack w1
+control 23 192
+ack w3
+ack w4
+kill S1
+write_raw S2 t3 text 16 far 947
+ack w3
+write_raw S4 t2 binary 15 past 137
+control 13 203
 ack w4
 reserve_raw S1 26 past
 ack w2
-write S2 t1 text 24 far
-control 14
+write S2 t1 text 24 far 450
+ack w3
 ack w3
 ack w4
 reserve S1 48 far
-control 25
+control 25 563
+reserve S2 26 far
+ack w4
+control 1 844
+# generated 103
+scenario generated103 30000 1000
+ack w1
+ack w1
+ack w1
+ack w1
+control 30 248
 ack w2
-ack w4
-write S1 t3 binary 20 far
-ack w1
-ack w4
-ack w2
-ack w3
-ack w1
-control 30
-reserve_raw S1 28 past
-write S2 t2 text 26 far
-reserve_raw S2 4 far
-# generated 109
-scenario generated109 30000 1000
-ack w1
-write S3 t1 binary 22 far
-kill S4
-write_raw S2 t1 binary 16 past
-ack w3
-reserve_raw S4 47 far
-ack w3
-ack w1
-kill S3
-write S4 t2 text 2 far
-kill S3
-ack w2
-write S3 t2 text 1 far
-ack w4
-ack w2
-write_raw S2 t2 binary 5 far
-ack w2
-reserve_raw S2 12 far
-ack w1
-control 25
-control 9
-control 11
-kill S4
-write_raw S4 t1 binary 24 far
-ack w1
-write_raw S3 t2 text 29 far
-ack w3
-ack w1
-control 14
-write S2 t2 binary 29 past
-ack w4
-reserve S1 7 far
-write S1 t3 text 24 past
-write_raw S2 t2 text 13 far
-ack w4
-control 6
-reserve_raw S2 9 past
-ack w3
-ack w1
-reserve_raw S3 30 far
-ack w4
-ack w4
+control 14 362
+kill S1
 kill S2
-# generated 110
-scenario generated110 30000 10
+ack w3
+write S3 t1 binary 22 far 347
+ack w1
+reserve S1 22 past
+ack w4
+write_raw S4 t2 text 20 far 726
+kill S3
+reserve S1 21 far
+control 5 61
+write S1 t3 text 29 far 406
+reserve S4 21 far
+ack w4
+reserve_raw S4 7 past
+kill S2
+ack w2
+reserve S2 20 far
+kill S1
+ack w1
+# generated 104
+scenario generated104 30000 1000
+kill S2
+write S4 t1 text 3 past 352
+control 19 27
+kill S4
+kill S3
+write S2 t1 binary 19 far 285
+reserve S2 15 far
+reserve S3 37 far
+control 19 287
+control 4 612
+ack w1
+control 29 967
+ack w2
+write S2 t3 binary 21 far 608
+reserve S4 24 far
+reserve S2 23 far
+write S2 t4 binary 5 far 349
+# generated 105
+scenario generated105 30000 50
+write S1 t1 text 18 far 71
+ack w2
+ack w2
+kill S4
+kill S4
 timeout t1
 kill S1
 ack w1
+ack w2
+write S4 t1 text 7 far 730
 ack w1
-write S4 t1 text 7 far
-write S3 t1 binary 20 far
+reserve_raw S3 5 far
+ack w1
 ack w2
-ack w2
-control 30
 ack w1
 reserve S1 32 past
-ack w4
+ack w1
 reserve S2 36 far
-control 15
+control 15 640
 ack w1
+reserve_raw S3 44 far
+reserve_raw S3 19 far
+write S3 t3 text 3 far 878
+control 14 652
+write S1 t3 text 10 far 766
+control 12 762
+close 1000
+write_raw S4 t3 binary 13 far 511
+reserve_raw S3 9 far
+reserve S4 2 far
+# generated 106
+scenario generated106 30000 10
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
+kill S1
+ack w1
+write_raw S2 t1 text 25 far 866
+reserve S3 50 far
+kill S2
 ack w2
+control 3 716
+ack w2
+control 15 878
+kill S4
 ack w3
+reserve S1 41 far
+write S2 t2 binary 1 far 405
 ack w2
-write S1 t1 binary 26 past
-reserve S2 49 past
-control 11
-write S3 t3 text 11 far
-kill S3
-write_raw S2 t1 binary 12 far
-reserve S1 22 far
-control 2
-write S3 t1 text 20 far
-ack w1
-write S4 t1 binary 9 far
-reserve S4 6 past
-ack w2
+kill S1
+control 19 712
+reserve S2 45 past
+reserve_raw S4 12 past
 ack w4
-kill S1
-ack w1
-write_raw S2 t3 text 25 far
-ack w1
-write_raw S3 t3 text 24 far
-control 21
-control 30
-ack w2
-# generated 111
-scenario generated111 30000 50
-reserve S2 4 past
-ack w1
-ack w1
-control 16
-write S2 t1 text 25 past
-ack w2
-kill S1
-control 19
-control 2
 kill S3
-ack w3
-reserve S1 25 far
-reserve S2 31 far
+ack w2
 ack w3
 reserve S2 45 far
 ack w3
 ack w2
 ack w4
-control 26
-ack w2
-reserve S4 18 far
+control 26 637
+ack w3
+ack w4
 close 1000
-write S3 t3 text 2 far
-write S1 t1 binary 28 far
+write S3 t3 text 2 far 108
+ack w1
 ack w4
 ack w3
-# generated 112
-scenario generated112 30000 1000
-reserve_raw S1 50 far
+write_raw S3 t2 text 7 far 747
+write S4 t2 text 15 far 212
+ack w1
+# generated 107
+scenario generated107 30000 50
 ack w1
 ack w1
-ack w1
-kill S1
-control 16
-write_raw S2 t1 text 29 past
-kill S1
-reserve_raw S2 14 far
-write S2 t3 binary 11 past
-write_raw S4 t3 text 18 far
-ack w4
-write S4 t2 text 15 far
-reserve S1 30 far
-reserve_raw S3 40 far
+write S3 t1 text 20 far 452
 kill S3
-reserve S1 11 far
-write S4 t4 text 9 far
+reserve S1 45 far
+write_raw S1 t2 binary 1 far 16
+kill S2
+write S4 t2 text 4 far 583
+write S4 t1 text 15 far 360
+reserve S4 37 far
+control 30 694
+kill S2
+reserve S1 22 far
 ack w3
-write S4 t3 text 28 far
-write_raw S4 t2 text 18 far
-ack w4
-reserve S2 4 far
-reserve S4 26 far
+control 17 619
+close 1000
+write_raw S4 t2 text 18 far 915
+ack w2
+reserve_raw S3 36 far
+ack w2
 ack w2
 timeout t4
 kill S3
 ack w2
-# generated 113
-scenario generated113 30000 50
-write S1 t1 text 20 far
-write S2 t1 binary 3 far
-ack w2
+write_raw S4 t2 text 4 far 730
+control 20 32
+write_raw S3 t2 binary 1 far 599
 reserve S4 7 far
-write_raw S1 t2 binary 9 far
-kill S1
-ack w2
-reserve S1 39 far
-write S2 t2 binary 1 past
-ack w2
-ack w2
-write_raw S4 t2 text 0 past
-ack w2
+write_raw S1 t4 binary 9 far 132
+write S3 t2 binary 17 past 349
+ack w1
+control 27 239
+reserve S2 39 far
+ack w3
+# generated 108
+scenario generated108 30000 10
+kill S3
+ack w1
 reserve S1 43 past
 reserve_raw S4 23 far
-ack w4
-write S1 t3 text 19 past
-kill S4
-ack w3
 ack w1
-write S2 t1 text 7 past
-timeout t2
-reserve_raw S4 17 far
-ack w1
-ack w4
-reserve S2 47 far
-write S4 t2 binary 0 far
+write S1 t3 text 19 past 787
+reserve_raw S4 11 far
+kill S1
+ack w2
+write_raw S4 t3 binary 17 past 533
 kill S2
-reserve S3 6 far
-write_raw S4 t3 text 29 past
+write S3 t4 text 22 far 491
+ack w4
+write_raw S4 t4 text 28 far 101
+ack w4
 ack w3
-ack w3
-write S1 t1 binary 28 far
-kill S3
-reserve S2 33 far
-# generated 114
-scenario generated114 30000 10
-control 26
-ack w1
-control 2
+control 28 487
+ack w2
+ack w2
+reserve_raw S2 17 far
+reserve S3 14 far
+write S2 t3 text 21 far 585
+write S2 t2 text 25 far 582
+kill S2
+write S3 t2 text 1 past 197
+reserve S1 42 far
 kill S3
 reserve S2 12 far
-ack w3
+ack w4
 reserve_raw S1 18 far
-write S2 t1 text 16 far
-kill S3
-ack w4
-write S3 t2 text 21 far
-ack w3
-reserve S4 34 past
-ack w3
-write_raw S4 t3 text 11 far
-write S3 t3 binary 0 past
-# generated 115
-scenario generated115 0 1000
-write S4 t1 binary 6 far
+# generated 109
+scenario generated109 30000 10
 ack w1
-reserve S1 17 far
-control 13
+ack w1
+write S1 t1 binary 1 far 229
+ack w1
+ack w2
+kill S1
+ack w1
+write_raw S4 t1 text 11 far 634
 ack w3
-reserve S4 46 far
-kill S4
-ack w2
-ack w2
-reserve_raw S3 42 far
-ack w2
-control 10
-kill S4
-ack w4
-ack w3
-control 25
-reserve_raw S1 37 far
-control 20
-ack w2
-reserve S1 22 far
+write_raw S1 t1 binary 23 past 312
+reserve_raw S4 43 far
 ack w2
 ack w1
-write_raw S1 t3 binary 27 far
+ack w1
+write_raw S4 t1 binary 20 far 148
+ack w4
 ack w2
-ack w3
+ack w1
 kill S2
-reserve S1 50 far
-# generated 116
-scenario generated116 30000 10
+kill S3
 ack w1
+control 10 955
+reserve S1 44 far
+ack w4
+control 10 583
 ack w1
+# generated 110
+scenario generated110 30000 50
+control 4 847
 ack w1
-ack w1
-ack w1
-ack w1
-ack w1
-reserve S3 25 far
-write S3 t2 text 1 far
+reserve S4 45 far
 ack w2
-write S1 t1 binary 22 far
+ack w2
+ack w1
+write S2 t2 text 3 past 262
+reserve S2 46 far
+control 13 171
+ack w2
+write S4 t2 text 24 far 386
+reserve S3 24 past
+reserve_raw S1 28 far
+ack w1
+ack w4
 ack w3
+reserve S4 39 far
+kill S3
+ack w4
+write_raw S2 t3 text 11 far 169
+kill S3
+reserve S2 8 past
+write S2 t1 binary 4 far 479
+reserve_raw S1 50 far
+reserve S3 6 past
 kill S4
-ack w1
-timeout t2
-ack w2
-write S4 t2 binary 24 far
-reserve S3 50 far
-write S2 t3 text 10 past
+kill S1
+ack w4
 kill S3
 ack w4
 kill S1
-control 24
-reserve_raw S2 44 far
+control 24 693
+reserve_raw S4 11 past
+ack w3
+reserve S2 48 past
 ack w2
-ack w2
-write S1 t3 text 12 far
+write S3 t1 binary 7 far 951
+ack w3
 ack w1
-# generated 117
-scenario generated117 30000 50
-reserve S4 9 far
-write S2 t1 binary 3 far
-control 26
-ack w2
-write S3 t1 text 25 far
+reserve_raw S4 36 far
+ack w4
+# generated 111
+scenario generated111 30000 10
 ack w1
-ack w3
-write S4 t1 binary 16 far
-write S4 t2 text 15 far
-reserve S4 24 far
-reserve S1 23 far
-kill S3
-write_raw S4 t1 binary 12 far
-control 6
-ack w3
+ack w1
+ack w1
+write S4 t1 binary 16 far 527
+ack w1
+control 9 676
+ack w1
+control 8 112
+ack w1
+kill S2
+write S2 t1 binary 8 past 578
+write S3 t1 binary 19 past 924
 ack w2
-timeout t4
-reserve S4 25 past
-write S4 t4 text 14 far
-ack w3
-reserve S2 28 far
-ack w2
-# generated 118
-scenario generated118 30000 10
-reserve_raw S4 29 past
-write_raw S1 t1 binary 24 far
-write S4 t1 text 5 far
 kill S1
-ack w3
-write_raw S3 t1 binary 21 far
-write S2 t1 binary 10 far
-ack w1
-reserve S1 24 far
-reserve S4 36 far
+control 10 822
 ack w2
+ack w4
+ack w1
+ack w4
+reserve S2 13 far
+reserve_raw S4 39 far
+ack w3
+kill S1
+ack w1
+write_raw S3 t2 binary 21 far 565
+# generated 112
+scenario generated112 30000 50
+ack w1
+ack w1
+ack w1
+kill S4
+write S4 t1 binary 19 far 165
 reserve S4 46 far
 ack w1
 reserve_raw S2 45 far
-control 28
-kill S1
-# generated 119
-scenario generated119 30000 1000
-kill S3
+control 28 320
 ack w1
-reserve_raw S2 3 far
-write S2 t2 text 17 far
-write_raw S3 t1 text 15 far
-reserve S2 9 past
-timeout t3
-ack w2
-kill S3
-control 28
-ack w3
+write S3 t1 binary 3 far 402
+write_raw S4 t1 text 4 far 890
 kill S1
-ack w2
-write_raw S1 t1 text 16 past
-kill S1
-reserve_raw S3 33 far
-write S4 t3 binary 19 past
+write_raw S4 t1 binary 18 far 362
+write_raw S4 t2 binary 17 far 218
+control 18 376
+write S1 t3 binary 20 past 214
 ack w3
-write_raw S4 t3 text 1 far
-reserve_raw S2 21 far
+ack w1
+ack w4
+ack w4
+write_raw S4 t1 text 28 far 166
+write_raw S1 t1 text 16 past 40
+ack w4
+ack w1
+write S4 t2 binary 19 past 14
+write S4 t2 binary 5 past 193
+reserve S3 39 far
 ack w2
-control 7
+ack w4
 ack w2
+ack w3
 reserve S1 38 far
 ack w3
 reserve_raw S3 31 far
 kill S4
 ack w4
-reserve S4 48 far
-reserve S3 27 far
-ack w4
-write_raw S4 t2 text 4 past
-control 7
-ack w4
-ack w2
-reserve S4 29 past
-write S1 t1 text 12 far
-write S4 t2 text 25 past
-write_raw S2 t3 binary 26 past
-# generated 120
-scenario generated120 30000 10
+# generated 113
+scenario generated113 30000 10
 ack w1
-control 1
-ack w1
-kill S2
-control 1
-ack w1
-kill S1
-ack w2
-reserve S1 3 far
-kill S4
-ack w1
-reserve S4 35 far
-reserve S2 46 far
-ack w2
+write S1 t1 binary 17 past 950
+control 1 427
 ack w3
-reserve_raw S3 22 far
-control 10
-ack w4
-write_raw S2 t3 text 6 far
-ack w4
-# generated 121
-scenario generated121 30000 1000
+ack w3
 ack w1
-control 29
+write_raw S1 t1 binary 20 far 683
+control 11 862
+ack w3
+write S2 t1 binary 12 far 379
+reserve S4 26 far
+ack w1
+control 1 691
+ack w2
+write S1 t2 binary 8 past 342
+ack w1
+ack w1
+reserve S4 19 far
+# generated 114
+scenario generated114 30000 50
+control 12 903
+ack w1
+write S1 t1 binary 23 past 816
+write_raw S1 t1 binary 1 far 75
+control 27 72
+reserve S4 31 far
+reserve S1 46 far
+write S2 t3 text 20 far 367
+ack w2
+reserve S1 42 past
+ack w3
+ack w3
+reserve S1 9 far
 reserve S4 28 far
-write S1 t2 text 7 far
-write S2 t1 binary 9 past
-kill S4
-ack w2
-ack w1
-timeout t1
-write_raw S1 t1 binary 27 far
-reserve_raw S2 8 far
-timeout t1
-control 2
-reserve S2 12 far
-reserve S1 49 past
+write S1 t2 text 7 far 117
+control 10 19
+ack w4
 ack w3
 ack w4
-kill S1
-write S3 t1 binary 2 far
-write S1 t4 binary 19 far
-reserve S3 47 far
+ack w2
+write_raw S1 t3 binary 27 far 981
+control 28 303
+control 1 42
+write S3 t4 binary 22 far 569
+# generated 115
+scenario generated115 30000 1000
 ack w1
-kill S2
-write S1 t1 text 12 far
 ack w1
+ack w1
+ack w1
+ack w1
+kill_dest
+reserve S4 7 far
+reserve S3 16 past
 kill S4
+control 15 548
 ack w2
-write_raw S4 t4 binary 11 far
+reserve S2 36 far
 ack w2
-kill S3
+write_raw S4 t1 binary 21 past 246
 ack w2
+reserve_raw S2 42 far
 ack w1
-ack w2
+ack w1
+ack w1
 reserve_raw S1 17 far
 reserve S1 5 past
 reserve S2 18 far
-ack w4
+ack w1
 reserve S1 12 past
-write S2 t2 binary 15 far
-write_raw S4 t2 text 14 far
+write S2 t2 binary 15 far 11
+reserve_raw S2 32 far
+kill S4
+write S3 t1 binary 17 far 371
+ack w3
+control 29 830
+write_raw S1 t2 text 29 far 659
+kill S1
+reserve S2 21 far
+ack w4
+# generated 116
+scenario generated116 30000 10
 kill S2
 ack w1
-ack w2
-# generated 122
-scenario generated122 30000 10
-control 25
-control 7
-write S2 t1 text 19 past
-ack w2
-write_raw S1 t1 binary 0 far
-kill S3
-reserve S4 6 past
+kill S1
 ack w1
-write S1 t2 text 12 far
 kill S3
-write S3 t2 text 9 far
-reserve S3 4 past
-control 22
-ack w4
+write S3 t1 text 9 far 434
 ack w2
-ack w2
+control 22 249
 ack w1
+write_raw S2 t1 binary 17 far 111
+reserve S4 29 far
 ack w4
 reserve S3 33 far
 ack w3
 ack w1
 reserve S4 19 past
-# generated 123
-scenario generated123 30000 50
-write S4 t1 text 23 far
+control 12 104
+write_raw S1 t1 binary 27 past 27
+control 8 681
+kill S3
+ack w3
+write S4 t4 binary 0 past 580
+write S4 t4 binary 0 past 73
+ack w4
+control 26 19
+reserve S4 49 far
+control 7 956
+write S3 t2 text 18 far 195
+ack w4
+reserve S2 31 far
+control 2 306
+ack w4
+write S3 t1 text 21 far 857
+write_raw S2 t2 text 19 far 241
+reserve S2 33 far
 ack w2
-control 8
-control 10
-ack w3
-write S4 t1 binary 0 past
-reserve S1 16 far
-reserve S1 23 past
-control 26
-kill S4
-ack w3
+control 11 519
+control 15 387
+ack w2
+# generated 117
+scenario generated117 30000 1000
 ack w1
-write S2 t1 text 3 past
-write S3 t1 binary 23 past
-write S2 t3 text 16 far
-ack w4
-ack w2
-write S3 t3 text 21 far
-ack w2
-control 27
-ack w4
-reserve S2 32 far
 ack w1
-ack w4
-ack w2
-reserve S4 46 far
-ack w2
-write S1 t3 text 22 far
-ack w2
-write_raw S1 t1 binary 22 far
-ack w3
+write S1 t1 text 13 far 436
+reserve S4 36 far
+control 28 568
 ack w3
 timeout t2
 reserve S4 6 far
-ack w2
-kill S2
-ack w3
-ack w3
-ack w4
-control 14
-write S2 t3 binary 7 far
 ack w1
 kill S2
-# generated 124
-scenario generated124 30000 10
-write S4 t1 binary 3 far
-control 23
 ack w3
-write S1 t1 binary 19 far
-reserve S1 9 far
+ack w3
 ack w2
-reserve S4 4 past
-control 21
-reserve S4 6 far
-write S1 t3 binary 28 far
+control 14 905
+ack w2
+ack w1
+kill S2
+write_raw S3 t1 text 3 past 492
 ack w3
 kill S3
-write S1 t1 text 14 far
-write S1 t1 binary 4 far
-write_raw S4 t2 binary 12 far
-ack w2
-ack w4
+reserve S2 39 far
+write S4 t3 text 12 far 774
+kill S2
+control 28 358
+reserve_raw S3 42 far
+# generated 118
+scenario generated118 0 1000
 ack w1
-kill S4
-write S2 t3 text 26 far
+reserve S4 8 past
+reserve S3 11 far
+kill S3
+write S1 t1 text 14 far 920
+ack w2
+reserve S1 6 far
+write S3 t1 binary 9 far 23
+write_raw S4 t1 text 15 far 88
+kill S1
+write S4 t2 binary 19 far 16
 ack w2
 reserve S2 21 far
 ack w2
 ack w2
 reserve_raw S3 12 past
-control 5
-reserve S1 41 far
-ack w1
+control 5 304
+write S1 t1 binary 15 far 821
+ack w3
+reserve S2 34 far
+reserve_raw S3 40 far
 kill S4
-reserve_raw S2 21 past
-reserve S2 17 far
-reserve_raw S3 47 past
-reserve_raw S2 36 far
-write_raw S4 t3 binary 23 far
-write S3 t2 text 13 far
-ack w3
-ack w3
-kill S2
-control 23
-control 10
 kill S4
 ack w2
-reserve_raw S3 35 past
-# generated 125
-scenario generated125 30000 10
-ack w1
-control 20
-control 25
+ack w3
+write_raw S1 t2 text 29 far 401
+write S2 t3 binary 29 far 495
+control 13 739
+ack w2
+ack w4
+control 1 388
+kill S3
+reserve_raw S2 50 far
+write_raw S2 t3 text 21 far 423
+ack w4
+ack w4
+# generated 119
+scenario generated119 30000 10
 timeout t1
-ack w3
+ack w1
 reserve_raw S3 46 far
-write S4 t2 text 25 past
-write_raw S3 t2 text 5 far
+write S4 t2 text 25 past 534
+write_raw S4 t2 binary 17 far 826
+reserve_raw S3 24 past
 ack w3
 ack w2
-write S1 t2 text 20 past
-control 27
-ack w1
-ack w4
-write S4 t1 binary 21 past
-ack w3
-kill S4
-control 24
-kill S3
-write S4 t2 binary 23 past
-write_raw S3 t1 binary 13 far
-reserve_raw S3 20 past
-write_raw S2 t2 binary 25 far
-kill S4
-kill S3
-control 3
-control 17
-write S1 t1 text 23 past
-kill S4
-# generated 126
-scenario generated126 30000 1000
-reserve S2 1 past
-ack w1
-ack w1
-ack w1
-ack w1
-control 9
+write_raw S1 t2 text 10 far 954
+reserve_raw S3 39 past
+write S4 t3 binary 21 past 469
+kill S1
+write S1 t4 binary 12 past 798
+write_raw S2 t3 binary 4 far 7
+write S4 t2 binary 23 past 810
 ack w2
-reserve_raw S3 46 far
-write S3 t3 binary 22 far
-write S1 t1 binary 5 past
-kill S4
+reserve S4 3 past
+ack w3
+write_raw S2 t1 binary 23 past 12
+kill S3
+control 3 766
+timeout t1
+reserve_raw S3 48 far
 ack w4
+ack w2
+ack w1
+reserve S4 14 far
+timeout t3
+ack w4
+control 9 798
+ack w3
+ack w3
+control 27 230
+ack w2
+kill S2
+reserve S1 40 far
 reserve S4 21 past
 ack w2
-control 24
-write S2 t2 binary 20 far
-ack w4
-write S1 t4 binary 3 far
-ack w1
+control 24 941
+# generated 120
+scenario generated120 30000 50
+write_raw S2 t1 binary 29 far 463
+ack w2
+write S2 t1 text 2 past 564
 reserve S1 28 far
-write_raw S1 t3 binary 11 far
-kill S3
-control 20
-write S2 t1 binary 22 far
-ack w2
-ack w2
-kill_dest
-control 9
-ack w1
-kill S3
-kill S3
-ack w2
-ack w1
-ack w4
-ack w3
-control 15
-ack w2
-# generated 127
-scenario generated127 30000 10
+write_raw S1 t1 binary 11 far 102
+reserve_raw S4 29 far
+control 8 142
 kill S4
-reserve S3 25 past
-control 15
-control 14
-write S1 t1 binary 9 far
-reserve_raw S2 46 far
-write_raw S3 t3 text 22 past
+reserve S2 27 past
+reserve S3 47 far
+reserve S1 39 far
 ack w1
-reserve S3 14 far
-ack w4
-reserve_raw S3 25 far
-write S2 t3 text 25 far
-reserve_raw S3 4 far
-ack w4
 kill S3
-kill_dest
-reserve S3 46 far
-# generated 128
-scenario generated128 30000 1000
-write_raw S4 t1 binary 5 far
+kill S3
 ack w2
-ack w2
-ack w2
-reserve_raw S3 18 far
 ack w1
-ack w2
-write S3 t1 binary 14 past
-reserve_raw S2 17 far
-control 6
 ack w4
-control 25
-ack w4
-ack w4
-reserve_raw S4 23 past
-write_raw S4 t4 binary 28 far
-reserve S3 10 far
-write_raw S3 t3 text 21 far
-write_raw S2 t3 binary 18 far
-reserve_raw S3 1 far
-write S2 t4 text 2 past
-reserve_raw S2 26 far
-write S2 t3 binary 11 far
-reserve S3 20 far
-reserve S4 14 far
-control 6
-# generated 129
-scenario generated129 30000 10
-write_raw S2 t1 binary 12 far
-kill S1
-ack w2
-ack w2
-write S3 t1 text 0 past
-write S4 t1 binary 28 far
-write S2 t1 binary 20 past
-ack w2
-ack w4
-kill S2
 ack w3
+control 15 852
+reserve_raw S2 42 far
+ack w3
+write S2 t3 binary 16 past 724
+control 15 87
+reserve_raw S2 49 far
+ack w2
+# generated 121
+scenario generated121 30000 50
+reserve_raw S1 41 past
+reserve_raw S4 47 far
+ack w1
+reserve_raw S3 34 past
+reserve_raw S4 12 far
+kill S4
+write S2 t1 binary 20 far 997
+ack w1
+ack w1
+reserve S2 32 past
+write S1 t1 binary 1 far 464
+write S3 t2 binary 14 far 957
+write_raw S2 t2 binary 24 far 42
+reserve_raw S1 2 past
+write S1 t2 text 26 past 311
+ack w3
+ack w2
+reserve S4 37 far
+ack w4
+ack w3
+ack w4
+ack w4
+control 25 289
+ack w4
+ack w1
+kill S3
+ack w4
+control 4 117
+reserve S4 14 far
+control 2 157
+ack w3
+reserve_raw S4 8 far
+kill S3
+kill S4
+write S2 t3 binary 11 far 958
+write S4 t3 binary 21 far 770
+ack w1
+control 6 202
+write S2 t1 text 25 past 14
+ack w4
+ack w4
+# generated 122
+scenario generated122 30000 50
+kill S1
+ack w1
+write S1 t1 text 3 past 28
+write S2 t1 binary 20 past 583
+ack w2
+control 17 82
+write_raw S1 t1 binary 18 far 65
 reserve S1 39 far
 reserve S3 47 past
-write S3 t3 binary 11 far
-ack w2
-# generated 130
-scenario generated130 0 10
+write S3 t3 binary 11 far 161
+reserve S2 15 far
 kill S4
+ack w2
+ack w4
+control 8 143
+write S4 t3 text 20 far 95
+write S4 t2 binary 13 past 484
+reserve_raw S3 13 far
+control 28 908
+reserve_raw S4 14 far
 ack w1
+# generated 123
+scenario generated123 30000 1000
+reserve S2 20 far
+write S2 t2 text 28 far 46
 ack w1
-control 8
-reserve S4 38 far
+reserve S3 50 far
 kill S1
+ack w2
+kill S2
 ack w1
-reserve S2 36 far
-control 8
-control 14
-ack w1
-ack w1
-ack w3
-write S1 t1 text 29 far
-control 24
-control 25
-write S4 t1 text 21 past
-control 12
-write_raw S2 t1 text 4 past
 kill S3
 ack w2
-ack w4
-write_raw S3 t3 binary 20 past
-ack w4
-ack w4
-kill S4
+ack w2
+write_raw S3 t3 binary 20 past 590
+write_raw S3 t3 binary 25 far 48
+control 7 755
 timeout t2
 kill S3
-control 9
-write_raw S3 t1 binary 16 far
-kill_dest
-reserve S3 5 past
-kill S1
-write_raw S1 t4 binary 0 far
-ack w1
-kill S1
-ack w3
-kill S4
-timeout t4
-# generated 131
-scenario generated131 30000 10
-kill S4
+control 9 206
+write S4 t2 text 11 far 900
+control 26 895
+write S4 t1 text 10 far 96
+reserve S1 24 past
+# generated 124
+scenario generated124 0 10
+reserve S4 25 far
+reserve_raw S3 33 past
 kill S3
+kill S4
 ack w1
 ack w1
+reserve S1 50 far
+write_raw S1 t2 binary 26 far 359
 ack w1
 ack w1
-ack w1
-control 5
-control 1
-reserve S4 44 far
-ack w3
-reserve S2 21 far
-control 24
-ack w3
-write S3 t2 binary 5 past
-write S2 t2 binary 23 far
-ack w1
-ack w1
-ack w4
 ack w2
+control 5 697
+control 14 616
+write S3 t3 binary 21 far 855
+reserve_raw S4 43 far
+write S4 t1 text 4 far 181
+ack w2
+reserve S4 30 far
+# generated 125
+scenario generated125 30000 50
+ack w1
+ack w1
+ack w1
+ack w1
+ack w1
 reserve S2 36 far
-# generated 132
-scenario generated132 0 1000
-reserve_raw S2 36 far
-ack w1
-write S4 t1 binary 16 far
-close 1000
-write S3 t2 text 24 far
-ack w3
-ack w1
-write S2 t1 text 4 far
-ack w1
-reserve_raw S1 27 far
 kill S1
-write_raw S3 t2 binary 9 far
-control 21
-write S3 t1 text 16 far
-write S4 t1 text 25 far
+write_raw S3 t1 binary 6 far 590
+ack w2
+reserve S4 25 far
+control 14 492
+ack w1
+write S3 t3 binary 24 far 239
+reserve S3 20 far
+write_raw S1 t3 text 11 far 68
+ack w1
+ack w1
+control 6 200
+ack w3
+reserve_raw S1 12 far
+write S3 t4 text 13 far 435
 reserve S4 44 far
 ack w1
 reserve S4 23 far
 ack w2
-kill S3
+# generated 126
+scenario generated126 30000 50
+kill S2
+kill S2
+ack w1
+ack w1
+control 19 975
+ack w2
+control 12 819
+kill S1
+write_raw S2 t1 binary 4 far 365
+write S4 t1 text 0 far 762
 kill S2
 ack w2
-kill S1
-ack w3
-write_raw S2 t4 text 0 far
-reserve S2 46 past
-write S2 t3 text 22 past
-kill S1
-write S2 t2 binary 4 far
-control 10
-reserve S1 22 past
-control 6
-write S3 t3 text 28 far
-ack w4
-control 10
-reserve_raw S1 30 far
-write S4 t2 text 19 past
+control 17 946
 ack w1
-write S3 t4 binary 7 far
-reserve S4 13 past
-write_raw S2 t2 binary 9 past
-reserve_raw S2 42 far
-control 22
-# generated 133
-scenario generated133 30000 10
-write S4 t1 text 14 far
-write S3 t1 binary 0 far
-write S4 t1 binary 20 past
-reserve S4 1 far
-reserve S2 10 past
+kill S3
+control 1 638
+ack w2
+kill S3
+ack w1
+write S3 t1 binary 7 far 575
+write_raw S1 t1 text 21 far 1
+control 22 376
+write S3 t1 binary 11 far 542
+write_raw S4 t1 binary 21 far 500
+write S2 t1 text 29 far 395
+ack w4
+write_raw S2 t1 binary 5 far 669
+reserve S4 19 far
+kill S2
 reserve_raw S4 22 past
 kill S4
 kill S3
@@ -4437,508 +4261,647 @@ reserve S1 21 far
 ack w4
 kill S2
 ack w1
-write_raw S2 t3 binary 13 past
-reserve_raw S1 49 past
-kill S1
-reserve_raw S1 16 far
-ack w2
+write_raw S2 t3 binary 13 past 152
+reserve_raw S4 39 far
 ack w4
-write S4 t3 binary 29 past
-ack w1
-write S4 t2 binary 22 far
-ack w1
-write_raw S4 t1 binary 6 far
-reserve_raw S2 37 far
-reserve S3 16 far
-ack w3
+ack w2
+# generated 127
+scenario generated127 30000 50
+write S2 t1 text 1 far 135
+reserve_raw S3 35 far
+write S1 t2 text 13 far 547
+control 23 322
+kill S1
+kill S1
+kill S1
+control 4 245
+write S3 t2 binary 12 past 511
 timeout t2
 ack w2
-write S3 t4 text 21 far
-reserve_raw S2 13 past
-ack w3
-ack w3
-# generated 134
-scenario generated134 30000 1000
+write S3 t2 text 21 far 105
+write_raw S1 t2 binary 21 past 930
+reserve_raw S3 45 past
+ack w4
 reserve_raw S3 44 past
-control 11
+control 11 767
+control 17 337
+kill S2
+ack w4
+reserve S3 48 far
+ack w3
+control 2 740
+write_raw S2 t1 binary 18 far 858
+write S2 t2 text 6 far 413
+kill S3
+ack w4
+reserve S4 37 far
+ack w4
+write S2 t2 binary 28 past 398
 ack w1
-write S3 t1 text 8 far
-write S2 t2 binary 4 past
-reserve S4 34 past
+write_raw S2 t2 text 15 past 120
+ack w4
+ack w4
+timeout t1
+# generated 128
+scenario generated128 0 10
+ack w1
+kill S2
+write_raw S1 t1 binary 20 far 447
+ack w2
+write S3 t1 binary 9 far 153
+write_raw S1 t1 text 16 past 707
+ack w2
+ack w2
+ack w1
+write_raw S2 t1 text 6 far 548
+reserve S4 40 past
+write S2 t2 text 8 far 893
+ack w4
+ack w1
+ack w2
+ack w3
+ack w1
+ack w1
+ack w1
+reserve S2 2 past
+control 4 612
+reserve S1 2 past
+control 22 308
+ack w4
 kill S4
-control 2
 kill S1
-write S3 t3 binary 4 far
-ack w3
 ack w1
-ack w1
-control 9
-ack w3
-write S2 t2 binary 8 past
-ack w1
-write_raw S2 t1 text 15 past
+reserve S1 15 past
 ack w2
-ack w3
-# generated 135
-scenario generated135 30000 50
-ack w1
-reserve_raw S4 27 past
-kill S2
-write_raw S1 t2 binary 20 far
+reserve S1 16 past
 ack w2
+ack w4
+reserve_raw S1 8 past
 kill S3
-kill S2
-reserve S2 40 far
-reserve_raw S2 11 far
-write S2 t3 binary 19 past
-control 3
-control 21
+# generated 129
+scenario generated129 30000 1000
+ack w1
+write S1 t1 binary 27 far 603
+ack w2
+control 22 50
+control 19 661
 ack w4
-write_raw S4 t3 binary 3 far
+ack w3
 ack w4
-ack w1
+write S4 t1 text 16 past 374
+write_raw S4 t1 binary 9 far 942
+control 18 436
+kill S3
 ack w2
+reserve S1 30 far
+reserve_raw S4 13 past
 ack w3
-ack w1
-ack w1
-ack w1
-# generated 136
-scenario generated136 30000 1000
-ack w1
-write S2 t1 text 16 far
-ack w2
-control 22
-reserve_raw S1 38 past
-ack w2
-reserve_raw S1 15 far
-ack w1
-reserve S3 38 far
 kill S2
-reserve S3 24 far
-timeout t3
-ack w2
-ack w3
-reserve S2 24 far
-ack w3
-ack w3
-ack w3
-kill_dest
-# generated 137
-scenario generated137 30000 1000
 ack w1
-ack w1
-ack w1
-ack w1
-control 29
-ack w1
-ack w2
-control 18
-reserve S1 50 past
-reserve S1 15 far
-kill S2
-write S4 t3 text 2 far
-write_raw S1 t2 text 25 far
-reserve S4 11 far
-reserve S1 4 past
-# generated 138
-scenario generated138 30000 10
+reserve S4 32 past
 reserve S4 50 far
-ack w1
-write S4 t1 binary 23 far
-reserve_raw S2 2 past
-control 13
-control 27
-ack w1
-kill S3
 ack w2
-write S2 t2 text 3 far
-control 28
+write S4 t1 binary 23 far 409
 ack w4
-ack w4
+# generated 130
+scenario generated130 30000 10
+ack w1
 kill S4
-reserve S3 2 far
-control 1
-close 1000
-ack w2
-write S3 t4 text 24 past
-write S1 t3 text 12 far
-kill S3
+ack w1
+ack w1
+reserve S3 7 far
+reserve S1 28 far
+ack w1
+control 14 819
+write S1 t2 text 24 far 464
+ack w3
+control 1 193
+write_raw S2 t3 binary 24 past 53
+write S2 t2 binary 20 far 782
+reserve S3 33 far
+reserve S1 12 past
 ack w2
 reserve S2 21 far
 reserve S1 37 past
 reserve_raw S1 43 far
 reserve S3 50 far
-write S3 t2 text 23 far
+write S3 t2 text 23 far 528
+ack w4
+# generated 131
+scenario generated131 0 1000
+kill S4
+ack w1
+write_raw S2 t1 binary 13 far 969
+ack w1
+reserve_raw S2 43 past
+control 20 129
+ack w2
+reserve S2 25 past
+kill S2
 kill S1
-reserve S4 44 past
-write S3 t2 binary 3 past
-kill S4
+reserve_raw S2 42 far
+write S1 t2 text 29 far 597
+ack w2
+write S2 t3 binary 27 far 552
+ack w2
+control 22 391
+control 17 251
 ack w4
-write S3 t3 binary 7 far
-kill S4
+ack w2
+write S2 t3 text 14 past 113
+kill S1
+write S2 t3 binary 15 far 797
 ack w1
-ack w4
-# generated 139
-scenario generated139 30000 50
-write S4 t1 text 1 far
-kill S3
-ack w2
-write S2 t1 text 18 past
-ack w2
-ack w2
 ack w3
-write S4 t1 binary 29 past
-control 22
-ack w2
-ack w4
-reserve_raw S1 22 far
-ack w2
-control 6
-reserve S3 27 far
-kill S2
-write S2 t1 text 20 far
-ack w2
-ack w2
-write_raw S2 t1 text 14 far
-write S4 t2 text 24 far
-kill S2
-control 10
-ack w4
-reserve S2 43 past
+ack w3
+ack w1
+ack w1
+ack w1
+write S4 t2 binary 24 far 31
+kill S4
+reserve_raw S3 16 far
+# generated 132
+scenario generated132 0 10
 reserve_raw S2 27 far
-write_raw S1 t1 binary 10 far
-write S1 t2 text 27 far
-kill S2
-control 5
-# generated 140
-scenario generated140 30000 50
-kill S2
-control 28
-reserve S2 49 far
-control 24
-control 19
-ack w4
-reserve_raw S3 27 far
-ack w3
-kill S3
-kill S2
-kill S4
-ack w3
-ack w4
-ack w4
-ack w3
-reserve S4 11 past
-ack w1
+write_raw S1 t1 binary 10 far 84
+reserve S2 8 far
+write S4 t2 text 17 past 695
+reserve S2 3 far
+control 14 953
 ack w2
+reserve S3 46 far
+ack w3
+ack w4
+reserve S2 34 far
+reserve S1 27 far
+ack w3
+reserve S2 36 far
+ack w4
+ack w4
+reserve S4 11 far
+# generated 133
+scenario generated133 30000 1000
+reserve_raw S2 49 far
+kill S2
+reserve S3 33 past
+write S3 t1 binary 22 past 615
 kill S2
 ack w1
 reserve S2 28 far
+ack w1
+write S2 t1 binary 15 far 727
 ack w3
-write S2 t1 binary 15 far
-write_raw S4 t1 binary 25 far
-reserve_raw S3 41 far
+write S4 t3 text 29 far 740
 timeout t3
 reserve_raw S1 28 past
 ack w2
 ack w3
 reserve S1 23 far
 ack w4
-write S1 t2 binary 3 past
-reserve S2 33 far
-ack w4
-kill S3
-kill S3
-write S4 t2 binary 7 past
+write S1 t2 binary 3 past 885
+write S2 t2 text 0 far 269
+write S4 t1 text 13 far 37
+ack w2
+write S3 t4 binary 13 far 657
 reserve_raw S1 20 far
-write S3 t4 text 29 past
-ack w1
-ack w4
-# generated 141
-scenario generated141 30000 10
-write S2 t1 text 9 far
+write S3 t4 text 29 past 373
+# generated 134
+scenario generated134 30000 50
+write S4 t1 text 25 far 733
+reserve_raw S2 47 far
 ack w2
 ack w2
 ack w1
-reserve S1 8 past
-reserve S1 17 far
-kill S4
-write S1 t2 text 18 past
-reserve_raw S2 21 far
-write S1 t1 binary 3 far
-reserve_raw S4 13 far
-ack w4
-kill S3
-write_raw S2 t1 binary 25 far
+ack w1
+ack w2
+ack w2
+reserve S1 47 far
+ack w2
 kill S1
-ack w2
+write S1 t1 binary 3 far 863
 ack w3
-ack w3
-ack w1
-write S4 t1 text 6 far
-ack w2
-reserve_raw S1 6 far
-ack w1
-control 8
-reserve_raw S3 48 far
-ack w2
-reserve S2 28 far
-ack w2
-# generated 142
-scenario generated142 30000 50
-reserve_raw S3 10 past
-ack w1
-ack w1
-control 18
-write S1 t2 text 14 far
-control 29
-reserve S1 32 far
-write S4 t3 text 13 far
-ack w3
-ack w1
-ack w4
-ack w2
-ack w3
-reserve S2 37 past
-ack w1
-ack w4
-control 28
-ack w3
-ack w3
-reserve S2 37 far
-reserve S4 30 far
-ack w1
-ack w2
-control 9
-timeout t4
-ack w3
-control 21
-ack w3
-ack w2
-ack w1
-write_raw S2 t2 binary 1 past
-ack w1
+kill_dest
 kill S3
-ack w3
+write_raw S2 t2 binary 25 far 592
+write S1 t2 text 3 past 759
+ack w2
 ack w4
-# generated 143
-scenario generated143 30000 50
-ack w1
-ack w1
-reserve S1 49 far
-write_raw S2 t2 binary 17 far
-ack w1
-write S4 t2 text 1 far
-ack w3
-reserve S4 18 past
-write_raw S1 t1 binary 17 far
 kill S4
-write S1 t1 binary 3 far
-write S3 t3 text 16 far
-write_raw S2 t1 binary 21 past
+kill S2
+ack w1
+write_raw S2 t1 binary 24 far 137
+ack w1
+# generated 135
+scenario generated135 0 50
+write_raw S2 t1 text 7 far 74
+ack w1
+ack w1
+write_raw S2 t1 text 0 past 277
 ack w3
-write_raw S3 t1 text 19 far
-reserve S4 26 far
-control 10
-kill S3
-reserve_raw S2 23 far
+write S2 t1 binary 15 far 506
+ack w4
+ack w3
+ack w3
+ack w1
+write_raw S1 t1 binary 1 far 960
+ack w1
+reserve S3 3 past
+timeout t2
+write_raw S1 t2 text 25 past 157
+write S3 t2 binary 13 past 638
 ack w2
+control 30 453
+kill S4
+ack w4
+kill S4
+ack w4
+reserve S3 19 far
+ack w3
+control 16 718
+ack w4
+control 10 749
+ack w1
+kill S1
+reserve_raw S4 4 far
+ack w2
+kill S2
+ack w3
+reserve S1 35 far
+# generated 136
+scenario generated136 0 1000
+write_raw S2 t1 binary 1 past 6
+reserve_raw S2 39 far
+kill S4
+kill S3
+ack w2
+control 24 154
+reserve S1 3 far
+write_raw S3 t2 text 21 far 442
+reserve_raw S2 41 past
+control 27 607
+kill S2
+control 3 850
+reserve S1 32 far
+reserve S2 13 far
+write S1 t1 binary 3 far 994
+kill S1
+reserve S3 45 past
+ack w1
+ack w3
+ack w4
+kill S1
+control 15 848
+write_raw S3 t3 binary 2 far 566
+write_raw S1 t1 binary 11 past 422
 reserve S3 40 far
 ack w4
-write S2 t3 text 26 far
-write S2 t2 binary 24 far
+write S2 t3 text 26 far 585
+write S2 t3 binary 18 past 990
+ack w4
+kill S4
+ack w1
+write S2 t3 text 26 far 754
+kill S1
+# generated 137
+scenario generated137 30000 10
+reserve_raw S1 50 far
+reserve S2 1 far
+ack w1
+write S4 t2 text 23 far 619
+ack w2
+write_raw S3 t2 binary 0 far 146
 ack w2
 ack w2
-reserve S3 23 far
 ack w3
-write_raw S2 t1 text 2 far
-ack w4
-control 10
-ack w1
-reserve S3 38 far
-control 24
-write S4 t2 binary 0 far
-kill S3
-reserve S1 35 far
-ack w1
-ack w4
 ack w2
 reserve_raw S4 10 far
 reserve S2 35 far
-control 28
-write S4 t1 binary 23 past
-# generated 144
-scenario generated144 30000 50
-control 2
+control 28 55
+reserve_raw S1 35 far
+write S3 t4 binary 1 far 81
 ack w1
-control 15
-ack w1
-write S1 t1 binary 23 far
-write S1 t1 binary 28 far
+control 15 920
+write S4 t3 text 7 far 836
+ack w2
+ack w4
 ack w4
 reserve S1 41 far
 ack w2
-reserve S3 37 past
-reserve S1 23 past
-ack w1
-control 28
-reserve_raw S1 35 far
-ack w2
+# generated 138
+scenario generated138 30000 1000
+reserve S4 34 far
+write_raw S4 t1 text 8 far 957
+write S2 t1 binary 9 past 650
 kill S4
-ack w4
+ack w3
+reserve_raw S1 16 far
+ack w1
 timeout t3
 ack w2
 reserve S2 14 far
 kill S2
 kill S1
 reserve S4 7 past
-ack w4
-kill S4
-ack w2
-write S1 t2 text 11 far
-reserve_raw S4 38 past
-# generated 145
-scenario generated145 30000 1000
-kill S4
-reserve S3 28 past
-control 14
-ack w1
-ack w1
-ack w1
-write S1 t2 binary 3 far
-ack w2
-write S3 t1 binary 19 far
-ack w2
-kill S3
-ack w4
 ack w3
+kill S4
+ack w2
+write S1 t2 text 11 far 959
+ack w4
+ack w4
+reserve S3 12 far
+write S2 t2 binary 6 far 296
+kill S3
+reserve S3 18 far
+kill S1
+kill S4
+ack w4
+kill S1
+# generated 139
+scenario generated139 30000 50
+ack w1
+reserve S2 46 far
+ack w1
+ack w1
 reserve S3 32 past
 reserve_raw S2 50 past
-ack w4
+ack w1
+ack w1
+ack w1
+control 8 555
+ack w1
+ack w2
+ack w1
+control 25 938
+ack w1
+ack w3
+ack w2
+ack w1
+ack w2
+reserve S2 38 far
+control 6 824
+timeout t1
+kill S1
 ack w4
 ack w3
-control 8
-ack w1
-ack w4
-control 7
-control 25
-reserve S3 7 far
-ack w2
-ack w4
-kill S2
-write S1 t1 binary 9 past
-reserve S2 24 far
-control 26
-reserve S1 2 past
-control 26
-# generated 146
-scenario generated146 30000 10
-ack w1
 reserve_raw S2 17 past
 reserve S1 28 far
-write S3 t3 binary 13 past
-reserve_raw S4 43 past
-reserve S3 18 past
-ack w1
-write S4 t2 text 29 far
-ack w2
-reserve S3 19 far
-control 12
-write S2 t1 binary 22 far
-reserve S4 4 far
-write S1 t1 text 20 far
-reserve S2 33 past
-ack w1
-# generated 147
-scenario generated147 30000 1000
+write S3 t3 binary 13 past 19
+reserve_raw S1 43 past
+write S3 t1 binary 7 past 517
 kill S3
+# generated 140
+scenario generated140 30000 10
+control 2 88
+control 16 147
+reserve S2 21 far
+write_raw S3 t2 text 7 far 661
+control 28 965
+ack w1
+reserve_raw S3 17 far
+write S2 t2 text 21 far 81
+kill S1
+write S1 t2 binary 24 far 733
+ack w4
+write S3 t3 text 0 far 16
 ack w1
 ack w1
-write S3 t1 text 0 far
-reserve_raw S1 10 far
-write_raw S3 t1 text 29 far
-write_raw S4 t1 text 9 far
+ack w2
+ack w4
+kill S3
+reserve S2 30 past
+ack w4
 ack w3
-kill S2
-reserve S3 17 far
-ack w3
-control 22
-control 2
-ack w1
+kill S3
+write S3 t3 text 11 past 8
+# generated 141
+scenario generated141 30000 1000
 ack w1
 ack w1
 reserve S1 11 far
 kill S1
-ack w4
+ack w1
 reserve S3 26 far
-ack w2
-write_raw S4 t4 binary 7 far
-write S1 t3 binary 26 far
-write_raw S4 t2 binary 6 far
-write S3 t1 text 18 far
-reserve_raw S1 37 far
-write_raw S2 t4 text 2 far
-write_raw S1 t1 text 10 past
-ack w2
-control 1
-ack w2
-reserve S1 41 past
-# generated 148
-scenario generated148 30000 1000
-control 13
-kill S4
-kill S1
-reserve S2 47 far
-ack w2
-reserve S3 13 past
-ack w2
-write_raw S2 t1 binary 5 far
-ack w3
-write_raw S2 t2 text 2 far
-ack w2
-write S1 t1 text 20 far
-write S4 t3 binary 8 far
-ack w2
-reserve_raw S2 11 far
-reserve S4 23 far
+ack w1
+write_raw S4 t3 binary 7 far 544
+control 27 255
+write S2 t2 text 20 far 548
+write S3 t3 binary 19 far 331
+write S3 t3 text 26 far 717
+reserve S1 32 far
+reserve S1 1 far
+write S3 t1 binary 0 past 773
+write S3 t4 text 22 far 712
+reserve_raw S1 4 far
 ack w4
+write_raw S2 t3 text 10 far 520
+control 22 831
 ack w2
-ack w1
-control 29
-ack w2
-write S1 t1 text 9 far
-close 1000
+control 15 496
 ack w4
-# generated 149
-scenario generated149 0 50
-write S1 t1 binary 22 past
-kill S3
-kill S3
+ack w4
+write S1 t3 text 26 far 454
+# generated 142
+scenario generated142 30000 1000
+write_raw S2 t1 text 2 far 915
 ack w1
-write S3 t1 binary 3 far
-control 29
-ack w2
+reserve_raw S2 46 far
+ack w1
+control 10 513
+reserve S2 32 far
+reserve S1 44 far
 ack w3
+control 27 188
+reserve_raw S3 50 far
+ack w1
 ack w1
 ack w2
-reserve S4 4 far
-reserve S4 1 far
-write S4 t2 binary 29 far
-write S4 t3 binary 27 far
-kill S4
-reserve S4 41 far
+reserve_raw S2 37 far
+ack w2
+write_raw S2 t1 binary 28 far 832
 kill S3
+kill S3
+ack w1
+# generated 143
+scenario generated143 30000 1000
+ack w1
+write_raw S2 t1 text 19 far 604
+kill S3
+ack w2
+ack w1
+ack w2
+control 16 517
+control 23 461
+ack w1
+reserve S2 19 far
+write_raw S1 t1 binary 22 past 419
+write S1 t1 text 16 far 337
 kill S2
 reserve_raw S2 37 far
-write_raw S4 t4 binary 11 far
-ack w2
-ack w4
-write_raw S1 t1 binary 18 far
+write_raw S4 t3 binary 11 far 610
+timeout t2
+write_raw S4 t3 text 16 far 667
+# generated 144
+scenario generated144 30000 1000
 kill S1
 ack w1
-write S4 t2 binary 27 far
-write S1 t4 text 1 far
+write S4 t1 binary 27 far 356
+ack w1
+reserve S2 43 far
+write S4 t2 binary 2 past 888
+control 29 214
+ack w4
+kill S1
+reserve S2 17 far
+reserve_raw S3 46 past
+write S1 t4 text 2 past 58
+reserve S2 45 past
+write S2 t1 binary 23 far 57
 ack w3
-write_raw S1 t4 binary 10 far
-write S3 t1 text 22 far
-reserve_raw S1 4 far
-write S2 t1 text 13 far
+write S2 t4 text 9 far 921
+kill S3
+write S4 t4 binary 7 far 770
+write S4 t1 binary 5 far 635
+ack w1
+ack w3
+ack w1
+reserve S2 44 far
+write S3 t2 binary 15 far 507
+ack w4
+ack w3
+control 18 530
+ack w2
+reserve S4 31 past
+kill S4
+write S1 t2 binary 27 past 209
+reserve_raw S4 21 past
+ack w4
+# generated 145
+scenario generated145 0 1000
+reserve_raw S4 50 far
+reserve S1 47 far
+kill S3
+ack w1
+ack w1
+reserve S1 18 far
+reserve S4 49 far
+reserve_raw S4 8 far
+write_raw S4 t2 text 6 far 776
+ack w1
+write S4 t1 binary 9 far 391
+write S2 t4 binary 29 far 9
+write S1 t4 binary 27 far 166
+write_raw S1 t2 binary 25 far 105
+ack w2
+kill S2
+ack w1
+reserve S2 17 past
+write S2 t2 text 22 past 147
+ack w4
+ack w2
+kill S4
+# generated 146
+scenario generated146 30000 50
+ack w1
+ack w1
+ack w1
+kill S1
+ack w1
+ack w1
+kill S2
+ack w1
+kill S4
+ack w1
+ack w1
+reserve S3 36 far
+control 29 46
+ack w2
+reserve S3 7 far
+ack w2
+ack w1
+write S4 t1 text 19 far 999
+write S4 t2 binary 21 far 441
+ack w1
+ack w1
+# generated 147
+scenario generated147 30000 1000
+timeout t1
+ack w1
+ack w1
+ack w1
+reserve S1 26 far
+write S2 t2 text 11 past 525
+reserve S4 24 far
+ack w2
+ack w1
+reserve S2 41 far
+write S3 t3 binary 5 past 527
+ack w3
+timeout t2
+ack w3
+write_raw S1 t3 text 10 far 825
+ack w3
+reserve_raw S4 42 past
+ack w4
+# generated 148
+scenario generated148 30000 1000
+ack w1
+kill S4
+ack w1
+write S2 t1 text 6 far 55
+control 24 526
+ack w3
+ack w1
+reserve S1 33 past
+ack w3
+ack w2
+reserve S2 50 far
+ack w1
+write S2 t1 binary 16 past 679
+reserve_raw S2 33 far
+ack w2
+reserve_raw S3 4 far
+control 13 660
+reserve_raw S2 21 far
+ack w2
+ack w2
+# generated 149
+scenario generated149 30000 1000
+control 8 134
+ack w2
+write S4 t1 binary 12 far 80
+ack w2
+ack w3
+kill S4
+kill S4
+control 29 974
+timeout t1
+ack w2
+ack w2
+reserve S1 13 far
+write_raw S3 t1 text 27 past 861
+write S4 t1 binary 7 far 438
+write S2 t2 binary 8 far 270
+ack w1
+reserve_raw S3 3 past
+write_raw S3 t2 binary 11 far 222
+kill S3
+kill S4
+reserve_raw S3 10 far
+kill S2
+ack w4
+ack w3
+kill S4
+ack w4
+ack w2
+ack w1
+control 16 36
+write S4 t1 text 20 far 454
+ack w3
+ack w4
+ack w1
+control 8 103
+write_raw S3 t1 text 4 far 591
+reserve S2 44 far
+kill S3
+control 23 331
+ack w3
