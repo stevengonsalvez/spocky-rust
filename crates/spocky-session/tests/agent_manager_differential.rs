@@ -72,8 +72,9 @@
 //! after `N` ms.
 //!
 //! Normalized: wall-clock ISO timestamps (`<ISO>`) and random UUIDs such as
-//! timeline epochs (`<UUID>`), nothing else. The fixed agent ids stay as
-//! they are.
+//! timeline epochs (`<UUID:n>`, numbered by first appearance so that a reused
+//! id and two distinct ids stay different), nothing else. The fixed agent ids
+//! stay as they are.
 //!
 //! Needs `SPOCKY_PINNED_NODE` and `SPOCKY_PASEO_DIST` like
 //! `checkout_differential`; without them the test FAILS unless
@@ -3738,7 +3739,7 @@ async fn titles_scenario(cwd: &str, home: &Path) -> JsValue {
 }
 
 /// Replaces ISO timestamps with `<ISO>` and UUIDs other than
-/// [`FIXED_IDS`] with `<UUID>`.
+/// [`FIXED_IDS`] with `<UUID:n>`, `n` counting the distinct ones from 1.
 /// The wall-clock window of one test run. `Date.now()` and `new Date()` on
 /// either side give values inside it; a timestamp a fixture fixes is outside
 /// it and is compared exactly.
@@ -3770,6 +3771,7 @@ impl WallClock {
 fn normalize(text: &str, clock: &WallClock) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
+    let mut generated: Vec<&str> = Vec::new();
     let mut index = 0;
     let digit = |offset: usize| bytes.get(offset).is_some_and(u8::is_ascii_digit);
     let hex = |offset: usize| bytes.get(offset).is_some_and(u8::is_ascii_hexdigit);
@@ -3793,11 +3795,21 @@ fn normalize(text: &str, clock: &WallClock) -> String {
         });
         if uuid {
             let id = &text[index..index + 36];
-            out.push_str(if FIXED_IDS.contains(&id) {
-                id
+            if FIXED_IDS.contains(&id) {
+                out.push_str(id);
             } else {
-                "<UUID>"
-            });
+                let number = generated
+                    .iter()
+                    .position(|seen| *seen == id)
+                    .unwrap_or_else(|| {
+                        generated.push(id);
+                        generated.len() - 1
+                    })
+                    + 1;
+                out.push_str("<UUID:");
+                out.push_str(&number.to_string());
+                out.push('>');
+            }
             index += 36;
             continue;
         }
@@ -3813,12 +3825,12 @@ fn normalize_masks_only_wall_clock_values() {
     let clock = WallClock::start();
     let now = spocky_session::clock::now_iso();
     let text = format!(
-        r#"["{now}","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","{AGENT_ID}","{UNKNOWN_ID}x"]"#
+        r#"["{now}","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","{AGENT_ID}","{UNKNOWN_ID}x","7a1b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b","3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"]"#
     );
     assert_eq!(
         normalize(&text, &clock),
         format!(
-            r#"["<ISO>","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","<UUID>","{AGENT_ID}","{UNKNOWN_ID}x"]"#
+            r#"["<ISO>","2026-07-12T08:00:00.000Z","2031-01-02T03:04:05.678Z","<UUID:1>","{AGENT_ID}","{UNKNOWN_ID}x","<UUID:2>","<UUID:1>"]"#
         )
     );
 }
