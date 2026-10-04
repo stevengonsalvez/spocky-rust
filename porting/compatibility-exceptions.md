@@ -36,6 +36,12 @@ V8 stack-depth family is listed here because it affects observable boundaries:
   `crates/spocky-session/src/agent_manager/create.rs`. The `RangeError` text
   matches V8; the trigger depth is the zod port's recursion boundary, not
   V8's stack.
+- err.stack in log bindings: pinned pino's err serializer prints
+  `{type, message, stack, ...enumerable}`; Rust omits `stack` in every err
+  binding (`spocky-session` `log_error.rs`, `storage_error_binding` in
+  `lifecycle.rs`) because a Rust error has no V8 frames. The node twin drops
+  `stack` before comparing; `type`, `message` and enumerable properties are
+  compared against pino-std-serializers 7.1.0.
 
 ## Accepted interim
 
