@@ -322,7 +322,7 @@ defmodule CapacityBaseline do
       end)
 
     "state gauges=#{gauge_text(Capacity.snapshot())} pressure=#{pressure} " <>
-      "recheck=#{capacity.pressure_recheck?} monitors=#{length(monitors)} timers=#{timers} " <>
+      "recheck=#{if capacity.pressure_recheck?, do: 1, else: 0} monitors=#{length(monitors)} timers=#{timers} " <>
       "active=#{capacity.active |> :gb_trees.values() |> Enum.map_join(",", name)} " <>
       "blocked=#{capacity.blocked |> :gb_trees.values() |> Enum.map_join(",", name)} " <>
       "sizes=#{sizes} metrics=#{metrics}"
