@@ -1817,13 +1817,14 @@ const pluginLifecycleScenario = async () => {
   const imported = await outcome(async () => (await manager.importProviderSession({ provider: "fake", providerHandleId: "h1", cwd, workspaceId: "wks_3" })).provider);
   // The archived agent resumes for its history, not for interaction.
   const resumedArchived = await outcome(async () => (await manager.resumeAgentFromPersistence({ provider: "fake", sessionId: "sess-p", nativeHandle: "thread-p", metadata: { cwd, model: "m" } }, undefined, agentId, { workspaceId: "wks_1" })).id);
-  // A failing upsert archives nothing, so the plugin hears nothing.
+  // A failing upsert archives nothing, so the plugin hears nothing. The stored record of a closed agent is archived directly.
+  await manager.closeAgent(otherId);
   const base = `${home}/plugin-recording`;
   const dirs = [base, ...fs.readdirSync(base, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => `${base}/${entry.name}`)];
   for (const dir of dirs) fs.chmodSync(dir, 0o500);
   let archiveFailed;
   try {
-    archiveFailed = await manager.archiveAgent(otherId).then(() => "ok", () => "threw");
+    archiveFailed = await manager.archiveSnapshot(otherId, "2026-07-12T11:00:00.000Z").then(() => "ok", () => "threw");
   } finally {
     for (const dir of dirs) fs.chmodSync(dir, 0o700);
   }
@@ -7407,6 +7408,7 @@ async fn plugin_lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
             .map(|agent| text(&agent.id)),
     );
     let archive_failed = {
+        manager.close_agent(OTHER_ID).await.expect("close");
         let base = home.join("plugin-recording");
         let mut dirs = vec![base.clone()];
         for entry in std::fs::read_dir(&base).expect("record directories") {
@@ -7422,7 +7424,9 @@ async fn plugin_lifecycle_scenario(cwd: &str, home: &Path) -> JsValue {
             }
         };
         set_mode(0o500);
-        let result = manager.archive_agent(OTHER_ID).await;
+        let result = manager
+            .archive_snapshot(OTHER_ID, "2026-07-12T11:00:00.000Z".to_owned())
+            .await;
         set_mode(0o700);
         text(if result.is_ok() { "ok" } else { "threw" })
     };
