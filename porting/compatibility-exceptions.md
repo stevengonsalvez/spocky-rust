@@ -100,6 +100,37 @@ V8 stack-depth family is listed here because it affects observable boundaries:
   matches embedded and PostgreSQL mutation traces on required platforms
 - Review date: 2026-10-01
 
+### Electron shell as retained desktop renderer host
+
+- Status: `required-not-accepted`. CEF is not accepted as the desktop host
+  because the Dioxus candidate is outside exact membership of the shipped app on
+  every OS. The Electron shell is the fallback host for evidence only; no selection
+  is made and the renderer stays unselected.
+- Capability and owner: desktop window and web renderer host, UI renderer lane
+  `p2_renderer_linux` (task P2-RENDERER-CEF-01)
+- Runtime: Electron `44.2.0` (Chromium `152.0.7977.76`), pinned in
+  `scripts/phase2/renderer-platform-electron/package-lock.json`. CEF
+  `152.0.7+g83ffcba` (Chromium `152.0.7977.83`, macOS archive SHA-256
+  `c4c07276991f64004201282bc2237c8679444b6a38788253f10e77d72911ddd5`) is the
+  alternative; no CEF build exists at `.76`
+- Boundary and data: the host loads the Dioxus 0.7.0 web bundle from a loopback
+  server. Nothing else crosses the boundary in this evidence.
+- Evidence: engine equivalence holds on every OS. The same bundle in CEF `.83`
+  and Electron `.76` is byte-identical: macOS `72a51470ad9f`, Linux
+  `673081c3c368`, Windows `b946ee5359c5`, 0 different pixels
+  (`renderer-platform-cef-macos.md`, `renderer-platform-linux-gate.md`,
+  `renderer-platform-windows.md`). Against the shipped desktop app the candidate
+  differs on both hosts: macOS 51738 px (RMSE 0.0362863), Linux 29064 px
+  (0.01585), Windows 38397 px (0.0306389). The difference is the pilot's web-mode
+  content, not the engine.
+- Security and packaging risk: ships a Chromium host and its updater and
+  code-signing scope
+- Open gaps: pilot desktop variant (titlebar, Pair device tile, Plus navigation,
+  host label), native accessibility trees, hover record difference between hosts
+- Removal condition: a Rust-native renderer host meets exact membership on every
+  required OS, or the pilot matches the shipped app inside the same host
+- Review date: 2026-10-04
+
 ## Candidates
 
 No candidate below is accepted for release or parity.
