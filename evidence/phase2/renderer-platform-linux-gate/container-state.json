@@ -1,0 +1,1 @@
+{"State":{"Dead":false,"Error":"","ExitCode":0,"FinishedAt":"2026-10-04T15:11:54.301040836Z","OOMKilled":false,"Paused":false,"Pid":0,"Restarting":false,"Running":false,"StartedAt":"2026-10-04T15:10:36.759919126Z","Status":"exited"},"HostConfig":{"NetworkMode":"none","Memory":3221225472,"MemorySwap":3221225472,"NanoCpus":2000000000}}
