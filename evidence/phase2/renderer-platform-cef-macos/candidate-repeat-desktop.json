@@ -1,7 +1,7 @@
 {
   "name": "candidate-repeat-desktop",
   "mode": "candidate",
-  "url": "http://127.0.0.1:64342/",
+  "url": "http://127.0.0.1:53142/",
   "browser": {
     "product": "Chrome/152.0.7977.83",
     "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
@@ -18,7 +18,11 @@
       "width": 1280,
       "height": 800
     },
-    "deviceScaleFactor": 1
+    "deviceScaleFactor": 1,
+    "pointer": [
+      1279,
+      799
+    ]
   },
   "environment": {
     "innerWidth": 1280,
@@ -29,6 +33,18 @@
     "colorSchemeLight": true,
     "reducedMotion": true
   },
+  "pageFocus": {
+    "hasFocus": true,
+    "visibilityState": "visible",
+    "activeElement": "body.",
+    "hoverMatches": [],
+    "focusVisibleMatches": []
+  },
+  "axRawFile": "candidate-repeat-desktop.ax.json",
+  "consoleMessages": [],
+  "pageErrors": [],
+  "failedRequests": [],
+  "errorResponses": [],
   "readiness": {
     "fontsStatus": "loaded",
     "fontCount": 0
@@ -144,21 +160,21 @@
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Add a project Open a folder on your machine",
+        "text": "Add a project\nOpen a folder on your machine",
         "disabled": false
       },
       {
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Import session Open a Claude Code, Codex or other session you started in a terminal",
+        "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal",
         "disabled": false
       },
       {
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Setup providers Configure Claude Code, Codex, and more",
+        "text": "Setup providers\nConfigure Claude Code, Codex, and more",
         "disabled": false
       },
       {
@@ -188,8 +204,8 @@
   "plusActivation": {
     "control": "[aria-label='New workspace']",
     "changed": false,
-    "urlBefore": "http://127.0.0.1:64342/",
-    "urlAfter": "http://127.0.0.1:64342/",
+    "urlBefore": "http://127.0.0.1:53142/",
+    "urlAfter": "http://127.0.0.1:53142/",
     "before": {
       "dialogs": [],
       "status": []
@@ -202,8 +218,8 @@
   "addProjectActivation": {
     "control": ".action:nth-child(1)",
     "changed": true,
-    "urlBefore": "http://127.0.0.1:64342/",
-    "urlAfter": "http://127.0.0.1:64342/",
+    "urlBefore": "http://127.0.0.1:53142/",
+    "urlAfter": "http://127.0.0.1:53142/",
     "before": {
       "dialogs": [],
       "status": []
@@ -213,27 +229,27 @@
         {
           "role": "dialog",
           "label": null,
-          "text": "Add project isolated-baseline Search for directory Find a directory on isolated-baseline Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on isolated-baseline ↑↓ Navigate ⏎ Select Esc Close",
+          "text": "Add project\nisolated-baseline\nSearch for directory\nFind a directory on isolated-baseline\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on isolated-baseline\n↑↓\nNavigate\n⏎\nSelect\nEsc\nClose",
           "controls": [
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "Search for directory Find a directory on isolated-baseline",
+              "text": "Search for directory\nFind a directory on isolated-baseline",
               "disabled": false
             },
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
               "disabled": false
             },
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "New directory Create an empty directory on isolated-baseline",
+              "text": "New directory\nCreate an empty directory on isolated-baseline",
               "disabled": false
             }
           ]
@@ -257,7 +273,7 @@
       ],
       [
         "url",
-        "http://127.0.0.1:64342/"
+        "http://127.0.0.1:53142/"
       ]
     ],
     "children": [
