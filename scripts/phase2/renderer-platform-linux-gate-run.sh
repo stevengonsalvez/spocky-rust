@@ -21,10 +21,21 @@ free_port() {
   python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
 refuse_6767() { [ "$1" != 6767 ] || { echo 'forbidden port 6767' >&2; exit 1; }; }
+# Host logs live in /tmp; keep them with the evidence, and print the tail on a failure.
+keep_logs() { mkdir -p "$out/logs"; cp /tmp/*.log "$out/logs/" 2>/dev/null || true; }
 wait_cdp() {
   n=0
   until curl -fsS -m 2 "http://127.0.0.1:$1/json/version" >/dev/null 2>&1; do
-    n=$((n + 1)); [ "$n" -lt 120 ] || { echo "DevTools not ready on $1" >&2; return 1; }
+    n=$((n + 1))
+    if [ "$n" -ge 120 ]; then
+      echo "DevTools not ready on $1" >&2
+      echo "--- host log tail ($host_log)" >&2
+      tail -n 40 "$host_log" >&2 || true
+      echo "--- host processes" >&2
+      ps -eo pid,args | grep -E "spocky-cef|electron|Paseo" | grep -v grep >&2 || true
+      keep_logs
+      return 1
+    fi
     sleep 1
   done
 }
@@ -59,6 +70,7 @@ PY
     PASEO_DISABLE_SINGLE_INSTANCE_LOCK=1 \
     PASEO_ELECTRON_FLAGS="--no-sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cdp --lang=en-US" \
     /ref/packages/desktop/release/linux-unpacked/Paseo >"/tmp/shipped-$name.log" 2>&1 &
+  host_log="/tmp/shipped-$name.log"
   group_pid=$!
   wait_cdp "$cdp"
   timeout 600 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" - "$out" "$name" desktop
@@ -68,8 +80,10 @@ host_a() {
   name=$1
   cdp=$(free_port); refuse_6767 "$cdp"
   cache=$(mktemp -d /tmp/cef-cache.XXXXXX)
+  echo "missing shared libraries for the CEF host: $(ldd /cefbuild/Release/spocky-cef-host /cefbuild/Release/libcef.so 2>&1 | grep 'not found' || echo none)"
+  host_log="/tmp/cef-$name.log"
   setsid /cefbuild/Release/spocky-cef-host --spocky-cdp-port="$cdp" --spocky-cache="$cache" --spocky-bound-ms=600000 \
-    "--spocky-url=http://127.0.0.1:$http_port/" >"/tmp/cef-$name.log" 2>&1 &
+    "--spocky-url=http://127.0.0.1:$http_port/" >"$host_log" 2>&1 &
   group_pid=$!
   wait_cdp "$cdp"
   timeout 300 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" "http://127.0.0.1:$http_port/" "$out" "$name" candidate
@@ -81,6 +95,7 @@ host_b() {
   cp "$scripts/renderer-platform-electron-host.cjs" /hostb/
   (cd /hostb && setsid env CDP_PORT="$cdp" HOST_BOUND_MS=600000 node_modules/.bin/electron --no-sandbox renderer-platform-electron-host.cjs) \
     >"/tmp/electron-$name.log" 2>&1 &
+  host_log="/tmp/electron-$name.log"
   group_pid=$!
   wait_cdp "$cdp"
   timeout 300 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" "http://127.0.0.1:$http_port/" "$out" "$name" candidate
@@ -102,4 +117,5 @@ compare candidate-electron-desktop candidate-desktop engine-electron-vs-cef
 compare original-desktop original-repeat-desktop original-stability
 compare candidate-desktop candidate-repeat-desktop candidate-stability
 compare candidate-electron-desktop candidate-electron-repeat-desktop electron-stability
+keep_logs
 echo RENDERER_LINUX_GATE_OK
