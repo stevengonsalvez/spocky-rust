@@ -19,7 +19,8 @@ env:
 
 jobs:
   gate:
-    runs-on: windows-latest
+    # windows-latest is VS 18, where the locked aws-lc-sys 0.32.3 C11 atomics probe fails.
+    runs-on: windows-2022
     timeout-minutes: 240
     defaults:
       run:
