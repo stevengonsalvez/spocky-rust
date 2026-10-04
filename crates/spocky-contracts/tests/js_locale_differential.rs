@@ -275,7 +275,44 @@ const ENVIRONMENTS: &[&[(&str, &str)]] = &[
     &[("LANG", "de@abcde@fghij")],
     &[("LANG", "de@-abcde")],
     &[("LC_ALL", "az_AZ@latin"), ("LANG", "de_DE")],
+    // Only the sorted leading variants stay variants; `-` and `_` alike
+    // separate pieces; from the first other piece on, all go to x-lvariant-.
+    &[("LANG", "de@ab-cde-fghij")],
+    &[("LANG", "de@ab_cde_fghij")],
+    &[("LANG", "de@ab-cde_fghij")],
+    &[("LANG", "de@ab_cde-fghij")],
+    &[("LANG", "de@ab-cde")],
+    &[("LANG", "de@abcde-fghij")],
+    &[("LANG", "de@euro-abcde")],
+    &[("LANG", "de@abcde-euro")],
+    &[("LANG", "de@abcde-fghij-euro")],
+    &[("LANG", "de@euro-abcde-fghij")],
+    &[("LANG", "de@euro_abcde_fghij")],
+    &[("LANG", "de@ab-abcde")],
+    &[("LANG", "de@abcde_ab-cde")],
+    &[("LANG", "de@euro-ab-abcde")],
+    &[("LANG", "de@abcde_abcde")],
 ];
+
+/// Node run with exactly `environment` as its environment, under `gtimeout`
+/// or `timeout` so a hung spawn fails the test instead of stalling it.
+fn run_node_under(
+    node: &std::ffi::OsStr,
+    environment: &[(&str, &str)],
+    script: &str,
+) -> std::process::Output {
+    Command::new(support::timeout_command())
+        .args(["--kill-after=5", "60", "/usr/bin/env", "-i"])
+        .args(
+            environment
+                .iter()
+                .map(|(name, value)| format!("{name}={value}")),
+        )
+        .arg(node)
+        .args(["-e", script])
+        .output()
+        .expect("run pinned node")
+}
 
 /// xorshift64*, so every run builds the same strings.
 struct Random(u64);
@@ -414,12 +451,7 @@ fn default_locale_matches_node() {
     };
     let script = r#"console.log(JSON.stringify([Intl.DateTimeFormat().resolvedOptions().locale, "Iİ̇".toLocaleLowerCase()]));"#;
     for environment in ENVIRONMENTS {
-        let output = Command::new(&node)
-            .env_clear()
-            .envs(environment.iter().copied())
-            .args(["-e", script])
-            .output()
-            .expect("run pinned node");
+        let output = run_node_under(&node, environment, script);
         assert!(output.status.success(), "node failed under {environment:?}");
         let printed = parse(String::from_utf8_lossy(&output.stdout).trim()).expect("node output");
         let pair = printed.as_array().expect("pair");
@@ -484,12 +516,7 @@ fn default_locale_mixed_environments_match_node() {
                     chunk
                         .iter()
                         .map(|environment| {
-                            let output = Command::new(node)
-                                .env_clear()
-                                .envs(environment.iter().copied())
-                                .args(["-e", script])
-                                .output()
-                                .expect("run pinned node");
+                            let output = run_node_under(node, environment, script);
                             assert!(output.status.success(), "node failed under {environment:?}");
                             String::from_utf8_lossy(&output.stdout).into_owned()
                         })
@@ -511,5 +538,55 @@ fn default_locale_mixed_environments_match_node() {
             format!("{tag}\n"),
             "default locale under {environment:?}"
         );
+    }
+}
+
+/// A repeated piece that is not a BCP 47 variant (`LANG=de_DE@euro_euro`):
+/// node's `toLocaleLowerCase()` still works, but `Intl.DateTimeFormat()`,
+/// `localeCompare`, and `toLocaleString` throw `RangeError: Internal error.
+/// Icu error.`, while `default_locale` returns the tag with the duplicate
+/// removed (DIV-006). A repeated variant (`@abcde_abcde`) is fine in node.
+#[cfg(unix)]
+#[test]
+fn repeated_modifier_piece_divergence_is_pinned() {
+    let Some((node, _)) = support::pinned() else {
+        return;
+    };
+    let script = r#"
+const attempt = (f) => { try { return String(f()); } catch (e) { return `${e.name}: ${e.message}`; } };
+console.log(JSON.stringify([
+  attempt(() => "I\u0130\u0307".toLocaleLowerCase()),
+  attempt(() => Intl.DateTimeFormat().resolvedOptions().locale),
+  attempt(() => "a".localeCompare("b")),
+  attempt(() => (1).toLocaleString()),
+]));"#;
+    let run = |lang: &str| {
+        let output = run_node_under(&node, &[("LANG", lang)], script);
+        assert!(output.status.success());
+        parse(String::from_utf8_lossy(&output.stdout).trim()).expect("node output")
+    };
+    let throws = "RangeError: Internal error. Icu error.";
+    let printed = run("de_DE@euro_euro");
+    let items = printed.as_array().expect("array");
+    assert_eq!(items[0].as_str(), Some("ii\u{307}\u{307}"));
+    for item in &items[1..] {
+        assert_eq!(item.as_str(), Some(throws));
+    }
+    let tag = default_locale_from(|name| (name == "LANG").then(|| "de_DE@euro_euro".to_owned()));
+    assert_eq!(tag, "de-DE-x-lvariant-euro");
+    assert_eq!(
+        js_to_locale_lower_case("I\u{130}\u{307}", Some(&tag)).as_deref(),
+        Ok("ii\u{307}\u{307}")
+    );
+    let printed = run("tr_TR@euro_euro");
+    let items = printed.as_array().expect("array");
+    let tag = default_locale_from(|name| (name == "LANG").then(|| "tr_TR@euro_euro".to_owned()));
+    assert_eq!(
+        js_to_locale_lower_case("I\u{130}\u{307}", Some(&tag)).as_deref(),
+        Ok(items[0].as_str().expect("string"))
+    );
+    let repeated_variant = run("de@abcde_abcde");
+    for item in repeated_variant.as_array().expect("array") {
+        assert!(!item.as_str().expect("string").starts_with("RangeError"));
     }
 }
