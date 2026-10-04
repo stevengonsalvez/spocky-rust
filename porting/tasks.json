@@ -1552,6 +1552,13 @@
           "incidents": ["relay-protocol #[ignore] fixture writers render_corpus_file, write_corpus, write_extra_corpus, write_percent_corpus need SPOCKY_RELAY_*_OUT and are run by scripts/phase4/relay-protocol-differential.sh; the gate skips them under --include-ignored"]
         },
         {
+          "lane": "p3_daemon_transport",
+          "date": "2026-10-04",
+          "sourceRange": "c8df8410..f8a07c4e (18: stdout log records, libuv error table and Node listen error shape, configured logger level, fatal record of a thrown listening handler; PASS p3_daemon_transport-f8a07c4e)",
+          "integrationHead": "05b9faa4",
+          "leadVerification": "daemon, daemon-app, contracts, plugin-pilot 461/0 with pinned node and dist, clippy, fmt, workspace check, spocky-daemon bin; gated on 912b4c08 and rebased over the docs-only ledger commits (crate trees identical)"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
