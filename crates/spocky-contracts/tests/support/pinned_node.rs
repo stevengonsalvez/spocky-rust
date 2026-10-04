@@ -59,7 +59,7 @@ pub fn assert_pinned_modules(dist: &Path, modules: &[(&str, &str)]) {
 const PINNED_NODE_VERSION: &str = "v22.20.0";
 
 /// `gtimeout` where installed, else `timeout`.
-fn timeout_command() -> &'static str {
+pub fn timeout_command() -> &'static str {
     if Command::new("gtimeout").arg("--version").output().is_ok() {
         "gtimeout"
     } else {
