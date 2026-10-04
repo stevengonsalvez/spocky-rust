@@ -76,7 +76,8 @@ settings. These pins are gate conditions, not masking.
   compared yet.
 - The window is captured as web contents at `1280x800`. Native window chrome and
   the traffic lights are not part of the PNG.
-- Linux and Windows baselines are separate steps.
+- Linux and Windows baselines are in `renderer-platform-linux-gate.md` and
+  `renderer-platform-windows.md`.
 
 Reproduce with:
 
@@ -93,7 +94,9 @@ The first runner prepares the reference checkout that the second reuses.
 | file | SHA-256 |
 |---|---|
 | `renderer-platform-desktop-macos/environment.json` | `cbb2c94bfbe7f6afeded6c77b7d29ff984beb5a92c9bcf1a8917efedfaf82c21` |
-| `renderer-platform-desktop-macos/original-desktop.json` | `d7efb7afb545f4cbe0f5618733c8a85950868c810c49bcd3595ee0e694a9a799` |
+| `renderer-platform-desktop-macos/original-desktop.json` | `b69f036623a633fa5554ebd65d79ffa3adbdb26784ae97a4b231f5b1ebce52e0` |
 | `renderer-platform-desktop-macos/original-desktop.png` | `4475943215a36a9ce5471ad4eefe8d929781cc9c30ccf92a5ad7d8f003577c39` |
-| `renderer-platform-desktop-macos/original-repeat-desktop.json` | `8899e78445f7ea6aa6a0962f1fc3474a5098b2ece7e92c18ea3430ad1fb6bb07` |
+| `renderer-platform-desktop-macos/original-repeat-desktop.json` | `8d6d71e1abcbdb5cec33642a340de82b28132a0ac50e4d39a73f0d18431c8a12` |
 | `renderer-platform-desktop-macos/original-repeat-desktop.png` | `4475943215a36a9ce5471ad4eefe8d929781cc9c30ccf92a5ad7d8f003577c39` |
+| `renderer-platform-desktop-macos/original-desktop.ax.json` | `53a05f25cded0c8970e7f19f95c920337612b43e0c76daa63e75fab423e75931` |
+| `renderer-platform-desktop-macos/original-repeat-desktop.ax.json` | `5ee9ef0dfbb68166fd5b8180f9552fde2a27d919f8204958740bd943cff91d65` |
