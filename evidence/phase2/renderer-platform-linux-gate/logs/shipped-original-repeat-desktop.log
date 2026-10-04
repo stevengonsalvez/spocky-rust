@@ -1,0 +1,222 @@
+[linux-sandbox] disabled: requested by PASEO_ELECTRON_FLAGS
+[455:1004/151059.439664:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory
+[455:1004/151059.439734:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+15:10:59.706 › [desktop] app startup { version: '0.10.0', platform: 'linux', arch: 'x64', isPackaged: true }
+15:10:59.709 › [dev-user-data] forced userData dir: /tmp/paseo-home.JYzXRV/user-data
+15:10:59.709 › [electron-flags] --no-sandbox --remote-debugging-address=127.0.0.1 --remote-debugging-port=46679 --lang=en-US
+15:10:59.709 › [linux-sandbox] { enabled: false, reason: 'requested by PASEO_ELECTRON_FLAGS' }
+15:10:59.711 › [login-shell-env] start {
+  shell: '/bin/bash',
+  shellArgs: [ '-i', '-l', '-c' ],
+  attempts: [
+    { attemptKind: 'interactive', shellArgs: [Array] },
+    { attemptKind: 'non-interactive', shellArgs: [Array] }
+  ],
+  timeoutMs: 30000,
+  beforePath: '/ref/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+}
+15:10:59.773 › [login-shell-env] attempt applied {
+  attemptKind: 'interactive',
+  shell: '/bin/bash',
+  shellArgs: [ '-i', '-l', '-c' ],
+  reason: 'success',
+  durationMs: 62,
+  timeoutMs: 15000
+}
+15:10:59.774 › [login-shell-env] applied {
+  attemptKind: 'interactive',
+  durationMs: 64,
+  timeoutMs: 30000,
+  beforePath: '/ref/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+  afterPath: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+  pathChanged: true,
+  shell: null
+}
+15:10:59.775 › [single-instance] disabled by PASEO_DISABLE_SINGLE_INSTANCE_LOCK
+[455:1004/151059.814590:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory
+[455:1004/151059.814644:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory
+
+DevTools listening on ws://127.0.0.1:46679/devtools/browser/6946c008-4f94-456a-9ae1-6eea71d00415
+[455:1004/151059.843451:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[455:1004/151059.843650:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[455:1004/151059.883654:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[455:1004/151059.902643:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+15:11:00.591 › [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+15:11:00.977 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:00.981 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:00.983 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:00.983 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:00.983 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:01.013 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:01.019 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:01.021 › [desktop daemon] initial status check before start {
+  pid: null,
+  status: 'stopped',
+  listen: null,
+  serverId: null,
+  error: null,
+  desktopManaged: false
+}
+15:11:04.807 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:04.940 › Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md
+15:11:05.377 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:07.113 › [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+15:11:07.337 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:07.349 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:07.349 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:07.349 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:07.350 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:07.375 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:07.376 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:09.599 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:09.655 › [desktop daemon] initial status check before start {
+  pid: 554,
+  status: 'running',
+  listen: '127.0.0.1:38677',
+  serverId: 'srv_kxLtwaa_5Quc',
+  error: null,
+  desktopManaged: true
+}
+15:11:14.431 › [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+15:11:14.628 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:14.636 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:14.637 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:14.637 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:14.637 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:14.680 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:14.681 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:16.864 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:16.891 › [desktop daemon] initial status check before start {
+  pid: 554,
+  status: 'running',
+  listen: '127.0.0.1:38677',
+  serverId: 'srv_kxLtwaa_5Quc',
+  error: null,
+  desktopManaged: true
+}
+15:11:17.605 › [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+15:11:17.813 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:17.822 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:17.823 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:17.823 › [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+APPIMAGE env is not defined, current application is not an AppImage
+15:11:17.823 › [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: null
+}
+15:11:17.861 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:17.861 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:20.365 › [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+15:11:20.559 › [desktop daemon] initial status check before start {
+  pid: 554,
+  status: 'running',
+  listen: '127.0.0.1:38677',
+  serverId: 'srv_kxLtwaa_5Quc',
+  error: null,
+  desktopManaged: true
+}
+[455:1004/151121.126772:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[455:1004/151121.126829:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[455:1004/151121.126864:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[455:1004/151121.126886:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
