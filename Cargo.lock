@@ -5684,6 +5684,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spocky-relay"
+version = "0.1.0"
+dependencies = [
+ "spocky-relay-protocol",
+]
+
+[[package]]
 name = "spocky-relay-pilot"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,16 @@
+[package]
+name = "spocky-relay"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[dependencies]
+spocky-relay-protocol = { path = "../spocky-relay-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
