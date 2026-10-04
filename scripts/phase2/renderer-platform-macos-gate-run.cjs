@@ -143,6 +143,15 @@ async function withProcess(command, args, options, run, daemonPort) {
     const r = spawnSync("python3", [compare, path.join(out, `${a}.json`), path.join(out, `${b}.json`), path.join(out, `${name}.json`)], { stdio: "inherit" });
     if (r.status !== 0) throw new Error(`compare ${name} failed`);
   }
+  const inputs = spawnSync(process.execPath, [path.join(scripts, "renderer-platform-inputs.cjs")], {
+    stdio: "inherit",
+    env: {
+      ...process.env, SPOCKY_INPUTS_OUT: path.join(out, "inputs.json"), SPOCKY_BUNDLE: bundle, SPOCKY_CEF_HOST: cefHost,
+      SPOCKY_APP_ASAR: path.join(path.dirname(path.dirname(paseoApp)), "Resources", "app.asar"),
+      SPOCKY_WEB_EXPORT: path.join(ref, "packages", "app", "dist"), SPOCKY_HOSTB: hostB,
+    },
+  });
+  if (inputs.status !== 0) throw new Error("recording the run inputs failed");
   console.log("RENDERER_MACOS_GATE_OK");
 })().catch((error) => {
   console.error(error.message);
