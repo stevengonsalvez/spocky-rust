@@ -238,12 +238,25 @@ fn language_of_tag(tag: &str) -> Result<String, LocaleError> {
     Ok(parts[0].to_ascii_lowercase())
 }
 
-/// The process's default locale as a language tag, as node and ICU resolve it:
-/// `LC_ALL`, then `LC_MESSAGES`, then `LANG`; `C`, `POSIX`, or none set is
+/// The process's default locale as a language tag, as node and ICU resolve it.
+/// On Windows it is the user locale name; elsewhere `LC_ALL`, then
+/// `LC_MESSAGES`, then `LANG`; `C`, `POSIX`, or none set is
 /// `en-US`; the codeset after `.` is dropped.
 #[must_use]
 pub fn default_locale() -> String {
-    default_locale_from(|name| std::env::var(name).ok())
+    // Node on Windows ignores the environment: ICU takes the user locale.
+    #[cfg(windows)]
+    {
+        default_locale_from(|name| {
+            (name == "LC_ALL")
+                .then(spocky_win_locale::user_default_locale_name)
+                .flatten()
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        default_locale_from(|name| std::env::var(name).ok())
+    }
 }
 
 /// [`default_locale`] over an environment lookup.
