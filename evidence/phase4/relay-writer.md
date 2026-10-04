@@ -51,8 +51,8 @@ relay writer differential: 4744 operations: Rust identical to the pinned relay
   destination exit, close, a second write on one reservation, a queued raw reserve with a passed
   deadline) and 150 generated scenarios, 12,578 transcript lines.
 - Outcomes in the transcript: `invalid_reservation`, `timeout`, `destination_closed`,
-  `source_closed`, call exits, close 1013 `Slow consumer` (74), close 1013 `Delivery unavailable`
-  (6), close from `Writer.close` (15), control queue overflow, binary and text frames.
+  `source_closed`, call exits, close 1013 `Slow consumer` (65), close 1013 `Delivery unavailable`
+  (6), close from `Writer.close` (7), control queue overflow, binary and text frames.
 - Payloads and control frames carry content, not just a length: byte `i` is
   `(seed * 131 + i * 37 + 11) mod 256` with a seed per operation, and the destination's frame line
   prints the whole payload in hex.
@@ -61,7 +61,8 @@ relay writer differential: 4744 operations: Rust identical to the pinned relay
   `Deadline.remaining(deadline)`, a clock reading, so the capture records how many milliseconds
   after the deadline was set the Writer granted the reservation (`~ elapsed=`) and the replay is
   given it as the Writer's clock. A control frame's timer depends on two clock reads inside the
-  Writer (`delivery_timeout_ms` minus the time between them) and is not printed.
+  Writer (`delivery_timeout_ms` minus the time between them) and is not printed; the replay
+  asserts that the port's delay lies in `(delivery_timeout_ms - 100, delivery_timeout_ms]`.
 - Two pinned runs differ only in the `~ elapsed=` and `t` lines (a clock input); the script diffs
   them without those lines, and the comparison with the port is the replay of a fresh capture, raw.
 - `cargo test -p spocky-relay` replays the committed transcript without Docker.
