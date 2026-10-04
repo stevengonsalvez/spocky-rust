@@ -313,8 +313,7 @@ pub fn default_locale_from(lookup: impl Fn(&str) -> Option<String>) -> String {
         }
         return tag;
     }
-    // Variants sorted and unique; pieces that are not BCP 47 variants go
-    // after them as `x-lvariant-`; longer than eight characters, dropped.
+    // Pieces sorted and unique; longer than eight characters, dropped.
     tokens.sort();
     tokens.dedup();
     // ICU drops the variants when a one-character piece sorts first beside
@@ -324,13 +323,16 @@ pub fn default_locale_from(lookup: impl Fn(&str) -> Option<String>) -> String {
     {
         tokens.clear();
     }
-    for token in tokens.iter().filter(|token| is_variant(token)) {
+    // Only the sorted run of variants before the first other piece stays a
+    // variant: from that piece on, every piece goes to `x-lvariant-`.
+    let variants = tokens.iter().take_while(|token| is_variant(token)).count();
+    for token in &tokens[..variants] {
         tag.push('-');
         tag.push_str(token);
     }
-    let private: Vec<&str> = tokens
+    let private: Vec<&str> = tokens[variants..]
         .iter()
-        .filter(|token| !is_variant(token) && token.len() <= 8)
+        .filter(|token| token.len() <= 8)
         .map(String::as_str)
         .collect();
     if !private.is_empty() {
