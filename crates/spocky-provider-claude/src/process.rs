@@ -132,153 +132,193 @@ pub struct SpawnRequest {
     pub env: JsObject,
 }
 
-/// A failed spawn: Node's `error` event with its errno code.
+/// How a failed spawn reaches the caller in Node 22.20.0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnFailureKind {
+    /// EACCES, EAGAIN and ENOENT: the child's `error` event, a tick later,
+    /// with `spawn <file> <code>`.
+    Event,
+    /// EMFILE and ENFILE: the same event, but the child has no stdio streams.
+    EventWithoutStdio,
+    /// Every other code: `spawn()` throws `spawn <code>` at once.
+    Thrown,
+}
+
+/// A failed spawn and the way Node reports its errno.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnFailure {
     /// `ENOENT`, `EACCES`, and so on, when known.
     pub code: Option<String>,
     pub message: String,
+    pub kind: SpawnFailureKind,
+}
+
+impl SpawnFailure {
+    /// The failure Node reports for the libuv error `code` of spawning `file`.
+    fn for_code(file: &str, code: &str) -> Self {
+        let kind = match code {
+            "EACCES" | "EAGAIN" | "ENOENT" => SpawnFailureKind::Event,
+            "EMFILE" | "ENFILE" => SpawnFailureKind::EventWithoutStdio,
+            _ => SpawnFailureKind::Thrown,
+        };
+        let message = if kind == SpawnFailureKind::Thrown {
+            format!("spawn {code}")
+        } else {
+            format!("spawn {file} {code}")
+        };
+        Self {
+            code: Some(code.to_owned()),
+            message,
+            kind,
+        }
+    }
 }
 
 /// libuv's name for an errno value (`uv_err_name`): the POSIX codes of its
 /// error map, numbered for the host.
+#[must_use]
 #[allow(clippy::too_many_lines)] // The tables.
-fn errno_name(number: i32) -> Option<&'static str> {
+pub fn errno_name(number: i32) -> Option<&'static str> {
+    // Generated from util.getSystemErrorMap() of the pinned node by
+    // scripts/phase4/provider-claude-errno-table.sh; the errno_differential
+    // test compares both tables with it.
     #[cfg(target_os = "macos")]
     const TABLE: [(i32, &str); 65] = [
+        (1, "EPERM"),
+        (2, "ENOENT"),
+        (3, "ESRCH"),
+        (4, "EINTR"),
+        (5, "EIO"),
+        (6, "ENXIO"),
         (7, "E2BIG"),
+        (8, "ENOEXEC"),
+        (9, "EBADF"),
+        (12, "ENOMEM"),
         (13, "EACCES"),
-        (48, "EADDRINUSE"),
-        (49, "EADDRNOTAVAIL"),
-        (47, "EAFNOSUPPORT"),
+        (14, "EFAULT"),
+        (16, "EBUSY"),
+        (17, "EEXIST"),
+        (18, "EXDEV"),
+        (19, "ENODEV"),
+        (20, "ENOTDIR"),
+        (21, "EISDIR"),
+        (22, "EINVAL"),
+        (23, "ENFILE"),
+        (24, "EMFILE"),
+        (25, "ENOTTY"),
+        (26, "ETXTBSY"),
+        (27, "EFBIG"),
+        (28, "ENOSPC"),
+        (29, "ESPIPE"),
+        (30, "EROFS"),
+        (31, "EMLINK"),
+        (32, "EPIPE"),
+        (34, "ERANGE"),
         (35, "EAGAIN"),
         (37, "EALREADY"),
-        (9, "EBADF"),
-        (16, "EBUSY"),
-        (89, "ECANCELED"),
-        (53, "ECONNABORTED"),
-        (61, "ECONNREFUSED"),
-        (54, "ECONNRESET"),
-        (11, "EDEADLK"),
+        (38, "ENOTSOCK"),
         (39, "EDESTADDRREQ"),
-        (17, "EEXIST"),
-        (14, "EFAULT"),
-        (27, "EFBIG"),
-        (64, "EHOSTDOWN"),
-        (65, "EHOSTUNREACH"),
-        (92, "EILSEQ"),
-        (4, "EINTR"),
-        (22, "EINVAL"),
-        (5, "EIO"),
-        (56, "EISCONN"),
-        (21, "EISDIR"),
-        (62, "ELOOP"),
-        (24, "EMFILE"),
-        (31, "EMLINK"),
         (40, "EMSGSIZE"),
-        (63, "ENAMETOOLONG"),
+        (41, "EPROTOTYPE"),
+        (42, "ENOPROTOOPT"),
+        (43, "EPROTONOSUPPORT"),
+        (44, "ESOCKTNOSUPPORT"),
+        (45, "ENOTSUP"),
+        (47, "EAFNOSUPPORT"),
+        (48, "EADDRINUSE"),
+        (49, "EADDRNOTAVAIL"),
         (50, "ENETDOWN"),
         (51, "ENETUNREACH"),
-        (23, "ENFILE"),
+        (53, "ECONNABORTED"),
+        (54, "ECONNRESET"),
         (55, "ENOBUFS"),
-        (96, "ENODATA"),
-        (19, "ENODEV"),
-        (2, "ENOENT"),
-        (8, "ENOEXEC"),
-        (12, "ENOMEM"),
-        (42, "ENOPROTOOPT"),
-        (28, "ENOSPC"),
-        (78, "ENOSYS"),
+        (56, "EISCONN"),
         (57, "ENOTCONN"),
-        (20, "ENOTDIR"),
-        (66, "ENOTEMPTY"),
-        (38, "ENOTSOCK"),
-        (45, "ENOTSUP"),
-        (25, "ENOTTY"),
-        (6, "ENXIO"),
-        (84, "EOVERFLOW"),
-        (1, "EPERM"),
-        (32, "EPIPE"),
-        (100, "EPROTO"),
-        (43, "EPROTONOSUPPORT"),
-        (41, "EPROTOTYPE"),
-        (34, "ERANGE"),
-        (30, "EROFS"),
         (58, "ESHUTDOWN"),
-        (44, "ESOCKTNOSUPPORT"),
-        (29, "ESPIPE"),
-        (3, "ESRCH"),
         (60, "ETIMEDOUT"),
-        (26, "ETXTBSY"),
-        (18, "EXDEV"),
+        (61, "ECONNREFUSED"),
+        (62, "ELOOP"),
+        (63, "ENAMETOOLONG"),
+        (64, "EHOSTDOWN"),
+        (65, "EHOSTUNREACH"),
+        (66, "ENOTEMPTY"),
+        (78, "ENOSYS"),
+        (79, "EFTYPE"),
+        (84, "EOVERFLOW"),
+        (89, "ECANCELED"),
+        (92, "EILSEQ"),
+        (96, "ENODATA"),
+        (100, "EPROTO"),
     ];
     #[cfg(not(target_os = "macos"))]
-    const TABLE: [(i32, &str); 65] = [
+    const TABLE: [(i32, &str); 67] = [
+        (1, "EPERM"),
+        (2, "ENOENT"),
+        (3, "ESRCH"),
+        (4, "EINTR"),
+        (5, "EIO"),
+        (6, "ENXIO"),
         (7, "E2BIG"),
+        (8, "ENOEXEC"),
+        (9, "EBADF"),
+        (11, "EAGAIN"),
+        (12, "ENOMEM"),
         (13, "EACCES"),
+        (14, "EFAULT"),
+        (16, "EBUSY"),
+        (17, "EEXIST"),
+        (18, "EXDEV"),
+        (19, "ENODEV"),
+        (20, "ENOTDIR"),
+        (21, "EISDIR"),
+        (22, "EINVAL"),
+        (23, "ENFILE"),
+        (24, "EMFILE"),
+        (25, "ENOTTY"),
+        (26, "ETXTBSY"),
+        (27, "EFBIG"),
+        (28, "ENOSPC"),
+        (29, "ESPIPE"),
+        (30, "EROFS"),
+        (31, "EMLINK"),
+        (32, "EPIPE"),
+        (34, "ERANGE"),
+        (36, "ENAMETOOLONG"),
+        (38, "ENOSYS"),
+        (39, "ENOTEMPTY"),
+        (40, "ELOOP"),
+        (49, "EUNATCH"),
+        (61, "ENODATA"),
+        (64, "ENONET"),
+        (71, "EPROTO"),
+        (75, "EOVERFLOW"),
+        (84, "EILSEQ"),
+        (88, "ENOTSOCK"),
+        (89, "EDESTADDRREQ"),
+        (90, "EMSGSIZE"),
+        (91, "EPROTOTYPE"),
+        (92, "ENOPROTOOPT"),
+        (93, "EPROTONOSUPPORT"),
+        (94, "ESOCKTNOSUPPORT"),
+        (95, "ENOTSUP"),
+        (97, "EAFNOSUPPORT"),
         (98, "EADDRINUSE"),
         (99, "EADDRNOTAVAIL"),
-        (97, "EAFNOSUPPORT"),
-        (11, "EAGAIN"),
-        (114, "EALREADY"),
-        (9, "EBADF"),
-        (16, "EBUSY"),
-        (125, "ECANCELED"),
-        (103, "ECONNABORTED"),
-        (111, "ECONNREFUSED"),
-        (104, "ECONNRESET"),
-        (35, "EDEADLK"),
-        (89, "EDESTADDRREQ"),
-        (17, "EEXIST"),
-        (14, "EFAULT"),
-        (27, "EFBIG"),
-        (112, "EHOSTDOWN"),
-        (113, "EHOSTUNREACH"),
-        (84, "EILSEQ"),
-        (4, "EINTR"),
-        (22, "EINVAL"),
-        (5, "EIO"),
-        (106, "EISCONN"),
-        (21, "EISDIR"),
-        (40, "ELOOP"),
-        (24, "EMFILE"),
-        (31, "EMLINK"),
-        (90, "EMSGSIZE"),
-        (36, "ENAMETOOLONG"),
         (100, "ENETDOWN"),
         (101, "ENETUNREACH"),
-        (23, "ENFILE"),
+        (103, "ECONNABORTED"),
+        (104, "ECONNRESET"),
         (105, "ENOBUFS"),
-        (61, "ENODATA"),
-        (19, "ENODEV"),
-        (2, "ENOENT"),
-        (8, "ENOEXEC"),
-        (12, "ENOMEM"),
-        (92, "ENOPROTOOPT"),
-        (28, "ENOSPC"),
-        (38, "ENOSYS"),
+        (106, "EISCONN"),
         (107, "ENOTCONN"),
-        (20, "ENOTDIR"),
-        (39, "ENOTEMPTY"),
-        (88, "ENOTSOCK"),
-        (95, "ENOTSUP"),
-        (25, "ENOTTY"),
-        (6, "ENXIO"),
-        (75, "EOVERFLOW"),
-        (1, "EPERM"),
-        (32, "EPIPE"),
-        (71, "EPROTO"),
-        (93, "EPROTONOSUPPORT"),
-        (91, "EPROTOTYPE"),
-        (34, "ERANGE"),
-        (30, "EROFS"),
         (108, "ESHUTDOWN"),
-        (94, "ESOCKTNOSUPPORT"),
-        (29, "ESPIPE"),
-        (3, "ESRCH"),
         (110, "ETIMEDOUT"),
-        (26, "ETXTBSY"),
-        (18, "EXDEV"),
+        (111, "ECONNREFUSED"),
+        (112, "EHOSTDOWN"),
+        (113, "EHOSTUNREACH"),
+        (114, "EALREADY"),
+        (121, "EREMOTEIO"),
+        (125, "ECANCELED"),
     ];
     TABLE
         .iter()
@@ -298,11 +338,21 @@ fn is_executable_file(path: &std::path::Path) -> Result<(), &'static str> {
 
 /// libuv's executable lookup: a path with `/` as given, else each `PATH`
 /// entry of the child's env.
-fn preflight(command: &str, env: &JsObject) -> Result<(), SpawnFailure> {
-    let failure = |code: &str| SpawnFailure {
-        code: Some(code.to_owned()),
-        message: format!("spawn {command} {code}"),
-    };
+fn preflight(command: &str, env: &JsObject, cwd: Option<&str>) -> Result<(), SpawnFailure> {
+    let failure = |code: &str| SpawnFailure::for_code(command, code);
+    // The forked child changes directory before it looks for the command.
+    if let Some(cwd) = cwd {
+        match std::fs::metadata(cwd) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(failure("ENOENT"));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Err(failure("EACCES"));
+            }
+            Ok(meta) if !meta.is_dir() => return Err(failure("ENOTDIR")),
+            _ => {}
+        }
+    }
     if command.contains('/') {
         return is_executable_file(std::path::Path::new(command)).map_err(failure);
     }
@@ -332,7 +382,7 @@ impl ChildProcess {
         request: &SpawnRequest,
         on_stderr: Option<Rc<dyn Fn(String)>>,
     ) -> Result<Rc<Self>, SpawnFailure> {
-        preflight(&request.command, &request.env)?;
+        preflight(&request.command, &request.env, request.cwd.as_deref())?;
         let pairs = env_pairs(&request.env);
         let trampoline = !request.command.contains('=')
             && pairs
@@ -364,21 +414,19 @@ impl ChildProcess {
             command.current_dir(cwd);
         }
         let mut child = command.spawn().map_err(|error| {
-            // Node's `error` event: `spawn <file> <errno name>`.
-            if let Some(code) = error.raw_os_error().and_then(errno_name) {
-                return SpawnFailure {
-                    message: format!("spawn {} {code}", request.command),
-                    code: Some(code.to_owned()),
-                };
-            }
+            let number = error.raw_os_error();
             // libuv's name for a code it does not know.
-            let unknown = error.raw_os_error().map_or_else(
-                || error.to_string(),
-                |number| format!("Unknown system error -{number}"),
-            );
-            SpawnFailure {
-                message: format!("spawn {} {unknown}", request.command),
-                code: Some(unknown),
+            match number
+                .and_then(errno_name)
+                .map(str::to_owned)
+                .or_else(|| number.map(|number| format!("Unknown system error -{number}")))
+            {
+                Some(code) => SpawnFailure::for_code(&request.command, &code),
+                None => SpawnFailure {
+                    code: None,
+                    message: error.to_string(),
+                    kind: SpawnFailureKind::Thrown,
+                },
             }
         })?;
         let process = Rc::new(Self {
@@ -460,7 +508,24 @@ impl ChildProcess {
     }
 }
 
+/// Called with the pid and name of a signal.
+pub type SignalObserver = Rc<dyn Fn(u32, &str)>;
+
+thread_local! {
+    /// Called with every signal this thread sends, for tests.
+    static SIGNAL_OBSERVER: RefCell<Option<SignalObserver>> = const { RefCell::new(None) };
+}
+
+/// Reports each signal sent from this thread to `observer`, or stops
+/// reporting with `None`.
+pub fn observe_signals(observer: Option<SignalObserver>) {
+    SIGNAL_OBSERVER.with(|slot| *slot.borrow_mut() = observer);
+}
+
 pub(crate) fn send_signal(pid: u32, signal: &str) {
+    if let Some(observer) = SIGNAL_OBSERVER.with(|slot| slot.borrow().clone()) {
+        observer(pid, signal);
+    }
     let name = signal.trim_start_matches("SIG");
     let _ = std::process::Command::new("/bin/kill")
         .args(["-s", name, &pid.to_string()])
@@ -470,14 +535,16 @@ pub(crate) fn send_signal(pid: u32, signal: &str) {
         .status();
 }
 
-/// The pids under `root`, children before their parent, from `ps`, as the
-/// `tree-kill` package walks them.
-fn descendants(root: u32) -> Vec<u32> {
+/// The pids `tree-kill` signals, in its order: it walks the tree from `root`
+/// breadth first, then for each pid found, signals the pid's children and
+/// then the pid itself, skipping any already signalled. A grandchild
+/// therefore comes after the root.
+fn kill_order(root: u32) -> Vec<u32> {
     let Ok(output) = std::process::Command::new("/bin/ps")
         .args(["-A", "-o", "ppid=", "-o", "pid="])
         .output()
     else {
-        return Vec::new();
+        return vec![root];
     };
     let listing = String::from_utf8_lossy(&output.stdout);
     let pairs: Vec<(u32, u32)> = listing
@@ -487,20 +554,41 @@ fn descendants(root: u32) -> Vec<u32> {
             Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
         })
         .collect();
-    let mut order = Vec::new();
-    let mut stack = vec![root];
-    while let Some(parent) = stack.pop() {
-        for (ppid, pid) in &pairs {
-            if *ppid == parent && *pid != root {
-                stack.push(*pid);
-                order.push(*pid);
+    let mut keys = vec![root];
+    let mut children: Vec<Vec<u32>> = Vec::new();
+    let mut at = 0;
+    while at < keys.len() {
+        let parent = keys[at];
+        let found: Vec<u32> = pairs
+            .iter()
+            .filter(|(ppid, _)| *ppid == parent)
+            .map(|(_, pid)| *pid)
+            .collect();
+        for pid in &found {
+            if !keys.contains(pid) {
+                keys.push(*pid);
             }
+        }
+        children.push(found);
+        at += 1;
+    }
+    let mut order: Vec<u32> = Vec::new();
+    for (key, kids) in keys.iter().zip(&children) {
+        for kid in kids {
+            if !order.contains(kid) {
+                order.push(*kid);
+            }
+        }
+        if !order.contains(key) {
+            order.push(*key);
         }
     }
     order
 }
 
-/// `signalProcessTree(child, signal)`: the descendants, then the child.
+/// `signalProcessTree(child, signal)`: `tree-kill` signals the pids with
+/// `process.kill`, which leaves `child.killed` alone; only a child without a
+/// pid is signalled through `child.kill`.
 pub fn signal_process_tree(child: &ChildProcess, signal: &str) {
     if child.exited().is_some() {
         return;
@@ -509,10 +597,9 @@ pub fn signal_process_tree(child: &ChildProcess, signal: &str) {
         child.kill(signal);
         return;
     };
-    for descendant in descendants(pid) {
-        send_signal(descendant, signal);
+    for target in kill_order(pid) {
+        send_signal(target, signal);
     }
-    child.kill(signal);
 }
 
 /// `TerminateWithTreeKillResult`.

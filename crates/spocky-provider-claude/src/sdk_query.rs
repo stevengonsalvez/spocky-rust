@@ -20,7 +20,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use crate::local::{AsyncQueue, Deferred, LocalBoxFuture, run_inline};
-use crate::process::{ChildExit, ChildProcess, SpawnFailure, SpawnRequest, kill_after};
+use crate::process::{
+    ChildExit, ChildProcess, SpawnFailure, SpawnFailureKind, SpawnRequest, kill_after,
+};
 use crate::sdk_options::{SdkCallbacks, prepare_launch};
 
 /// `options` passed to `canUseTool`.
@@ -237,7 +239,7 @@ impl ProcessQuery {
             Some(spawn) => spawn(request),
             None => ChildProcess::spawn(&request, options.stderr.clone()),
         };
-        query.attach(spawned);
+        query.attach(spawned)?;
         let mut hooks_payload: Option<JsObject> = (!options.hooks.is_empty()).then(JsObject::new);
         let mut next_callback_id = 0;
         let mut callbacks_by_matcher = options
@@ -291,10 +293,28 @@ impl ProcessQuery {
         Ok(query)
     }
 
-    fn attach(self: &Rc<Self>, spawned: Result<Rc<ChildProcess>, SpawnFailure>) {
+    fn attach(
+        self: &Rc<Self>,
+        spawned: Result<Rc<ChildProcess>, SpawnFailure>,
+    ) -> Result<(), AgentError> {
         let child = match spawned {
             Ok(child) => child,
             Err(failure) => {
+                match failure.kind {
+                    // `spawn()` throws: the SDK constructor throws with it.
+                    SpawnFailureKind::Thrown => {
+                        return Err(AgentError::new(failure.message));
+                    }
+                    // The child has no stdio, so `processStdin.on` throws.
+                    SpawnFailureKind::EventWithoutStdio => {
+                        return Err(AgentError {
+                            name: "TypeError".to_owned(),
+                            message: "Cannot read properties of undefined (reading 'on')"
+                                .to_owned(),
+                        });
+                    }
+                    SpawnFailureKind::Event => {}
+                }
                 let error = self.spawn_error(&failure);
                 // Node reports a failed spawn as the child's `error` event, a
                 // tick later: writes made right after construction (initialize,
@@ -315,7 +335,7 @@ impl ProcessQuery {
                     }
                     query.fail_stream(error).await;
                 });
-                return;
+                return Ok(());
             }
         };
         let stdin = child.take_stdin();
@@ -356,6 +376,7 @@ impl ProcessQuery {
         tokio::task::spawn_local(async move {
             reader.read_messages(stdout).await;
         });
+        Ok(())
     }
 
     /// The `error` event mapping for a failed spawn.
