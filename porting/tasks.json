@@ -1007,7 +1007,7 @@
           "integrationHead": "7e16d90e",
           "review": "integration reviewer BLOCK (verdicts/p3_g1_wiring-6c5871d7.txt); coordinator decision 2026-10-02: land for G1 with c1d1fbc8+b4fee406 and 5a81e37b+b944e57e folded into justified atomic manifest and lock commits",
           "leadVerification": "spocky-daemon-app tree and Cargo.lock identical to 6c5871d7; gated with pinned node 22.20.0 and dist, --test-threads=1, SPOCKY_REAL_CODEX unset: spocky-session plus spocky-daemon-app 92 passed 1 ignored, clippy -D warnings, fmt check, cargo check --workspace --all-targets, cargo build -p spocky-daemon-app --bin spocky-daemon",
-          "followUps": ["post-G1: dedicated original-versus-Rust handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline (cursor base64url, ordering, filters, error frames); until then the G1 gate covers them end to end by byte-comparing pinned CLI logs, ls -a and inspect output", "P3 spocky-daemon.rs:72 agent MCP base URL should use the bound port, not the configured one"]
+          "followUps": ["post-G1: dedicated original-versus-Rust handler differential for fetch_agents, fetch_agent, wait_for_finish and fetch_agent_timeline (cursor base64url, ordering, filters, error frames); until then the G1 gate covers them end to end by byte-comparing pinned CLI logs, ls -a and inspect output", "P3 spocky-daemon.rs:72 agent MCP base URL should use the bound port, not the configured one (CLOSED 2026-10-03: wiring MCP 53654583^..5fe84caf sets it from the bound listen target)"]
         },
         {
           "lane": "p3_g1_wiring",
@@ -1411,6 +1411,108 @@
           "held": "PASS ca20cf81..79edeaa9 (verdicts/p2_hub_api-79edeaa9.txt) not landed: it sits on ef1703e6..f2679e3a (17 commits, the restack of the BLOCKed 6eb12db..07dbaa6 on main 7f640ff7) which has no PASS, and it conflicts on main without them (hub_api_evidence.rs and the hub-api evidence files); base range queued for review; both land together on its PASS"
         },
         {
+          "lane": "p3_session",
+          "date": "2026-10-03",
+          "sourceRange": "9ef89ca2^..6b5b58c0 (2, rewind; PASS p3_session-6b5b58c0)",
+          "integrationHead": "d862415a",
+          "leadVerification": "session+store tests 113/0 with pinned node and dist, clippy, fmt, cargo check --workspace --all-targets"
+        },
+        {
+          "lane": "stack b16",
+          "date": "2026-10-03",
+          "sourceRange": "contracts d0d1118d^..f5214d65 (js_sort_by V8 TimSort); receipts b13aaa36^..8c1e1850 + 819e3562..20556d7a; transport 7f640ff7..5b8dd638 (Date.parse startedAt); session 6b5b58c0..2278252e (js_text_to_utf8 exits); e2ee bbbe1fdb..facda488 + b9bb8681; xterm 6e1cd9ef..0f9b5022",
+          "integrationHead": "0d4190b4",
+          "leadVerification": "529 tests 0 failed across contracts, store, session, receipts, crypto, daemon, daemon-app; xterm 22/0; clippy, fmt, bin, receipts .test.sh scripts (run outside the gate wrapper: they call build-gate themselves), cargo check --workspace",
+          "retire": "p4_xterm_core"
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-03",
+          "sourceRange": "2278252e..ff314586 (7; cancelAgentRun logs, reloadAgentSession)",
+          "integrationHead": "d727709a",
+          "leadVerification": "session+daemon-app 137/0, clippy, fmt, workspace check"
+        },
+        {
+          "lane": "stack b18",
+          "date": "2026-10-03",
+          "sourceRange": "p2_renderer_linux e0246f68^..69700b0a (28; closes the d940b9b4 BLOCK; e0246f68, 5fecc9d0, 8a1ed0eb had no verdict and landed on the coordinator's batch instruction; evidence that WebKitGTK fails, not a renderer selection); p3_daemon_transport 75a94dc9..c3c314ee (listening Result, fatal level)",
+          "integrationHead": "42874f38",
+          "leadVerification": "renderer-platform-linux.test.sh 43 assertions, daemon+daemon-app tests, clippy, bin, workspace check on a fresh target"
+        },
+        {
+          "lane": "stack b21",
+          "date": "2026-10-03",
+          "sourceRange": "p3_provider_codex 75a94dc9..d2d4f14d (20; native archive, providerOptions, Date.parse, willRetry); p3_contracts da4b95e2^..5a58331c (16; trim_start/trim_end, js_to_lowercase, js_to_number, trim sweep)",
+          "integrationHead": "3114c012",
+          "leadVerification": "SPOCKY_REAL_CODEX=1 provider-codex 168/0 --include-ignored; other crates 356 passed; clippy, case-table --check, bin, workspace check",
+          "incidents": ["plugin-pilot hook_usage_runtime selected_worker_bounds_hung_hooks_and_surfaces_process_death (RuntimeTimedOut vs RuntimeProtocol) and relay-pilot network_runtime network_queue_overflow_closes_slow_consumer_with_1013 failed 3/3 alone on b21 and 3/3 on main 42874f38 at load ~110: pre-existing timing failures, not caused by b21", "gate env gaps fixed: PASEO_ESBUILD_BIN, SPOCKY_PASEO_DIST, SPOCKY_HUB_MIGRATIONS/SPOCKY_PGLITE_PACKAGE/SPOCKY_PGLITE_ADAPTER/SPOCKY_NODE"]
+        },
+        {
+          "lane": "restack r23..r27 (b22 held)",
+          "date": "2026-10-03",
+          "sourceRange": "transport binary frames c28454ed..5af20b53; session ff314586..4d99d78c; wiring binary 509284bf,a4ca24f8; transport date-parse tests 5b8dd638..406d652b; wiring MCP 53654583^..5fe84caf",
+          "integrationHead": "77d7ee54",
+          "leadVerification": "per-layer per-commit checks and tip gates; workspace check per layer with all workspace members cleaned first",
+          "incidents": ["lead fold: transport 3a1562c9 gained fn fatal on tests/transport.rs ErrorFields because listening 4394bb12 added Logger::fatal", "lead resolution: wiring MCP 76cd087d import clash in daemon-app session.rs with the wiring binary import (both use lines kept)", "stale-artifact false red: workspace members share a path-free metadata hash across worktrees, so a shared CARGO_TARGET_DIR served an rlib from another worktree; tip steps now clean every workspace member first"]
+        },
+        {
+          "lane": "stack s29..s32",
+          "date": "2026-10-03",
+          "sourceRange": "contracts e140d5d3^..6fc81c59 (session non-ISO dates); p3_slice_harness 368f9f7f..32d31810 (closes the 52a2b2c5 and 78576262 BLOCKs); contracts url 8a3d9faf^..dda87103 (ada 2.9.2); codex d2d4f14d..26e3e0a9 (steer, dispose); contracts setters ca75bade^..61503677",
+          "integrationHead": "955db087",
+          "leadVerification": "per-layer gates; real-codex 173/0",
+          "incidents": ["lead resolution: 6fc81c59 merged its storedDates scenario into the stacked agent_manager_differential scenario lists", "receipts-retry-probe.mjs add/add between receipts and harness: coordinator chose the harness version; harness 4cacb08f applied empty after receipts r28 was dropped and was skipped", "lead resolution: url eb3b9e8f/416945f6 registered url_tables then url in lib.rs without the absent tool_detail line", "url-tables generator --check not rerun by the lead: it needs an ada 2.9.2 source tree"],
+          "harnessLanded": "5fb1bc92"
+        },
+        {
+          "lane": "p3_e2ee_channel",
+          "date": "2026-10-03",
+          "sourceRange": "5673960f^..c710e0bd (12; batch delivery, non-Error rejections)",
+          "integrationHead": "123eb0e8",
+          "leadVerification": "crypto 48/0, clippy, fmt, workspace check",
+          "retire": "p3_e2ee_channel"
+        },
+        {
+          "lane": "stack u34..u36",
+          "date": "2026-10-04",
+          "sourceRange": "p4_daemon_services 7c76e71e..8ac3709d (workspace-labels slice 1 with follow-ups, one layer); p3_daemon_transport c3c314ee..14da5df3 (logging slice 1) and 14da5df3..42794dd5 (redact, levels); p3_g1_wiring native2 c8448f25",
+          "integrationHead": "f79011e2",
+          "leadVerification": "187/292/299 tests per layer, clippy, bin, workspace check"
+        },
+        {
+          "lane": "p3_g1_wiring",
+          "date": "2026-10-04",
+          "sourceRange": "9cd056a0..139188c7 (23, the rebased chain on c8448f25) then 00b567a0..b52670a4 (4) and 955db087..f581b750 (MCP url via contracts URL)",
+          "integrationHead": "0d8c2c15",
+          "leadVerification": "per-commit check of every chain commit, daemon-app tests, clippy, bin, workspace check",
+          "incidents": ["fbb6c014 accepted as a context-only rebase of reviewed 8b420281 (range-diff shows only import and neighbour changes)", "first w37 gate checked an empty range because a pick helper set the layer marker from the main checkout's HEAD; marker fixed and the layer regated before landing"]
+        },
+        {
+          "lane": "stack x38..k43",
+          "date": "2026-10-04",
+          "sourceRange": "contracts 15f95317^..607990a9; p3_slice_harness 32d31810..87f72fb7; codex 583490c3..fbe3a38b; wiring MCP url 955db087..f581b750; receipts e1fdab14^..fabdd082 (closes the 65be4369 BLOCK); contracts f5214d65..c771c967 (the 8 commits not on main: xterm js_trim, localeCompare)",
+          "integrationHead": "066bc382",
+          "leadVerification": "per-layer gates; real-codex 173/0",
+          "incidents": ["lead resolution: e7b954b0 kept q42's tokio oneshot import and dropped the store collate import in message-receipts lib.rs", "8d2b0cbb not picked: main 65f1cb5a already reuses the shared js_trim in the xterm harness"],
+          "harnessLanded": "db4e8d5c"
+        },
+        {
+          "lane": "stack h44..e47",
+          "date": "2026-10-04",
+          "sourceRange": "harness 87f72fb7..942e42d3; p2_hub_api ef1703e6^..79edeaa9 + p4_relay b66ca224^..c0d6018a (b22, restacked last); services slice 2 3b19a5a6^..453ffcce; contracts tool_detail a17c5b40^..434a0aeb",
+          "integrationHead": "742caa74",
+          "leadVerification": "hub-pilot+relay-protocol 137/0 with the Hub 28f6c78 fixture (bounds_delivery passed this run); services 402/0; tool_detail 107/0",
+          "incidents": ["lead fold: services 45dd8e2b gained labels in daemon-app tests/binary_frame.rs Services (the wiring binary test predates the field)", "lead resolution: tool_detail 0d0fefad registered beside the url modules in contracts lib.rs", "relay per-commit checks taken from the reviewer: crate dir and cargo tree identical to the reviewed base"],
+          "relayLanded": "fbba6bf3"
+        },
+        {
+          "lane": "p3_session",
+          "date": "2026-10-04",
+          "sourceRange": "2ef3dd39..ac3d1c46 (39; steering port, timeline appends, availability, importable and draft listings, registry, metrics, JS text reads); ac3d1c46..72d5be1a (34; pino err serializer, AgentError::named, tool catalog factory); 72d5be1a..3e3bf4b7 (PluginLifecycle seam); contracts 8da6d09f..e27c258a",
+          "integrationHead": "517b7c9e",
+          "leadVerification": "session+daemon-app 160/162/162 per layer, clippy, workspace check"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
@@ -1749,6 +1851,61 @@
           "gap": "Directory scan order on Windows: libuv sorts uv_fs_scandir results with strcmp on Unix (uv__fs_scandir_sort, src/unix/fs.c in libuv 1.51.0, node v22.20.0), which the Rust scan matches as a raw byte sort; libuv's Windows fs__scandir does not sort, so node's order there is the file system's. The Rust scan keeps the Unix order on Windows. Matters only for duplicate record ids across project directories and list order.",
           "status": "OPEN platform gap, not on the macOS or Linux gates",
           "closingCondition": "a Windows qualification run compares list order and the duplicate-id winner with node"
+        },
+        {
+          "date": "2026-10-04",
+          "id": "LOAD-FLAKE-RETAINED-PGLITE",
+          "owner": "p2_pglite",
+          "gap": "spocky-hub-pilot tests/retained_pglite_runtime.rs retained_host_bounds_delivery_when_child_stops_reading asserts a stalled 4 MB delivery fails within 2 s and drop takes under 2 s; at load 90-110 it failed alone 3/3 on main 123eb0e8 and on b22 alike; rolls_back_pending_migrations_after_partial_journal failed 1 of 3 alone",
+          "status": "OPEN pre-existing load flake; b22 landed on the coordinator's decision; p2_pglite is fixing the timing budget",
+          "closingCondition": "both tests pass 3/3 alone under the shared-host load"
+        },
+        {
+          "date": "2026-10-03",
+          "id": "LOAD-TIMING-PILOT-TESTS",
+          "gap": "plugin-pilot hook_usage_runtime selected_worker_bounds_hung_hooks_and_surfaces_process_death (2 s exchange budget) and relay-pilot network_runtime network_queue_overflow_closes_slow_consumer_with_1013 fail 3/3 on main 42874f38 at load ~110",
+          "status": "OPEN pre-existing timing failures on the shared host",
+          "closingCondition": "pass 3/3 alone under load, or budgets that do not depend on host speed"
+        },
+        {
+          "date": "2026-10-03",
+          "source": "reviewer verdict p3_g1_wiring-60b19015; owner of terminal routing: p4_terminal",
+          "id": "BINARY-FRAME-PERMISSION-BRANCH",
+          "gap": "DaemonSession::binary_frame drops every decoded frame: with workspace.write a file-transfer frame should go to the upload service and a terminal frame to the terminal controller (session.ts:3095-3103). Nothing is routed yet, so the workspace.write check is unobservable.",
+          "status": "OPEN, unobservable until routing lands",
+          "closingCondition": "a session without workspace.write sends a terminal input frame and the terminal receives nothing, compared with a pinned daemon viewer principal"
+        },
+        {
+          "date": "2026-10-03",
+          "source": "reviewer verdict p3_g1_wiring-46946105",
+          "id": "MCP-URL-CONFIG-RESET",
+          "gap": "The agent MCP url does not follow config changes: pinned resets it when mcp.enabled or mcp.injectIntoAgents change (bootstrap.ts:1622-1630); the Rust daemon sets it once in DaemonBackend::listening from the bound target.",
+          "status": "OPEN deviation, unobservable until the daemon config store and field-change events exist",
+          "closingCondition": "a differential changes mcp.injectIntoAgents on a running daemon and compares the next agent's url with node"
+        },
+        {
+          "date": "2026-10-03",
+          "source": "p3_e2ee_channel PASS 5673960f..c710e0bd P3s",
+          "id": "E2EE-SAME-TASK-DELIVERY",
+          "owner": "CLOUD-RELAY-DAEMON-008",
+          "gap": "Same-task delivery matches only when the runtime reports at-once sends as Pending and settles them after the task's frames; no production Transport implements spocky_crypto::Transport yet. The test transport defers only Mode::Sync sends during a batch (tests/support/mod.rs:353-361); not observable with the four current batch scenarios.",
+          "status": "OPEN contract on the relay and daemon wiring",
+          "closingCondition": "the production Transport settles at-once sends after the task's frames, and a batch scenario with a rejection defers every at-once settlement"
+        },
+        {
+          "date": "2026-10-03",
+          "id": "DURABLE-TIMELINE-STORE",
+          "gap": "durableTimelineStore paths are test-only in 5de45e2",
+          "status": "NOT PORTED by design",
+          "closingCondition": "none unless pinned production code starts using them"
+        },
+        {
+          "date": "2026-10-04",
+          "source": "reviewer verdict p3_message_receipts-fabdd082 P2",
+          "id": "RECEIPTS-FLAKE-HUNT-GATE",
+          "gap": "scripts/phase3/receipts-flake-hunt.sh starts CPU busy loops and runs cargo test outside the build gate on the shared machine",
+          "status": "OPEN; the lead does not run it in gates",
+          "closingCondition": "the hunt routes cargo through build-gate and bounds its load loops"
         }
       ],
       "evidence": ["evidence/phase3/slice-plan.md"], "resources": [],
