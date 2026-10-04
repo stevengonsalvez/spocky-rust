@@ -1,0 +1,55 @@
+name: relay-differential
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ci/p4_relay/**"]
+
+permissions:
+  contents: read
+
+env:
+  RELAY_COMMIT: 3fc41c96c8c63f3a7109e832899cc57d473c4531
+
+jobs:
+  differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Pinned Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Pinned relay source
+        run: |
+          git clone https://github.com/getpaseo/paseo-relay.git .baselines/relay
+          git -C .baselines/relay checkout "$RELAY_COMMIT"
+          test "$(git -C .baselines/relay rev-parse HEAD)" = "$RELAY_COMMIT"
+
+      - name: Writer differential
+        env:
+          SPOCKY_TIMEOUT: timeout
+          CARGO_TARGET_DIR: ${{ runner.temp }}/target
+        run: scripts/phase4/relay-writer-differential.sh
+
+      - name: Capacity differential
+        env:
+          SPOCKY_TIMEOUT: timeout
+          CARGO_TARGET_DIR: ${{ runner.temp }}/target
+        run: scripts/phase4/relay-capacity-differential.sh
+
+      - name: Output hashes
+        run: |
+          cd "$HOME/.cache/spocky-p4-relay/io"
+          uname -a
+          docker image inspect --format '{{index .RepoDigests 0}}' elixir@sha256:c915d900894e1d664cd8ed72fd2c38fce72b612cc1757d57f86a0cc62e62dd79 || true
+          sha256sum ops.txt baseline.txt
+          sha256sum "$GITHUB_WORKSPACE"/crates/spocky-relay/tests/fixtures/*.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: relay-differential
+          path: ~/.cache/spocky-p4-relay/io/*.txt
