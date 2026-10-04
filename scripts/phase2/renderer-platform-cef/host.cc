@@ -41,6 +41,9 @@ class HostWindowDelegate : public CefWindowDelegate {
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
     window->AddChildView(browser_view_);
     window->Show();
+    // Activate the window like a normal desktop app. Without a window manager (Xvfb)
+    // nothing else gives it keyboard focus, and the page then renders unfocused.
+    window->Activate();
     browser_view_->RequestFocus();
   }
   void OnWindowDestroyed(CefRefPtr<CefWindow>) override { browser_view_ = nullptr; }
