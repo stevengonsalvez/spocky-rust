@@ -1,0 +1,72 @@
+name: p3-contracts-locale
+
+# Default locale differential for spocky-contracts against node 22.20.0:
+# Windows (the user locale, then a second user locale in a fresh process) and
+# Linux (the mixed environment matrix). Work branches only.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/p3_contracts/**'
+    paths:
+      - '.github/workflows/p3-contracts-locale.yml'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  SPOCKY_PINNED_NODE: node
+  SPOCKY_PASEO_DIST: ${{ github.workspace }}/none
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.20.0
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal --component clippy
+          rustup default 1.94.0
+      - name: Lint the Windows code
+        shell: bash
+        run: cargo clippy --locked -p spocky-win-locale -p spocky-contracts --all-targets -- -D warnings
+      - name: Default locale under the runner's user locale
+        shell: bash
+        run: |
+          node -e 'console.log(Intl.DateTimeFormat().resolvedOptions().locale)'
+          cargo test --locked -p spocky-win-locale
+          cargo test --locked -p spocky-contracts --test js_locale_differential -- default_locale_matches_node_on_windows --nocapture
+      - name: Default locale under second user locales, in fresh processes
+        shell: pwsh
+        run: |
+          foreach ($culture in 'tr-TR', 'de-DE', 'az-Latn-AZ', 'lt-LT') {
+            Set-Culture $culture
+            Write-Output "culture $culture"
+            node -e 'console.log(Intl.DateTimeFormat().resolvedOptions().locale)'
+            cargo test --locked -p spocky-contracts --test js_locale_differential -- default_locale_matches_node_on_windows --nocapture
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.20.0
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup default 1.94.0
+      - name: Default locale environments
+        env:
+          SPOCKY_PINNED_NODE: ${{ env.SPOCKY_PINNED_NODE }}
+        run: |
+          SPOCKY_PINNED_NODE="$(command -v node)" cargo test --locked -p spocky-contracts --test js_locale_differential -- default_locale repeated_modifier
