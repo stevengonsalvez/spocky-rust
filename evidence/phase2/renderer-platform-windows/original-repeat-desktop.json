@@ -1,0 +1,2111 @@
+{
+  "name": "original-repeat-desktop",
+  "mode": "desktop",
+  "url": "paseo://app/open-project",
+  "browser": {
+    "product": "Chrome/152.0.7977.76",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Paseo/0.10.0 Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "storageSeeding": "none",
+  "gateConditions": {
+    "colorScheme": "light",
+    "reducedMotion": "reduce",
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "deviceScaleFactor": 1,
+    "pointer": [
+      1279,
+      799
+    ]
+  },
+  "environment": {
+    "innerWidth": 1280,
+    "innerHeight": 800,
+    "devicePixelRatio": 1,
+    "lang": "en-US",
+    "platform": "Win32",
+    "colorSchemeLight": true,
+    "reducedMotion": true
+  },
+  "pageFocus": {
+    "hasFocus": true,
+    "visibilityState": "visible",
+    "activeElement": "body.",
+    "hoverMatches": [],
+    "focusVisibleMatches": []
+  },
+  "axRawFile": "original-repeat-desktop.ax.json",
+  "consoleMessages": [
+    {
+      "type": "warning",
+      "text": "Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 238,
+        "columnNumber": 6878
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 14864,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 16209,
+        "columnNumber": 2160
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 14864,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 16209,
+        "columnNumber": 2160
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 14864,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-4a6c31858920d32bcbf984cfe0db3869.js",
+        "lineNumber": 16209,
+        "columnNumber": 2160
+      }
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [],
+  "errorResponses": [],
+  "readiness": {
+    "fontsStatus": "loaded",
+    "fontCount": 0
+  },
+  "screenshot": {
+    "file": "original-repeat-desktop.png",
+    "sha256": "79d7dc8f171a391d3a3a7b36d1fec36d3af9cfca79002c795fa905863e5c2d65",
+    "bytes": 37334,
+    "width": 1280,
+    "height": 800
+  },
+  "keyboardFocus": {
+    "entries": [
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "New workspace",
+        "text": "New workspace",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "History",
+        "text": "History",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Search",
+        "text": "Search",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Schedules",
+        "text": "Schedules",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Add project",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Import session",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Add project",
+        "text": "Add project",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Hosts",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Import session",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Usage",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Help and support",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Settings",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Close menu",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Add a project\nOpen a folder on your machine",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Setup providers\nConfigure Claude Code, Codex, and more",
+        "disabled": false
+      },
+      {
+        "tag": "div",
+        "role": null,
+        "label": null,
+        "text": "Pair device\nConnect your phone to this daemon",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Star",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Sponsor",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": null,
+        "text": "Community",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Minimize window",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Maximize window",
+        "text": "",
+        "disabled": false
+      },
+      {
+        "tag": "button",
+        "role": "button",
+        "label": "Close window",
+        "text": "",
+        "disabled": false
+      }
+    ],
+    "completed": true
+  },
+  "plusActivation": {
+    "control": "[aria-label='New workspace']",
+    "changed": true,
+    "urlBefore": "paseo://app/open-project",
+    "urlAfter": "paseo://app/new",
+    "before": {
+      "dialogs": [],
+      "status": []
+    },
+    "after": {
+      "dialogs": [],
+      "status": []
+    }
+  },
+  "addProjectActivation": {
+    "control": "[data-testid=\"open-project-submit\"]",
+    "changed": true,
+    "urlBefore": "paseo://app/open-project",
+    "urlAfter": "paseo://app/open-project",
+    "before": {
+      "dialogs": [],
+      "status": []
+    },
+    "after": {
+      "dialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project\nrunnervmdlhio\nSearch for directory\nFind a directory on runnervmdlhio\nBrowse\nChoose or create a directory in Finder\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on runnervmdlhio\n↑+↓\nNavigate\n⏎\nSelect\nEsc\nClose",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory\nFind a directory on runnervmdlhio",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Browse\nChoose or create a directory in Finder",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory\nCreate an empty directory on runnervmdlhio",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "status": []
+    }
+  },
+  "axTree": {
+    "role": "RootWebArea",
+    "name": "Paseo",
+    "ignored": false,
+    "properties": [
+      [
+        "focusable",
+        true
+      ],
+      [
+        "focused",
+        true
+      ],
+      [
+        "url",
+        "paseo://app/open-project"
+      ]
+    ],
+    "children": [
+      {
+        "role": "none",
+        "name": null,
+        "ignored": true,
+        "properties": [],
+        "children": [
+          {
+            "role": "none",
+            "name": null,
+            "ignored": true,
+            "properties": [],
+            "children": [
+              {
+                "role": "generic",
+                "name": "",
+                "ignored": false,
+                "properties": [],
+                "children": [
+                  {
+                    "role": "generic",
+                    "name": "",
+                    "ignored": false,
+                    "properties": [],
+                    "children": [
+                      {
+                        "role": "generic",
+                        "name": "",
+                        "ignored": false,
+                        "properties": [],
+                        "children": [
+                          {
+                            "role": "generic",
+                            "name": "",
+                            "ignored": false,
+                            "properties": [],
+                            "children": [
+                              {
+                                "role": "generic",
+                                "name": "",
+                                "ignored": false,
+                                "properties": [],
+                                "children": [
+                                  {
+                                    "role": "generic",
+                                    "name": "",
+                                    "ignored": false,
+                                    "properties": [],
+                                    "children": [
+                                      {
+                                        "role": "generic",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": []
+                                      },
+                                      {
+                                        "role": "generic",
+                                        "name": "",
+                                        "ignored": false,
+                                        "properties": [],
+                                        "children": [
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "generic",
+                                                "name": "",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "generic",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": []
+                                                          },
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": []
+                                                          },
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": [
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "button",
+                                                                    "name": "New workspace",
+                                                                    "ignored": false,
+                                                                    "properties": [
+                                                                      [
+                                                                        "invalid",
+                                                                        "false"
+                                                                      ],
+                                                                      [
+                                                                        "focusable",
+                                                                        true
+                                                                      ]
+                                                                    ],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "none",
+                                                                        "name": null,
+                                                                        "ignored": true,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "image",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "StaticText",
+                                                                            "name": "New workspace",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "InlineTextBox",
+                                                                                "name": "New workspace",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": []
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "button",
+                                                                    "name": "History",
+                                                                    "ignored": false,
+                                                                    "properties": [
+                                                                      [
+                                                                        "invalid",
+                                                                        "false"
+                                                                      ],
+                                                                      [
+                                                                        "focusable",
+                                                                        true
+                                                                      ]
+                                                                    ],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "none",
+                                                                        "name": null,
+                                                                        "ignored": true,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "image",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "StaticText",
+                                                                            "name": "History",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "InlineTextBox",
+                                                                                "name": "History",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": []
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "button",
+                                                                    "name": "Search",
+                                                                    "ignored": false,
+                                                                    "properties": [
+                                                                      [
+                                                                        "invalid",
+                                                                        "false"
+                                                                      ],
+                                                                      [
+                                                                        "focusable",
+                                                                        true
+                                                                      ]
+                                                                    ],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "none",
+                                                                        "name": null,
+                                                                        "ignored": true,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "image",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "StaticText",
+                                                                            "name": "Search",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "InlineTextBox",
+                                                                                "name": "Search",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": []
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "button",
+                                                                    "name": "Schedules",
+                                                                    "ignored": false,
+                                                                    "properties": [
+                                                                      [
+                                                                        "invalid",
+                                                                        "false"
+                                                                      ],
+                                                                      [
+                                                                        "focusable",
+                                                                        true
+                                                                      ]
+                                                                    ],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "none",
+                                                                        "name": null,
+                                                                        "ignored": true,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "image",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "StaticText",
+                                                                            "name": "Schedules",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "InlineTextBox",
+                                                                                "name": "Schedules",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": []
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": [
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "generic",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "StaticText",
+                                                                                "name": "No projects yet",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "InlineTextBox",
+                                                                                    "name": "No projects yet",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          },
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "StaticText",
+                                                                                "name": "Add a project to get started",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "InlineTextBox",
+                                                                                    "name": "Add a project to get started",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "button",
+                                                                            "name": "Add project",
+                                                                            "ignored": false,
+                                                                            "properties": [
+                                                                              [
+                                                                                "invalid",
+                                                                                "false"
+                                                                              ],
+                                                                              [
+                                                                                "focusable",
+                                                                                true
+                                                                              ]
+                                                                            ],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "none",
+                                                                                "name": null,
+                                                                                "ignored": true,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "image",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": []
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "StaticText",
+                                                                                    "name": "Add project",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "InlineTextBox",
+                                                                                        "name": "Add project",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": []
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          },
+                                                                          {
+                                                                            "role": "button",
+                                                                            "name": "Import session",
+                                                                            "ignored": false,
+                                                                            "properties": [
+                                                                              [
+                                                                                "invalid",
+                                                                                "false"
+                                                                              ],
+                                                                              [
+                                                                                "focusable",
+                                                                                true
+                                                                              ]
+                                                                            ],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "none",
+                                                                                "name": null,
+                                                                                "ignored": true,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "image",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": []
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "StaticText",
+                                                                                    "name": "Import session",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "InlineTextBox",
+                                                                                        "name": "Import session",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": []
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": []
+                                                      },
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "button",
+                                                            "name": "Add project",
+                                                            "ignored": false,
+                                                            "properties": [
+                                                              [
+                                                                "invalid",
+                                                                "false"
+                                                              ],
+                                                              [
+                                                                "focusable",
+                                                                true
+                                                              ]
+                                                            ],
+                                                            "children": [
+                                                              {
+                                                                "role": "image",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": []
+                                                              },
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "StaticText",
+                                                                    "name": "Add project",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "InlineTextBox",
+                                                                        "name": "Add project",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": []
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": [
+                                                              {
+                                                                "role": "button",
+                                                                "name": "Hosts",
+                                                                "ignored": false,
+                                                                "properties": [
+                                                                  [
+                                                                    "invalid",
+                                                                    "false"
+                                                                  ],
+                                                                  [
+                                                                    "focusable",
+                                                                    true
+                                                                  ]
+                                                                ],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "image",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": []
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "button",
+                                                                "name": "Import session",
+                                                                "ignored": false,
+                                                                "properties": [
+                                                                  [
+                                                                    "invalid",
+                                                                    "false"
+                                                                  ],
+                                                                  [
+                                                                    "focusable",
+                                                                    true
+                                                                  ]
+                                                                ],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "image",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": []
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "button",
+                                                                "name": "Usage",
+                                                                "ignored": false,
+                                                                "properties": [
+                                                                  [
+                                                                    "invalid",
+                                                                    "false"
+                                                                  ],
+                                                                  [
+                                                                    "focusable",
+                                                                    true
+                                                                  ]
+                                                                ],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "image",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": []
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "button",
+                                                                    "name": "Help and support",
+                                                                    "ignored": false,
+                                                                    "properties": [
+                                                                      [
+                                                                        "invalid",
+                                                                        "false"
+                                                                      ],
+                                                                      [
+                                                                        "focusable",
+                                                                        true
+                                                                      ],
+                                                                      [
+                                                                        "expanded",
+                                                                        false
+                                                                      ]
+                                                                    ],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "none",
+                                                                        "name": null,
+                                                                        "ignored": true,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "image",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              },
+                                                              {
+                                                                "role": "button",
+                                                                "name": "Settings",
+                                                                "ignored": false,
+                                                                "properties": [
+                                                                  [
+                                                                    "invalid",
+                                                                    "false"
+                                                                  ],
+                                                                  [
+                                                                    "focusable",
+                                                                    true
+                                                                  ]
+                                                                ],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "image",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": []
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [
+                                                          [
+                                                            "focusable",
+                                                            true
+                                                          ]
+                                                        ],
+                                                        "children": []
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "role": "generic",
+                                                "name": "",
+                                                "ignored": false,
+                                                "properties": [],
+                                                "children": [
+                                                  {
+                                                    "role": "generic",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "generic",
+                                                        "name": "",
+                                                        "ignored": false,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "generic",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": [
+                                                              {
+                                                                "role": "generic",
+                                                                "name": "",
+                                                                "ignored": false,
+                                                                "properties": [],
+                                                                "children": [
+                                                                  {
+                                                                    "role": "generic",
+                                                                    "name": "",
+                                                                    "ignored": false,
+                                                                    "properties": [],
+                                                                    "children": [
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "button",
+                                                                                        "name": "Close menu",
+                                                                                        "ignored": false,
+                                                                                        "properties": [
+                                                                                          [
+                                                                                            "invalid",
+                                                                                            "false"
+                                                                                          ],
+                                                                                          [
+                                                                                            "focusable",
+                                                                                            true
+                                                                                          ],
+                                                                                          [
+                                                                                            "expanded",
+                                                                                            true
+                                                                                          ]
+                                                                                        ],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "image",
+                                                                                            "name": "",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          },
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": []
+                                                                          },
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "image",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [],
+                                                                                "children": []
+                                                                              }
+                                                                            ]
+                                                                          },
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "image",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Add a project",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Add a project",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      },
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Open a folder on your machine",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Open a folder on your",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": " ",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "machine",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "image",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Import session",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Import session",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      },
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Open a Claude Code, Codex or other session you started in a terminal",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Open a Claude Code, Codex",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": " ",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "or other session you started",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": " ",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "in a terminal",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "image",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Setup providers",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Setup providers",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      },
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Configure Claude Code, Codex, and more",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Configure Claude Code,",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": " ",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Codex, and more",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "generic",
+                                                                                "name": "",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "image",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": []
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Pair device",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Pair device",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      },
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "StaticText",
+                                                                                            "name": "Connect your phone to this daemon",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "Connect your phone to this",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": " ",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              },
+                                                                                              {
+                                                                                                "role": "InlineTextBox",
+                                                                                                "name": "daemon",
+                                                                                                "ignored": false,
+                                                                                                "properties": [],
+                                                                                                "children": []
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      {
+                                                                        "role": "generic",
+                                                                        "name": "",
+                                                                        "ignored": false,
+                                                                        "properties": [],
+                                                                        "children": [
+                                                                          {
+                                                                            "role": "generic",
+                                                                            "name": "",
+                                                                            "ignored": false,
+                                                                            "properties": [],
+                                                                            "children": [
+                                                                              {
+                                                                                "role": "button",
+                                                                                "name": "Star",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "invalid",
+                                                                                    "false"
+                                                                                  ],
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "none",
+                                                                                    "name": null,
+                                                                                    "ignored": true,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "image",
+                                                                                            "name": "",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "StaticText",
+                                                                                        "name": "Star",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "InlineTextBox",
+                                                                                            "name": "Star",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "button",
+                                                                                "name": "Sponsor",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "invalid",
+                                                                                    "false"
+                                                                                  ],
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "none",
+                                                                                    "name": null,
+                                                                                    "ignored": true,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "image",
+                                                                                            "name": "",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "StaticText",
+                                                                                        "name": "Sponsor",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "InlineTextBox",
+                                                                                            "name": "Sponsor",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              },
+                                                                              {
+                                                                                "role": "button",
+                                                                                "name": "Community",
+                                                                                "ignored": false,
+                                                                                "properties": [
+                                                                                  [
+                                                                                    "invalid",
+                                                                                    "false"
+                                                                                  ],
+                                                                                  [
+                                                                                    "focusable",
+                                                                                    true
+                                                                                  ]
+                                                                                ],
+                                                                                "children": [
+                                                                                  {
+                                                                                    "role": "none",
+                                                                                    "name": null,
+                                                                                    "ignored": true,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "generic",
+                                                                                        "name": "",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "image",
+                                                                                            "name": "",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  },
+                                                                                  {
+                                                                                    "role": "generic",
+                                                                                    "name": "",
+                                                                                    "ignored": false,
+                                                                                    "properties": [],
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "role": "StaticText",
+                                                                                        "name": "Community",
+                                                                                        "ignored": false,
+                                                                                        "properties": [],
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "role": "InlineTextBox",
+                                                                                            "name": "Community",
+                                                                                            "ignored": false,
+                                                                                            "properties": [],
+                                                                                            "children": []
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": [
+                                              {
+                                                "role": "button",
+                                                "name": "Minimize window",
+                                                "ignored": false,
+                                                "properties": [
+                                                  [
+                                                    "invalid",
+                                                    "false"
+                                                  ],
+                                                  [
+                                                    "focusable",
+                                                    true
+                                                  ]
+                                                ],
+                                                "children": [
+                                                  {
+                                                    "role": "generic",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "none",
+                                                        "name": null,
+                                                        "ignored": true,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "image",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": []
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "role": "button",
+                                                "name": "Maximize window",
+                                                "ignored": false,
+                                                "properties": [
+                                                  [
+                                                    "invalid",
+                                                    "false"
+                                                  ],
+                                                  [
+                                                    "focusable",
+                                                    true
+                                                  ]
+                                                ],
+                                                "children": [
+                                                  {
+                                                    "role": "generic",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "none",
+                                                        "name": null,
+                                                        "ignored": true,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "image",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": []
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "role": "button",
+                                                "name": "Close window",
+                                                "ignored": false,
+                                                "properties": [
+                                                  [
+                                                    "invalid",
+                                                    "false"
+                                                  ],
+                                                  [
+                                                    "focusable",
+                                                    true
+                                                  ]
+                                                ],
+                                                "children": [
+                                                  {
+                                                    "role": "generic",
+                                                    "name": "",
+                                                    "ignored": false,
+                                                    "properties": [],
+                                                    "children": [
+                                                      {
+                                                        "role": "none",
+                                                        "name": null,
+                                                        "ignored": true,
+                                                        "properties": [],
+                                                        "children": [
+                                                          {
+                                                            "role": "image",
+                                                            "name": "",
+                                                            "ignored": false,
+                                                            "properties": [],
+                                                            "children": []
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "role": "generic",
+                                            "name": "",
+                                            "ignored": false,
+                                            "properties": [],
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "role": "generic",
+                "name": "",
+                "ignored": false,
+                "properties": [],
+                "children": [
+                  {
+                    "role": "generic",
+                    "name": "",
+                    "ignored": false,
+                    "properties": [],
+                    "children": [
+                      {
+                        "role": "generic",
+                        "name": "",
+                        "ignored": false,
+                        "properties": [],
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
