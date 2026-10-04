@@ -49,24 +49,24 @@ fn process_policy() -> (usize, usize) {
     )
 }
 
-/// `parsePositiveInteger`: `Number(value)` must be an integer above zero.
-/// A count past 2^53 - 1 is refused too, as no `usize` here holds it.
+/// `parsePositiveInteger`: `Number.isInteger(Number(value))` above zero. A
+/// count no `usize` holds saturates, which a limit that large never notices.
 fn positive_integer(value: &str) -> Option<usize> {
     let number = js_to_number(value);
-    if number.fract() != 0.0 || number <= 0.0 || number > 9_007_199_254_740_991.0 {
+    if !number.is_finite() || number.fract() != 0.0 || number <= 0.0 {
         return None;
     }
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "checked to be a positive safe integer above"
+        reason = "a positive integer; a float to integer cast saturates"
     )]
     Some(number as usize)
 }
 
 fn admission() -> &'static Semaphore {
     static SLOTS: OnceLock<Semaphore> = OnceLock::new();
-    SLOTS.get_or_init(|| Semaphore::new(process_policy().1))
+    SLOTS.get_or_init(|| Semaphore::new(process_policy().1.min(Semaphore::MAX_PERMITS)))
 }
 
 /// p-throttle 8.1.0 strict mode without weights.
@@ -501,6 +501,10 @@ mod tests {
         assert_eq!(positive_integer("\u{feff}8\u{feff}"), Some(8));
         assert_eq!(positive_integer("\u{85}8"), None);
         assert_eq!(positive_integer("8\u{85}"), None);
+        // `Number.isInteger` has no upper bound: 2^53 and 1e300 pass.
+        assert_eq!(positive_integer("9007199254740992"), Some(1 << 53));
+        assert_eq!(positive_integer("1e300"), Some(usize::MAX));
+        assert_eq!(positive_integer("-1e300"), None);
     }
 
     #[tokio::test]
