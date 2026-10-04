@@ -165,5 +165,9 @@ compare candidate-electron-desktop candidate-desktop engine-electron-vs-cef
 compare original-desktop original-repeat-desktop original-stability
 compare candidate-desktop candidate-repeat-desktop candidate-stability
 compare candidate-electron-desktop candidate-electron-repeat-desktop electron-stability
+SPOCKY_INPUTS_OUT="$out/inputs.json" SPOCKY_BUNDLE=/bundle SPOCKY_CEF_HOST=/cefbuild/Release/spocky-cef-host \
+  SPOCKY_APP_ASAR=/ref/packages/desktop/release/linux-unpacked/resources/app.asar SPOCKY_WEB_EXPORT=/ref/packages/app/dist \
+  SPOCKY_HOSTB=/hostb node "$scripts/renderer-platform-inputs.cjs"
+echo "node in the gate image: $(node --version)"
 keep_logs
 echo RENDERER_LINUX_GATE_OK
