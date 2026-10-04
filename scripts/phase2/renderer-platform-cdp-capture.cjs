@@ -274,6 +274,15 @@ function simplifyAxTree(nodes) {
     await waitForProductState(page);
     await page.evaluate(() => scrollTo(0, 0));
     const readiness = await settle(page);
+    // Recorded for diagnosis: whether the page has focus and what holds it at capture time.
+    const pageFocus = await page.evaluate(() => ({
+      hasFocus: document.hasFocus(),
+      visibilityState: document.visibilityState,
+      activeElement: document.activeElement
+        ? `${document.activeElement.tagName.toLowerCase()}.${document.activeElement.className}`
+        : null,
+      focusVisibleMatches: [...document.querySelectorAll(":focus-visible")].map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
+    }));
     const screenshotPath = path.join(outDir, `${name}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     const png = fs.readFileSync(screenshotPath);
@@ -289,6 +298,7 @@ function simplifyAxTree(nodes) {
       // user's own settings, so these are pins of the gate, not masking.
       gateConditions: { colorScheme: "light", reducedMotion: "reduce", viewport, deviceScaleFactor: 1, pointer: [viewport.width - 1, viewport.height - 1] },
       environment,
+      pageFocus,
       readiness,
       screenshot: {
         file: `${name}.png`,
