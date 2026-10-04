@@ -161,5 +161,11 @@ python3 "$scripts/renderer-platform-runtime-compare.py" "$evidence_dir/candidate
   "$evidence_dir/candidate-desktop.json" "$evidence_dir/engine-electron-vs-cef.json"
 python3 "$scripts/renderer-platform-runtime-compare.py" "$evidence_dir/candidate-electron-desktop.json" \
   "$evidence_dir/candidate-electron-repeat-desktop.json" "$evidence_dir/electron-stability.json"
+python3 "$scripts/renderer-platform-runtime-compare.py" "$baseline_dir/original-desktop.json" \
+  "$baseline_dir/original-repeat-desktop.json" "$evidence_dir/original-stability.json"
+# What produced this run: commit, OS, tool versions, CEF archive and host binary, bundle tree.
+SPOCKY_INPUTS_OUT="$evidence_dir/inputs.json" SPOCKY_BUNDLE="$bundle" SPOCKY_CEF_HOST="$app/Contents/MacOS/spocky-cef-host" \
+  SPOCKY_HOSTB="$electron_work/electron" CEF_ARCHIVE="$cef_archive" CEF_SHA256="$cef_sha256" \
+  node "$scripts/renderer-platform-inputs.cjs"
 printf 'CEF macOS evidence: %s\n' "$evidence_dir"
 find "$evidence_dir" -maxdepth 1 -type f -exec shasum -a 256 {} +
