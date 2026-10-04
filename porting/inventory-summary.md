@@ -82,6 +82,18 @@ Do not silently repair these behaviors during parity work. A safety exception re
 | DIV-005 | Withdrawn. The locale modifier shapes that differed (a modifier with a non-variant piece sorting before a valid variant piece, such as `LANG=de@ab-cde-fghij`) are ported in `0f1f3537`: only the sorted run of variants before the first other piece stays a variant, and `-` and `_` separate pieces alike. No divergence remains; the shapes are pinned in `crates/spocky-contracts/tests/js_locale_differential.rs`. | Withdrawn by `p3_contracts` after the coordinator's trigger correction, which showed the rule. |
 | DIV-006 | A locale modifier that repeats a piece which is not a BCP 47 variant (`LANG=de_DE@euro_euro`): pinned Node `22.20.0` throws `RangeError: Internal error. Icu error.` from `Intl.DateTimeFormat().resolvedOptions()`, `String.prototype.localeCompare`, and `Number.prototype.toLocaleString` under the default locale; `toLocaleLowerCase()` works and `spocky_contracts::locale::default_locale` returns the tag with the duplicate removed (`de-DE-x-lvariant-euro`). `spocky_contracts::js::locale_compare` does not read the default locale, so it does not throw either. A repeated variant (`@abcde_abcde`) does not throw in Node. | Accepted by the coordinator on correction. Not a realistic environment. Pinned by `repeated_modifier_piece_divergence_is_pinned` in `crates/spocky-contracts/tests/js_locale_differential.rs`. |
 
+## Open parity gaps
+
+Ported behavior that still differs from the pinned baseline. Each is open until its owner lands a differential.
+
+| ID | Gap | Owner |
+|---|---|---|
+| PGAP-001 | `spocky-plugin-pilot` `PluginError` implements `Display` as `Debug` (`CommandFailed("...")`), so no plugin error text equals the baseline's message. The Git runner messages themselves match (`managed_git`). | DPLUGIN-001 lane (unlaunched) |
+| PGAP-002 | `compile_plugin_server` and `compile_plugin_client` run the esbuild CLI. The baseline (`compiler.ts`) uses the esbuild JS API with a runtime-boundary plugin, a shared-dependency check, and its own error texts (for example `Plugin modules belong in client/, server/, or shared/`); none of that is ported. | DPLUGIN-001 lane (unlaunched) |
+| PGAP-003 | `runPluginBuild` (`preparation.ts`, including the `Plugin build command failed (exit N): ...` message from `formatOutput`) has no Rust port. | DPLUGIN-001 lane (unlaunched) |
+| PGAP-004 | `spocky_contracts::js::locale_compare` is ASCII and root-only; node 22.20.0 uses full ICU 77 root collation and the baseline calls `localeCompare` in 78 places. | `p3_contracts` (queued) |
+| PGAP-005 | `spocky_contracts::locale::default_locale` has no Windows branch: node reads the Windows user locale there (`GetUserDefaultLocaleName`), the port reads `LC_ALL`, `LC_MESSAGES`, `LANG`. Evidence: `evidence/phase3/contracts-locale-platforms.md`. | `p3_contracts` (in progress) |
+
 ## Cloud baseline gaps
 
 - Relay's 23,001-WebSocket Fly epoch has not run or received production certification.
