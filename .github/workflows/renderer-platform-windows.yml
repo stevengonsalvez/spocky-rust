@@ -49,6 +49,9 @@ jobs:
           rustup default 1.94.0
 
       - name: Build the Dioxus web bundle
+        env:
+          # The cmake crate (a dioxus-cli dependency) needs a generator outside a VS shell.
+          CMAKE_GENERATOR: Visual Studio 17 2022
         run: |
           cargo install dioxus-cli --version 0.7.0 --locked
           cargo fetch --locked
