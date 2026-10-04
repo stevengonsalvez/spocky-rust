@@ -80,6 +80,12 @@ jobs:
           mkdir hostb
           cp scripts/phase2/renderer-platform-electron/package.json scripts/phase2/renderer-platform-electron/package-lock.json hostb/
           (cd hostb && npm ci --no-audit --no-fund)
+          # Fetch the pinned Electron 44.2.0 binary now. The installer checks the zip
+          # against the release SHASUMS256, so a wrong download fails here, not mid-run.
+          (cd hostb && node node_modules/electron/install.js)
+          exe="$(cd hostb && node -p "require('electron')")"
+          test -f "$exe"
+          echo "electron binary sha256:"; sha256sum "$exe"
 
       - name: Build host A (CEF, verified by SHA-256)
         run: |
