@@ -14,7 +14,8 @@
 #   status NS LIMIT | active NS | value NAME
 #
 # Block: `> op`, `= reply`, `~ input` (the memory reading or watermark the relay used, an input
-# the Rust replay is given), `@ messages` (sent to fake processes, sorted by name), `state ...`.
+# the Rust replay is given), `@ messages` (`:relay_memory_pressure` sends in the order the relay
+# sent them, from a send trace of the Capacity process), `state ...`.
 # Real timers of the relay (5 s reservations, 1 s check, 100 ms recheck) stay armed; a scenario
 # runs in a few milliseconds and finishes with the watermark disabled where pressure was set.
 
@@ -31,16 +32,72 @@ defmodule CapacityBaseline do
       |> Enum.reject(&String.starts_with?(&1, "#"))
 
     harness = self()
-    state = %{procs: %{}, tokens: %{}, counters: %{c: 0, m: 0}, metrics_base: {0, 0}, harness: harness}
+    state = %{procs: %{}, tokens: %{}, counters: %{c: 0, m: 0}, metrics_base: {0, 0}, harness: harness, injected: 0}
 
     {_state, out} =
-      Enum.reduce(lines, {state, []}, fn line, {state, out} ->
-        {state, block} = op(String.split(line, " "), line, state)
-        {state, [block | out]}
+      lines
+      |> Enum.chunk_while([], &chunk/2, &chunk_end/1)
+      |> Enum.reduce({state, []}, fn group, {state, out} ->
+        {state, blocks} = run_group(group, state, 10)
+        {state, blocks ++ out}
       end)
 
     stop_capacity()
     File.write!(out_path, out |> Enum.reverse() |> Enum.join("\n"))
+  end
+
+  defp chunk("scenario" <> _ = line, []), do: {:cont, [line]}
+  defp chunk("scenario" <> _ = line, acc), do: {:cont, Enum.reverse(acc), [line]}
+  defp chunk(line, acc), do: {:cont, [line | acc]}
+  defp chunk_end([]), do: {:cont, []}
+  defp chunk_end(acc), do: {:cont, Enum.reverse(acc), []}
+
+  # One scenario. The relay's own timers (`:check` after 1 s, `:pressure_recheck` after 100 ms)
+  # cannot be held back; a scenario during which one fired is run again, so every transcript
+  # block comes from a run the harness alone drove.
+  defp run_group(group, state, tries) do
+    {state, blocks} =
+      Enum.reduce(group, {state, []}, fn line, {state, blocks} ->
+        {state, block} = op(String.split(line, " "), line, state)
+        {state, [block | blocks]}
+      end)
+
+    if real_timer_fired?(state) do
+      if tries == 0, do: raise("relay timers interfered with every run of #{hd(group)}")
+      run_group(group, state, tries - 1)
+    else
+      {state, blocks}
+    end
+  end
+
+  defp real_timer_fired?(state) do
+    drain_trace()
+    Process.get(:timer_messages, 0) > state.injected
+  end
+
+  # Moves what the trace of the Capacity process reported into the process dictionary and drops
+  # the rest, so the harness mailbox stays short: the `:relay_memory_pressure` sends in order,
+  # and a count of `:check` and `:pressure_recheck` messages it received.
+  defp drain_trace do
+    capacity = Process.whereis(Capacity)
+
+    receive do
+      {:trace, ^capacity, :send, :relay_memory_pressure, to} ->
+        Process.put(:pressure_sends, Process.get(:pressure_sends, []) ++ [to])
+        drain_trace()
+
+      {:trace, ^capacity, :receive, message} when message in [:check, :pressure_recheck] ->
+        Process.put(:timer_messages, Process.get(:timer_messages, 0) + 1)
+        drain_trace()
+
+      {:trace, ^capacity, _kind, _message} ->
+        drain_trace()
+
+      {:trace, ^capacity, :send, _message, _to} ->
+        drain_trace()
+    after
+      0 -> :ok
+    end
   end
 
   defp op(["scenario", name, budget, weight, watermark], line, state) do
@@ -54,8 +111,11 @@ defmodule CapacityBaseline do
 
     {:ok, _pid} = Capacity.start_link(config)
     Process.unlink(Process.whereis(Capacity))
+    Process.put(:pressure_sends, [])
+    Process.put(:timer_messages, 0)
+    1 = :erlang.trace(Process.whereis(Capacity), true, [:send, :receive])
     base = {PaseoRelay.Metrics.value(:memory_pressure_disconnects), PaseoRelay.Metrics.value(:delivery_wait_count)}
-    state = %{state | procs: %{}, tokens: %{}, counters: %{c: 0, m: 0}, metrics_base: base}
+    state = %{state | procs: %{}, tokens: %{}, counters: %{c: 0, m: 0}, metrics_base: base, injected: 0}
     {state, ["# " <> name, "> " <> line, "= ok", state_line(state)] |> Enum.join("\n")}
   end
 
@@ -139,6 +199,7 @@ defmodule CapacityBaseline do
   defp op(["check"], line, state) do
     memory = :erlang.memory(:total)
     send(Process.whereis(Capacity), :check)
+    state = %{state | injected: state.injected + 1}
     sync()
     shed(line, memory, state)
   end
@@ -146,6 +207,7 @@ defmodule CapacityBaseline do
   defp op(["recheck"], line, state) do
     memory = :erlang.memory(:total)
     send(Process.whereis(Capacity), :pressure_recheck)
+    state = %{state | injected: state.injected + 1}
     sync()
     shed(line, memory, state)
   end
@@ -183,7 +245,7 @@ defmodule CapacityBaseline do
         nil -> {before, 0}
       end
 
-    {state, block(line, "ok", ["memory=#{memory}"], received(expected), state)}
+    {state, block(line, "ok", ["memory=#{memory}"], received(state, expected), state)}
   end
 
   # A DOWN message reaches the relay after the harness sees it; wait until the relay has
@@ -223,6 +285,7 @@ defmodule CapacityBaseline do
   end
 
   defp state_line(state) do
+    drain_trace()
     capacity = :sys.get_state(Capacity)
     names = Map.new(state.procs, fn {name, pid} -> {pid, name} end)
     name = fn pid -> Map.get(names, pid, "?") end
@@ -248,7 +311,18 @@ defmodule CapacityBaseline do
     metrics =
       "#{PaseoRelay.Metrics.value(:memory_pressure_disconnects) - mpd},#{PaseoRelay.Metrics.value(:delivery_wait_count) - dwc}"
 
+    {:monitors, monitors} = Process.info(Process.whereis(Capacity), :monitors)
+
+    timers =
+      capacity.connections
+      |> Map.values()
+      |> Enum.count(fn
+        %{status: {:reservation, timer}} -> is_integer(Process.read_timer(timer))
+        _active -> false
+      end)
+
     "state gauges=#{gauge_text(Capacity.snapshot())} pressure=#{pressure} " <>
+      "recheck=#{capacity.pressure_recheck?} monitors=#{length(monitors)} timers=#{timers} " <>
       "active=#{capacity.active |> :gb_trees.values() |> Enum.map_join(",", name)} " <>
       "blocked=#{capacity.blocked |> :gb_trees.values() |> Enum.map_join(",", name)} " <>
       "sizes=#{sizes} metrics=#{metrics}"
@@ -262,15 +336,22 @@ defmodule CapacityBaseline do
     )
   end
 
-  defp received(expected), do: collect([], expected) |> Enum.sort()
+  # The sends of the relay process in the order it made them.
+  defp received(state, expected) do
+    names = Map.new(state.procs, fn {name, pid} -> {pid, name} end)
+    wait_sends(expected, System.monotonic_time(:millisecond) + 1_000)
+    sends = Process.get(:pressure_sends, [])
+    Process.put(:pressure_sends, [])
+    Enum.map(sends, &"#{Map.get(names, &1, "?")}:relay_memory_pressure")
+  end
 
-  defp collect(acc, 0), do: acc
+  defp wait_sends(expected, limit) do
+    drain_trace()
 
-  defp collect(acc, remaining) do
-    receive do
-      {:got, name, message} -> collect(["#{name}:#{message}" | acc], remaining - 1)
-    after
-      1_000 -> raise "fake processes forwarded #{length(acc)} of the expected messages"
+    cond do
+      length(Process.get(:pressure_sends, [])) >= expected -> :ok
+      System.monotonic_time(:millisecond) > limit -> raise "the relay sent fewer messages than expected"
+      true -> wait_sends(expected, limit)
     end
   end
 
@@ -297,10 +378,6 @@ defmodule CapacityBaseline do
     receive do
       {:run, ref, fun, from} ->
         send(from, {:ran, ref, fun.()})
-        fake(name, harness)
-
-      :relay_memory_pressure ->
-        send(harness, {:got, name, "relay_memory_pressure"})
         fake(name, harness)
 
       _other ->
