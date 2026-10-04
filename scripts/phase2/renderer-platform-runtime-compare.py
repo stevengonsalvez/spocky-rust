@@ -124,9 +124,19 @@ def main():
     base_raw = raw_ax(baseline, baseline_json)
     cand_raw = raw_ax(candidate, candidate_json)
     raw_differences = [i for i, (x, y) in enumerate(zip(base_raw, cand_raw)) if x != y]
+    raw_differences += list(range(min(len(base_raw), len(cand_raw)), max(len(base_raw), len(cand_raw))))
     page_output = {
         key: {"baseline": baseline.get(key), "candidate": candidate.get(key), "equal": baseline.get(key) == candidate.get(key)}
         for key in ("consoleMessages", "pageErrors", "failedRequests", "errorResponses")
+    }
+    # Diagnostic only: page focus, hover and window geometry do not decide membership.
+    focus_keys = ("hasFocus", "visibilityState", "activeElement", "hoverMatches", "focusVisibleMatches")
+    page_focus = {
+        "diagnosticOnly": True,
+        "baseline": baseline.get("pageFocus"),
+        "candidate": candidate.get("pageFocus"),
+        "stateEqual": all((baseline.get("pageFocus") or {}).get(k) == (candidate.get("pageFocus") or {}).get(k) for k in focus_keys),
+        "stateKeys": list(focus_keys),
     }
     report = {
         "method": {
@@ -150,6 +160,7 @@ def main():
             "normalized": "nodeId, backendDOMNodeId, parentId, childIds, frameId only (generated ids)",
         },
         "pageOutputRaw": page_output,
+        "pageFocus": page_focus,
         "inExactMembership": visual["exactMembership"],
     }
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
