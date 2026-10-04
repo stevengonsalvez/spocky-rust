@@ -16,6 +16,7 @@
 struct HostOptions {
   std::string url = "about:blank";
   int bound_ms = 600000;  // the host quits by itself so an orphan cannot linger
+  bool use_popup = false;  // native popup window instead of a Views window
 };
 
 class HostApp : public CefApp, public CefBrowserProcessHandler {
