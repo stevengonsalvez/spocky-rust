@@ -297,6 +297,7 @@ function simplifyAxTree(nodes) {
       activeElement: document.activeElement
         ? `${document.activeElement.tagName.toLowerCase()}.${document.activeElement.className}`
         : null,
+      hoverMatches: [...document.querySelectorAll(":hover")].map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
       focusVisibleMatches: [...document.querySelectorAll(":focus-visible")].map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
     }));
     const screenshotPath = path.join(outDir, `${name}.png`);
