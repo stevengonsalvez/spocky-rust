@@ -116,7 +116,8 @@ defmodule CapacityBaseline do
     1 = :erlang.trace(Process.whereis(Capacity), true, [:send, :receive])
     base = {PaseoRelay.Metrics.value(:memory_pressure_disconnects), PaseoRelay.Metrics.value(:delivery_wait_count)}
     state = %{state | procs: %{}, tokens: %{}, counters: %{c: 0, m: 0}, metrics_base: base, injected: 0}
-    {state, ["# " <> name, "> " <> line, "= ok", state_line(state)] |> Enum.join("\n")}
+    native = System.convert_time_unit(1, :second, :native)
+    {state, ["# " <> name, "> " <> line, "= ok", "~ native=#{native}", state_line(state)] |> Enum.join("\n")}
   end
 
   defp op(["spawn", name], line, state) do
