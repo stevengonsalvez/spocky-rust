@@ -1,7 +1,10 @@
 # Build the Spocky CEF host against a pinned CEF binary distribution.
 #   cmake -S . -B BUILD -DCEF_ROOT=/path/to/cef_binary_* -DCMAKE_BUILD_TYPE=Release
 cmake_minimum_required(VERSION 3.21)
-project(spocky_cef_host LANGUAGES C CXX OBJCXX)
+project(spocky_cef_host LANGUAGES C CXX)
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
 
 if(NOT CEF_ROOT OR NOT EXISTS "${CEF_ROOT}/cmake/FindCEF.cmake")
   message(FATAL_ERROR "set -DCEF_ROOT to an unpacked cef_binary_* distribution")
@@ -16,12 +19,40 @@ endif()
 find_package(CEF REQUIRED)
 add_subdirectory("${CEF_ROOT}/libcef_dll" libcef_dll_wrapper)
 
-if(NOT OS_MAC)
-  message(FATAL_ERROR "this build file covers macOS; Linux and Windows entry points are separate steps")
+if(NOT OS_MAC AND NOT OS_LINUX AND NOT OS_WINDOWS)
+  message(FATAL_ERROR "unsupported platform")
 endif()
 
 set(HOST_NAME "spocky-cef-host")
 set(HOST_BUNDLE_ID "org.spocky.cefhost")
+
+if(OS_WINDOWS)
+  SET_CEF_TARGET_OUT_DIR()
+  add_executable(${HOST_NAME} host.cc main_win.cc)
+  SET_EXECUTABLE_TARGET_PROPERTIES(${HOST_NAME})
+  add_dependencies(${HOST_NAME} libcef_dll_wrapper)
+  target_link_libraries(${HOST_NAME} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+  # The runtime (libcef.dll, snapshots, resources, locales) sits next to the executable.
+  COPY_FILES("${HOST_NAME}" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+  COPY_FILES("${HOST_NAME}" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
+  return()
+endif()
+
+if(OS_LINUX)
+  SET_CEF_TARGET_OUT_DIR()
+  add_executable(${HOST_NAME} host.cc main_linux.cc)
+  SET_EXECUTABLE_TARGET_PROPERTIES(${HOST_NAME})
+  add_dependencies(${HOST_NAME} libcef_dll_wrapper)
+  target_link_libraries(${HOST_NAME} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+  set_target_properties(${HOST_NAME} PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_WITH_INSTALL_RPATH TRUE
+    RUNTIME_OUTPUT_DIRECTORY "${CEF_TARGET_OUT_DIR}")
+  # The runtime (libcef.so, snapshots, resources, locales) sits next to the executable.
+  COPY_FILES("${HOST_NAME}" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+  COPY_FILES("${HOST_NAME}" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
+  return()
+endif()
 
 # Helper apps, one per CEF process type (GPU, renderer, plugin, alerts).
 set(HELPER_TARGETS)
