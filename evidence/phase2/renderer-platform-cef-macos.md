@@ -62,8 +62,8 @@ content gaps are a separate, still open requirement for exact parity.
 
 ## Limits
 
-- macOS only. The engine comparison on Linux and Windows is still open, and a
-  mismatch on any OS rules CEF out in favor of a retained Electron shell.
+- Engine equivalence holds on macOS, Linux and Windows, yet the candidate is outside
+  exact membership of the shipped app on every OS, so CEF is not accepted.
 - The accessibility record is the Chromium tree, not the native macOS AX tree.
 - The shipped app's Add project dialog contains the machine host name, so it is
   machine-specific.
@@ -79,17 +79,21 @@ scripts/phase2/renderer-platform-cef-capture-macos.sh
 
 | file | SHA-256 |
 |---|---|
-| `renderer-platform-cef-macos/candidate-desktop.json` | `8ef04660eb2d546096c7d7a916ecb021abecd5b9004736182d27f8dbf62fa806` |
+| `renderer-platform-cef-macos/candidate-desktop.json` | `917779be43552d6d310c83ee3db17bd0aba249d21c06dc1645f022018af55765` |
 | `renderer-platform-cef-macos/candidate-desktop.png` | `72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe` |
-| `renderer-platform-cef-macos/candidate-electron-desktop.json` | `0a222ef1978c148f0f84f10baf11935a031364d9fd09759fe5e6cdd25ac54070` |
+| `renderer-platform-cef-macos/candidate-electron-desktop.json` | `5be828d0b682e298608f0599d7722e43df6438b0608504d29ae91d06572909f7` |
 | `renderer-platform-cef-macos/candidate-electron-desktop.png` | `72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe` |
-| `renderer-platform-cef-macos/candidate-electron-repeat-desktop.json` | `e395e151258b13b9008aff2544ae595362dc86b1c1e4d912fa1c80e105f84496` |
+| `renderer-platform-cef-macos/candidate-electron-repeat-desktop.json` | `bef8e12f44c1609244e5913feb39e6f4ec40e1c4b8f653a62a00217c7ca757f7` |
 | `renderer-platform-cef-macos/candidate-electron-repeat-desktop.png` | `72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe` |
-| `renderer-platform-cef-macos/candidate-repeat-desktop.json` | `215eb9b7bf50ea5d2bc2c8ca8a1706ed57a20b14eb7d9cbbbd465ffc901b93b0` |
+| `renderer-platform-cef-macos/candidate-repeat-desktop.json` | `8ddff8f92ddd76203bbc883175e91ef836bee0fe71e214709cfc1d169c4cdf11` |
 | `renderer-platform-cef-macos/candidate-repeat-desktop.png` | `72a51470ad9f1e53b0bf5e0262704acb184119b6ce75eb4814188f7b5d3908fe` |
 | `renderer-platform-cef-macos/candidate-stability.json` | `7877b7aee1ec750b327dde6eba6d4658e652cb6e43844730a226817217aeec31` |
-| `renderer-platform-cef-macos/compare-electron-first.json` | `558c967e1b8901a04ac95fd8ef8e169ad420fbc82f7389a02845266c81dcf258` |
-| `renderer-platform-cef-macos/compare-first.json` | `00d92eed274bdb00f9c35e2a151d8487f4b5f8d21d1022fce4b6f12be39c3351` |
-| `renderer-platform-cef-macos/compare-repeat.json` | `10ade96aea4528d14a053abd841980fbd9834546b357cdf3e40458261c456436` |
+| `renderer-platform-cef-macos/compare-electron-first.json` | `b2b67f18a46a1f88534d3bc141a6f352b9e838ee2c3d5349e9482207a3e41280` |
+| `renderer-platform-cef-macos/compare-first.json` | `499dfad86719f36370a763cafc471e129ff2d23a4be300292dae38d6d2accaee` |
+| `renderer-platform-cef-macos/compare-repeat.json` | `56c77714b7c262b39bc057d4c2af0318b44343cd8216973b239b0a0a4f26e624` |
 | `renderer-platform-cef-macos/electron-stability.json` | `2bf9ec96b82c9a15979189e489c0afa8a663bd35d70c74b9138d9267637ee47b` |
 | `renderer-platform-cef-macos/engine-electron-vs-cef.json` | `d4d5f05a78a69135a0a8662977c527f697a73b526f2286163d2595fff4e00e45` |
+| `renderer-platform-cef-macos/candidate-desktop.ax.json` | `9b08211aad335c8d5d91aee99b7705a6d9032b90cdc2972428709d50dd2069ee` |
+| `renderer-platform-cef-macos/candidate-electron-desktop.ax.json` | `e1e8c6676a366bdb526bd897cc038c13ee7f5bb96d5173b3fdc2728594f100c4` |
+| `renderer-platform-cef-macos/candidate-electron-repeat-desktop.ax.json` | `cdfbd94e0feda144dc42aba195c107741a05131a58a1b69b81f8f1dfea1c4a02` |
+| `renderer-platform-cef-macos/candidate-repeat-desktop.ax.json` | `a9e5c0da0436cb78ef050e3f6db83722ac9b919675fc243bb05237a2521701b5` |
