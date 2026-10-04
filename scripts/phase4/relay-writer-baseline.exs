@@ -41,7 +41,11 @@ defmodule WriterBaseline do
     harness = self()
     dest = spawn(fn -> dest_loop(harness) end)
     {:ok, writer} = Writer.start(dest, String.to_integer(timeout), String.to_integer(control_bytes))
-    1 = :erlang.trace(writer, true, [:receive, :send])
+    1 = :erlang.trace(writer, true, [:receive, :send, :call])
+    # The delay of every `Process.send_after`, read from the call itself.
+    :erlang.trace_pattern({:erlang, :send_after, 4}, true, [:global])
+    :erlang.trace_pattern({:erlang, :send_after, 3}, true, [:global])
+    Process.put(:timers, [])
     state = %{state | writer: writer, dest: dest, sources: %{}, busy: MapSet.new(), tokens: %{}, frames: %{}, counter: %{t: 0, w: 0, c: 0}, base: metrics()}
     {state, "# " <> name <> "\n> " <> line <> "\n" <> state_line(state)}
   end
@@ -58,25 +62,25 @@ defmodule WriterBaseline do
     call(state, s, line, :reserve, fn -> raw(writer, {:reserve, bytes, deadline(dl)}) end)
   end
 
-  defp op(["write", s, tvar, opcode, len, dl], line, state) do
+  defp op(["write", s, tvar, opcode, len, dl, seed], line, state) do
     writer = state.writer
     token = state.tokens[tvar]
-    payload = String.duplicate("x", String.to_integer(len))
+    payload = payload(seed, len)
     call(state, s, line, :write, fn -> Writer.write(writer, token, String.to_atom(opcode), payload, deadline(dl)) end)
   end
 
-  defp op(["write_raw", s, tvar, opcode, len, _dl], line, state) do
+  defp op(["write_raw", s, tvar, opcode, len, _dl, seed], line, state) do
     writer = state.writer
     token = state.tokens[tvar]
-    payload = String.duplicate("x", String.to_integer(len))
+    payload = payload(seed, len)
     call(state, s, line, :write, fn -> raw(writer, {:write, token, String.to_atom(opcode), payload}) end)
   end
 
-  defp op(["control", len], line, state) do
+  defp op(["control", len, seed], line, state) do
     writer = state.writer
     count = state.counter.c + 1
     state = %{state | counter: %{state.counter | c: count}}
-    payload = String.duplicate("c", String.to_integer(len))
+    payload = payload(seed, len)
     call(state, "c#{count}", line, :control, fn -> Writer.control(writer, payload) end)
   end
 
@@ -129,6 +133,12 @@ defmodule WriterBaseline do
     Process.sleep(3)
     state = %{state | busy: MapSet.delete(state.busy, s)}
     settle(line, state)
+  end
+
+  # Byte i of a payload is (seed * 131 + i * 37 + 11) mod 256, so contents differ by seed.
+  defp payload(seed, len) do
+    seed = String.to_integer(seed)
+    for i <- 0..(String.to_integer(len) - 1)//1, into: <<>>, do: <<rem(seed * 131 + i * 37 + 11, 256)>>
   end
 
   defp deadline("far"), do: Deadline.after_ms(1_000_000)
@@ -237,6 +247,10 @@ defmodule WriterBaseline do
           pid -> reply_targets(writer, [pid | acc])
         end
 
+      {:trace, ^writer, :call, {:erlang, :send_after, [time, _dest, {:reservation_timeout, token} | _rest]}} ->
+        Process.put(:timers, Process.get(:timers, []) ++ [{token, time}])
+        reply_targets(writer, acc)
+
       {:trace, ^writer, _kind, _message} ->
         reply_targets(writer, acc)
 
@@ -281,13 +295,23 @@ defmodule WriterBaseline do
 
     {state, dest} = collect_dest(state, [])
     {state, results} = sweep_dones(state, results)
+
+    # Reservation timers of payload grants, by token name. A control frame's timer is
+    # `delivery_timeout_ms` minus the time between two clock reads inside the Writer: not
+    # reproducible, so it is not printed.
+    timers =
+      for {token, delay} <- Process.get(:timers, []),
+          {name, ^token} <- state.tokens,
+          do: {name, delay}
+
+    Process.put(:timers, [])
     # The replies in the order the Writer sent them; callers that got an exit instead of a reply
     # (no send to order) follow, by name.
     replies =
       Enum.flat_map(ordered, fn name -> for {^name, text} <- results, do: text end) ++
         (for {name, text} <- Enum.sort(results), name not in ordered, do: text)
 
-    {state, block(line, {dest, replies}, state)}
+    {state, block(line, {dest, replies, timers}, state)}
   end
 
   defp await_dones([], state, replies), do: {state, replies}
@@ -344,7 +368,7 @@ defmodule WriterBaseline do
     count = state.counter.w + 1
     name = "w#{count}"
     state = %{state | counter: %{state.counter | w: count}, frames: Map.put(state.frames, name, ref)}
-    {state, "frame #{name} #{opcode} #{size} #{inspect(payload)}"}
+    {state, "frame #{name} #{opcode} #{size} #{Base.encode16(payload, case: :lower)}"}
   end
 
   defp dest_text(state, {:barrier, ref}), do: {state, "barrier #{frame_name(state, ref)}"}
@@ -364,10 +388,17 @@ defmodule WriterBaseline do
   defp reply_text(state, name, kind, {:error, reason}), do: {state, "#{name} #{kind} error #{reason}"}
   defp reply_text(state, name, kind, text) when is_binary(text), do: {state, "#{name} #{kind} #{text}"}
 
-  defp block(line, {dest, replies}, state) do
+  defp block(line, {dest, replies, timers}, state) do
+    # `elapsed`: how many milliseconds after the deadline was set the Writer granted the
+    # reservation (the far deadline is 1,000,000 ms ahead); an input the replay is given.
     ["> " <> line] ++
+      (case timers do
+         [] -> []
+         [{_name, delay} | _] -> ["~ elapsed=#{1_000_000 - delay}"]
+       end) ++
       if(dest == [], do: [], else: ["d " <> Enum.join(dest, " | ")]) ++
-      if(replies == [], do: [], else: ["r " <> Enum.join(replies, " | ")]) ++ [state_line(state)]
+      if(replies == [], do: [], else: ["r " <> Enum.join(replies, " | ")]) ++
+      Enum.map(timers, fn {name, delay} -> "t #{name} #{delay}" end) ++ [state_line(state)]
       |> Enum.join("\n")
   end
 
@@ -422,10 +453,29 @@ defmodule WriterBaseline do
 
   defp stop_all(%{writer: nil}), do: :ok
 
+  # Sources go first, so no call exits into a message for the next scenario, then the Writer
+  # and the destination; whatever the harness mailbox holds is dropped.
   defp stop_all(state) do
-    if Process.alive?(state.writer), do: Process.exit(state.writer, :kill)
-    if Process.alive?(state.dest), do: Process.exit(state.dest, :kill)
-    Enum.each(state.sources, fn {_name, pid} -> Process.exit(pid, :kill) end)
+    pids = Map.values(state.sources) ++ [state.dest, state.writer]
+
+    Enum.each(pids, fn pid ->
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+      end
+    end)
+
+    flush_all()
+  end
+
+  defp flush_all do
+    receive do
+      _message -> flush_all()
+    after
+      0 -> :ok
+    end
   end
 end
 
