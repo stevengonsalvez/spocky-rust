@@ -66,7 +66,7 @@ focus = {"entries": [{"tag": "button", "role": "button", "label": "A", "text": "
 activation = {"changed": True, "urlBefore": "http://h/a", "urlAfter": "http://h/b", "after": {"dialogs": [], "status": []}}
 
 
-def write(name, pixels, ax_name="x"):
+def write(name, pixels, ax_name="x", hover=()):
     image = Image.new("RGBA", (8, 6), (255, 255, 255, 255))
     for position, value in pixels.items():
         image.putpixel(position, value)
@@ -79,6 +79,7 @@ def write(name, pixels, ax_name="x"):
     (tmp / f"{name}.json").write_text(json.dumps({
         "axRawFile": f"{name}.ax.json", "consoleMessages": [], "pageErrors": [], "failedRequests": [], "errorResponses": [],
         "name": name, "browser": {"product": "Chrome/1"}, "screenshot": {"file": f"{name}.png"},
+        "pageFocus": {"hasFocus": True, "visibilityState": "visible", "activeElement": "body.", "hoverMatches": hover, "focusVisibleMatches": []},
         "keyboardFocus": focus, "addProjectActivation": activation, "plusActivation": activation, "axTree": tree,
     }))
 
@@ -94,6 +95,7 @@ write("base", {})
 write("same", {})
 write("one", {(3, 2): (254, 255, 255, 255)})
 write("renamed", {}, ax_name="y")
+write("hovered", {}, hover=["html."])
 same = run("base", "same")
 assert same["visual"]["exactMembership"] and same["visual"]["differentPixels"] == 0
 # Raw accessibility compare: ids differ between captures but are generated, so they are normalized.
@@ -102,6 +104,10 @@ renamed = run("base", "renamed")
 assert not renamed["accessibilityRaw"]["equal"] and renamed["accessibilityRaw"]["differentNodeIndexes"] == [0]
 assert same["pageOutputRaw"]["consoleMessages"]["equal"]
 assert same["visual"]["differenceBoundingBox"] == []
+# Page focus and hover are compared as diagnostics, never as membership.
+assert same["pageFocus"]["diagnosticOnly"] and same["pageFocus"]["stateEqual"]
+hovered = run("base", "hovered")
+assert not hovered["pageFocus"]["stateEqual"] and hovered["inExactMembership"]
 one = run("base", "one")
 assert not one["visual"]["exactMembership"]
 assert one["visual"]["differentPixels"] == 1
@@ -121,6 +127,30 @@ if grep -F -q -e '.slice(0, 120)' -e 'replace(/\s+/g' "$driver"; then fail 'driv
 count=$((count + 1))
 expect_in "$driver" 'consoleMessages'
 expect_in "$driver" 'Accessibility.getFullAXTree'
+
+# The inputs recorder hashes the bundle tree, host binary and app asar.
+inputs_dir="$tmp/inputs"
+mkdir -p "$inputs_dir/bundle/sub"
+printf 'a' >"$inputs_dir/bundle/index.html"
+printf 'b' >"$inputs_dir/bundle/sub/app.wasm"
+printf 'host' >"$inputs_dir/host"
+printf 'asar' >"$inputs_dir/app.asar"
+SPOCKY_INPUTS_OUT="$inputs_dir/inputs.json" SPOCKY_BUNDLE="$inputs_dir/bundle" SPOCKY_CEF_HOST="$inputs_dir/host" \
+  SPOCKY_APP_ASAR="$inputs_dir/app.asar" SPOCKY_WEB_EXPORT="$inputs_dir/bundle" \
+  BUNDLE_SHA256="$(cd "$inputs_dir/bundle" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | awk '{print $1}')" \
+  node "$scripts/renderer-platform-inputs.cjs" >/dev/null
+python3 - "$inputs_dir/inputs.json" <<'PY'
+import hashlib, json, sys
+record = json.load(open(sys.argv[1]))
+assert record["cef"]["hostBinarySha256"] == hashlib.sha256(b"host").hexdigest()
+assert record["shippedApp"]["appAsarSha256"] == hashlib.sha256(b"asar").hexdigest()
+assert record["dioxusBundle"]["matchesExpected"] is True and record["dioxusBundle"]["fileCount"] == 2
+assert record["dioxusBundle"]["files"]["./sub/app.wasm"] == hashlib.sha256(b"b").hexdigest()
+PY
+count=$((count + 4))
+if SPOCKY_INPUTS_OUT="$inputs_dir/x.json" BUNDLE_SHA256=wrong SPOCKY_BUNDLE="$inputs_dir/bundle" node "$scripts/renderer-platform-inputs.cjs" >/dev/null 2>&1 &&
+  ! grep -q '"matchesExpected": false' "$inputs_dir/x.json"; then fail 'inputs recorder did not flag a bundle digest mismatch'; fi
+count=$((count + 1))
 
 # The desktop and candidate modes seed no storage on either side.
 expect_in "$driver" 'storageSeeding: mode === "original"'
