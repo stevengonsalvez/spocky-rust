@@ -29,6 +29,8 @@ pub const RESERVATION_TIMEOUT_MS: u64 = 5_000;
 pub const CHECK_INTERVAL_MS: u64 = 1_000;
 /// `@pressure_recheck_ms`.
 pub const PRESSURE_RECHECK_MS: u64 = 100;
+/// Native time units per microsecond on the pinned runtime (nanosecond native unit).
+const NANOSECONDS_PER_MICROSECOND: i64 = 1_000;
 const INITIAL_MAX_SHED_BATCH: i128 = 64;
 const MAX_SHED_BATCH: i128 = 1_024;
 
@@ -59,7 +61,8 @@ pub enum Effect {
     MemoryPressure(Pid),
     /// `PaseoRelay.Metrics.inc(:memory_pressure_disconnects)`.
     MemoryPressureDisconnect,
-    /// `PaseoRelay.Metrics.observe_delivery_wait(native_duration)`, in microseconds.
+    /// `PaseoRelay.Metrics.observe_delivery_wait(native_duration)`: the difference is floored to
+    /// microseconds once, as `System.convert_time_unit(duration, :native, :microsecond)` does.
     ObserveDeliveryWait { microseconds: i64 },
 }
 
@@ -381,7 +384,7 @@ impl Capacity {
     }
 
     /// `handle_call({:start_delivery, token, socket}, from, state)`: `socket` is the caller;
-    /// `now_us` is the caller's monotonic clock in microseconds.
+    /// `now_native` is the caller's `System.monotonic_time()`: nanoseconds on the pinned runtime.
     ///
     /// # Errors
     ///
@@ -390,7 +393,7 @@ impl Capacity {
         &mut self,
         token: Token,
         socket: Pid,
-        now_us: i64,
+        now_native: i64,
     ) -> Result<(), StartDeliveryError> {
         let reserved = matches!(
             self.messages.get(&token),
@@ -411,7 +414,7 @@ impl Capacity {
         let blocked_key = self.ensure_blocked(socket, &socket_state);
         if let Some(message) = self.messages.get_mut(&token) {
             message.status = MessageStatus::Delivering;
-            message.started = Some(now_us);
+            message.started = Some(now_native);
             self.inflight_bytes += message.payload_bytes;
         }
         if let Some(socket_state) = self.sockets.get_mut(&socket) {
@@ -421,8 +424,8 @@ impl Capacity {
     }
 
     /// `finish_message/1`.
-    pub fn finish_message(&mut self, token: Token, now_us: i64) {
-        self.remove_message(token, true, now_us);
+    pub fn finish_message(&mut self, token: Token, now_native: i64) {
+        self.remove_message(token, true, now_native);
     }
 
     /// `cancel_message/1`.
@@ -613,14 +616,15 @@ impl Capacity {
         }
     }
 
-    fn remove_message(&mut self, token: Token, observe_wait: bool, now_us: i64) {
+    fn remove_message(&mut self, token: Token, observe_wait: bool, now_native: i64) {
         let Some(message) = self.messages.remove(&token) else {
             return;
         };
         let delivering = message.status == MessageStatus::Delivering;
         if observe_wait && delivering {
             self.effects.push(Effect::ObserveDeliveryWait {
-                microseconds: now_us - message.started.unwrap_or(now_us),
+                microseconds: (now_native - message.started.unwrap_or(now_native))
+                    .div_euclid(NANOSECONDS_PER_MICROSECOND),
             });
         }
         self.reserved_bytes -= message.weighted_bytes;
