@@ -53,12 +53,15 @@ docker_run 'mix run --no-start /io/writer.exs /io/ops.txt /io/baseline.txt'
 if [[ "$mode" == "regenerate" ]]; then
   cp "$work/io/baseline.txt" "$fixtures/relay-writer-baseline.txt"
 fi
-# The Writer's transcript has no clock or memory input: a second pinned run, and the committed
-# transcript, must be identical to the first.
+# The transcript has one clock input: how many milliseconds after the deadline was set the Writer
+# granted a reservation (`~ elapsed=` and the `t` timer lines derived from it). Two pinned runs
+# therefore differ in those lines and in nothing else; the comparison with the port is the replay
+# of a fresh capture, raw.
 cp "$work/io/baseline.txt" "$work/io/baseline-first.txt"
 docker_run 'mix run --no-start /io/writer.exs /io/ops.txt /io/baseline.txt'
-diff "$work/io/baseline-first.txt" "$work/io/baseline.txt"
-diff "$fixtures/relay-writer-baseline.txt" "$work/io/baseline.txt"
+clockless() { grep -v '^~ elapsed=\|^t ' "$1"; }
+diff <(clockless "$work/io/baseline-first.txt") <(clockless "$work/io/baseline.txt")
+diff <(clockless "$fixtures/relay-writer-baseline.txt") <(clockless "$work/io/baseline.txt")
 SPOCKY_RELAY_WRITER_BASELINE="$work/io/baseline.txt" "$binary" 2>&1 | tee "$work/writer-test.log"
 grep -q "test result: ok" "$work/writer-test.log"
 echo "relay writer differential: $(grep -c '^> ' "$work/io/baseline.txt") operations: Rust identical to the pinned relay"
