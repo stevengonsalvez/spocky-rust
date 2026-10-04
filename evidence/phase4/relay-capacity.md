@@ -67,11 +67,13 @@ relay capacity differential: 11514 operations: Rust identical to the pinned rela
 
 ## Replayed inputs and timers
 
-The BEAM memory reading is an input the replay is given, not a masked output: the capture records
-the reading the relay used and every value derived from it is compared. The reading is an input. The harness sets the watermark about half a step away from
-the current reading so the first batch does not depend on drift, records the reading the relay used
-(`pressure.memory` from `:sys.get_state`), and the replay gives it to the port. Two pinned runs
-therefore differ in those numbers, and the check is the replay of a fresh capture.
+The BEAM memory reading and the native time unit (`System.convert_time_unit(1, :second, :native)`,
+recorded in each scenario block) are inputs the replay is given, not masked outputs: the capture
+records what the relay used and every value derived from it is compared. The harness sets the
+watermark about half a step away from the current reading so the first batch does not depend on
+drift, records the reading the relay used (`pressure.memory` from `:sys.get_state`), and the replay
+gives it to the port. Two pinned runs therefore differ in the memory numbers, and the check is the
+replay of a fresh capture.
 
 The relay's own timers (`:check` after 1 s, `:pressure_recheck` 100 ms after a shed) cannot be
 held back. The harness traces what the Capacity process receives; a scenario during which a timer
@@ -99,8 +101,8 @@ harness alone drove. Pressure phases at the end of a scenario are kept short for
 - Callers see `{:error, :unavailable}` when Capacity is down (`capacity.ex:600-612`); the observe
   functions fall back to 0, an empty map and `:unavailable` (`:618-622`). `value/1` crashes on an
   unknown name (`:238-248`); the port exposes the gauges only.
-- Time: the delivery wait difference is floored to microseconds once, from the native-unit
-  (nanosecond) clock, as `System.convert_time_unit` does.
+- Time: the delivery wait difference is floored to microseconds once, from the native clock in the unit `Config::native_units_per_second` names, as
+  `System.convert_time_unit` does.
 
 ## Known gaps
 
