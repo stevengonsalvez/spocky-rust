@@ -109,6 +109,25 @@ def main():
         "rolesAndNamesEqual": [r[1:] for r in base_rows] == [r[1:] for r in cand_rows],
         "differences": tree_differences(baseline["axTree"], candidate["axTree"])[:40],
     }
+    def raw_ax(document, path):
+        # Only generated ids are normalized (to their order of appearance): nodeId,
+        # backendDOMNodeId, parentId, childIds, frameId. Every other field is compared raw.
+        nodes = json.loads((path.with_name(document["axRawFile"])).read_text(encoding="utf-8"))["nodes"]
+        index = {node["nodeId"]: i for i, node in enumerate(nodes)}
+        out = []
+        for node in nodes:
+            copy = {k: v for k, v in node.items() if k not in ("nodeId", "backendDOMNodeId", "parentId", "childIds", "frameId")}
+            copy["childIndexes"] = [index[c] for c in node.get("childIds", [])]
+            out.append(copy)
+        return out
+
+    base_raw = raw_ax(baseline, baseline_json)
+    cand_raw = raw_ax(candidate, candidate_json)
+    raw_differences = [i for i, (x, y) in enumerate(zip(base_raw, cand_raw)) if x != y]
+    page_output = {
+        key: {"baseline": baseline.get(key), "candidate": candidate.get(key), "equal": baseline.get(key) == candidate.get(key)}
+        for key in ("consoleMessages", "pageErrors", "failedRequests", "errorResponses")
+    }
     report = {
         "method": {
             "membership": "complete PNG SHA-256 equality",
@@ -123,6 +142,14 @@ def main():
         "focusWalk": focus,
         "activations": activations,
         "accessibilityTree": accessibility,
+        "accessibilityRaw": {
+            "baselineNodes": len(base_raw),
+            "candidateNodes": len(cand_raw),
+            "equal": base_raw == cand_raw,
+            "differentNodeIndexes": raw_differences[:100],
+            "normalized": "nodeId, backendDOMNodeId, parentId, childIds, frameId only (generated ids)",
+        },
+        "pageOutputRaw": page_output,
         "inExactMembership": visual["exactMembership"],
     }
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
