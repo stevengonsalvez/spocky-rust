@@ -10,7 +10,8 @@
 //! - Node run with `LANG`, `LC_ALL`, and `LC_MESSAGES` set to `tr_TR.UTF-8`,
 //!   `az_AZ`, `lt_LT`, `en_US`, `C.UTF-8`, and others (and an empty
 //!   environment) resolves the same default locale, and its no-argument
-//!   `toLocaleLowerCase()` agrees. On macOS every mixture of `LC_ALL`,
+//!   `toLocaleLowerCase()` agrees. On Unix (macOS and Linux give node the same
+//!   answers) every mixture of `LC_ALL`,
 //!   `LC_MESSAGES`, `LC_CTYPE`, and `LANG` over a value set is compared too,
 //!   with `@` modifiers (`@euro`, `@latin`, and variant-shaped ones).
 
@@ -439,9 +440,9 @@ fn default_locale_matches_node() {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 const NAMES: [&str; 4] = ["LC_ALL", "LC_MESSAGES", "LC_CTYPE", "LANG"];
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 const VALUES: [Option<&str>; 5] = [
     None,
     Some("tr_TR.UTF-8"),
@@ -450,10 +451,10 @@ const VALUES: [Option<&str>; 5] = [
     Some(""),
 ];
 
-/// Every mixture of the four variables over a value set: node on macOS
-/// resolves the default locale from `LC_ALL`, then `LC_MESSAGES`, then
+/// Every mixture of the four variables over a value set: node on macOS and
+/// Linux resolves the default locale from `LC_ALL`, then `LC_MESSAGES`, then
 /// `LANG`, and ignores `LC_CTYPE`; the port must pick the same.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 #[test]
 fn default_locale_mixed_environments_match_node() {
     let Some((node, _)) = support::pinned() else {
