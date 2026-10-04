@@ -29,7 +29,6 @@ type Job = Box<dyn FnOnce(Rc<ClaudeSession>) -> LocalBoxFuture<'static, ()> + Se
 
 enum Message {
     Job(Job),
-    Stop,
 }
 
 /// Builds the non-`Send` session options on the actor's own thread.
@@ -78,25 +77,14 @@ impl ClaudeActor {
                         *current.borrow_mut() = Some((id, Rc::clone(&session)));
                     });
                     let _ = ready_sender.send(Ok(()));
+                    // A closed baseline session is still an object: its getters
+                    // and calls keep answering. The thread therefore serves the
+                    // session until every handle has been dropped.
                     while let Some(message) = receiver.recv().await {
-                        match message {
-                            Message::Job(job) => {
-                                // A call runs its synchronous prefix at once, as
-                                // an async method does, before tasks queued
-                                // behind it.
-                                run_inline(job(Rc::clone(&session)));
-                            }
-                            Message::Stop => break,
-                        }
-                    }
-                    // The jobs a stopped session still has queued run on, as the
-                    // promise jobs of a closed baseline session do. 64 rounds is
-                    // a bound, not a count measured against the baseline: it is
-                    // far above the longest await chain a close leaves behind
-                    // (a handful of ticks), and a LocalSet cannot report that it
-                    // has no ready task left.
-                    for _ in 0..64 {
-                        tokio::task::yield_now().await;
+                        let Message::Job(job) = message;
+                        // A call runs its synchronous prefix at once, as an
+                        // async method does, before tasks queued behind it.
+                        run_inline(job(Rc::clone(&session)));
                     }
                     CURRENT.with(|current| *current.borrow_mut() = None);
                 });
@@ -160,11 +148,6 @@ impl ClaudeActor {
         });
         self.sender.send(Message::Job(job)).ok()?;
         answer.recv().ok()
-    }
-
-    /// Stops the thread after the queued work.
-    pub fn stop(&self) {
-        let _ = self.sender.send(Message::Stop);
     }
 }
 
@@ -359,12 +342,7 @@ impl AgentSession for ClaudeSessionHandle {
                 session.close().await;
             })
         });
-        let actor = Arc::clone(&self.actor);
-        Box::pin(async move {
-            let outcome = call.await;
-            actor.stop();
-            outcome
-        })
+        Box::pin(call)
     }
 
     fn list_commands(&self) -> Option<BoxFuture<'_, AgentResult<JsValue>>> {
