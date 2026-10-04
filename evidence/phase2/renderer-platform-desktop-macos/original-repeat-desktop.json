@@ -18,7 +18,11 @@
       "width": 1280,
       "height": 800
     },
-    "deviceScaleFactor": 1
+    "deviceScaleFactor": 1,
+    "pointer": [
+      1279,
+      799
+    ]
   },
   "environment": {
     "innerWidth": 1280,
@@ -29,6 +33,82 @@
     "colorSchemeLight": true,
     "reducedMotion": true
   },
+  "pageFocus": {
+    "hasFocus": true,
+    "visibilityState": "visible",
+    "activeElement": "body.",
+    "hoverMatches": [],
+    "focusVisibleMatches": []
+  },
+  "axRawFile": "original-repeat-desktop.ax.json",
+  "consoleMessages": [
+    {
+      "type": "warning",
+      "text": "Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 237,
+        "columnNumber": 6878
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 14863,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open '/private/tmp/spocky-targets/electron-capture-work/reference/packages/desktop/release/mac/Paseo.app/Contents/Resources/app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 16208,
+        "columnNumber": 2160
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 14863,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open '/private/tmp/spocky-targets/electron-capture-work/reference/packages/desktop/release/mac/Paseo.app/Contents/Resources/app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 16208,
+        "columnNumber": 2160
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 14863,
+        "columnNumber": 219
+      }
+    },
+    {
+      "type": "warning",
+      "text": "[DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open '/private/tmp/spocky-targets/electron-capture-work/reference/packages/desktop/release/mac/Paseo.app/Contents/Resources/app-update.yml'",
+      "location": {
+        "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+        "lineNumber": 16208,
+        "columnNumber": 2160
+      }
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [],
+  "errorResponses": [],
   "readiness": {
     "fontsStatus": "loaded",
     "fontCount": 0
@@ -137,28 +217,28 @@
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Add a project Open a folder on your machine",
+        "text": "Add a project\nOpen a folder on your machine",
         "disabled": false
       },
       {
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Import session Open a Claude Code, Codex or other session you started in a terminal",
+        "text": "Import session\nOpen a Claude Code, Codex or other session you started in a terminal",
         "disabled": false
       },
       {
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Setup providers Configure Claude Code, Codex, and more",
+        "text": "Setup providers\nConfigure Claude Code, Codex, and more",
         "disabled": false
       },
       {
         "tag": "div",
         "role": null,
         "label": null,
-        "text": "Pair device Connect your phone to this daemon",
+        "text": "Pair device\nConnect your phone to this daemon",
         "disabled": false
       },
       {
@@ -220,34 +300,34 @@
         {
           "role": "dialog",
           "label": null,
-          "text": "Add project Stevens-MacBook-Pro-5.local Search for directory Find a directory on Stevens-MacBook-Pro-5.local Browse Choose or create a directory in Finder Clone from GitHub Search projects available to your GitHub account New directory Create an empty directory on Stevens-MacBook-Pro-5.local ↑↓ Navigate ⏎ Select Esc Close",
+          "text": "Add project\nStevens-MacBook-Pro-5.local\nSearch for directory\nFind a directory on Stevens-MacBook-Pro-5.local\nBrowse\nChoose or create a directory in Finder\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on Stevens-MacBook-Pro-5.local\n↑↓\nNavigate\n⏎\nSelect\nEsc\nClose",
           "controls": [
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "Search for directory Find a directory on Stevens-MacBook-Pro-5.local",
+              "text": "Search for directory\nFind a directory on Stevens-MacBook-Pro-5.local",
               "disabled": false
             },
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "Browse Choose or create a directory in Finder",
+              "text": "Browse\nChoose or create a directory in Finder",
               "disabled": false
             },
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "Clone from GitHub Search projects available to your GitHub account",
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
               "disabled": false
             },
             {
               "tag": "button",
               "role": "button",
               "label": null,
-              "text": "New directory Create an empty directory on Stevens-MacBook-Pro-5.local",
+              "text": "New directory\nCreate an empty directory on Stevens-MacBook-Pro-5.local",
               "disabled": false
             }
           ]
