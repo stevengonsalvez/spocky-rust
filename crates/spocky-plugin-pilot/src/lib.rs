@@ -1665,6 +1665,18 @@ fn assert_contained_directory(root: &Path, directory: &Path) -> Result<(), Plugi
 }
 
 fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, PluginError> {
+    let output = run_bounded_raw(command, timeout)?;
+    if output.status.success() {
+        return Ok(output);
+    }
+    Err(PluginError::CommandFailed(
+        js_trim(&String::from_utf8_lossy(&output.stderr)).to_owned(),
+    ))
+}
+
+/// [`run_bounded`] without the exit status check: the output of a command that
+/// exited, whatever its status; a timeout is still an error.
+fn run_bounded_raw(command: &mut Command, timeout: Duration) -> Result<Output, PluginError> {
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command
@@ -1684,17 +1696,11 @@ fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, Plugi
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child.try_wait()? {
-            let output = Output {
+            return Ok(Output {
                 status,
                 stdout: join_reader(stdout_reader)?,
                 stderr: join_reader(stderr_reader)?,
-            };
-            if output.status.success() {
-                return Ok(output);
-            }
-            return Err(PluginError::CommandFailed(
-                js_trim(&String::from_utf8_lossy(&output.stderr)).to_owned(),
-            ));
+            });
         }
         if Instant::now() >= deadline {
             terminate_command_tree(&mut child)?;
