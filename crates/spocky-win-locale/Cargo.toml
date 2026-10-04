@@ -1,0 +1,17 @@
+[package]
+name = "spocky-win-locale"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.94"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
+
+[lints.rust]
+# The one Windows API call below is unsafe; no other crate needs to be.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
