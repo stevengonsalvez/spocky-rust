@@ -66,12 +66,18 @@ focus = {"entries": [{"tag": "button", "role": "button", "label": "A", "text": "
 activation = {"changed": True, "urlBefore": "http://h/a", "urlAfter": "http://h/b", "after": {"dialogs": [], "status": []}}
 
 
-def write(name, pixels):
+def write(name, pixels, ax_name="x"):
     image = Image.new("RGBA", (8, 6), (255, 255, 255, 255))
     for position, value in pixels.items():
         image.putpixel(position, value)
     image.save(tmp / f"{name}.png")
+    nodes = [
+        {"nodeId": f"id-{name}-1", "role": {"value": "RootWebArea"}, "name": {"value": ax_name}, "childIds": [f"id-{name}-2"], "backendDOMNodeId": 7 + len(name)},
+        {"nodeId": f"id-{name}-2", "role": {"value": "button"}, "name": {"value": "A"}, "childIds": [], "parentId": f"id-{name}-1"},
+    ]
+    (tmp / f"{name}.ax.json").write_text(json.dumps({"nodes": nodes}))
     (tmp / f"{name}.json").write_text(json.dumps({
+        "axRawFile": f"{name}.ax.json", "consoleMessages": [], "pageErrors": [], "failedRequests": [], "errorResponses": [],
         "name": name, "browser": {"product": "Chrome/1"}, "screenshot": {"file": f"{name}.png"},
         "keyboardFocus": focus, "addProjectActivation": activation, "plusActivation": activation, "axTree": tree,
     }))
@@ -87,8 +93,14 @@ def run(left, right):
 write("base", {})
 write("same", {})
 write("one", {(3, 2): (254, 255, 255, 255)})
+write("renamed", {}, ax_name="y")
 same = run("base", "same")
 assert same["visual"]["exactMembership"] and same["visual"]["differentPixels"] == 0
+# Raw accessibility compare: ids differ between captures but are generated, so they are normalized.
+assert same["accessibilityRaw"]["equal"] and same["accessibilityRaw"]["differentNodeIndexes"] == []
+renamed = run("base", "renamed")
+assert not renamed["accessibilityRaw"]["equal"] and renamed["accessibilityRaw"]["differentNodeIndexes"] == [0]
+assert same["pageOutputRaw"]["consoleMessages"]["equal"]
 assert same["visual"]["differenceBoundingBox"] == []
 one = run("base", "one")
 assert not one["visual"]["exactMembership"]
@@ -97,12 +109,18 @@ assert one["visual"]["differenceBoundingBox"] == [3, 2, 4, 3]
 assert one["visual"]["normalizedRmse"] > 0
 assert one["method"]["normalization"] == "none" and one["method"]["threshold"] == "none"
 PY
-count=$((count + 8))
+count=$((count + 11))
 
 # The driver refuses port 6767 and unknown modes.
 expect_in "$driver" 'refusing port 6767'
 if node "$driver" 1 - "$tmp" n bogus >/dev/null 2>&1; then fail 'driver accepted an unknown mode'; fi
 count=$((count + 1))
+
+# Pinned output is recorded raw: no truncation or whitespace collapsing of page text.
+if grep -F -q -e '.slice(0, 120)' -e 'replace(/\s+/g' "$driver"; then fail 'driver truncates or collapses page text'; fi
+count=$((count + 1))
+expect_in "$driver" 'consoleMessages'
+expect_in "$driver" 'Accessibility.getFullAXTree'
 
 # The desktop and candidate modes seed no storage on either side.
 expect_in "$driver" 'storageSeeding: mode === "original"'
