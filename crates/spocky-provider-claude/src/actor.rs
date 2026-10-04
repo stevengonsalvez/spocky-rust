@@ -90,7 +90,11 @@ impl ClaudeActor {
                         }
                     }
                     // The jobs a stopped session still has queued run on, as the
-                    // promise jobs of a closed baseline session do.
+                    // promise jobs of a closed baseline session do. 64 rounds is
+                    // a bound, not a count measured against the baseline: it is
+                    // far above the longest await chain a close leaves behind
+                    // (a handful of ticks), and a LocalSet cannot report that it
+                    // has no ready task left.
                     for _ in 0..64 {
                         tokio::task::yield_now().await;
                     }
