@@ -16,9 +16,12 @@ const ERRORS_WITH_OWN_NAME: [&str; 3] = [
 /// `stdSerializers.err(error)` for an error the manager logs: `type` (the
 /// constructor name, held in [`AgentError::name`]) and `message`, then the
 /// error's own enumerable properties, which for the errors logged here is
-/// the `name` that `RewindCapabilityError` assigns. The `stack` is left out:
-/// its frames are node source locations, which no Rust error has, so the
-/// node twin drops it before comparing.
+/// the `name` that `RewindCapabilityError` assigns.
+///
+/// Documented exception (`porting/compatibility-exceptions.md`, the error
+/// `stack` entry): the `stack` key is left out. Its frames are node source
+/// locations, which no Rust error has, so the node twin drops it before
+/// comparing; every other key is compared as printed.
 pub(crate) fn err_binding(error: &AgentError) -> JsValue {
     err_binding_with(&error.name, &error.message, Vec::new())
 }
