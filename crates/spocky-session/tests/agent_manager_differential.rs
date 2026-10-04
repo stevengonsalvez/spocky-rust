@@ -395,7 +395,12 @@ const { AgentManager } = await import(`${dist}/server/agent/agent-manager.js`);
 const { AgentStorage } = await import(`${dist}/server/agent/agent-storage.js`);
 const { toAgentPayload } = await import(`${dist}/server/agent/agent-projections.js`);
 const fs = await import("node:fs");
-const logger = { child() { return this; }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
+// pino's child logger: its bindings come first in every line the child logs.
+const withChild = (base, bindings) => Object.fromEntries([
+  ["child", (more) => withChild(base, { ...bindings, ...more })],
+  ...["trace", "debug", "info", "warn", "error"].map((level) => [level, (merged, ...rest) => base[level](merged !== null && typeof merged === "object" ? { ...bindings, ...merged } : merged, ...rest)]),
+]);
+const logger = { child(bindings) { return withChild(this, bindings); }, trace() {}, debug() {}, info() {}, warn() {}, error() {} };
 // pino's default `err` serializer, as the pinned logger applies it to an `err` binding.
 // The stack is dropped: its frames are node source locations no Rust error has.
 const { validateBeforeRequest } = await import(`${dist}/server/plugins/lifecycle/index.js`);
@@ -1039,7 +1044,7 @@ const rewindScenario = async () => {
   const warns = [];
   const infos = [];
   // Only the rewind messages: the manager logs other info lines this port does not.
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); }, info(bindings, message) { if (message.startsWith("agent.rewind.")) infos.push([bindings, message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); }, info(bindings, message) { if (message.startsWith("agent.rewind.")) infos.push([bindings, message]); } };
   const calls = [];
   const registry = new AgentStorage(`${home}/rewind`, logger);
   const manager = new AgentManager({
@@ -1098,7 +1103,7 @@ const cancelLogsScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
   const logs = [];
-  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
+  const recorder = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
   const cases = {};
   const runCase = async (name, turns, specExtra, managerExtra = {}, wait = 0) => {
     const calls = [];
@@ -1129,7 +1134,7 @@ const reloadScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const collect = async (stream, events) => { for await (const event of stream) events.push(event); return events; };
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const build = async (name, { provider = "fake", turns = [], specExtra = {}, managerExtra = {} } = {}) => {
     const calls = [];
     const registry = new AgentStorage(`${home}/reload-${name}`, logger);
@@ -1234,7 +1239,7 @@ const reloadScenario = async () => {
 const failureLogsScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const logs = [];
-  const recorder = { ...logger, child() { return this; }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
+  const recorder = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { logs.push(["warn", serializeLogErr(bindings), message]); }, error(bindings, message) { logs.push(["error", serializeLogErr(bindings), message]); } };
   const build = async (name, specExtra, clientsOnly = false) => {
     const calls = [];
     const registry = new AgentStorage(`${home}/failure-${name}`, logger);
@@ -1453,7 +1458,7 @@ const timelineItemsScenario = async () => {
 const availabilityScenario = async () => {
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const manager = new AgentManager({
     logger: warnLogger,
     registry: new AgentStorage(`${home}/availability`, logger),
@@ -1477,7 +1482,7 @@ const importableScenario = async () => {
   const bulk = { sessions: Array.from({ length: 22 }, (_, index) => ({ providerHandleId: `bulk-${index}`, cwd: "/bulk", title: `Bulk ${index}`, firstPromptPreview: null, lastPromptPreview: null, lastActivityAt: 1600000000000 + index * 1000 })) };
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const listing = { ...JSON.parse(capabilitiesJson), supportsSessionListing: true };
   const make = (provider, importable) => fakeClient(calls, spec(provider, { capabilities: listing, ...(importable ? { importable } : {}) }));
   const clients = {
@@ -1526,7 +1531,7 @@ const importableScenario = async () => {
 const draftScenario = async () => {
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const commands = [{ name: "review", description: "Review code", argumentHint: "" }];
   const features = [{ type: "toggle", id: "fast", label: "Fast", value: false }];
   const sessionCommands = [{ name: "session-review", description: "From a session", argumentHint: "" }];
@@ -1579,7 +1584,7 @@ const registryScenario = async () => {
   const gammaId = "00000000-0000-4000-8000-0000000000f5";
   const calls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const client = (provider, extra = {}) => fakeClient(calls, spec(provider, extra));
   const definition = { enabled: true };
   const manager = new AgentManager({
@@ -1633,7 +1638,7 @@ const callbacksScenario = async () => {
   const calls = [];
   const log = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const client = (provider, turns) => fakeClient(calls, spec(provider, { turns: turns.map((name) => scripted[name]) }));
   const clients = { p1: client("p1", ["coalesce"]), p2: client("p2", ["failed"]), p3: client("p3", ["permission"]), p4: client("p4", ["coalesce"]) };
   const manager = new AgentManager({
@@ -1679,7 +1684,7 @@ const persistFailureScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const calls = [];
   const errors = [];
-  const errorLogger = { ...logger, child() { return this; }, error(bindings, message) { errors.push([serializeLogErr(bindings), message]); } };
+  const errorLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, error(bindings, message) { errors.push([serializeLogErr(bindings), message]); } };
   const base = `${home}/persist-failure`;
   const manager = new AgentManager({ logger: errorLogger, registry: new AgentStorage(base, logger), clients: { fake: fakeClient(calls, spec("fake", { turns: [scripted.coalesce] })) }, providerDefinitions: { fake: { enabled: true } } });
   const feed = recordFeed(manager);
@@ -1820,7 +1825,7 @@ const pluginLifecycleScenario = async () => {
 const traceScenario = async () => {
   const scripted = JSON.parse(scenarioTurnsJson);
   const traces = [];
-  const traceLogger = { ...logger, child() { return this; }, trace(bindings, message) { traces.push([JSON.parse(JSON.stringify(bindings)), message]); } };
+  const traceLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, trace(bindings, message) { traces.push([JSON.parse(JSON.stringify(bindings)), message]); } };
   const calls = [];
   const manager = new AgentManager({
     logger: traceLogger,
@@ -1928,7 +1933,7 @@ const archive = async () => {
   for (const [name, id] of Object.entries({ parent: agentId, ...ids })) afterStored[name] = await registry.get(id);
   const byHandleCalls = [];
   const warns = [];
-  const warnLogger = { ...logger, child() { return this; }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
+  const warnLogger = { ...logger, child(bindings) { return withChild(this, bindings); }, warn(bindings, message) { warns.push([serializeLogErr(bindings), message]); } };
   const byHandleRegistry = new AgentStorage(`${home}/archive-handle`, logger);
   const byHandle = new AgentManager({ logger: warnLogger, registry: byHandleRegistry, clients: { fake: fakeClient(byHandleCalls, spec("fake", { archiveFails: true })) }, providerDefinitions: { fake: { enabled: true } } });
   await byHandle.createAgent({ provider: "fake", cwd }, agentId, { labels: {}, workspaceId: "wks_1" });
@@ -8194,6 +8199,6 @@ async fn importable_listing_gives_up_after_ninety_seconds() {
     );
     assert_eq!(
         stringify(&JsValue::Array(warns.lock().expect("warns").clone())),
-        r#"[[{"err":{"type":"Error","message":"Timed out listing importable sessions for provider 'hung' after 90000ms"},"provider":"hung"},"Failed to list importable sessions for provider"]]"#
+        r#"[[{"module":"agent","component":"agent-manager","err":{"type":"Error","message":"Timed out listing importable sessions for provider 'hung' after 90000ms"},"provider":"hung"},"Failed to list importable sessions for provider"]]"#
     );
 }

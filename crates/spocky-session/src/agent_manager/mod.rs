@@ -40,7 +40,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use spocky_store::js_value::JsValue;
+use spocky_store::js_value::{JsObject, JsValue};
 use tokio::sync::{Notify, mpsc};
 
 pub use archive::{
@@ -435,6 +435,23 @@ enum DispatchBatch {
     Call(Box<dyn FnOnce() + Send>),
 }
 
+/// The manager logs through `options.logger.child({ module: "agent",
+/// component: "agent-manager" })`, and pino prints a child's bindings ahead
+/// of each call's own. Every sink the options give sees its bindings that way.
+fn child_sink(sink: LogInfo) -> LogInfo {
+    Arc::new(move |bindings, message| {
+        let mut merged = JsObject::new();
+        merged.insert("module", JsValue::String("agent".to_owned()));
+        merged.insert("component", JsValue::String("agent-manager".to_owned()));
+        if let JsValue::Object(own) = &bindings {
+            for (key, value) in own.iter() {
+                merged.insert(key, value.clone());
+            }
+        }
+        sink(JsValue::Object(merged), message);
+    })
+}
+
 pub(crate) struct Inner {
     pub(crate) state: Mutex<State>,
     dispatch_tx: mpsc::UnboundedSender<DispatchBatch>,
@@ -586,10 +603,10 @@ impl AgentManager {
                     .id_factory
                     .unwrap_or_else(|| Arc::new(crate::clock::random_uuid)),
                 registry: options.registry,
-                log_warn: options.log_warn,
-                log_error: options.log_error,
-                log_info: options.log_info,
-                log_trace: options.log_trace,
+                log_warn: options.log_warn.map(child_sink),
+                log_error: options.log_error.map(child_sink),
+                log_info: options.log_info.map(child_sink),
+                log_trace: options.log_trace.map(child_sink),
                 on_workspace_state_may_have_changed: options.on_workspace_state_may_have_changed,
                 mcp_auth_token: options.mcp_auth_token,
                 resolve_paseo_tool_policy: options.resolve_paseo_tool_policy,
