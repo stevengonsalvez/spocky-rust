@@ -42,20 +42,28 @@ An operation for a source that is waiting for a reply is skipped (`= skip`) on b
 
 ```text
 scripts/phase4/relay-writer-differential.sh regenerate
-relay writer differential: 4781 operations: Rust identical to the pinned relay
+relay writer differential: 4744 operations: Rust identical to the pinned relay
 ```
 
 - 14 hand scenarios (one reservation, queueing, invalid reservations and expired deadlines,
   control frames to the byte bound, control behind a reservation, an expired control deadline,
   reservation timeout, timeout during a write, source exits, a dead source in the queue,
   destination exit, close, a second write on one reservation, a queued raw reserve with a passed
-  deadline) and 150 generated scenarios, 12,370 transcript lines.
+  deadline) and 150 generated scenarios, 12,578 transcript lines.
 - Outcomes in the transcript: `invalid_reservation`, `timeout`, `destination_closed`,
   `source_closed`, call exits, close 1013 `Slow consumer` (74), close 1013 `Delivery unavailable`
   (6), close from `Writer.close` (15), control queue overflow, binary and text frames.
-- The transcript has no clock or memory input. `scripts/phase4/relay-writer-differential.sh` runs
-  the pinned relay twice and diffs both against each other and against the committed transcript:
-  three pinned runs are byte identical.
+- Payloads and control frames carry content, not just a length: byte `i` is
+  `(seed * 131 + i * 37 + 11) mod 256` with a seed per operation, and the destination's frame line
+  prints the whole payload in hex.
+- Reservation timers: the delay of every `Process.send_after` of a payload grant is read from the
+  call itself (a trace of `:erlang.send_after`), printed as `t tN <ms>`, and compared. The delay is
+  `Deadline.remaining(deadline)`, a clock reading, so the capture records how many milliseconds
+  after the deadline was set the Writer granted the reservation (`~ elapsed=`) and the replay is
+  given it as the Writer's clock. A control frame's timer depends on two clock reads inside the
+  Writer (`delivery_timeout_ms` minus the time between them) and is not printed.
+- Two pinned runs differ only in the `~ elapsed=` and `t` lines (a clock input); the script diffs
+  them without those lines, and the comparison with the port is the replay of a fresh capture, raw.
 - `cargo test -p spocky-relay` replays the committed transcript without Docker.
 
 ## Findings
