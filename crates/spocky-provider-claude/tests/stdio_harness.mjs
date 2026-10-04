@@ -32,6 +32,19 @@ try {
   }
   for (const step of scenario.steps ?? []) {
     await sleep(step.afterMs ?? 300);
+    if (step.closeAndRead) {
+      // A closed session is still an object: its getters keep answering.
+      await session.close().catch(() => {});
+      note("RESULT", {
+        id: session.id,
+        mode: await session.getCurrentMode(),
+        modes: (await session.getAvailableModes()).map((mode) => mode.id),
+        persistence: session.describePersistence(),
+        pending: session.getPendingPermissions(),
+        features: session.features,
+      });
+      continue;
+    }
     if (step.steer) {
       const expectedTurnId = step.steer.otherTurn ? "not-the-active-turn" : turnId;
       try {
