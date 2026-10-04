@@ -77,6 +77,8 @@ jobs:
           set +e
           docker run --name "$name" --platform linux/amd64 --cpus 2 --memory 3g --memory-swap 3g --shm-size 1g \
             --network none \
+            -e IMAGE_ID -e BUNDLE_SHA256 -e REFERENCE_COMMIT -e CEF_ARCHIVE -e CEF_SHA256 \
+            -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT -e GITHUB_SHA -e GITHUB_WORKFLOW -e RUNNER_OS -e RUNNER_ARCH -e ImageVersion \
             --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
             --mount "type=bind,src=$PWD/evidence-linux,dst=/output" \
             spocky-renderer-linux-gate:pinned sh /workspace/scripts/phase2/renderer-platform-linux-gate-run.sh \
