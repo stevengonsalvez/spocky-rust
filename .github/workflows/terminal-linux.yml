@@ -11,7 +11,6 @@ permissions:
 env:
   PASEO_COMMIT: 5de45e208690b0efc51c59a585ae9729325a9204
   NODE_VERSION: 22.20.0
-  RUST_VERSION: 1.94.0
 
 jobs:
   spocky-terminal:
@@ -28,8 +27,8 @@ jobs:
 
       - name: Pinned Rust toolchain
         run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal -c clippy -c rustfmt
-          rustup default "$RUST_VERSION"
+          # rust-toolchain.toml names the channel, profile and components.
+          rustup show active-toolchain || rustup toolchain install
 
       - name: Pinned Paseo build
         run: |
