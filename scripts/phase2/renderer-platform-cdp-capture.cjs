@@ -202,6 +202,9 @@ function simplifyAxTree(nodes) {
     // Playwright viewport and media emulation, as the Chrome baseline capture uses.
     await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+    // Park the pointer in an empty corner so no tile has a hover state. An idle pointer
+    // sits at the screen centre on X11, which is inside a tile of this screen.
+    await page.mouse.move(viewport.width - 1, viewport.height - 1);
     await page.route(/:(6767)\b/, (route) => route.abort());
     await page.routeWebSocket(/:(6767)\b/, async (socket) => {
       await socket.close({ code: 1008, reason: "Blocked connection to port 6767 during parity capture." });
@@ -284,7 +287,7 @@ function simplifyAxTree(nodes) {
       storageSeeding: mode === "original" ? "@paseo:e2e flag and isolated daemon registry" : "none",
       // Fixed gate conditions, shared by every runtime. The shipped app runs with the
       // user's own settings, so these are pins of the gate, not masking.
-      gateConditions: { colorScheme: "light", reducedMotion: "reduce", viewport, deviceScaleFactor: 1 },
+      gateConditions: { colorScheme: "light", reducedMotion: "reduce", viewport, deviceScaleFactor: 1, pointer: [viewport.width - 1, viewport.height - 1] },
       environment,
       readiness,
       screenshot: {
