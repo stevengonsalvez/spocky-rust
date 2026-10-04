@@ -1,0 +1,69 @@
+name: renderer-platform-cef-linux-debug
+
+# Finds why the Linux CEF host never opens its DevTools port: builds only the host and
+# tries start-up variants under Xvfb. Work branches only.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/renderer_linux/**'
+    paths:
+      - '.github/workflows/renderer-platform-cef-linux-debug.yml'
+
+permissions:
+  contents: read
+
+env:
+  CEF_ARCHIVE: cef_binary_152.0.7+g83ffcba+chromium-152.0.7977.83_linux64_minimal.tar.bz2
+  CEF_SHA256: a75d8956901e1f91bad4f7151af1dc31aaa2d46888cd6af51adb0ecaa77f860f
+
+jobs:
+  variants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and runtime packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb cmake ninja-build build-essential libx11-dev libgtk-3-0t64 libnss3 libxss1 libasound2t64 libgbm1 libxtst6 libatspi2.0-0t64 libdrm2 libcups2t64 libxkbcommon0 dbus-x11 fonts-dejavu-core
+      - name: Build the CEF host
+        run: |
+          curl -fsSL -o cef.tar.bz2 "https://cef-builds.spotifycdn.com/$(printf '%s' "$CEF_ARCHIVE" | sed 's/+/%2B/g')"
+          echo "$CEF_SHA256  cef.tar.bz2" | sha256sum -c -
+          mkdir cef && tar -xjf cef.tar.bz2 -C cef
+          cmake -S scripts/phase2/renderer-platform-cef -B cefbuild -G Ninja -DCEF_ROOT="$(ls -d "$PWD"/cef/cef_binary_*)" \
+            -DCMAKE_BUILD_TYPE=Release -DPROJECT_ARCH=x86_64
+          ninja -C cefbuild spocky-cef-host
+      - name: Try start-up variants
+        run: |
+          mkdir -p variant-logs
+          run_variant() {
+            name="$1"; wrapper="$2"; flags="$3"
+            port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+            cache=$(mktemp -d)
+            echo "=== variant $name: wrapper='$wrapper' flags='$flags'"
+            (xvfb-run -a -s "-screen 0 1280x800x24" $wrapper cefbuild/Release/spocky-cef-host $flags \
+              --spocky-cdp-port="$port" --spocky-cache="$cache" --spocky-bound-ms=45000 \
+              "--spocky-url=data:text/html,<p>x</p>" > "variant-logs/$name.log" 2>&1 &)
+            ok=no
+            for i in $(seq 1 40); do
+              if curl -fsS -m 2 "http://127.0.0.1:$port/json/version" > /dev/null 2>&1; then ok=yes; break; fi
+              sleep 1
+            done
+            echo "variant $name devtools=$ok"
+            grep -E "DevTools listening" "variant-logs/$name.log" | head -1 || true
+            sleep 8
+          }
+          run_variant plain "" ""
+          run_variant gpu-off "" "--disable-gpu"
+          run_variant shm "" "--disable-dev-shm-usage"
+          run_variant swiftshader "" "--use-gl=angle --use-angle=swiftshader"
+          run_variant ozone-x11 "" "--ozone-platform=x11"
+          run_variant dbus "dbus-run-session --" ""
+          echo "--- tail of plain log"; grep -v dbus variant-logs/plain.log | tail -15 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cef-linux-debug-logs
+          path: variant-logs
