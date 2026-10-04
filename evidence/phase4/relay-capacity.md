@@ -18,7 +18,9 @@ What the process does to the world comes back as `Effect`s: reservation timers, 
 image and pinned source as slice 1) from fake socket processes and prints one block per operation:
 the reply, the inputs the relay read (`~`), the `:relay_memory_pressure` sends in the order the
 relay made them (`@`, taken from a send trace of the Capacity process and compared unsorted), and
-a state line: gauges, pressure victims and batch, whether a recheck is armed, the live monitors
+a state line: gauges, pressure victims and batch, the armed recheck count (the relay keeps a flag; the port counts the
+`SchedulePressureRecheck` effects it has not yet consumed, so a double schedule prints 2 against the
+relay's 1), the live monitors
 (`Process.info(capacity, :monitors)`), the live reservation timers (`Process.read_timer`), the
 order of the `active` and `blocked` trees, map sizes and metric counters.
 `scripts/phase4/relay-capacity-differential.sh` runs it and replays the result through the crate;
@@ -35,14 +37,17 @@ duration is a clock reading.
 
 ```text
 scripts/phase4/relay-capacity-differential.sh regenerate
-relay capacity differential: 10224 operations: Rust identical to the pinned relay
+relay capacity differential: 11514 operations: Rust identical to the pinned relay
 ```
 
-- Operation script: 11 hand scenarios (lifecycle, limits, holder exits, ingress budget, delivery and
+- Operation script: 12 hand scenarios (lifecycle, limits, holder exits, ingress budget, delivery and
   blocked sources, shedding order, batch sizes with continued pressure and recovery, the batch
-  cap, idle pressure) and 300 generated scenarios. 32,418 transcript lines. The generator runs
-  each operation on the port while it writes the script, so most targets exist: 80 starts, 347
-  attaches and 140 message admits succeed. Every error reason of the API appears.
+  cap, idle pressure, `start_delivery` under pressure) and 300 generated scenarios. The first
+  version of this range had 13,931 operations; regenerating the script with the shorter pressure
+  phases (the relay's 100 ms recheck) and the generator that runs on the port changed the count
+  to 10,224, then 11,514 after the pressure-start cases, so the earlier figure no longer applies. 36,309 transcript lines. The generator runs
+  each operation on the port while it writes the script, so most targets exist: 125 starts, 334
+  attaches and 341 message admits succeed. Every error reason of the API appears, including `start_delivery` `:pressure` (4 cases).
 - Pressure: shed batches 1, 2, 3, 4, 6, 8, 12, 16, 21, 24, 64, 128, 256, 512, 1,024 and others
   appear. The first batch is `ceil((memory - watermark) / 33554418)` clamped to 1..64; the hand and
   generated scenarios use watermarks that put the reading in the middle of a step (16, 48, 80 and
