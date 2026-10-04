@@ -1,0 +1,18 @@
+Real-binary test of the Claude provider, 2026-10-04.
+
+Command (through the build gate, target dir p4_provider_claude):
+  SPOCKY_REAL_CLAUDE=1 cargo test --locked -p spocky-provider-claude --test real_claude -- --ignored --nocapture
+Result: 1 passed, 0 failed (a_turn_runs_against_the_loopback_stub, 3.02 s).
+
+Binary: /usr/local/bin/claude, 2.1.289 (Claude Code)
+  sha256 358aa0e31666c48b2340ad9fa4003436105086ca12e1ecd4c5266d18598c2f7f
+Test file crates/spocky-provider-claude/tests/real_claude.rs
+  sha256 7c7cf558eee183f2738cf71ac38500d92868886600050eaad679f87a3471d77c
+
+Setup: the binary runs under /usr/bin/sandbox-exec with a loopback-only seatbelt
+profile (outbound denied except localhost and Unix sockets), a disposable HOME and
+CLAUDE_CONFIG_DIR, proxies aimed at an egress guard, and ANTHROPIC_BASE_URL at a
+loopback Messages API stub on a random port. The test asserts thread_started, then
+the stub's reply as a message, then turn_completed, no turn_failed, a POST to
+/v1/messages at the stub, and an empty egress guard. Waits are bounded and a
+300 s watchdog stops the launched pids and aborts.
