@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use spocky_contracts::js_value::{JsValue, stringify};
+
 /// The pinned `dist/server/terminal` modules with their SHA-256.
 pub const PINNED_TERMINAL_MODULES: &[(&str, &str)] = &[
     (
@@ -271,14 +273,30 @@ pub fn run_node(pinned: &Pinned, script: &str, args: &[&str]) -> String {
     } else {
         "timeout"
     };
-    let output = Command::new(timeout)
+    // The arguments travel on stdin, as a JSON array that the prelude turns
+    // back into `process.argv`: one argument may not exceed 128 KiB on Linux.
+    let mut all = vec![JsValue::String(
+        pinned.terminal_dir.to_string_lossy().into_owned(),
+    )];
+    all.extend(args.iter().map(|arg| JsValue::String((*arg).to_owned())));
+    let prelude = "process.argv = [process.argv[0], ...JSON.parse((await import('node:fs')).readFileSync(0, 'utf8'))];\n";
+    let mut child = Command::new(timeout)
         .args(["--kill-after=5", "120"])
         .arg(&pinned.node)
-        .args(["--input-type=module", "-e", script])
-        .arg(&pinned.terminal_dir)
-        .args(args)
-        .output()
+        .args(["--input-type=module", "-e", &format!("{prelude}{script}")])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .expect("run pinned node");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let payload = stringify(&JsValue::Array(all));
+    let writer = std::thread::spawn(move || {
+        use std::io::Write as _;
+        let _ = stdin.write_all(payload.as_bytes());
+    });
+    let output = child.wait_with_output().expect("run pinned node");
+    let _ = writer.join();
     assert!(
         output.status.success(),
         "node failed: {}",
