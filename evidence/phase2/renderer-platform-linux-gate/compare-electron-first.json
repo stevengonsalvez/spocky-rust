@@ -1,0 +1,491 @@
+{
+  "method": {
+    "membership": "complete PNG SHA-256 equality",
+    "rmse": "sqrt(mean squared RGBA byte difference) / 255",
+    "normalization": "none",
+    "mask": "none",
+    "threshold": "none"
+  },
+  "baseline": {
+    "name": "original-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Paseo/0.10.0 Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "candidate": {
+    "name": "candidate-electron-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "visual": {
+    "baselineSha256": "a1838d6efd651c0670167bf33d45a1eb058d44d64e6f0acfce9f9458916703ed",
+    "candidateSha256": "673081c3c368de8094b7c91861f3dd96e0fd318de6c8e44b2842ea4b7f9dfbda",
+    "exactMembership": false,
+    "baselineSize": [
+      1280,
+      800
+    ],
+    "candidateSize": [
+      1280,
+      800
+    ],
+    "comparable": true,
+    "normalizedRmse": 0.015849199252460807,
+    "differentPixels": 29064,
+    "differenceBoundingBox": [
+      806,
+      13,
+      1266,
+      608
+    ]
+  },
+  "focusWalk": {
+    "baselineEntries": 24,
+    "candidateEntries": 20,
+    "baselineCompleted": true,
+    "candidateCompleted": true,
+    "equal": false,
+    "firstDifferentIndex": 17
+  },
+  "activations": {
+    "addProjectActivation": {
+      "baselineChanged": true,
+      "candidateChanged": true,
+      "baselineDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project\n8918560ac35e\nSearch for directory\nFind a directory on 8918560ac35e\nBrowse\nChoose or create a directory in Finder\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on 8918560ac35e\n\u2191+\u2193\nNavigate\n\u23ce\nSelect\nEsc\nClose",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory\nFind a directory on 8918560ac35e",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Browse\nChoose or create a directory in Finder",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory\nCreate an empty directory on 8918560ac35e",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "candidateDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project\nisolated-baseline\nSearch for directory\nFind a directory on isolated-baseline\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on isolated-baseline\n\u2191\u2193\nNavigate\n\u23ce\nSelect\nEsc\nClose",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory\nFind a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory\nCreate an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "dialogsEqual": false,
+      "baselinePathAfter": "open-project",
+      "candidatePathAfter": ""
+    },
+    "plusActivation": {
+      "baselineChanged": true,
+      "candidateChanged": false,
+      "baselineDialogs": [],
+      "candidateDialogs": [],
+      "dialogsEqual": true,
+      "baselinePathAfter": "new",
+      "candidatePathAfter": ""
+    }
+  },
+  "accessibilityTree": {
+    "baselineNodes": 200,
+    "candidateNodes": 124,
+    "equal": false,
+    "rolesAndNamesEqual": false,
+    "differences": [
+      {
+        "path": "/",
+        "field": "name",
+        "baseline": "Paseo",
+        "candidate": "dioxus | \u26fa"
+      },
+      {
+        "path": "/",
+        "field": "properties",
+        "changed": {
+          "url": [
+            "paseo://app/open-project",
+            "http://127.0.0.1:34965/"
+          ]
+        }
+      },
+      {
+        "path": "/0/0",
+        "field": "childCount",
+        "baseline": 2,
+        "candidate": 1
+      },
+      {
+        "path": "/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "main"
+      },
+      {
+        "path": "/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 4
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "navigation"
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": "Primary navigation"
+      },
+      {
+        "path": "/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 3
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "none"
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": null
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "ignored",
+        "baseline": false,
+        "candidate": true
+      },
+      {
+        "path": "/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 4
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "button"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": "New workspace"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "properties",
+        "changed": {
+          "focusable": [
+            null,
+            true
+          ],
+          "invalid": [
+            null,
+            "false"
+          ]
+        }
+      },
+      {
+        "path": "/0/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 1,
+        "candidate": 2
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "none"
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "name",
+        "baseline": "",
+        "candidate": null
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "ignored",
+        "baseline": false,
+        "candidate": true
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0",
+        "field": "childCount",
+        "baseline": 2,
+        "candidate": 1
+      },
+      {
+        "path": "/0/0/0/0/0/0/0/0/0",
+        "field": "role",
+        "baseline": "generic",
+        "candidate": "image"
+      }
+    ]
+  },
+  "accessibilityRaw": {
+    "baselineNodes": 200,
+    "candidateNodes": 124,
+    "equal": false,
+    "differentNodeIndexes": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      66,
+      68,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106
+    ],
+    "normalized": "nodeId, backendDOMNodeId, parentId, childIds, frameId only (generated ids)"
+  },
+  "pageOutputRaw": {
+    "consoleMessages": {
+      "baseline": [
+        {
+          "type": "warning",
+          "text": "Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+          "location": {
+            "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+            "lineNumber": 237,
+            "columnNumber": 6878
+          }
+        },
+        {
+          "type": "warning",
+          "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+          "location": {
+            "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+            "lineNumber": 14863,
+            "columnNumber": 219
+          }
+        },
+        {
+          "type": "warning",
+          "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+          "location": {
+            "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+            "lineNumber": 14863,
+            "columnNumber": 219
+          }
+        },
+        {
+          "type": "warning",
+          "text": "[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+          "location": {
+            "url": "paseo://app/_expo/static/js/web/index-754a4c8c2a3c64afce5180566e17fc95.js",
+            "lineNumber": 14863,
+            "columnNumber": 219
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        }
+      ],
+      "equal": false
+    },
+    "pageErrors": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    },
+    "failedRequests": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    },
+    "errorResponses": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    }
+  },
+  "inExactMembership": false
+}
