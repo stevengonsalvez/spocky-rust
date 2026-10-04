@@ -1,0 +1,113 @@
+name: renderer-platform-windows
+
+# Windows leg of the renderer gate: the shipped Paseo desktop app, CEF host A and
+# Electron host B, compared with exact full-PNG membership. Work branches only.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/renderer_linux/**'
+
+permissions:
+  contents: read
+
+env:
+  REFERENCE_COMMIT: 5de45e208690b0efc51c59a585ae9729325a9204
+  CEF_ARCHIVE: cef_binary_152.0.7+g83ffcba+chromium-152.0.7977.83_windows64_minimal.tar.bz2
+  CEF_SHA256: 2dd1b66b43af048d123341c5c2e92c2fabe3e126f9859b2b3a2a69e05826af00
+  CARGO_TERM_COLOR: never
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out this branch
+        uses: actions/checkout@v4
+
+      - name: Check out the pinned Paseo reference
+        uses: actions/checkout@v4
+        with:
+          repository: getpaseo/paseo
+          ref: ${{ env.REFERENCE_COMMIT }}
+          path: reference
+
+      - name: Verify the reference commit
+        run: |
+          test "$(git -C reference rev-parse HEAD)" = "$REFERENCE_COMMIT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.94.0
+
+      - name: Build the Dioxus web bundle
+        run: |
+          cargo install dioxus-cli --version 0.7.0 --locked
+          cargo fetch --locked
+          dx build --web -p spocky-ui-renderer-pilot --bin spocky-ui-web \
+            --no-default-features --features web --bundle web --release --frozen
+          bundle="$(find target/dx -type d -path '*spocky-ui-web/release/web/public' | head -n 1)"
+          test -f "$bundle/index.html"
+          echo "BUNDLE=$GITHUB_WORKSPACE/$bundle" >> "$GITHUB_ENV"
+          (cd "$bundle" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum)
+
+      - name: Build the shipped desktop app as the reference ships it
+        working-directory: reference
+        env:
+          CI: '1'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          PATH="$PWD/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
+          npm run build:app-deps:clean
+          (cd packages/app && PASEO_WEB_PLATFORM=electron npx expo export --platform web)
+          npm run build --workspace=@getpaseo/desktop -- --dir --publish never
+          test -f packages/desktop/release/win-unpacked/Paseo.exe
+
+      - name: Install host B (Electron 44.2.0 from the lockfile)
+        run: |
+          mkdir hostb
+          cp scripts/phase2/renderer-platform-electron/package.json scripts/phase2/renderer-platform-electron/package-lock.json hostb/
+          (cd hostb && npm ci --no-audit --no-fund)
+
+      - name: Build host A (CEF, verified by SHA-256)
+        run: |
+          curl -fsSL -o cef.tar.bz2 "https://cef-builds.spotifycdn.com/$(printf '%s' "$CEF_ARCHIVE" | sed 's/+/%2B/g')"
+          echo "$CEF_SHA256  cef.tar.bz2" | sha256sum -c -
+          mkdir cef && tar -xjf cef.tar.bz2 -C cef
+          cmake -S scripts/phase2/renderer-platform-cef -B cefbuild -G "Visual Studio 17 2022" -A x64 \
+            -DCEF_ROOT="$(ls -d "$PWD"/cef/cef_binary_*)" -DPROJECT_ARCH=x86_64
+          cmake --build cefbuild --config Release --target spocky-cef-host
+          test -f cefbuild/Release/spocky-cef-host.exe
+
+      - name: Install the comparison dependency
+        run: python -m pip install pillow==12.1.1
+
+      - name: Run the gate
+        env:
+          SPOCKY_REF: ${{ github.workspace }}/reference
+          SPOCKY_CEF_HOST: ${{ github.workspace }}/cefbuild/Release/spocky-cef-host.exe
+          SPOCKY_HOSTB: ${{ github.workspace }}/hostb
+          SPOCKY_BUNDLE: ${{ env.BUNDLE }}
+          SPOCKY_OUT: ${{ github.workspace }}/evidence-windows
+          SPOCKY_SCRIPTS: ${{ github.workspace }}/scripts/phase2
+        run: node scripts/phase2/renderer-platform-windows-gate-run.cjs
+
+      - name: Digest of the evidence
+        if: always()
+        run: |
+          test -d evidence-windows && (cd evidence-windows && find . -type f | LC_ALL=C sort | xargs sha256sum)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-platform-windows-evidence
+          path: evidence-windows
+          if-no-files-found: warn
