@@ -1,0 +1,130 @@
+name: renderer-platform-macos
+
+# macOS leg of the renderer gate as runner output: the shipped Paseo desktop app, CEF
+# host A and Electron host B, compared with exact full-PNG membership. Work branches
+# only. Actions are pinned to commit SHAs (checkout v4, setup-node v4, setup-python v5,
+# upload-artifact v4).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/renderer_linux/**'
+    paths:
+      - '.github/workflows/renderer-platform-macos.yml'
+      - 'scripts/phase2/renderer-platform-macos-gate-run.cjs'
+
+permissions:
+  contents: read
+
+env:
+  REFERENCE_COMMIT: 5de45e208690b0efc51c59a585ae9729325a9204
+  CEF_ARCHIVE: cef_binary_152.0.7+g83ffcba+chromium-152.0.7977.83_macosarm64_minimal.tar.bz2
+  CEF_SHA256: ba6fa6704082a7b39289b56cd0ac4a423b7ad74dd929cf11f5ce588274402a75
+  CARGO_TERM_COLOR: never
+
+jobs:
+  gate:
+    runs-on: macos-14
+    timeout-minutes: 240
+    steps:
+      - name: Check out this branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Check out the pinned Paseo reference
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: getpaseo/paseo
+          ref: ${{ env.REFERENCE_COMMIT }}
+          path: reference
+
+      - name: Verify the reference commit and record the runner
+        run: |
+          test "$(git -C reference rev-parse HEAD)" = "$REFERENCE_COMMIT"
+          sw_vers; uname -m; echo "ImageVersion=$ImageVersion"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.20.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.94.0
+
+      - name: Build the Dioxus web bundle
+        run: |
+          cargo install dioxus-cli --version 0.7.0 --locked
+          cargo fetch --locked
+          dx build --web -p spocky-ui-renderer-pilot --bin spocky-ui-web \
+            --no-default-features --features web --bundle web --release --frozen
+          bundle="$(find target/dx -type d -path '*spocky-ui-web/release/web/public' | head -n 1)"
+          test -f "$bundle/index.html"
+          echo "BUNDLE=$GITHUB_WORKSPACE/$bundle" >> "$GITHUB_ENV"
+          echo "Dioxus bundle sha256:"
+          (cd "$bundle" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256)
+
+      - name: Build the shipped desktop app as the reference ships it
+        working-directory: reference
+        env:
+          CI: '1'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          PATH="$PWD/node_modules/.bin:$PATH" node scripts/postinstall-patches.mjs
+          npm run build:app-deps:clean
+          (cd packages/app && PASEO_WEB_PLATFORM=electron npx expo export --platform web)
+          npm run build --workspace=@getpaseo/desktop -- --dir --publish never -c.mac.notarize=false -c.mac.identity=null
+          app="$(find packages/desktop/release -maxdepth 2 -name Paseo.app -type d | head -n 1)"
+          test -x "$app/Contents/MacOS/Paseo"
+          echo "PASEO_APP=$GITHUB_WORKSPACE/reference/$app/Contents/MacOS/Paseo" >> "$GITHUB_ENV"
+
+      - name: Install host B (Electron 44.2.0 from the lockfile)
+        run: |
+          mkdir hostb
+          cp scripts/phase2/renderer-platform-electron/package.json scripts/phase2/renderer-platform-electron/package-lock.json hostb/
+          (cd hostb && npm ci --no-audit --no-fund)
+          (cd hostb && node node_modules/electron/install.js)
+          exe="$(cd hostb && node -p "require('electron')")"
+          test -f "$exe"
+          echo "electron binary sha256:"; shasum -a 256 "$exe"
+
+      - name: Build host A (CEF, verified by SHA-256)
+        run: |
+          curl -fsSL -o cef.tar.bz2 "https://cef-builds.spotifycdn.com/$(printf '%s' "$CEF_ARCHIVE" | sed 's/+/%2B/g')"
+          echo "$CEF_SHA256  cef.tar.bz2" | shasum -a 256 -c -
+          mkdir cef && tar -xjf cef.tar.bz2 -C cef
+          cmake -S scripts/phase2/renderer-platform-cef -B cefbuild -DCMAKE_BUILD_TYPE=Release \
+            -DCEF_ROOT="$(ls -d "$PWD"/cef/cef_binary_*)" -DPROJECT_ARCH=arm64
+          cmake --build cefbuild --target spocky-cef-host --parallel 3
+          host="$(find cefbuild -maxdepth 3 -name spocky-cef-host.app -type d | head -n 1)"
+          test -x "$host/Contents/MacOS/spocky-cef-host"
+          echo "CEF_HOST=$GITHUB_WORKSPACE/$host/Contents/MacOS/spocky-cef-host" >> "$GITHUB_ENV"
+
+      - name: Install the comparison dependency
+        run: python3 -m pip install pillow==12.1.1
+
+      - name: Run the gate
+        env:
+          SPOCKY_REF: ${{ github.workspace }}/reference
+          SPOCKY_APP: ${{ env.PASEO_APP }}
+          SPOCKY_CEF_HOST: ${{ env.CEF_HOST }}
+          SPOCKY_HOSTB: ${{ github.workspace }}/hostb
+          SPOCKY_BUNDLE: ${{ env.BUNDLE }}
+          SPOCKY_OUT: ${{ github.workspace }}/evidence-macos
+          SPOCKY_SCRIPTS: ${{ github.workspace }}/scripts/phase2
+        run: node scripts/phase2/renderer-platform-macos-gate-run.cjs
+
+      - name: Digest of the evidence
+        if: always()
+        run: |
+          test -d evidence-macos && (cd evidence-macos && find . -type f | LC_ALL=C sort | xargs shasum -a 256)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: renderer-platform-macos-evidence
+          path: evidence-macos
+          if-no-files-found: warn
