@@ -1,0 +1,104 @@
+name: renderer-platform-linux
+
+# Linux leg of the renderer gate: the pinned gate image (shipped Paseo desktop app,
+# CEF host A, Electron host B, Dioxus bundle) run with --network none. Work branches only.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/renderer_linux/**'
+    paths:
+      - '.github/workflows/renderer-platform-linux.yml'
+
+permissions:
+  contents: read
+
+env:
+  REFERENCE_COMMIT: 5de45e208690b0efc51c59a585ae9729325a9204
+  CEF_ARCHIVE: cef_binary_152.0.7+g83ffcba+chromium-152.0.7977.83_linux64_minimal.tar.bz2
+  CEF_SHA256: a75d8956901e1f91bad4f7151af1dc31aaa2d46888cd6af51adb0ecaa77f860f
+  CARGO_TERM_COLOR: never
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out this branch
+        uses: actions/checkout@v4
+
+      - name: Check out the pinned Paseo reference
+        uses: actions/checkout@v4
+        with:
+          repository: getpaseo/paseo
+          ref: ${{ env.REFERENCE_COMMIT }}
+          path: context/reference
+
+      - name: Verify the reference commit and strip git metadata
+        run: |
+          test "$(git -C context/reference rev-parse HEAD)" = "$REFERENCE_COMMIT"
+          rm -rf context/reference/.git
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.94.0
+
+      - name: Build the Dioxus web bundle
+        run: |
+          cargo install dioxus-cli --version 0.7.0 --locked
+          cargo fetch --locked
+          dx build --web -p spocky-ui-renderer-pilot --bin spocky-ui-web \
+            --no-default-features --features web --bundle web --release --frozen
+          bundle="$(find target/dx -type d -path '*spocky-ui-web/release/web/public' | head -n 1)"
+          test -f "$bundle/index.html"
+          cp -R "$bundle" context/bundle
+          echo "BUNDLE_SHA256=$(cd context/bundle && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Assemble the image context
+        run: |
+          mkdir -p context/hostb context/cefhost
+          cp scripts/phase2/renderer-platform-electron/package.json scripts/phase2/renderer-platform-electron/package-lock.json \
+            scripts/phase2/renderer-platform-electron-host.cjs context/hostb/
+          cp scripts/phase2/renderer-platform-cef/* context/cefhost/
+
+      - name: Build the gate image
+        run: |
+          docker build --platform linux/amd64 \
+            --build-arg "CEF_ARCHIVE=$CEF_ARCHIVE" --build-arg "CEF_SHA256=$CEF_SHA256" \
+            --build-arg "REFERENCE_COMMIT=$REFERENCE_COMMIT" --build-arg "BUNDLE_SHA256=$BUNDLE_SHA256" \
+            --file scripts/phase2/renderer-platform-linux-gate.Dockerfile --tag spocky-renderer-linux-gate:pinned context
+          echo "IMAGE_ID=$(docker image inspect spocky-renderer-linux-gate:pinned --format '{{.Id}}')" >> "$GITHUB_ENV"
+
+      - name: Run the gate with no network
+        run: |
+          mkdir -p evidence-linux
+          name="spocky-renderer-linux-gate-$GITHUB_RUN_ID"
+          set +e
+          docker run --name "$name" --platform linux/amd64 --cpus 2 --memory 3g --memory-swap 3g --shm-size 1g \
+            --network none \
+            --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+            --mount "type=bind,src=$PWD/evidence-linux,dst=/output" \
+            spocky-renderer-linux-gate:pinned sh /workspace/scripts/phase2/renderer-platform-linux-gate-run.sh \
+            > evidence-linux/container.log 2>&1
+          status=$?
+          set -e
+          docker inspect "$name" --format '{"State":{{json .State}},"HostConfig":{"NetworkMode":{{json .HostConfig.NetworkMode}},"Memory":{{json .HostConfig.Memory}},"MemorySwap":{{json .HostConfig.MemorySwap}},"NanoCpus":{{json .HostConfig.NanoCpus}}}}' > evidence-linux/container-state.json
+          docker rm -f "$name" > /dev/null
+          tail -n 20 evidence-linux/container.log
+          test "$status" -eq 0
+          grep -F -q RENDERER_LINUX_GATE_OK evidence-linux/container.log
+
+      - name: Digest of the evidence
+        if: always()
+        run: |
+          echo "image id: $IMAGE_ID"
+          echo "bundle sha256: $BUNDLE_SHA256"
+          test -d evidence-linux && (cd evidence-linux && find . -type f | LC_ALL=C sort | xargs sha256sum)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-platform-linux-evidence
+          path: evidence-linux
+          if-no-files-found: warn
