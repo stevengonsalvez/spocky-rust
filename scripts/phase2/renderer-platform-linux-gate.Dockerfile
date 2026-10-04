@@ -71,7 +71,10 @@ RUN npm run build --workspace=@getpaseo/desktop -- --dir --publish never
 
 # Host B: the pinned Electron 44.2.0 from the committed lockfile.
 COPY hostb /hostb
-RUN cd /hostb && npm ci --no-audit --no-fund
+# The installer downloads the binary and checks it against the release SHASUMS256.
+RUN cd /hostb && npm ci --no-audit --no-fund \
+ && node node_modules/electron/install.js \
+ && node -p "require('electron')"
 
 # Host A: the pinned CEF binary distribution, verified by SHA-256, and the host.
 RUN mkdir /cef && cd /cef \
