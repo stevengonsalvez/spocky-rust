@@ -36,6 +36,7 @@ int main(int argc, char* argv[]) {
   if (!ArgValue(argc, argv, "spocky-url").empty()) options.url = ArgValue(argc, argv, "spocky-url");
   if (!ArgValue(argc, argv, "spocky-bound-ms").empty()) options.bound_ms = std::stoi(ArgValue(argc, argv, "spocky-bound-ms"));
 
+  options.use_popup = ArgValue(argc, argv, "spocky-popup") == "1";
   CefSettings settings;
   settings.no_sandbox = true;
   settings.remote_debugging_port = std::stoi(port);
