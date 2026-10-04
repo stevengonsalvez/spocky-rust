@@ -1,0 +1,292 @@
+
+14:43:03.556 > [desktop] app startup { version: '0.10.0', platform: 'win32', arch: 'x64', isPackaged: true }
+14:43:03.562 > [dev-user-data] forced userData dir: C:\Users\RUNNER~1\AppData\Local\Temp\paseo-home-NGwQsu\user-data
+14:43:03.563 > [electron-flags] --remote-debugging-address=127.0.0.1 --remote-debugging-port=63285 --lang=en-US
+14:43:03.564 > [login-shell-env] failed; keeping inherited env {
+  reason: 'win32',
+  durationMs: 0,
+  timeoutMs: 30000,
+  error: 'login shell env is not resolved on Windows',
+  errorCode: null,
+  beforePath: 'C:\\Program Files\\Git\\mingw64\\bin;C:\\Program Files\\Git\\usr\\bin;C:\\Users\\runneradmin\\bin;C:\\hostedtoolcache\\windows\\node\\22.20.0\\x64;C:\\Program Files\\MongoDB\\Server\\7.0\\bin;C:\\aliyun-cli;C:\\vcpkg;C:\\Program Files (x86)\\NSIS\\;C:\\tools\\zstd;C:\\Program Files\\Mercurial\\;C:\\hostedtoolcache\\windows\\stack\\3.11.1\\x64;C:\\cabal\\bin;C:\\\\ghcup\\bin;C:\\mingw64\\bin;C:\\Program Files\\dotnet;C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin;C:\\Program Files\\R\\R-4.6.1\\bin\\x64;C:\\SeleniumWebDrivers\\GeckoDriver;C:\\SeleniumWebDrivers\\EdgeDriver\\;C:\\SeleniumWebDrivers\\ChromeDriver;C:\\Program Files (x86)\\sbt\\bin;C:\\Program Files (x86)\\GitHub CLI;C:\\Program Files\\Git\\bin;C:\\Program Files (x86)\\pipx_bin;C:\\npm\\prefix;C:\\hostedtoolcache\\windows\\go\\1.24.13\\x64\\bin;C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Scripts;C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64;C:\\hostedtoolcache\\windows\\Ruby\\3.3.12\\x64\\bin;C:\\Program Files\\OpenSSL\\bin;C:\\tools\\kotlinc\\bin;C:\\hostedtoolcache\\windows\\Java_Temurin-Hotspot_jdk\\8.0.504-1\\x64\\bin;C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI;C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin;C:\\ProgramData\\kind;C:\\ProgramData\\Chocolatey\\bin;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\PowerShell\\7\\;C:\\Program Files\\Microsoft\\Web Platform Installer\\;C:\\Program Files\\TortoiseSVN\\bin;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files (x86)\\WiX Toolset v3.14\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\140\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\170\\DTS\\Binn\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\ProgramData\\chocolatey\\lib\\pulumi\\tools\\Pulumi\\bin;C:\\Program Files\\CMake\\bin;C:\\ProgramData\\chocolatey\\lib\\maven\\apache-maven-3.9.16\\bin;C:\\Program Files\\Microsoft Service Fabric\\bin\\Fabric\\Fabric.Code;C:\\Program Files\\Microsoft SDKs\\Service Fabric\\Tools\\ServiceFabricLocalClusterManager;C:\\Program Files\\nodejs\\;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Git\\mingw64\\bin;C:\\Program Files\\Git\\usr\\bin;C:\\Program Files\\GitHub CLI\\;c:\\tools\\php;C:\\Program Files (x86)\\sbt\\bin;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin\\;C:\\Program Files\\Amazon\\AWSSAMCLI\\bin\\;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\mongosh\\;C:\\Program Files\\LLVM\\bin;C:\\Program Files (x86)\\LLVM\\bin;C:\\Users\\runneradmin\\.dotnet\\tools;C:\\Users\\runneradmin\\.cargo\\bin;C:\\Users\\runneradmin\\AppData\\Local\\Microsoft\\WindowsApps',
+  afterPath: 'C:\\Program Files\\Git\\mingw64\\bin;C:\\Program Files\\Git\\usr\\bin;C:\\Users\\runneradmin\\bin;C:\\hostedtoolcache\\windows\\node\\22.20.0\\x64;C:\\Program Files\\MongoDB\\Server\\7.0\\bin;C:\\aliyun-cli;C:\\vcpkg;C:\\Program Files (x86)\\NSIS\\;C:\\tools\\zstd;C:\\Program Files\\Mercurial\\;C:\\hostedtoolcache\\windows\\stack\\3.11.1\\x64;C:\\cabal\\bin;C:\\\\ghcup\\bin;C:\\mingw64\\bin;C:\\Program Files\\dotnet;C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin;C:\\Program Files\\R\\R-4.6.1\\bin\\x64;C:\\SeleniumWebDrivers\\GeckoDriver;C:\\SeleniumWebDrivers\\EdgeDriver\\;C:\\SeleniumWebDrivers\\ChromeDriver;C:\\Program Files (x86)\\sbt\\bin;C:\\Program Files (x86)\\GitHub CLI;C:\\Program Files\\Git\\bin;C:\\Program Files (x86)\\pipx_bin;C:\\npm\\prefix;C:\\hostedtoolcache\\windows\\go\\1.24.13\\x64\\bin;C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Scripts;C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64;C:\\hostedtoolcache\\windows\\Ruby\\3.3.12\\x64\\bin;C:\\Program Files\\OpenSSL\\bin;C:\\tools\\kotlinc\\bin;C:\\hostedtoolcache\\windows\\Java_Temurin-Hotspot_jdk\\8.0.504-1\\x64\\bin;C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI;C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin;C:\\ProgramData\\kind;C:\\ProgramData\\Chocolatey\\bin;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\Windows\\System32\\OpenSSH\\;C:\\Program Files\\dotnet\\;C:\\Program Files\\PowerShell\\7\\;C:\\Program Files\\Microsoft\\Web Platform Installer\\;C:\\Program Files\\TortoiseSVN\\bin;C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\Tools\\Binn\\;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files (x86)\\WiX Toolset v3.14\\bin;C:\\Program Files\\Microsoft SQL Server\\130\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\140\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\150\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\160\\DTS\\Binn\\;C:\\Program Files\\Microsoft SQL Server\\170\\DTS\\Binn\\;C:\\Strawberry\\c\\bin;C:\\Strawberry\\perl\\site\\bin;C:\\Strawberry\\perl\\bin;C:\\ProgramData\\chocolatey\\lib\\pulumi\\tools\\Pulumi\\bin;C:\\Program Files\\CMake\\bin;C:\\ProgramData\\chocolatey\\lib\\maven\\apache-maven-3.9.16\\bin;C:\\Program Files\\Microsoft Service Fabric\\bin\\Fabric\\Fabric.Code;C:\\Program Files\\Microsoft SDKs\\Service Fabric\\Tools\\ServiceFabricLocalClusterManager;C:\\Program Files\\nodejs\\;C:\\Program Files\\Git\\cmd;C:\\Program Files\\Git\\mingw64\\bin;C:\\Program Files\\Git\\usr\\bin;C:\\Program Files\\GitHub CLI\\;c:\\tools\\php;C:\\Program Files (x86)\\sbt\\bin;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin\\;C:\\Program Files\\Amazon\\AWSSAMCLI\\bin\\;C:\\Program Files\\Microsoft SQL Server\\130\\Tools\\Binn\\;C:\\Program Files\\mongosh\\;C:\\Program Files\\LLVM\\bin;C:\\Program Files (x86)\\LLVM\\bin;C:\\Users\\runneradmin\\.dotnet\\tools;C:\\Users\\runneradmin\\.cargo\\bin;C:\\Users\\runneradmin\\AppData\\Local\\Microsoft\\WindowsApps',
+  pathChanged: false
+}
+14:43:03.567 > [single-instance] disabled by PASEO_DISABLE_SINGLE_INSTANCE_LOCK
+
+DevTools listening on ws://127.0.0.1:63285/devtools/browser/4a4a5fb7-dcc2-4011-8127-c67c575ebc2a
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+14:43:04.326 > [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+14:43:04.803 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:04.808 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+14:43:04.811 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+Checking for update
+14:43:04.812 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:04.813 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:04.835 > [DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'
+14:43:04.848 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:04.915 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:04.917 > [desktop daemon] initial status check before start {
+  pid: null,
+  status: 'stopped',
+  listen: null,
+  serverId: null,
+  error: null,
+  desktopManaged: false
+}
+14:43:09.442 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:09.527 > Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md
+14:43:09.708 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:12.220 > [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+14:43:12.450 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:12.463 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:12.464 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:12.465 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:12.466 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:12.478 > [DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'
+14:43:12.493 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:12.495 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:13.928 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:14.032 > [desktop daemon] initial status check before start {
+  pid: 7868,
+  status: 'running',
+  listen: '127.0.0.1:63284',
+  serverId: 'srv_eqV80YgOFlrb',
+  error: null,
+  desktopManaged: true
+}
+14:43:18.988 > [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+14:43:19.201 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:19.213 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:19.214 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:19.214 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:19.215 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:19.244 > [DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'
+14:43:19.252 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:19.254 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:20.754 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:20.798 > [desktop daemon] initial status check before start {
+  pid: 7868,
+  status: 'running',
+  listen: '127.0.0.1:63284',
+  serverId: 'srv_eqV80YgOFlrb',
+  error: null,
+  desktopManaged: true
+}
+14:43:21.720 > [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+14:43:21.958 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:21.972 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:21.973 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:21.974 > [auto-updater] check started {
+  currentVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic'
+}
+Checking for update
+[auto-updater] Updater event failed: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+[auto-updater] Failed to check for updates: [Error: ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'
+}
+14:43:21.975 > [auto-updater] check completed {
+  currentVersion: '0.10.0',
+  targetVersion: '0.10.0',
+  releaseChannel: 'stable',
+  intent: 'automatic',
+  hasUpdate: false,
+  readyToInstall: false,
+  errorMessage: "ENOENT: no such file or directory, open 'D:\\a\\spocky-rust\\spocky-rust\\reference\\packages\\desktop\\release\\win-unpacked\\resources\\app-update.yml'"
+}
+14:43:21.991 > [DesktopUpdater] Silent update check failed ENOENT: no such file or directory, open 'D:\a\spocky-rust\spocky-rust\reference\packages\desktop\release\win-unpacked\resources\app-update.yml'
+14:43:21.998 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:21.999 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
+14:43:23.392 > [desktop daemon] initial status check before start {
+  pid: 7868,
+  status: 'running',
+  listen: '127.0.0.1:63284',
+  serverId: 'srv_eqV80YgOFlrb',
+  error: null,
+  desktopManaged: true
+}
+14:43:23.420 > [open-project] renderer requested pending path: { webContentsId: 1, pendingPath: null }
