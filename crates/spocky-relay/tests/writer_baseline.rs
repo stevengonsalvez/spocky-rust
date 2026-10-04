@@ -71,6 +71,9 @@ struct Machine {
     /// The Writer's clock reading, as milliseconds since the far deadline was set (an input).
     now: i64,
     timer_events: Vec<(Token, i64)>,
+    timeout_ms: i64,
+    /// References of every frame sent; a control frame's reservation timer has the same value.
+    frame_refs: BTreeSet<u64>,
     dest: Vec<String>,
     replies: Vec<String>,
 }
@@ -94,6 +97,8 @@ impl Machine {
             next_call: 0,
             now: 0,
             timer_events: Vec::new(),
+            timeout_ms: timeout,
+            frame_refs: BTreeSet::new(),
             dest: Vec::new(),
             replies: Vec::new(),
         }
@@ -155,6 +160,7 @@ impl Machine {
                     } => {
                         self.counters[1] += 1;
                         let name = format!("w{}", self.counters[1]);
+                        self.frame_refs.insert(reference.0);
                         self.frames.insert(name.clone(), reference);
                         self.frame_names.insert(reference, name.clone());
                         let opcode = match opcode {
@@ -289,6 +295,18 @@ impl Machine {
             .iter()
             .filter_map(|(token, ms)| Some((self.token_names.get(token)?.clone(), *ms)))
             .collect();
+        // A control frame's timer is `delivery_timeout_ms` minus the time between two clock reads
+        // in the Writer, which the capture cannot reproduce: it must lie in the last 100 ms.
+        for (token, ms) in &self.timer_events {
+            if self.frame_refs.contains(&token.0) {
+                assert!(
+                    *ms > self.timeout_ms - 100 && *ms <= self.timeout_ms,
+                    "control timer {ms} outside ({} - 100, {}]",
+                    self.timeout_ms,
+                    self.timeout_ms
+                );
+            }
+        }
         self.timer_events.clear();
         if let Some((_, ms)) = named.first() {
             lines.push(format!("~ elapsed={}", FAR - ms));
