@@ -46,7 +46,7 @@ if [[ ! -d "$work/baseline/_build" ]]; then
 fi
 
 binary=${SPOCKY_RELAY_CAPACITY_BINARY:-$(CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR="$target" $gate_cmd \
-  cargo test -p spocky-relay --no-run --message-format=json 2>/dev/null |
+  cargo test -p spocky-relay --no-run --message-format=json |
   grep -o '"executable":"[^"]*capacity_baseline-[^"]*"' | sed 's/"executable":"//; s/"$//' | head -1)}
 
 if [[ "$mode" == "regenerate" ]]; then
