@@ -41,10 +41,29 @@ const { diagnostic } = await client.getDiagnostic();
 process.stdout.write(diagnostic);
 "#;
 
-/// A fake `claude`: its `--version` and `auth status` output.
-fn fake_claude(version: &str, auth_stdout: &str, auth_stderr: &str, auth_exit: i32) -> String {
+/// A fake `claude`: its `--version` and `auth status` output. `hang` makes a
+/// command sleep past the probe timeout: `exec` replaces the shell with the
+/// sleeper, `child` leaves the sleeper as an orphan holding the output pipes.
+fn fake_claude(
+    version: &str,
+    auth_stdout: &str,
+    auth_stderr: &str,
+    auth_exit: i32,
+    hang: (&str, &str),
+) -> String {
+    let sleeper = |mode: &str| match mode {
+        "exec" => Some("exec sleep 30".to_owned()),
+        "child" => Some("sleep 30".to_owned()),
+        _ => None,
+    };
+    let auth = sleeper(hang.1).unwrap_or_else(|| {
+        format!(
+            "printf '%s' '{auth_stdout}'\n    printf '%s' '{auth_stderr}' >&2\n    exit {auth_exit}"
+        )
+    });
+    let version = sleeper(hang.0).unwrap_or_else(|| format!("echo '{version}'"));
     format!(
-        "#!/bin/sh\ncase \"$*\" in\n  *\"auth status\"*)\n    printf '%s' '{auth_stdout}'\n    printf '%s' '{auth_stderr}' >&2\n    exit {auth_exit};;\n  *--version*)\n    echo '{version}';;\nesac\n"
+        "#!/bin/sh\ncase \"$*\" in\n  *\"auth status\"*)\n    {auth};;\n  *--version*)\n    {version};;\nesac\n"
     )
 }
 
@@ -75,6 +94,22 @@ fn scenarios() -> Vec<(&'static str, String)> {
                 .to_owned(),
         ),
         ("auth_fails", one(r#""command":null,"authFail":true,"#)),
+        (
+            "version_hangs_exec",
+            one(r#""command":null,"versionHang":"exec","#),
+        ),
+        (
+            "version_hangs_child",
+            one(r#""command":null,"versionHang":"child","#),
+        ),
+        (
+            "auth_hangs_exec",
+            one(r#""command":null,"authHang":"exec","#),
+        ),
+        (
+            "auth_hangs_child",
+            one(r#""command":null,"authHang":"child","#),
+        ),
     ]
 }
 
@@ -102,14 +137,31 @@ fn prepare(spec: &str, scratch: &Path) -> (JsValue, String) {
         let bin = scratch.join(format!("bin-{name}"));
         std::fs::create_dir_all(&bin).expect("bin dir");
         let fail = parsed.get("authFail") == Some(&JsValue::Bool(true));
+        let hang = (
+            parsed
+                .get("versionHang")
+                .and_then(JsValue::as_str)
+                .unwrap_or_default(),
+            parsed
+                .get("authHang")
+                .and_then(JsValue::as_str)
+                .unwrap_or_default(),
+        );
         let script = if fail {
-            fake_claude("2.1.101 (Claude Code)", "partial out", "not logged in", 1)
+            fake_claude(
+                "2.1.101 (Claude Code)",
+                "partial out",
+                "not logged in",
+                1,
+                hang,
+            )
         } else {
             fake_claude(
                 &format!("2.1.1{index}0 (Claude Code)"),
                 "Logged in as test@example.com",
                 "",
                 0,
+                hang,
             )
         };
         let file = bin.join("claude");
