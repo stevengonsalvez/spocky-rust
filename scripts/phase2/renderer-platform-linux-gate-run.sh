@@ -108,6 +108,9 @@ PY
   host_log="/tmp/shipped-$name.log"
   group_pid=$!
   wait_cdp "$cdp"
+  # Warp again now the window is mapped: a launch can leave the pointer at the centre.
+  park_pointer
+  sleep 1
   timeout 600 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" - "$out" "$name" desktop
   stop_group
   kill_by_home "$home"
@@ -123,6 +126,9 @@ host_a() {
     "--spocky-url=http://127.0.0.1:$http_port/" >"$host_log" 2>&1 &
   group_pid=$!
   wait_cdp "$cdp"
+  # Warp again now the window is mapped: a launch can leave the pointer at the centre.
+  park_pointer
+  sleep 1
   timeout 300 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" "http://127.0.0.1:$http_port/" "$out" "$name" candidate
   stop_group
   kill_by_arg "$cache"
@@ -137,6 +143,9 @@ host_b() {
   host_log="/tmp/electron-$name.log"
   group_pid=$!
   wait_cdp "$cdp"
+  # Warp again now the window is mapped: a launch can leave the pointer at the centre.
+  park_pointer
+  sleep 1
   timeout 300 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" "http://127.0.0.1:$http_port/" "$out" "$name" candidate
   stop_group
 }
