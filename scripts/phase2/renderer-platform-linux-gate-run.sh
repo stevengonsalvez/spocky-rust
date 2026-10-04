@@ -64,6 +64,15 @@ kill_by_home() {
   done
 }
 
+# Children of a CEF host can outlive its process group. Stop them by exact PID, found
+# through the host's unique cache directory on their command lines.
+kill_by_arg() {
+  for cmdline in /proc/[0-9]*/cmdline; do
+    pid=${cmdline#/proc/}; pid=${pid%/cmdline}
+    if grep -a -q -- "$1" "$cmdline" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+  done
+}
+
 shipped() {
   name=$1
   home=$(mktemp -d /tmp/paseo-home.XXXXXX)
@@ -98,6 +107,7 @@ host_a() {
   wait_cdp "$cdp"
   timeout 300 node "$scripts/renderer-platform-cdp-capture.cjs" "$cdp" "http://127.0.0.1:$http_port/" "$out" "$name" candidate
   stop_group
+  kill_by_arg "$cache"
 }
 host_b() {
   name=$1
