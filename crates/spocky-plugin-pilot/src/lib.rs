@@ -22,6 +22,7 @@ use spocky_contracts::text::js_trim;
 
 mod client_runtime;
 mod daemon_rpc;
+pub mod managed_git;
 mod protocol;
 mod settings;
 
