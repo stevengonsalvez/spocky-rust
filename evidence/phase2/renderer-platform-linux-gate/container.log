@@ -1,0 +1,16 @@
+original-desktop a1838d6efd651c0670167bf33d45a1eb058d44d64e6f0acfce9f9458916703ed 1280x800@1
+original-repeat-desktop a1838d6efd651c0670167bf33d45a1eb058d44d64e6f0acfce9f9458916703ed 1280x800@1
+missing shared libraries for the CEF host: none
+candidate-desktop 673081c3c368de8094b7c91861f3dd96e0fd318de6c8e44b2842ea4b7f9dfbda 1280x800@1
+missing shared libraries for the CEF host: none
+candidate-repeat-desktop 673081c3c368de8094b7c91861f3dd96e0fd318de6c8e44b2842ea4b7f9dfbda 1280x800@1
+candidate-electron-desktop 673081c3c368de8094b7c91861f3dd96e0fd318de6c8e44b2842ea4b7f9dfbda 1280x800@1
+candidate-electron-repeat-desktop 673081c3c368de8094b7c91861f3dd96e0fd318de6c8e44b2842ea4b7f9dfbda 1280x800@1
+membership=False rmse=0.015849199252460807 focusEqual=False axEqual=False
+membership=False rmse=0.015849199252460807 focusEqual=False axEqual=False
+membership=False rmse=0.015849199252460807 focusEqual=False axEqual=False
+membership=True rmse=0.0 focusEqual=True axEqual=True
+membership=True rmse=0.0 focusEqual=True axEqual=True
+membership=True rmse=0.0 focusEqual=True axEqual=True
+membership=True rmse=0.0 focusEqual=True axEqual=True
+RENDERER_LINUX_GATE_OK
