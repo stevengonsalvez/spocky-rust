@@ -1466,28 +1466,9 @@ pub fn acquire_git(
         safe_relative_path(plugin_path)?
     };
     let acquired = (|| {
-        run_bounded(
-            Command::new("git")
-                .args(["clone", "--no-checkout", "--", remote])
-                .arg(&staging),
-            timeout,
-        )?;
-        run_bounded(
-            Command::new("git")
-                .args(["checkout", "--detach", reviewed_revision])
-                .current_dir(&staging),
-            timeout,
-        )?;
-        let output = run_bounded(
-            Command::new("git")
-                .args(["rev-parse", "HEAD"])
-                .current_dir(&staging),
-            timeout,
-        )?;
-        let actual_revision = js_trim(
-            &String::from_utf8(output.stdout).map_err(|_| PluginError::InvalidCommandOutput)?,
-        )
-        .to_owned();
+        managed_git::clone_remote(remote, &staging, timeout)?;
+        managed_git::checkout_commit(&staging, reviewed_revision, timeout)?;
+        let actual_revision = managed_git::rev_parse(&staging, "HEAD", timeout)?;
         if actual_revision != reviewed_revision {
             return Err(PluginError::ReviewedRevisionMismatch {
                 expected: reviewed_revision.to_owned(),
