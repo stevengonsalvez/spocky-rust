@@ -26,6 +26,11 @@ endif()
 set(HOST_NAME "spocky-cef-host")
 set(HOST_BUNDLE_ID "org.spocky.cefhost")
 
+if(NOT OS_MAC)
+  # libcef is linked directly on Linux and Windows (macOS loads it at runtime).
+  ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+endif()
+
 if(OS_WINDOWS)
   SET_CEF_TARGET_OUT_DIR()
   add_executable(${HOST_NAME} host.cc main_win.cc)
