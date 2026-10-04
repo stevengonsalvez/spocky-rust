@@ -1,6 +1,7 @@
 #include "host.h"
 
 #include "include/base/cef_callback.h"
+#include "include/cef_browser.h"
 #include "include/wrapper/cef_closure_task.h"
 
 namespace {
@@ -65,6 +66,16 @@ void HostApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
   CefBrowserSettings browser_settings;
   browser_settings.background_color = CefColorSetARGB(255, 255, 255, 255);
+  if (options_.use_popup) {
+    // Non-Views path, like cefsimple without --use-views: CEF creates its own window.
+    CefWindowInfo window_info;
+    window_info.SetAsPopup(nullptr, "spocky-cef-host");
+    window_info.bounds = CefRect(0, 0, kWidth, kHeight);
+    window_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+    CefBrowserHost::CreateBrowser(window_info, new HostClient, options_.url, browser_settings, nullptr, nullptr);
+    CefPostDelayedTask(TID_UI, base::BindOnce(&CefQuitMessageLoop), options_.bound_ms);
+    return;
+  }
   CefRefPtr<CefBrowserView> browser_view = CefBrowserView::CreateBrowserView(
       new HostClient, options_.url, browser_settings, nullptr, nullptr,
       new HostBrowserViewDelegate);
