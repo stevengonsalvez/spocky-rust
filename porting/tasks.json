@@ -1559,6 +1559,13 @@
           "leadVerification": "daemon, daemon-app, contracts, plugin-pilot 461/0 with pinned node and dist, clippy, fmt, workspace check, spocky-daemon bin; gated on 912b4c08 and rebased over the docs-only ledger commits (crate trees identical)"
         },
         {
+          "lane": "p3_session",
+          "date": "2026-10-04",
+          "sourceRange": "cbc28774..dc3c3991 (8: plugin emits ordered with subscribers through call_in_order, manager child logger bindings in trace logs, importable js_to_lowercase, git positive_integer for any finite integer, numbered UUID masks, closed-agent archive and null providerOptions differentials; PASS p3_session-dc3c3991)",
+          "integrationHead": "fcf94d66",
+          "leadVerification": "session plus daemon-app 162/0 with pinned node and dist, clippy, fmt, workspace check, spocky-daemon bin"
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
