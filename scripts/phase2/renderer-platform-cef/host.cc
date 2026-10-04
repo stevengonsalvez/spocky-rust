@@ -67,9 +67,9 @@ void HostApp::OnContextInitialized() {
   CefBrowserSettings browser_settings;
   browser_settings.background_color = CefColorSetARGB(255, 255, 255, 255);
   if (options_.use_popup) {
-    // Non-Views path, like cefsimple without --use-views: CEF creates its own window.
+    // Non-Views path, like cefsimple without --use-views: with no parent set, CEF creates
+    // its own top-level window.
     CefWindowInfo window_info;
-    window_info.SetAsPopup(nullptr, "spocky-cef-host");
     window_info.bounds = CefRect(0, 0, kWidth, kHeight);
     window_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserHost::CreateBrowser(window_info, new HostClient, options_.url, browser_settings, nullptr, nullptr);
