@@ -140,46 +140,148 @@ pub struct SpawnFailure {
     pub message: String,
 }
 
-/// libuv's name for an errno value (`uv_err_name`), for the codes a spawn
-/// reports.
+/// libuv's name for an errno value (`uv_err_name`): the POSIX codes of its
+/// error map, numbered for the host.
+#[allow(clippy::too_many_lines)] // The tables.
 fn errno_name(number: i32) -> Option<&'static str> {
     #[cfg(target_os = "macos")]
-    const PLATFORM: [(i32, &str); 5] = [
-        (11, "EDEADLK"),
+    const TABLE: [(i32, &str); 65] = [
+        (7, "E2BIG"),
+        (13, "EACCES"),
+        (48, "EADDRINUSE"),
+        (49, "EADDRNOTAVAIL"),
+        (47, "EAFNOSUPPORT"),
         (35, "EAGAIN"),
+        (37, "EALREADY"),
+        (9, "EBADF"),
+        (16, "EBUSY"),
+        (89, "ECANCELED"),
+        (53, "ECONNABORTED"),
+        (61, "ECONNREFUSED"),
+        (54, "ECONNRESET"),
+        (11, "EDEADLK"),
+        (39, "EDESTADDRREQ"),
+        (17, "EEXIST"),
+        (14, "EFAULT"),
+        (27, "EFBIG"),
+        (64, "EHOSTDOWN"),
+        (65, "EHOSTUNREACH"),
+        (92, "EILSEQ"),
+        (4, "EINTR"),
+        (22, "EINVAL"),
+        (5, "EIO"),
+        (56, "EISCONN"),
+        (21, "EISDIR"),
         (62, "ELOOP"),
+        (24, "EMFILE"),
+        (31, "EMLINK"),
+        (40, "EMSGSIZE"),
         (63, "ENAMETOOLONG"),
+        (50, "ENETDOWN"),
+        (51, "ENETUNREACH"),
+        (23, "ENFILE"),
+        (55, "ENOBUFS"),
+        (96, "ENODATA"),
+        (19, "ENODEV"),
+        (2, "ENOENT"),
+        (8, "ENOEXEC"),
+        (12, "ENOMEM"),
+        (42, "ENOPROTOOPT"),
+        (28, "ENOSPC"),
+        (78, "ENOSYS"),
+        (57, "ENOTCONN"),
+        (20, "ENOTDIR"),
+        (66, "ENOTEMPTY"),
+        (38, "ENOTSOCK"),
         (45, "ENOTSUP"),
+        (25, "ENOTTY"),
+        (6, "ENXIO"),
+        (84, "EOVERFLOW"),
+        (1, "EPERM"),
+        (32, "EPIPE"),
+        (100, "EPROTO"),
+        (43, "EPROTONOSUPPORT"),
+        (41, "EPROTOTYPE"),
+        (34, "ERANGE"),
+        (30, "EROFS"),
+        (58, "ESHUTDOWN"),
+        (44, "ESOCKTNOSUPPORT"),
+        (29, "ESPIPE"),
+        (3, "ESRCH"),
+        (60, "ETIMEDOUT"),
+        (26, "ETXTBSY"),
+        (18, "EXDEV"),
     ];
     #[cfg(not(target_os = "macos"))]
-    const PLATFORM: [(i32, &str); 5] = [
-        (11, "EAGAIN"),
-        (40, "ELOOP"),
-        (36, "ENAMETOOLONG"),
-        (35, "EDEADLK"),
-        (95, "ENOTSUP"),
-    ];
-    const COMMON: [(i32, &str); 16] = [
-        (1, "EPERM"),
-        (2, "ENOENT"),
-        (3, "ESRCH"),
-        (4, "EINTR"),
-        (5, "EIO"),
+    const TABLE: [(i32, &str); 65] = [
         (7, "E2BIG"),
-        (8, "ENOEXEC"),
-        (9, "EBADF"),
-        (12, "ENOMEM"),
         (13, "EACCES"),
-        (20, "ENOTDIR"),
-        (21, "EISDIR"),
+        (98, "EADDRINUSE"),
+        (99, "EADDRNOTAVAIL"),
+        (97, "EAFNOSUPPORT"),
+        (11, "EAGAIN"),
+        (114, "EALREADY"),
+        (9, "EBADF"),
+        (16, "EBUSY"),
+        (125, "ECANCELED"),
+        (103, "ECONNABORTED"),
+        (111, "ECONNREFUSED"),
+        (104, "ECONNRESET"),
+        (35, "EDEADLK"),
+        (89, "EDESTADDRREQ"),
+        (17, "EEXIST"),
+        (14, "EFAULT"),
+        (27, "EFBIG"),
+        (112, "EHOSTDOWN"),
+        (113, "EHOSTUNREACH"),
+        (84, "EILSEQ"),
+        (4, "EINTR"),
         (22, "EINVAL"),
-        (23, "ENFILE"),
+        (5, "EIO"),
+        (106, "EISCONN"),
+        (21, "EISDIR"),
+        (40, "ELOOP"),
         (24, "EMFILE"),
+        (31, "EMLINK"),
+        (90, "EMSGSIZE"),
+        (36, "ENAMETOOLONG"),
+        (100, "ENETDOWN"),
+        (101, "ENETUNREACH"),
+        (23, "ENFILE"),
+        (105, "ENOBUFS"),
+        (61, "ENODATA"),
+        (19, "ENODEV"),
+        (2, "ENOENT"),
+        (8, "ENOEXEC"),
+        (12, "ENOMEM"),
+        (92, "ENOPROTOOPT"),
+        (28, "ENOSPC"),
+        (38, "ENOSYS"),
+        (107, "ENOTCONN"),
+        (20, "ENOTDIR"),
+        (39, "ENOTEMPTY"),
+        (88, "ENOTSOCK"),
+        (95, "ENOTSUP"),
+        (25, "ENOTTY"),
+        (6, "ENXIO"),
+        (75, "EOVERFLOW"),
+        (1, "EPERM"),
+        (32, "EPIPE"),
+        (71, "EPROTO"),
+        (93, "EPROTONOSUPPORT"),
+        (91, "EPROTOTYPE"),
+        (34, "ERANGE"),
         (30, "EROFS"),
+        (108, "ESHUTDOWN"),
+        (94, "ESOCKTNOSUPPORT"),
+        (29, "ESPIPE"),
+        (3, "ESRCH"),
+        (110, "ETIMEDOUT"),
+        (26, "ETXTBSY"),
+        (18, "EXDEV"),
     ];
-    COMMON
+    TABLE
         .iter()
-        .chain(PLATFORM.iter())
         .find(|(value, _)| *value == number)
         .map(|(_, name)| *name)
 }
@@ -263,15 +365,20 @@ impl ChildProcess {
         }
         let mut child = command.spawn().map_err(|error| {
             // Node's `error` event: `spawn <file> <errno name>`.
-            match error.raw_os_error().and_then(errno_name) {
-                Some(code) => SpawnFailure {
+            if let Some(code) = error.raw_os_error().and_then(errno_name) {
+                return SpawnFailure {
                     message: format!("spawn {} {code}", request.command),
                     code: Some(code.to_owned()),
-                },
-                None => SpawnFailure {
-                    code: None,
-                    message: error.to_string(),
-                },
+                };
+            }
+            // libuv's name for a code it does not know.
+            let unknown = error.raw_os_error().map_or_else(
+                || error.to_string(),
+                |number| format!("Unknown system error -{number}"),
+            );
+            SpawnFailure {
+                message: format!("spawn {} {unknown}", request.command),
+                code: Some(unknown),
             }
         })?;
         let process = Rc::new(Self {
