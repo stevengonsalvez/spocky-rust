@@ -1513,6 +1513,45 @@
           "leadVerification": "session+daemon-app 160/162/162 per layer, clippy, workspace check"
         },
         {
+          "lane": "p3_session",
+          "date": "2026-10-04",
+          "sourceRange": "3e3bf4b7..cbc28774 (19 trace logs; PASS p3_session-cbc28774)",
+          "integrationHead": "c6a8d8d9",
+          "leadVerification": "session per-commit check, session tests with pinned node, clippy, workspace check"
+        },
+        {
+          "lane": "p3_slice_harness",
+          "date": "2026-10-04",
+          "sourceRange": "942e42d3..3c6274d7 (stored-persistence race class on G4 gates; clears g4-http500; PASS p3_slice_harness-3c6274d7)",
+          "integrationHead": "665444d7",
+          "leadVerification": "slice-harness 146/0, clippy, fmt, workspace check; G4 deps (with p4_daemon_services 3b19a5a6..453ffcce, already on main as folds 5afd4141 and 4733608b) on main at 665444d7",
+          "incidents": ["p4_daemon_services shared-file edits beyond single lines (contracts lib.rs registration, daemon-app spocky-daemon.rs labels wiring, session.rs label dispatch, tests/binary_frame.rs WorkspaceLabels field) accepted by the coordinator as needed for the wiring"]
+        },
+        {
+          "lane": "p2_hub_api",
+          "date": "2026-10-04",
+          "sourceRange": "b1f009bd^..13b59528 (31: the 10 js-helper commits BLOCKed in p2_hub_api-9e4813a0 plus the 21 fixes PASSed in p2_hub_api-13b59528, which close its P1 lone surrogate, P2 sign-up name and P3 UTF-16 cut findings; landed on the coordinator's instruction)",
+          "integrationHead": "1555e08a",
+          "leadVerification": "hub-pilot 132 passed with the hub fixture env, clippy, fmt, workspace check; MAX_JOIN_DEPTH moved to 3,100 for node 22.20.0, DIV-003 text updated",
+          "incidents": ["retained_pglite_runtime retained_host_bounds_delivery_when_child_stops_reading failed once under load (Timeout write_may_have_committed) and passed 3/3 alone on 1555e08a; layer does not touch retained PGlite code; LOAD-FLAKE-RETAINED-PGLITE, owner p2_pglite"]
+        },
+        {
+          "lane": "p3_contracts",
+          "date": "2026-10-04",
+          "sourceRange": "3e9b264e^..55d5fcfb (11; Unicode 16 combining classes, toLocaleLowerCase, URLSearchParams record) and 059a97d5^..3712acbd (5; default locale modifier); both base commits are inside the reviewers' per-commit evidence",
+          "integrationHead": "2a9e25fe",
+          "leadVerification": "contracts 91/0, clippy, fmt, workspace check",
+          "incidents": ["d0ca4b3e (signed zero and infinity js sort shapes) has no verdict and stays off main"]
+        },
+        {
+          "lane": "p4_relay",
+          "date": "2026-10-04",
+          "sourceRange": "7ca5ba59^..24688e55 (41: percent corpus 7ca5ba59..6e06115c and manifest fb5d9824 without own verdicts, daemon relay slice 2 04c5d296..276e6e0b under BLOCKs 1b766a6c and 66c3b3fb, closed by PASS 276e6e0b..108a3029 and 108a3029..24688e55; landed as the relay daemon chain on the coordinator's instruction)",
+          "integrationHead": "912b4c08",
+          "leadVerification": "daemon-relay endpoint and transport differentials with pinned node, relay-protocol 11 passed, clippy, fmt, workspace check",
+          "incidents": ["relay-protocol #[ignore] fixture writers render_corpus_file, write_corpus, write_extra_corpus, write_percent_corpus need SPOCKY_RELAY_*_OUT and are run by scripts/phase4/relay-protocol-differential.sh; the gate skips them under --include-ignored"]
+        },
+        {
           "lane": "p3_slice_harness",
           "date": "2026-10-02",
           "sourceRange": "2f3fc6d0..12953360 (3 commits): order history with an identity filter, --order-history",
