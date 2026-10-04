@@ -30,7 +30,9 @@ The crate's effects are replayed, not discarded: the replay derives the live mon
 reservation timers and the recheck flag from the `Monitor`, `Demonitor`, `StartReservationTimer`,
 `CancelReservationTimer` and `SchedulePressureRecheck` effects and prints them in the state line, so
 a missed demonitor, cancel or recheck would differ from the relay. The `check` operation asserts
-that `ScheduleCheck` is emitted once. The delivery wait is compared by its observation count; its
+that `ScheduleCheck` is emitted once, and after every operation the replay asserts that exactly one
+`:check` is armed (`capacity.ex:54`, `:297`); the relay's timer count is not observable from
+outside, so this is asserted, not compared. The delivery wait is compared by its observation count; its
 duration is a clock reading.
 
 ## Result
@@ -56,13 +58,17 @@ relay capacity differential: 11514 operations: Rust identical to the pinned rela
 - Multi-victim sends: 19 `@` lines list two or more sends in the order the relay made them (oldest
   blocked first, then the newest active).
 - `cargo test -p spocky-relay` replays the committed transcript without Docker.
+- `tests/capacity_boundaries.rs` also covers more candidates than the first batch (200 sockets: 64,
+  then 128, then the last 8), the microsecond floor of the delivery wait, and the stale-key crash
+  (earlier victims reported before the panic, then a reset).
 - `tests/capacity_boundaries.rs` pins what the differential cannot: a reading equal to the
   watermark, equal to the recovery level, and the batch rounding and cap, with exact readings.
   The relay reads `:erlang.memory(:total)` itself, so no run lands on those values.
 
-## Inputs and timers
+## Replayed inputs and timers
 
-The BEAM memory reading is an input. The harness sets the watermark about half a step away from
+The BEAM memory reading is an input the replay is given, not a masked output: the capture records
+the reading the relay used and every value derived from it is compared. The reading is an input. The harness sets the watermark about half a step away from
 the current reading so the first batch does not depend on drift, records the reading the relay used
 (`pressure.memory` from `:sys.get_state`), and the replay gives it to the port. Two pinned runs
 therefore differ in those numbers, and the check is the replay of a fresh capture.
