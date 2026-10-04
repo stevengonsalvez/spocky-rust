@@ -24,6 +24,8 @@ class HostApp : public CefApp, public CefBrowserProcessHandler {
   explicit HostApp(HostOptions options) : options_(options) {}
 
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
+  void OnBeforeCommandLineProcessing(const CefString& process_type,
+                                     CefRefPtr<CefCommandLine> command_line) override;
   void OnContextInitialized() override;
 
  private:
