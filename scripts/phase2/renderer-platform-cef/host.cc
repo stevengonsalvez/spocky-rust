@@ -62,6 +62,13 @@ class HostWindowDelegate : public CefWindowDelegate {
 
 }  // namespace
 
+void HostApp::OnBeforeCommandLineProcessing(const CefString& process_type,
+                                            CefRefPtr<CefCommandLine> command_line) {
+  // Without this the Linux browser process blocks in the first-run EULA dialog
+  // (first_run::ShowEulaDialog) before it starts the DevTools server.
+  if (process_type.empty()) command_line->AppendSwitch("no-first-run");
+}
+
 void HostApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
   CefBrowserSettings browser_settings;
