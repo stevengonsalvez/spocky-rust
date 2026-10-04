@@ -174,6 +174,15 @@ fn scenarios() -> Vec<(&'static str, Vec<String>, &'static str)> {
             r#"[{"afterMs":500,"steer":{"prompt":"answer instead","clear":true}}]"#,
         ),
         (
+            "getters_after_close",
+            vec![
+                INIT.into(),
+                assistant("hi"),
+                RESULT.into(),
+            ],
+            r#"[{"afterMs":400,"closeAndRead":true}]"#,
+        ),
+        (
             "exit_nonzero",
             vec![
                 INIT.into(),
@@ -436,6 +445,36 @@ fn child_runs_the_scenario() {
                 .and_then(JsValue::as_f64)
                 .unwrap_or(300.0);
             tokio::time::sleep(Duration::from_millis(after as u64)).await;
+            if step.get("closeAndRead") == Some(&JsValue::Bool(true)) {
+                let _ = session.close().await;
+                let modes = session.get_available_modes().await.unwrap_or(JsValue::Null);
+                let ids: Vec<JsValue> = modes
+                    .as_array()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|mode| mode.get("id").cloned().unwrap_or(JsValue::Undefined))
+                    .collect();
+                let mode = session.get_current_mode().await.ok().flatten();
+                let result = object(vec![
+                    ("id", session.id().map_or(JsValue::Null, JsValue::String)),
+                    ("mode", mode.map_or(JsValue::Null, JsValue::String)),
+                    ("modes", JsValue::Array(ids)),
+                    (
+                        "persistence",
+                        session.describe_persistence().unwrap_or(JsValue::Null),
+                    ),
+                    (
+                        "pending",
+                        JsValue::Array(session.get_pending_permissions().unwrap_or_default()),
+                    ),
+                    ("features", session.features().unwrap_or(JsValue::Null)),
+                ]);
+                lines
+                    .lock()
+                    .expect("lines")
+                    .push(format!("RESULT {}", stringify(&result)));
+                continue;
+            }
             if let Some(steer) = step.get("steer") {
                 let options = SteerActiveTurnOptions {
                     expected_turn_id: if steer.get("otherTurn") == Some(&JsValue::Bool(true)) {
