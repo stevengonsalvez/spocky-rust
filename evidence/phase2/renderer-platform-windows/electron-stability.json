@@ -1,0 +1,238 @@
+{
+  "method": {
+    "membership": "complete PNG SHA-256 equality",
+    "rmse": "sqrt(mean squared RGBA byte difference) / 255",
+    "normalization": "none",
+    "mask": "none",
+    "threshold": "none"
+  },
+  "baseline": {
+    "name": "candidate-electron-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "candidate": {
+    "name": "candidate-electron-repeat-desktop",
+    "browser": {
+      "product": "Chrome/152.0.7977.76",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.76 Electron/44.2.0 Safari/537.36"
+    },
+    "storageSeeding": "none"
+  },
+  "visual": {
+    "baselineSha256": "b946ee5359c52326b95b96a8469a7a00f7ac82a5ae4d767a09eca76644f5b601",
+    "candidateSha256": "b946ee5359c52326b95b96a8469a7a00f7ac82a5ae4d767a09eca76644f5b601",
+    "exactMembership": true,
+    "baselineSize": [
+      1280,
+      800
+    ],
+    "candidateSize": [
+      1280,
+      800
+    ],
+    "comparable": true,
+    "normalizedRmse": 0.0,
+    "differentPixels": 0,
+    "differenceBoundingBox": []
+  },
+  "focusWalk": {
+    "baselineEntries": 20,
+    "candidateEntries": 20,
+    "baselineCompleted": true,
+    "candidateCompleted": true,
+    "equal": true
+  },
+  "activations": {
+    "addProjectActivation": {
+      "baselineChanged": true,
+      "candidateChanged": true,
+      "baselineDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project\nisolated-baseline\nSearch for directory\nFind a directory on isolated-baseline\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on isolated-baseline\n\u2191\u2193\nNavigate\n\u23ce\nSelect\nEsc\nClose",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory\nFind a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory\nCreate an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "candidateDialogs": [
+        {
+          "role": "dialog",
+          "label": null,
+          "text": "Add project\nisolated-baseline\nSearch for directory\nFind a directory on isolated-baseline\nClone from GitHub\nSearch projects available to your GitHub account\nNew directory\nCreate an empty directory on isolated-baseline\n\u2191\u2193\nNavigate\n\u23ce\nSelect\nEsc\nClose",
+          "controls": [
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Search for directory\nFind a directory on isolated-baseline",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "Clone from GitHub\nSearch projects available to your GitHub account",
+              "disabled": false
+            },
+            {
+              "tag": "button",
+              "role": "button",
+              "label": null,
+              "text": "New directory\nCreate an empty directory on isolated-baseline",
+              "disabled": false
+            }
+          ]
+        }
+      ],
+      "dialogsEqual": true,
+      "baselinePathAfter": "",
+      "candidatePathAfter": ""
+    },
+    "plusActivation": {
+      "baselineChanged": false,
+      "candidateChanged": false,
+      "baselineDialogs": [],
+      "candidateDialogs": [],
+      "dialogsEqual": true,
+      "baselinePathAfter": "",
+      "candidatePathAfter": ""
+    }
+  },
+  "accessibilityTree": {
+    "baselineNodes": 124,
+    "candidateNodes": 124,
+    "equal": true,
+    "rolesAndNamesEqual": true,
+    "differences": []
+  },
+  "accessibilityRaw": {
+    "baselineNodes": 124,
+    "candidateNodes": 124,
+    "equal": true,
+    "differentNodeIndexes": [],
+    "normalized": "nodeId, backendDOMNodeId, parentId, childIds, frameId only (generated ids)"
+  },
+  "pageOutputRaw": {
+    "consoleMessages": {
+      "baseline": [
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        },
+        {
+          "type": "warning",
+          "text": "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n  this app to unnecessary security risks.\n\nFor more information and help, consult\nhttps://electronjs.org/docs/tutorial/security.\nThis warning will not show up\nonce the app is packaged.",
+          "location": {
+            "url": "node:electron/js2c/sandbox_bundle",
+            "lineNumber": 1,
+            "columnNumber": 104333
+          }
+        }
+      ],
+      "equal": true
+    },
+    "pageErrors": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    },
+    "failedRequests": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    },
+    "errorResponses": {
+      "baseline": [],
+      "candidate": [],
+      "equal": true
+    }
+  },
+  "inExactMembership": true
+}
