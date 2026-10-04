@@ -299,6 +299,12 @@ function simplifyAxTree(nodes) {
         : null,
       hoverMatches: [...document.querySelectorAll(":hover")].map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
       focusVisibleMatches: [...document.querySelectorAll(":focus-visible")].map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
+      // Where the window sits on the screen, to relate the OS pointer to the page.
+      window: {
+        screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight,
+        innerWidth: window.innerWidth, innerHeight: window.innerHeight,
+        screenWidth: screen.width, screenHeight: screen.height, devicePixelRatio: window.devicePixelRatio,
+      },
     }));
     const screenshotPath = path.join(outDir, `${name}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
