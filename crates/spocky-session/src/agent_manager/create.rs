@@ -392,7 +392,7 @@ impl AgentManager {
         {
             let mut event = JsObject::new();
             event.insert("agent", describe_hook_agent_of(&agent));
-            lifecycle.emit("agent.created", JsValue::Object(event));
+            self.call_in_order(move || lifecycle.emit("agent.created", JsValue::Object(event)));
         }
         Ok(agent)
     }

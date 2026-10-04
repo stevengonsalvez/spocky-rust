@@ -24,8 +24,8 @@ pub trait PluginLifecycle: Send + Sync {
     /// purpose, env }`).
     fn before(&self, name: &str, request: JsValue) -> BoxFuture<'_, AgentResult<JsValue>>;
 
-    /// `emit(name, event)`. It runs while the manager state is locked, so it
-    /// must not call back into the manager.
+    /// `emit(name, event)`. It runs on the manager's dispatcher, in order with
+    /// the events subscribers hear, so it may call back into the manager.
     fn emit(&self, name: &str, event: JsValue);
 }
 
@@ -100,9 +100,10 @@ pub(super) fn describe_hook_agent_of(agent: &ManagedAgentSnapshot) -> JsValue {
 }
 
 /// `publishAgentStream(lifecycle, agent, event, timeline)`: the turn and
-/// permission events plugins hear about; `timeline` runs only for a turn end.
+/// permission events plugins hear about, given to `emit`; `timeline` runs
+/// only for a turn end.
 pub(super) fn publish_agent_stream(
-    lifecycle: &dyn PluginLifecycle,
+    emit: impl FnOnce(&'static str, JsValue),
     agent: &JsValue,
     event: &JsValue,
     timeline: impl FnOnce() -> Vec<JsValue>,
@@ -126,7 +127,7 @@ pub(super) fn publish_agent_stream(
         object(entries)
     };
     let ended = |outcome: JsValue| {
-        lifecycle.emit(
+        (
             "agent.turn_ended",
             object(vec![
                 ("agent", agent.clone()),
@@ -134,10 +135,10 @@ pub(super) fn publish_agent_stream(
                 ("timeline", JsValue::Array(timeline())),
                 ("outcome", outcome),
             ]),
-        );
+        )
     };
-    match event.get("type").and_then(JsValue::as_str) {
-        Some("turn_started") => lifecycle.emit(
+    let published = match event.get("type").and_then(JsValue::as_str) {
+        Some("turn_started") => (
             "agent.turn_started",
             object(vec![("agent", agent.clone()), ("turnId", turn_id())]),
         ),
@@ -150,14 +151,14 @@ pub(super) fn publish_agent_stream(
             )],
         )),
         Some("turn_canceled") => ended(kind("canceled", vec![("reason", field("reason"))])),
-        Some("permission_requested") => lifecycle.emit(
+        Some("permission_requested") => (
             "agent.permission_requested",
             object(vec![
                 ("agent", agent.clone()),
                 ("request", field("request")),
             ]),
         ),
-        Some("permission_resolved") => lifecycle.emit(
+        Some("permission_resolved") => (
             "agent.permission_resolved",
             object(vec![
                 ("agent", agent.clone()),
@@ -165,8 +166,9 @@ pub(super) fn publish_agent_stream(
                 ("resolution", field("resolution")),
             ]),
         ),
-        _ => {}
-    }
+        _ => return,
+    };
+    emit(published.0, published.1);
 }
 
 fn session_open_schema() -> &'static Schema {

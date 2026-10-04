@@ -342,7 +342,7 @@ impl AgentManager {
             && !agent.snapshot.internal
         {
             publish_agent_stream(
-                &*lifecycle,
+                |name, payload| self.call_in_order(move || lifecycle.emit(name, payload)),
                 &describe_hook_agent_of(&agent.snapshot),
                 &published,
                 || {

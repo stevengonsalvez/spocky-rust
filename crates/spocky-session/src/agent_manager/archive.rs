@@ -419,7 +419,7 @@ impl AgentManager {
                     .cloned()
                     .unwrap_or(JsValue::Undefined),
             );
-            lifecycle.emit("agent.archived", JsValue::Object(event));
+            self.call_in_order(move || lifecycle.emit("agent.archived", JsValue::Object(event)));
         }
         Ok(archived)
     }
