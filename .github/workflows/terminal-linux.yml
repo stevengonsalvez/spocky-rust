@@ -35,9 +35,10 @@ jobs:
           git -C "$RUNNER_TEMP/paseo" checkout "$PASEO_COMMIT"
           cd "$RUNNER_TEMP/paseo"
           npm ci
-          npm run build:highlight
-          npm run build:plugin
           npm run build:protocol
+          npm run build:highlight
+          npm run build:client
+          npm run build:plugin
           npm run build --workspace=@getpaseo/server
 
       - name: Tests
