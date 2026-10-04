@@ -212,3 +212,79 @@ pub fn run_git(
         &output.stderr,
     )))
 }
+
+/// `GIT_ENV`: git never prompts for credentials.
+const GIT_ENV: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
+
+/// `clone(remote, checkoutRoot)` of `managed-source.ts`: `git clone
+/// --no-checkout -- <remote> <checkout_root>` run in the parent of
+/// `checkout_root`. A remote with credentials is cloned as
+/// [`PUBLIC_PLUGIN_REMOTE`] through `url.<remote>.insteadOf`, and any failure
+/// message has the remote and its credentials redacted.
+pub fn clone_remote(
+    remote: &str,
+    checkout_root: &Path,
+    timeout: Duration,
+) -> Result<(), PluginError> {
+    let invalid = || PluginError::CommandFailed("Invalid URL".to_owned());
+    let public = redact_remote_credentials(remote).ok_or_else(invalid)?;
+    let clone_remote = if public == remote {
+        remote
+    } else {
+        PUBLIC_PLUGIN_REMOTE
+    };
+    let rewrite_key = format!("url.{remote}.insteadOf");
+    let mut env = vec![GIT_ENV];
+    if clone_remote != remote {
+        env.extend([
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", rewrite_key.as_str()),
+            ("GIT_CONFIG_VALUE_0", clone_remote),
+        ]);
+    }
+    let root = std::path::absolute(checkout_root)?;
+    let root = root.to_string_lossy();
+    let parent = Path::new(&*root).parent().unwrap_or_else(|| Path::new("."));
+    run_git(
+        &["clone", "--no-checkout", "--", clone_remote, &root],
+        parent,
+        &env,
+        timeout,
+    )
+    .map(drop)
+    .map_err(|error| match error {
+        PluginError::CommandFailed(message) => {
+            PluginError::CommandFailed(redact_remote_error(&message, remote).unwrap_or(message))
+        }
+        other => other,
+    })
+}
+
+/// `checkout(checkoutRoot, commit)`: `git checkout --detach <commit>`, then
+/// `git submodule update --init --recursive`.
+pub fn checkout_commit(
+    checkout_root: &Path,
+    commit: &str,
+    timeout: Duration,
+) -> Result<(), PluginError> {
+    run_git(
+        &["checkout", "--detach", commit],
+        checkout_root,
+        &[GIT_ENV],
+        timeout,
+    )?;
+    run_git(
+        &["submodule", "update", "--init", "--recursive"],
+        checkout_root,
+        &[GIT_ENV],
+        timeout,
+    )?;
+    Ok(())
+}
+
+/// `revParse(cwd, ref)`: the trimmed stdout of `git rev-parse --verify <ref>`.
+pub fn rev_parse(cwd: &Path, reference: &str, timeout: Duration) -> Result<String, PluginError> {
+    let output = run_git(&["rev-parse", "--verify", reference], cwd, &[], timeout)?;
+    let stdout = String::from_utf8(output.stdout).map_err(|_| PluginError::InvalidCommandOutput)?;
+    Ok(js_trim(&stdout).to_owned())
+}
