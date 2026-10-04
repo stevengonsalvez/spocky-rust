@@ -13,6 +13,9 @@ jiff = "0.2"
 ryu-js = "1.0.3"
 url = "2.5.8"
 
+[target.'cfg(windows)'.dependencies]
+spocky-win-locale = { path = "../spocky-win-locale" }
+
 [dev-dependencies]
 sha2 = "0.10.9"
 
