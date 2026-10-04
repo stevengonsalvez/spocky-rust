@@ -62,7 +62,7 @@ relay writer differential: 4744 operations: Rust identical to the pinned relay
   after the deadline was set the Writer granted the reservation (`~ elapsed=`) and the replay is
   given it as the Writer's clock. A control frame's timer depends on two clock reads inside the
   Writer (`delivery_timeout_ms` minus the time between them) and is not printed; the replay
-  asserts that the port's delay lies in `(delivery_timeout_ms - 100, delivery_timeout_ms]`.
+  clock is fixed, so it asserts that the port's delay equals `delivery_timeout_ms` exactly.
 - Two pinned runs differ only in the `~ elapsed=` and `t` lines (a clock input); the script diffs
   them without those lines, and the comparison with the port is the replay of a fresh capture, raw.
 - `cargo test -p spocky-relay` replays the committed transcript without Docker.
