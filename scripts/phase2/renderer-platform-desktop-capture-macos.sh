@@ -180,10 +180,15 @@ PY
 capture original-desktop
 capture original-repeat-desktop
 
+SPOCKY_INPUTS_OUT="$evidence_dir/inputs.json" SPOCKY_APP_ASAR="$app/Contents/Resources/app.asar" \
+  SPOCKY_WEB_EXPORT="$work/reference/packages/app/dist" SPOCKY_HOSTB="$work/electron" \
+  REFERENCE_COMMIT="$expected_reference" node "$scripts/renderer-platform-inputs.cjs"
 python3 - "$evidence_dir" "$expected_reference" "$reference_lock_sha" "$expected_electron $expected_chrome" <<'PY'
 import json, platform, subprocess, sys
 evidence, reference, lock, probe = sys.argv[1:5]
 observed = json.load(open(f"{evidence}/original-desktop.json"))["browser"]
+inputs = json.load(open(f"{evidence}/inputs.json"))
+assert inputs["shippedApp"]["appAsarSha256"], "built app asar not found"
 assert observed["product"] == "Chrome/" + probe.split()[1], observed
 assert "Electron/" + probe.split()[0] in observed["userAgent"], observed
 def sh(*cmd):
@@ -196,6 +201,7 @@ json.dump({
     "app": "packages/desktop built as shipped, unpacked and unsigned",
     "os": {"name": sh("sw_vers", "-productName"), "version": sh("sw_vers", "-productVersion"),
            "build": sh("sw_vers", "-buildVersion"), "kernel": platform.release(), "arch": platform.machine()},
+    "builtApp": {k: inputs["shippedApp"][k] for k in ("appAsarSha256", "webExport")},
     "normalization": "none",
 }, open(f"{evidence}/environment.json", "w"), indent=2)
 open(f"{evidence}/environment.json", "a").write("\n")
