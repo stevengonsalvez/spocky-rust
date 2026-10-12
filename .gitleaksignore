@@ -1,0 +1,19 @@
+# Historical gitleaks hits present when this gate was added (2026-10-12).
+# Reviewed as test fixtures and placeholders. A new leak is not in this list and fails CI.
+# Remove a line once its value is rotated or the file is gone. Do not add a line to hide a new leak.
+00bcdb56d85b658df551e7c834f169d7bcf2ad42:crates/spocky-relay-protocol/tests/fixtures/relay-protocol-extra-baseline.tsv:generic-api-key:139
+00bcdb56d85b658df551e7c834f169d7bcf2ad42:crates/spocky-relay-protocol/tests/fixtures/relay-protocol-extra-baseline.tsv:generic-api-key:98
+0579a5317ba798fbd63cd152d8744c9f08a9b521:evidence/phase2/hub-simultaneous-ownership-report.json:generic-api-key:30
+0a9eff9b8f43806ef6054e2a9aefba349b3cc420:crates/spocky-daemon/tests/transport.rs:generic-api-key:629
+1e2c1d2b96d61589196c61849d5de6c8f2afc45c:crates/spocky-daemon/tests/transport.rs:generic-api-key:1275
+232b444ef9982ee5ff70d8670eade93efe2005dc:crates/spocky-relay-protocol/tests/fixtures/relay-protocol-extra-baseline.tsv:generic-api-key:139
+232b444ef9982ee5ff70d8670eade93efe2005dc:crates/spocky-relay-protocol/tests/fixtures/relay-protocol-extra-baseline.tsv:generic-api-key:98
+37a88b5102badd3918a7d25d71a8be30ad10551e:crates/paseo-relay-pilot/tests/network_runtime.rs:generic-api-key:26
+3b8b4d473e5119cc3913dcd5632a005bcabfec97:crates/spocky-daemon/tests/fixtures/gen-original-ws-vectors.cjs:generic-api-key:116
+8f68fcf5eb052c5081dbeb6c99a77a8468ff89d9:evidence/phase2/hub-simultaneous-ownership-report.json:generic-api-key:49
+a10c94fd8c18204f6fb99a7fc74d4216005a6714:scripts/phase4/relay-protocol-live.exs:generic-api-key:87
+b6a64a07a3c22cea9f81039214360f0a271731f6:crates/paseo-hub-pilot/tests/http_runtime.rs:generic-api-key:199
+c19581c966f569605eff75af706982ae94aa8b80:crates/spocky-relay-pilot/src/bin/relay-residual-probe.rs:generic-api-key:128
+ca190e4111ff7df6976629c5923d06fe05509068:crates/paseo-hub-pilot/tests/daemon_socket_runtime.rs:generic-api-key:85
+efb0265875f0c89cce7dbebd021bf88ae440f4fc:scripts/phase2/relay-ops-local.sh:generic-api-key:78
+ff286fd6742244677c41bfc602c7884ff2dc15ff:scripts/phase4/relay-protocol-live.exs:generic-api-key:87
